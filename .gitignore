@@ -1,0 +1,7 @@
+build/
+*.o
+*.iso
+*.img
+*.bin
+compile_commands.json
+.vscode/
