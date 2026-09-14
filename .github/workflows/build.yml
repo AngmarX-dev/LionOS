@@ -19,6 +19,18 @@ jobs:
       - name: Build kernel
         run: make check
 
+      - name: Build userspace
+        run: make userspace
+
+      - name: Validate userspace ELF
+        run: |
+          test -s build/hello.elf
+          test "$(stat -c%s build/hello.elf)" -le 4096
+          readelf -h build/hello.elf | grep -q 'Class:[[:space:]]*ELF32'
+          readelf -h build/hello.elf | grep -q 'Machine:[[:space:]]*Intel 80386'
+          readelf -h build/hello.elf | grep -q 'Entry point address:'
+          readelf -l build/hello.elf | grep -q 'LOAD'
+
       - name: Build ISO
         run: make iso
 
