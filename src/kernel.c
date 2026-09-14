@@ -21,6 +21,31 @@ void syscall_init(void);
 
 static void boot_dec(uint32_t value) { console_write_dec(value); }
 
+static void diskfs_boot_test(void) {
+    static const char marker[] = "LionOS persistent storage online\n";
+    char buffer[sizeof(marker)];
+    int size = diskfs_read(".boot", buffer, sizeof(buffer));
+
+    if (size == (int)(sizeof(marker) - 1u)) {
+        uint32_t ok = 1u;
+        for (uint32_t i = 0; i < sizeof(marker) - 1u; ++i)
+            if (buffer[i] != marker[i]) { ok = 0; break; }
+        if (ok) {
+            debug_write("LIONOS:PERSIST-OK\n");
+            console_write("[ OK ] Persistent data survived reboot\n");
+            return;
+        }
+    }
+
+    if (diskfs_write(".boot", marker, (uint32_t)(sizeof(marker) - 1u)) == 0) {
+        debug_write("LIONOS:PERSIST-INIT\n");
+        console_write("[ OK ] Persistent filesystem initialized\n");
+    } else {
+        debug_write("LIONOS:PERSIST-FAIL\n");
+        console_write("[ERR] Persistent filesystem self-test\n");
+    }
+}
+
 void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     debug_write("LIONOS:BOOT\n");
     console_init();
@@ -67,7 +92,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     ramfs_init(); console_write("[ OK ] RAM filesystem / files and directories\n");
     if (diskfs_init() == 0) {
         console_write("[ OK ] ATA PIO / persistent LionFS\n");
-        debug_write("LIONOS:DISKFS\n");
+        diskfs_boot_test();
     } else {
         console_write("[ -- ] Persistent disk unavailable (RAMFS only)\n");
         debug_write("LIONOS:NO-DISK\n");
