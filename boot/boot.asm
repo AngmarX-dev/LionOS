@@ -4,6 +4,7 @@ section .multiboot
 align 8
 multiboot_header:
     dd 0xE85250D6
+after_magic:
     dd 0
     dd multiboot_header_end - multiboot_header
     dd -(0xE85250D6 + 0 + (multiboot_header_end - multiboot_header))
@@ -33,7 +34,6 @@ _start:
     hlt
     jmp .hang
 
-; Common interrupt entry. The C dispatcher receives the vector number.
 global isr_common
 extern interrupt_dispatch
 isr_common:
@@ -104,8 +104,21 @@ ISR_NOERR 29
 ISR_ERR   30
 ISR_NOERR 31
 
-%assign i 32
-%rep 224
-ISR_NOERR i
-a %assign i i+1
-%endrep
+ISR_NOERR 32
+ISR_NOERR 33
+ISR_NOERR 34
+ISR_NOERR 35
+ISR_NOERR 36
+ISR_NOERR 37
+ISR_NOERR 38
+ISR_NOERR 39
+ISR_NOERR 40
+ISR_NOERR 41
+ISR_NOERR 42
+ISR_NOERR 43
+ISR_NOERR 44
+ISR_NOERR 45
+ISR_NOERR 46
+ISR_NOERR 47
+
+ISR_NOERR 128
