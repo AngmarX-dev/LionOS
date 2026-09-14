@@ -3,7 +3,7 @@
 
 #define RAMFS_MAX_FILES 16u
 #define RAMFS_NAME_MAX 16u
-#define RAMFS_DATA_MAX 256u
+#define RAMFS_DATA_MAX 4096u
 
 struct ramfs_file { char name[RAMFS_NAME_MAX]; char data[RAMFS_DATA_MAX]; uint32_t size; };
 static struct ramfs_file files[RAMFS_MAX_FILES];
