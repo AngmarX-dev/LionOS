@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "idt.h"
 #include "io.h"
+#include "keyboard.h"
 #include "process.h"
 #include "syscall.h"
 #include "tss.h"
@@ -22,8 +23,8 @@ ISR_DECL(0); ISR_DECL(1); ISR_DECL(2); ISR_DECL(3); ISR_DECL(4); ISR_DECL(5); IS
 ISR_DECL(8); ISR_DECL(9); ISR_DECL(10); ISR_DECL(11); ISR_DECL(12); ISR_DECL(13); ISR_DECL(14); ISR_DECL(15);
 ISR_DECL(16); ISR_DECL(17); ISR_DECL(18); ISR_DECL(19); ISR_DECL(20); ISR_DECL(21); ISR_DECL(22); ISR_DECL(23);
 ISR_DECL(24); ISR_DECL(25); ISR_DECL(26); ISR_DECL(27); ISR_DECL(28); ISR_DECL(29); ISR_DECL(30); ISR_DECL(31);
-ISR_DECL(32); ISR_DECL(33); ISR_DECL(34); ISR_DECL(35); ISR_DECL(36); ISR_DECL(37); ISR_DECL(38); ISR_DECL(39);
-ISR_DECL(40); ISR_DECL(41); ISR_DECL(42); ISR_DECL(43); ISR_DECL(44); ISR_DECL(45); ISR_DECL(46); ISR_DECL(47);
+ISR_DECL(32); ISR_DECL(33); ISR_DECL(34); ISR_DECL(35); ISR_DECL(36); ISR_DECL(37); ISR_DECL(38);
+ISR_DECL(39); ISR_DECL(40); ISR_DECL(41); ISR_DECL(42); ISR_DECL(43); ISR_DECL(44); ISR_DECL(45); ISR_DECL(46); ISR_DECL(47);
 
 static void idt_set_gate(uint8_t n, uint32_t base, uint8_t flags) {
     idt[n].base_low = (uint16_t)(base & 0xFFFFu);
@@ -81,7 +82,8 @@ uint32_t *interrupt_dispatch(uint32_t *frame) {
     }
 
     if (vector == 33) {
-        (void)inb(0x60);
+        uint8_t scancode = inb(0x60);
+        keyboard_handle_scancode(scancode);
         outb(0x20, 0x20);
     } else if (vector >= 32 && vector < 48) {
         if (vector >= 40) outb(0xA0, 0x20);
