@@ -15,7 +15,10 @@ int elf32_validate(const uint8_t *image, uint32_t size, uint32_t *entry) {
     if (h->machine != EM_386 || h->version != 1u) return -1;
     if (h->ehsize < sizeof(struct elf32_header) ||
         h->phentsize < sizeof(struct elf32_phdr) || h->phnum == 0) return -1;
-    if (h->phoff > size || h->phnum > (size - h->phoff) / h->phentsize) return -1;
+
+    /* Validate the program-header table without allowing 32-bit multiplication overflow. */
+    if (h->phoff > size || h->phentsize > size - h->phoff ||
+        h->phnum > (size - h->phoff) / h->phentsize) return -1;
 
     uint32_t load_count = 0;
     for (uint32_t i = 0; i < h->phnum; ++i) {
