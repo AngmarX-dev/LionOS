@@ -9,6 +9,9 @@ HELLO_EMBED := $(BUILD)/hello_elf.o
 PROCESS_TEST_ELF := $(BUILD)/process_test.elf
 PROCESS_TEST_OBJS := $(USER_COMMON_OBJS) $(BUILD)/process_test.o
 PROCESS_TEST_EMBED := $(BUILD)/process_test_elf.o
+IPC_TEST_ELF := $(BUILD)/ipc_test.elf
+IPC_TEST_OBJS := $(USER_COMMON_OBJS) $(BUILD)/ipc_test.o
+IPC_TEST_EMBED := $(BUILD)/ipc_test_elf.o
 
 CC := gcc
 LD := ld
@@ -22,13 +25,13 @@ C_SOURCES := $(wildcard src/*.c)
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso disk run check userspace process-test
+.PHONY: all clean iso disk run check userspace process-test ipc-test
 
 all: $(KERNEL)
 
 userspace: $(HELLO_ELF)
-
 process-test: $(PROCESS_TEST_ELF)
+ipc-test: $(IPC_TEST_ELF)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -51,11 +54,17 @@ $(BUILD)/hello.o: user/hello.c | $(BUILD)
 $(BUILD)/process_test.o: user/process_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
+$(BUILD)/ipc_test.o: user/ipc_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
 $(HELLO_ELF): $(HELLO_OBJS) user/user.ld | $(BUILD)
 	$(LD) $(USER_LDFLAGS) -o $@ $(HELLO_OBJS)
 
 $(PROCESS_TEST_ELF): $(PROCESS_TEST_OBJS) user/user.ld | $(BUILD)
 	$(LD) $(USER_LDFLAGS) -o $@ $(PROCESS_TEST_OBJS)
+
+$(IPC_TEST_ELF): $(IPC_TEST_OBJS) user/user.ld | $(BUILD)
+	$(LD) $(USER_LDFLAGS) -o $@ $(IPC_TEST_OBJS)
 
 $(HELLO_EMBED): $(HELLO_ELF) | $(BUILD)
 	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary hello.elf -o hello_elf.o
@@ -63,8 +72,11 @@ $(HELLO_EMBED): $(HELLO_ELF) | $(BUILD)
 $(PROCESS_TEST_EMBED): $(PROCESS_TEST_ELF) | $(BUILD)
 	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary process_test.elf -o process_test_elf.o
 
-$(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(HELLO_EMBED) $(PROCESS_TEST_EMBED) linker.ld
-	$(LD) $(LDFLAGS) -o $@ $(ASM_OBJECTS) $(C_OBJECTS) $(HELLO_EMBED) $(PROCESS_TEST_EMBED)
+$(IPC_TEST_EMBED): $(IPC_TEST_ELF) | $(BUILD)
+	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary ipc_test.elf -o ipc_test_elf.o
+
+$(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(HELLO_EMBED) $(PROCESS_TEST_EMBED) $(IPC_TEST_EMBED) linker.ld
+	$(LD) $(LDFLAGS) -o $@ $(ASM_OBJECTS) $(C_OBJECTS) $(HELLO_EMBED) $(PROCESS_TEST_EMBED) $(IPC_TEST_EMBED)
 	grub-file --is-x86-multiboot2 $@
 
 iso: $(KERNEL)
