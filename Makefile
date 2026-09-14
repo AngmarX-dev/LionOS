@@ -2,7 +2,7 @@ BUILD := build
 ISO := $(BUILD)/lionos.iso
 KERNEL := $(BUILD)/lionos.bin
 USER_ELF := $(BUILD)/hello.elf
-USER_OBJS := $(BUILD)/crt0.o $(BUILD)/hello.o
+USER_OBJS := $(BUILD)/crt0.o $(BUILD)/hello.o $(BUILD)/libc.o
 USER_EMBED := $(BUILD)/hello_elf.o
 
 CC := gcc
@@ -38,9 +38,11 @@ $(BUILD)/crt0.o: user/crt0.S | $(BUILD)
 $(BUILD)/hello.o: user/hello.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
+$(BUILD)/libc.o: user/libc.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
 $(USER_ELF): $(USER_OBJS) user/user.ld | $(BUILD)
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_OBJS)
-	grub-file --is-x86-multiboot $@ || true
 
 $(USER_EMBED): $(USER_ELF) | $(BUILD)
 	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary hello.elf -o hello_elf.o
