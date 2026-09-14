@@ -14,6 +14,8 @@ LionOS is a small x86 kernel project focused on learning operating-system intern
 - ✅ Keyboard input
 - ✅ Physical memory manager
 - ✅ Paging with controlled user mappings
+- ✅ Per-process page directories and CR3 switching
+- ✅ Private user page tables
 - ✅ Kernel heap and `kmalloc`
 - ✅ CPU exception handling
 - ✅ System call ABI
@@ -21,8 +23,8 @@ LionOS is a small x86 kernel project focused on learning operating-system intern
 - ✅ Process table and PIDs
 - ✅ Round-robin scheduling
 - ✅ Saved interrupt-frame context switching
-- 🚧 Per-process address-space isolation
-- 🚧 More kernel features in development
+- 🚧 Process resource reclamation
+- 🚧 Filesystem and drivers
 
 ## 🛠️ Build
 
@@ -51,7 +53,7 @@ LionOS is primarily an educational and experimental project covering:
 - x86 architecture
 - Memory management
 - Interrupts and exceptions
-- Paging
+- Paging and address-space isolation
 - Heap allocation
 - System calls
 - User mode and processes
