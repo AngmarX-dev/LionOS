@@ -23,9 +23,12 @@ void cpu_init(void) {
 
     uint32_t max_leaf, ebx, ecx, edx;
     cpuid(0u, 0u, &max_leaf, &ebx, &ecx, &edx);
+    (void)ebx; (void)ecx; (void)edx;
 
-    uint32_t eax1 = 0, ebx1 = 0, ecx1 = 0, edx1 = 0;
+    uint32_t eax1, ebx1, ecx1, edx1;
     cpuid(1u, 0u, &eax1, &ebx1, &ecx1, &edx1);
+    (void)eax1; (void)ecx1; (void)edx1;
+
     uint32_t logical = (ebx1 >> 16) & 0xFFu;
     if (logical == 0u) logical = 1u;
     if (logical > LIONOS_MAX_CPUS) logical = LIONOS_MAX_CPUS;
@@ -37,10 +40,11 @@ void cpu_init(void) {
     cpus[0].online = 1u;
     current_cpu = 0u;
 
-    /* CPUID leaf 0xB provides the logical processor topology on modern x86. */
+    /* CPUID leaf 0xB provides topology information on modern x86. */
     if (max_leaf >= 0xBu) {
         uint32_t b_eax, b_ebx, b_ecx, b_edx;
         cpuid(0xBu, 0u, &b_eax, &b_ebx, &b_ecx, &b_edx);
+        (void)b_eax; (void)b_ecx; (void)b_edx;
         if (b_ebx != 0u) {
             uint32_t topology_logical = b_ebx & 0xFFFFu;
             if (topology_logical != 0u && topology_logical <= LIONOS_MAX_CPUS)
