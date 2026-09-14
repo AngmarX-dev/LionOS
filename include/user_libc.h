@@ -16,5 +16,6 @@ char *strrchr(const char *s, int c);
 int atoi(const char *s);
 void puts(const char *s);
 void putchar(char c);
+int printf(const char *format, ...);
 
 #endif
