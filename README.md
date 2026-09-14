@@ -13,6 +13,11 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ IDT and interrupt dispatch
 - ✅ PIC/PIT
 - ✅ CPU exceptions and safe user page-fault handling
+- 🚧 SMP CPU bring-up (Phase 22)
+- ✅ CPUID CPU topology detection on the BSP
+- ✅ Local APIC discovery and BSP enablement
+- 🚧 AP startup (INIT-SIPI-SIPI)
+- 🚧 Per-CPU TSS and scheduler state
 
 ### Memory
 - ✅ Physical page allocator
@@ -95,6 +100,17 @@ The ELF loader validates the executable structure and load ranges before creatin
 
 This is an educational hardening layer, not a production security boundary. The next major isolation work includes per-process file descriptors, stronger privilege separation, and more complete memory-copy primitives.
 
+## 🧩 Phase 22 — SMP Foundation
+
+Phase 22 begins multicore support without pretending that CPU detection alone is SMP. The current foundation:
+
+- Uses CPUID to identify the BSP and obtain a logical-CPU topology hint.
+- Detects the x86 local APIC feature before touching APIC MSRs.
+- Enables the BSP local APIC and maps its MMIO page as supervisor-only memory.
+- Carries the LAPIC supervisor mapping into cloned ring-3 address spaces so interrupt handling remains valid after a CR3 switch.
+
+Actual application-processor startup, per-CPU TSS/kernel stacks, interrupt routing, scheduler locking, and SMP-safe shared-state synchronization remain subsequent Phase 22 work.
+
 ## 🛠️ Build
 
 LionOS uses a freestanding 32-bit toolchain on Linux.
@@ -159,7 +175,7 @@ The VFS currently provides a deliberately small interface suitable for the early
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, and a loopback networking layer.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, and the initial local-APIC/SMP foundation.
 
 ## 🤖 AI-Assisted Development
 
