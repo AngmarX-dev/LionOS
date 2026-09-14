@@ -1,0 +1,24 @@
+#ifndef LIONOS_UAPI_H
+#define LIONOS_UAPI_H
+
+#include <stdint.h>
+
+#define LIONOS_UAPI_VERSION 1u
+
+#define LIONOS_SYSCALL_ABI 1u
+#define LIONOS_SYS_PUTC 1u
+#define LIONOS_SYS_GETPID 2u
+#define LIONOS_SYS_YIELD 3u
+#define LIONOS_SYS_EXIT 4u
+#define LIONOS_SYS_GETCHAR 5u
+#define LIONOS_SYS_KBD_AVAIL 6u
+#define LIONOS_SYS_WRITE 7u
+#define LIONOS_SYS_READ 8u
+#define LIONOS_SYS_CLEAR 9u
+#define LIONOS_SYS_MEMINFO 10u
+#define LIONOS_SYS_EXEC 11u
+
+#define LIONOS_SYSCALL_OK 0u
+#define LIONOS_SYSCALL_ERR ((uint32_t)-1)
+
+#endif
