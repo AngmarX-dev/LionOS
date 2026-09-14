@@ -63,6 +63,20 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
     return 0;
 }
 
+int paging_get_user_page(uint32_t pd_physical, uint32_t virtual_address,
+                         uint32_t *physical_address, uint32_t *flags) {
+    if (!pd_physical || virtual_address >= USER_LIMIT) return -1;
+    uint32_t *directory = directory_ptr(pd_physical);
+    uint32_t pde = directory[virtual_address >> 22];
+    if (!(pde & 0x1u) || !(pde & 0x4u)) return -1;
+    uint32_t *table = directory_ptr(pde & 0xFFFFF000u);
+    uint32_t pte = table[(virtual_address >> 12) & 0x3FFu];
+    if (!(pte & 0x1u) || !(pte & 0x4u)) return -1;
+    if (physical_address) *physical_address = pte & 0xFFFFF000u;
+    if (flags) *flags = pte & 0x7u;
+    return 0;
+}
+
 void paging_destroy_address_space(uint32_t pd_physical) {
     if (!pd_physical || pd_physical == paging_kernel_directory()) return;
     uint32_t *directory = directory_ptr(pd_physical);
