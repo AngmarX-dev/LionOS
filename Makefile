@@ -16,7 +16,7 @@ USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchrono
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
 
-C_SOURCES := $(wildcard src/*.c)
+C_SOURCES := $(filter-out src/ramfs.c,$(wildcard src/*.c))
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
@@ -48,6 +48,8 @@ $(BUILD)/process_test.o: user/process_test.c | $(BUILD)
 $(BUILD)/ipc_test.o: user/ipc_test.c | $(BUILD)
 $(BUILD)/signal_test.o: user/signal_test.c | $(BUILD)
 $(BUILD)/net_test.o: user/net_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
 $(BUILD)/echo.o: user/bin/echo.c | $(BUILD)
 $(BUILD)/cat.o: user/bin/cat.c | $(BUILD)
 $(BUILD)/ls.o: user/bin/ls.c | $(BUILD)
@@ -55,13 +57,10 @@ $(BUILD)/pwd.o: user/bin/pwd.c | $(BUILD)
 $(BUILD)/uname.o: user/bin/uname.c | $(BUILD)
 $(BUILD)/rm.o: user/bin/rm.c | $(BUILD)
 $(BUILD)/stat.o: user/bin/stat.c | $(BUILD)
-$(BUILD)/userland_test.o: user/userland_test.c | $(BUILD)
-
-$(BUILD)/%.o: user/%.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
-$(BUILD)/echo.o $(BUILD)/cat.o $(BUILD)/ls.o $(BUILD)/pwd.o $(BUILD)/uname.o $(BUILD)/rm.o $(BUILD)/stat.o $(BUILD)/userland_test.o:
-	$(CC) $(USER_CFLAGS) -c $(patsubst $(BUILD)/%.o,user/bin/%.c,$@) -o $@
+$(BUILD)/userland_test.o: user/userland_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 
 $(BUILD)/hello.elf: $(USER_COMMON_OBJS) $(BUILD)/hello.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/hello.o
@@ -73,7 +72,6 @@ $(BUILD)/signal_test.elf: $(USER_COMMON_OBJS) $(BUILD)/signal_test.o user/user.l
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/signal_test.o
 $(BUILD)/net_test.elf: $(USER_COMMON_OBJS) $(BUILD)/net_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/net_test.o
-
 $(BUILD)/echo.elf: $(USER_COMMON_OBJS) $(BUILD)/echo.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/echo.o
 $(BUILD)/cat.elf: $(USER_COMMON_OBJS) $(BUILD)/cat.o user/user.ld
