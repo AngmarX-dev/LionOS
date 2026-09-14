@@ -13,6 +13,7 @@
 #define LIONOS_SIGNAL_OK 0
 #define LIONOS_SIGNAL_ERR (-1)
 
+void signal_init(void);
 int32_t process_signal(uint32_t pid, uint32_t signal);
 uint32_t process_signal_pending(uint32_t pid);
 int32_t process_get_state(uint32_t pid);
