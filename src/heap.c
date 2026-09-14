@@ -39,31 +39,9 @@ void *kmalloc(size_t size) {
     if (slot == MAX_HEAP_ALLOCS)
         return 0;
 
-    void *base = page_alloc();
+    void *base = page_alloc_contiguous(pages);
     if (!base)
         return 0;
-
-    for (uint32_t i = 1; i < pages; ++i) {
-        void *next = page_alloc();
-        if (!next) {
-            page_free(base);
-            for (uint32_t j = 1; j < i; ++j) {
-                /* The allocator is currently page-granular; pages are tracked
-                   individually so every page can be returned on failure. */
-                (void)j;
-            }
-            return 0;
-        }
-
-        /* Require contiguous physical pages so the allocation has one base
-           address. If the next page is not adjacent, roll everything back. */
-        if ((uint32_t)(uintptr_t)next !=
-            (uint32_t)(uintptr_t)base + i * PAGE_SIZE) {
-            page_free(next);
-            page_free(base);
-            return 0;
-        }
-    }
 
     allocations[slot].base = base;
     allocations[slot].pages = pages;
