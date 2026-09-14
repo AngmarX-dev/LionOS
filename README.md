@@ -16,7 +16,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - 🚧 SMP CPU bring-up (Phase 22)
 - ✅ CPUID CPU topology detection on the BSP
 - ✅ Local APIC discovery and BSP enablement
-- 🚧 AP startup (INIT-SIPI-SIPI)
+- ✅ AP startup trampoline and INIT-SIPI-SIPI delivery
 - 🚧 Per-CPU TSS and scheduler state
 
 ### Memory
@@ -85,7 +85,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ 32-bit userspace ELF validation in CI
 - ✅ Userspace process-test ELF validation in CI
 - ✅ ISO generation in CI
-- ✅ Automated QEMU boot smoke test
+- 🚧 Automated QEMU SMP boot test
 - ✅ Automated persistent-storage reboot test
 - 🚧 Automated VFS/userspace integration test
 - 📦 Bootable `lionos-iso` CI artifact
@@ -100,16 +100,13 @@ The ELF loader validates the executable structure and load ranges before creatin
 
 This is an educational hardening layer, not a production security boundary. The next major isolation work includes per-process file descriptors, stronger privilege separation, and more complete memory-copy primitives.
 
-## 🧩 Phase 22 — SMP Foundation
+## 🧩 Phase 22 — SMP
 
-Phase 22 begins multicore support without pretending that CPU detection alone is SMP. The current foundation:
+The first AP bring-up path is now implemented. The BSP initializes the local APIC, prepares a low-memory real-mode trampoline at `0x8000`, allocates an AP kernel stack, sends `INIT` followed by two `SIPI` messages, and waits for the AP to report online.
 
-- Uses CPUID to identify the BSP and obtain a logical-CPU topology hint.
-- Detects the x86 local APIC feature before touching APIC MSRs.
-- Enables the BSP local APIC and maps its MMIO page as supervisor-only memory.
-- Carries the LAPIC supervisor mapping into cloned ring-3 address spaces so interrupt handling remains valid after a CR3 switch.
+The AP enters protected mode, loads the kernel page directory, jumps to `smp_ap_main()`, records its APIC ID, and remains halted until per-CPU IDT/TSS and scheduler state are implemented. The current bootstrap assumes contiguous xAPIC IDs as used by the QEMU SMP test; ACPI MADT enumeration will replace that assumption before broad hardware support.
 
-Actual application-processor startup, per-CPU TSS/kernel stacks, interrupt routing, scheduler locking, and SMP-safe shared-state synchronization remain subsequent Phase 22 work.
+This is real AP startup, but it is **not yet full SMP scheduling**. Shared kernel state remains BSP-owned until the per-CPU synchronization work is complete.
 
 ## 🛠️ Build
 
@@ -124,6 +121,8 @@ make iso
 make disk
 make run
 ```
+
+`make run` starts QEMU with two virtual CPUs for the current SMP bring-up test.
 
 `make userland` builds every userspace ELF. `make` embeds the userland programs into RAMFS as part of the kernel image.
 
@@ -175,7 +174,7 @@ The VFS currently provides a deliberately small interface suitable for the early
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, and the initial local-APIC/SMP foundation.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, and an initial AP bootstrap path for SMP.
 
 ## 🤖 AI-Assisted Development
 
