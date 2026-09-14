@@ -19,5 +19,9 @@ struct process {
 void process_init(void);
 struct process *process_current(void);
 uint32_t process_current_pid(void);
+struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory);
+int process_set_current(struct process *process);
+void process_exit_current(void);
+uint32_t process_count(void);
 
 #endif
