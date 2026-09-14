@@ -8,3 +8,8 @@ void pit_init(uint32_t frequency) {
     outb(0x40, divisor & 0xFF);
     outb(0x40, (divisor >> 8) & 0xFF);
 }
+
+void pit_disable_timer(void) {
+    uint8_t mask = inb(0x21);
+    outb(0x21, (uint8_t)(mask | 0x01u));
+}
