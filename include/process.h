@@ -9,7 +9,6 @@
 #define PROCESS_READY 1u
 #define PROCESS_RUNNING 2u
 #define PROCESS_ZOMBIE 3u
-
 #define PROCESS_CONTEXT_WORDS 19u
 
 struct process {
