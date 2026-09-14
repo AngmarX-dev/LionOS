@@ -25,6 +25,26 @@ jobs:
       - name: Verify ISO exists
         run: test -s build/lionos.iso
 
+      - name: QEMU boot smoke test
+        run: |
+          set +e
+          timeout 8s qemu-system-i386 \
+            -cdrom build/lionos.iso \
+            -m 128M \
+            -display none \
+            -serial none \
+            -debugcon stdio \
+            -global isa-debugcon.iobase=0xE9 > qemu.log 2>&1
+          status=$?
+          set -e
+          cat qemu.log
+          if [ "$status" -ne 124 ]; then
+            echo "QEMU exited unexpectedly with status $status"
+            exit 1
+          fi
+          grep -q 'LIONOS:READY' qemu.log
+          echo "QEMU smoke test: LionOS reached READY"
+
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
