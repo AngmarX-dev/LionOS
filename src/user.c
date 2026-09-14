@@ -80,11 +80,16 @@ static int setup_user_process(uint8_t *code, uint8_t *stack,
                                 (uint32_t)code, 0x5u) != 0 ||
         paging_map_user_page_in(page_directory, USER_STACK_VA,
                                 (uint32_t)stack, 0x7u) != 0) {
+        paging_destroy_address_space(page_directory);
         return -1;
     }
 
-    *out_process = process_create(USER_CODE_VA, stack_top, page_directory);
-    if (!*out_process) return -1;
+    *out_process = process_create(USER_CODE_VA, stack_top, page_directory,
+                                   (uint32_t)code, (uint32_t)stack);
+    if (!*out_process) {
+        paging_destroy_address_space(page_directory);
+        return -1;
+    }
     return 0;
 }
 
@@ -106,11 +111,17 @@ int user_mode_test(void) {
     struct process *process2 = 0;
 
     if (setup_user_process(code1, stack1, program1, sizeof(program1),
-                           USER_STACK_TOP, &process1) != 0 ||
-        setup_user_process(code2, stack2, program2, sizeof(program2),
-                           USER_STACK_TOP, &process2) != 0) {
+                           USER_STACK_TOP, &process1) != 0) {
         page_free(code1);
         page_free(stack1);
+        page_free(code2);
+        page_free(stack2);
+        return -1;
+    }
+
+    if (setup_user_process(code2, stack2, program2, sizeof(program2),
+                           USER_STACK_TOP, &process2) != 0) {
+        /* Process 1 owns its pages now; process 2's pages were never transferred. */
         page_free(code2);
         page_free(stack2);
         return -1;
