@@ -17,6 +17,7 @@
 #define LIONOS_SYS_CLEAR 9u
 #define LIONOS_SYS_MEMINFO 10u
 #define LIONOS_SYS_EXEC 11u
+#define LIONOS_SYS_FORK 12u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
