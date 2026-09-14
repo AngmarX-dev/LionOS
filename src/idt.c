@@ -1,6 +1,9 @@
 #include <stdint.h>
 #include "idt.h"
 #include "io.h"
+#include "process.h"
+#include "syscall.h"
+#include "tss.h"
 
 struct idt_entry {
     uint16_t base_low;
@@ -43,7 +46,6 @@ void idt_init(void) {
     for (int i = 0; i < 48; ++i) idt_set_gate((uint8_t)i, (uint32_t)handlers[i], 0x8E);
 
     extern void isr128(void);
-    /* DPL=3: ring-3 code may invoke the controlled syscall entry point. */
     idt_set_gate(128, (uint32_t)isr128, 0xEE);
 
     idtp.limit = sizeof(idt) - 1;
@@ -52,21 +54,33 @@ void idt_init(void) {
 }
 
 static volatile uint32_t ticks;
-extern uint32_t syscall_handle(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2);
 
-void interrupt_dispatch(uint32_t *frame) {
+uint32_t *interrupt_dispatch(uint32_t *frame) {
     uint32_t vector = frame[12];
 
     if (vector == 128) {
-        /* pusha layout: EAX=frame[4], EBX=frame[7], ECX=frame[6], EDX=frame[5]. */
-        frame[4] = syscall_handle(frame[4], frame[7], frame[6], frame[5]);
-        return;
+        uint32_t number = frame[11];
+        frame[11] = syscall_handle(number, frame[8], frame[10], frame[9]);
+
+        if (number == SYS_YIELD || number == SYS_EXIT) {
+            uint32_t *next = process_schedule(frame);
+            struct process *current = process_current();
+            if (current) tss_set_kernel_stack(process_kernel_stack_top(current));
+            return next ? next : frame;
+        }
+        return frame;
     }
 
     if (vector == 32) {
         ++ticks;
         outb(0x20, 0x20);
-    } else if (vector == 33) {
+        uint32_t *next = process_schedule(frame);
+        struct process *current = process_current();
+        if (current) tss_set_kernel_stack(process_kernel_stack_top(current));
+        return next ? next : frame;
+    }
+
+    if (vector == 33) {
         (void)inb(0x60);
         outb(0x20, 0x20);
     } else if (vector >= 32 && vector < 48) {
@@ -75,4 +89,6 @@ void interrupt_dispatch(uint32_t *frame) {
     } else if (vector < 32) {
         __asm__ volatile ("cli");
     }
+
+    return frame;
 }
