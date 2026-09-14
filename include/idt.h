@@ -3,6 +3,6 @@
 
 #include <stdint.h>
 void idt_init(void);
-void interrupt_dispatch(uint32_t *frame);
+uint32_t *interrupt_dispatch(uint32_t *frame);
 
 #endif
