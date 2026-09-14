@@ -40,7 +40,6 @@ void cpu_init(void) {
     cpus[0].online = 1u;
     current_cpu = 0u;
 
-    /* CPUID leaf 0xB provides topology information on modern x86. */
     if (max_leaf >= 0xBu) {
         uint32_t b_eax, b_ebx, b_ecx, b_edx;
         cpuid(0xBu, 0u, &b_eax, &b_ebx, &b_ecx, &b_edx);
@@ -57,4 +56,11 @@ uint32_t cpu_count_hint(void) { return cpu_hint; }
 uint32_t cpu_current_index(void) { return current_cpu; }
 const struct cpu_info *cpu_get(uint32_t index) {
     return index < LIONOS_MAX_CPUS ? &cpus[index] : 0;
+}
+
+void cpu_mark_online(uint32_t index, uint32_t apic_id) {
+    if (index >= LIONOS_MAX_CPUS) return;
+    cpus[index].apic_id = apic_id;
+    cpus[index].logical_per_package = 1u;
+    cpus[index].online = 1u;
 }
