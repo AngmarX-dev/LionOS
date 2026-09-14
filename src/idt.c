@@ -39,9 +39,13 @@ uint32_t *interrupt_dispatch(uint32_t *frame) {
     uint32_t vector = frame[12];
     if (vector == 128) {
         uint32_t number = frame[11];
-        if (number == SYS_FORK) { frame[11] = process_fork_current(frame); return frame; }
+        if (number == SYS_FORK) {
+            frame[11] = process_fork_current(frame);
+            return frame;
+        }
         frame[11] = syscall_handle(number, frame[8], frame[10], frame[9]);
-        if (number == SYS_YIELD || number == SYS_EXIT || number == SYS_EXEC) {
+        if (number == SYS_YIELD || number == SYS_EXIT || number == SYS_EXEC ||
+            (number == SYS_WAITPID && frame[11] == (uint32_t)-2)) {
             uint32_t *next = process_schedule(frame); struct process *cur = process_current();
             if (cur) tss_set_kernel_stack(process_kernel_stack_top(cur)); return next ? next : frame;
         }
@@ -56,7 +60,7 @@ uint32_t *interrupt_dispatch(uint32_t *frame) {
     else if (vector == 14) {
         uint32_t fault_address; __asm__ volatile ("mov %%cr2, %0" : "=r"(fault_address));
         if ((frame[15] & 0x3u) == 0x3u) {
-            page_fault_dump(frame, fault_address); process_exit_current(); uint32_t *next = process_schedule(frame); struct process *cur = process_current();
+            page_fault_dump(frame, fault_address); process_exit_current(139u); uint32_t *next = process_schedule(frame); struct process *cur = process_current();
             if (cur) tss_set_kernel_stack(process_kernel_stack_top(cur)); return next ? next : frame;
         }
         console_write("\n[FATAL] kernel page fault at 0x"); console_write_hex(fault_address); console_write(" error=0x"); console_write_hex(frame[13]); console_write("\nSystem halted.\n");
