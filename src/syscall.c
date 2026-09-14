@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "console.h"
 #include "exec.h"
+#include "ipc.h"
 #include "keyboard.h"
 #include "memory.h"
 #include "process.h"
@@ -31,9 +32,18 @@ static int copy_user_string(char *dst, uint32_t dst_size, uint32_t user_ptr) {
     return -1;
 }
 
+static int process_exists(uint32_t pid) {
+    if (!pid) return 0;
+    for (uint32_t i = 0; i < LIONOS_PROCESS_MAX; ++i) {
+        struct process *p = process_at(i);
+        if (p && p->state != PROCESS_UNUSED && p->pid == pid) return 1;
+    }
+    return 0;
+}
+
 static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
     switch (number) {
-    case SYS_ABI_VERSION: return 1u;
+    case SYS_ABI_VERSION: return 2u;
     case SYS_PUTC:
         if (arg0 > 0xFFu) return SYSCALL_ERR;
         console_putc((char)arg0); return SYSCALL_OK;
@@ -89,6 +99,21 @@ static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, 
         st->size = kst.size; st->backend = kst.backend; st->flags = kst.flags;
         return SYSCALL_OK;
     }
+    case LIONOS_SYS_IPC_SEND: {
+        if (!process_exists(arg0) || arg0 == process_current_pid() || arg2 == 0 || arg2 > IPC_MESSAGE_MAX || !user_range_ok(arg1, arg2)) return SYSCALL_ERR;
+        return (uint32_t)ipc_send(arg0, process_current_pid(), (const void *)(uintptr_t)arg1, arg2);
+    }
+    case LIONOS_SYS_IPC_RECV: {
+        if (arg1 == 0 || arg1 > IPC_MESSAGE_MAX || !user_range_ok(arg0, arg1)) return SYSCALL_ERR;
+        if (arg2 && !user_range_ok(arg2, sizeof(uint32_t))) return SYSCALL_ERR;
+        uint32_t sender = 0;
+        int32_t n = ipc_recv(process_current_pid(), (void *)(uintptr_t)arg0, arg1, &sender);
+        if (n == IPC_RECV_EMPTY) return LIONOS_IPC_EMPTY;
+        if (n < 0) return SYSCALL_ERR;
+        if (arg2) *(uint32_t *)(uintptr_t)arg2 = sender;
+        return (uint32_t)n;
+    }
+    case LIONOS_SYS_IPC_PENDING: return ipc_pending(process_current_pid());
     default: return SYSCALL_ERR;
     }
 }
