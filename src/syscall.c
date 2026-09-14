@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include "process.h"
+#include "syscall.h"
 
 static volatile uint16_t *const VGA = (uint16_t *)0xB8000;
 static uint16_t cursor;
@@ -8,25 +10,28 @@ static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, 
     (void)arg2;
 
     switch (number) {
-        case 0:
-            return 1; /* LionOS syscall ABI version. */
+        case SYS_ABI_VERSION:
+            return 1;
 
-        case 1:
-            /* SYS_PUTC: the kernel validates the value and owns the VGA write. */
-            if (arg0 > 0xFFu) return (uint32_t)-1;
+        case SYS_PUTC:
+            if (arg0 > 0xFFu) return SYSCALL_ERR;
             VGA[cursor++ % (80u * 25u)] = (uint16_t)0x0F00u | (uint16_t)arg0;
-            return 1;
+            return SYSCALL_OK;
 
-        case 2:
-            /* SYS_GETPID: process layer currently has one bootstrap process. */
-            return 1;
+        case SYS_GETPID:
+            return process_current_pid();
 
-        case 3:
-            /* SYS_YIELD: scheduler is not present yet; return success. */
-            return 0;
+        case SYS_YIELD:
+            /* The dispatcher is ready for a scheduler; no context switch yet. */
+            __asm__ volatile ("pause");
+            return SYSCALL_OK;
+
+        case SYS_EXIT:
+            process_exit_current();
+            return SYSCALL_OK;
 
         default:
-            return (uint32_t)-1;
+            return SYSCALL_ERR;
     }
 }
 
