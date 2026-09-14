@@ -51,3 +51,7 @@ void tss_init(void) {
     gdt_set_tss((uint32_t)(uintptr_t)&tss, sizeof(tss) - 1u);
     __asm__ volatile ("ltr %%ax" : : "a"((uint16_t)0x18u) : "memory");
 }
+
+void tss_set_kernel_stack(uint32_t stack_top) {
+    if (stack_top != 0) tss.esp0 = stack_top;
+}
