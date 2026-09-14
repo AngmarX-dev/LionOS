@@ -2,7 +2,7 @@
 
 > An experimental 32-bit x86 operating system built from scratch with AI-assisted development.
 
-LionOS is a small kernel project focused on learning operating-system internals, x86 architecture, memory management, processes, scheduling, system calls, and filesystem design.
+LionOS is a small educational kernel focused on operating-system internals and low-level programming.
 
 ## 🚀 Current Progress
 
@@ -11,17 +11,14 @@ LionOS is a small kernel project focused on learning operating-system internals,
 - ✅ GDT with kernel and ring-3 segments
 - ✅ TSS with per-process kernel stacks
 - ✅ IDT and interrupt dispatch
-- ✅ PIC remapping
-- ✅ PIT at 100 Hz
-- ✅ CPU exception handling
-- ✅ Safe user-mode page-fault termination
+- ✅ PIC/PIT
+- ✅ CPU exception and safe user page-fault handling
 
 ### Memory
 - ✅ Physical page allocator
-- ✅ Paging and supervisor-only kernel mappings
-- ✅ Per-process address spaces
+- ✅ Paging with supervisor-only kernel mappings
+- ✅ Per-process address spaces and CR3 switching
 - ✅ Private user page tables
-- ✅ CR3 address-space switching
 - ✅ Kernel heap with `kmalloc` / `kfree`
 
 ### Processes & syscalls
@@ -31,16 +28,17 @@ LionOS is a small kernel project focused on learning operating-system internals,
 - ✅ Saved interrupt-frame context switching
 - ✅ Deferred process resource reclamation
 - ✅ System-call ABI
-- ✅ Keyboard, console, memory and process syscalls
 
 ### User interface & storage
-- ✅ Scrolling VGA text console
-- ✅ PS/2 keyboard input buffer
+- ✅ Scrolling VGA console
+- ✅ PS/2 keyboard input
 - ✅ LionOS Shell v0.4
-- ✅ RAM filesystem (RAMFS)
+- ✅ RAM filesystem
 - ✅ `ls`, `cat`, `write`, `touch`, `rm`
-- ✅ `mem`, `ps`, `uname`, `uptime`, `version`, `about`
-- 🚧 ELF executable loader
+- ✅ Process diagnostics with `ps`
+- ✅ ELF32/i386 executable validation groundwork
+- 🚧 Full ELF segment loader
+- 🚧 `exec()` and filesystem-backed user programs
 - 🚧 Userspace shell
 - 🚧 Persistent disk filesystem
 
@@ -48,7 +46,7 @@ LionOS is a small kernel project focused on learning operating-system internals,
 - ✅ Multiboot2 kernel validation in CI
 - ✅ ISO generation in CI
 - ✅ Automated QEMU boot smoke test
-- 📦 CI publishes a bootable `lionos-iso` artifact
+- 📦 Bootable `lionos-iso` CI artifact
 
 ## 🛠️ Build
 
@@ -71,15 +69,7 @@ make iso
 make run
 ```
 
-To verify the kernel without building the ISO:
-
-```bash
-make check
-```
-
 ## 🧪 Shell
-
-After booting LionOS, the kernel shell provides commands such as:
 
 ```text
 lion> help
@@ -92,28 +82,15 @@ lion> mem
 lion> rm hello.txt
 ```
 
-RAMFS is currently memory-backed and is recreated on every boot; it is not yet a persistent disk filesystem.
+RAMFS is memory-backed and recreated on every boot.
 
-## 🧠 Project Focus
+## 🧠 Architecture
 
-LionOS is an educational project covering:
-
-- Kernel development
-- x86 protected mode
-- GDT / IDT / TSS
-- Interrupts and exceptions
-- Physical memory management
-- Paging and address-space isolation
-- Kernel heap allocation
-- System calls
-- Ring-3 execution
-- Processes and scheduling
-- Filesystem fundamentals
-- Low-level C and Assembly
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, system calls, keyboard/console drivers, RAMFS, and the initial ELF32 validation layer.
 
 ## 🤖 AI-Assisted Development
 
-LionOS is developed with extensive AI assistance. The project explores how AI can help design, implement, debug, test, and document low-level operating-system components while keeping the resulting system understandable and testable.
+LionOS is developed with extensive AI assistance to design, implement, debug, test, and document low-level operating-system components.
 
 ## 📜 License
 
