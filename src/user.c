@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "paging.h"
 #include "process.h"
+#include "syscall.h"
 #include "user.h"
 
 #define USER_CODE_VA   0x00400000u
@@ -42,12 +43,18 @@ int user_mode_test(void) {
         return -1;
     }
 
-    /* SYS_PUTC('!'): EAX=1, EBX='!', INT 0x80, then spin. */
+    /* SYS_PUTC('!'), SYS_YIELD, SYS_EXIT, then halt in user mode. */
     static const uint8_t program[] = {
-        0xB8, 0x01, 0x00, 0x00, 0x00,
+        0xB8, SYS_PUTC, 0x00, 0x00, 0x00,
         0xBB, 0x21, 0x00, 0x00, 0x00,
         0xCD, 0x80,
-        0xEB, 0xFE
+        0xB8, SYS_YIELD, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+        0xB8, SYS_EXIT, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+        0xFA,
+        0xF4,
+        0xEB, 0xFC
     };
 
     for (uint32_t i = 0; i < sizeof(program); ++i) code[i] = program[i];
@@ -60,14 +67,12 @@ int user_mode_test(void) {
         return -1;
     }
 
-    struct process *process = process_current();
-    if (!process) {
+    struct process *process = process_create(USER_CODE_VA, USER_STACK_TOP, 0);
+    if (!process || process_set_current(process) != 0) {
         page_free(code);
         page_free(stack);
         return -1;
     }
-    process->entry = USER_CODE_VA;
-    process->user_stack = USER_STACK_TOP;
 
     enter_user_mode(USER_CODE_VA, USER_STACK_TOP);
 }
