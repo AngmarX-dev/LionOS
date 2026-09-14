@@ -101,8 +101,9 @@ int exec_run_file(const char *name) {
     uint32_t pd = paging_create_address_space();
     if (!pd) goto fail;
     for (uint32_t i = 0; i < page_count; ++i) if (paging_map_user_page_in(pd, page_vas[i], page_phys[i], page_flags[i]) != 0) { paging_destroy_address_space(pd); goto fail; }
-    struct process *p = process_create_ex(entry, (uint32_t)initial_sp, pd, page_phys, page_count);
+    struct process *p = process_create_ex_vas(entry, (uint32_t)initial_sp, pd, page_phys, page_vas, page_count);
     if (!p) { paging_destroy_address_space(pd); goto fail; }
+    (void)stack_top;
     return (int)p->pid;
 fail:
     for (uint32_t i = 0; i < page_count; ++i) if (page_phys[i]) page_free((void *)(uintptr_t)page_phys[i]);
