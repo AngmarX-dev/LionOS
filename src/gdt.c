@@ -15,7 +15,13 @@ struct gdt_ptr {
     uint32_t base;
 } __attribute__((packed));
 
-static struct gdt_entry gdt[4];
+#define GDT_KERNEL_CODE 0x08u
+#define GDT_KERNEL_DATA 0x10u
+#define GDT_TSS         0x18u
+#define GDT_USER_CODE   0x20u
+#define GDT_USER_DATA   0x28u
+
+static struct gdt_entry gdt[6];
 static struct gdt_ptr gp;
 
 static void set_gate(int n, uint32_t base, uint32_t limit, uint8_t access, uint8_t gran) {
@@ -39,6 +45,8 @@ void gdt_init(void) {
     set_gate(1, 0, 0xFFFFFFFFu, 0x9Au, 0xCFu);
     set_gate(2, 0, 0xFFFFFFFFu, 0x92u, 0xCFu);
     set_gate(3, 0, 0, 0, 0);
+    set_gate(4, 0, 0xFFFFFFFFu, 0xFAu, 0xCFu);
+    set_gate(5, 0, 0xFFFFFFFFu, 0xF2u, 0xCFu);
 
     __asm__ volatile ("lgdt %0\n"
                       "mov $0x10, %%ax\n"
