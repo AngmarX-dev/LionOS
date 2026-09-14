@@ -9,106 +9,63 @@
 #include "tss.h"
 #include "process.h"
 #include "user.h"
+#include "console.h"
+#include "ramfs.h"
+#include "shell.h"
 
 void pic_init(void);
 void keyboard_init(void);
 void syscall_init(void);
 
-static volatile uint16_t *const VGA = (uint16_t *)0xB8000;
-static size_t row;
-static size_t col;
-static uint8_t color = 0x0F;
-
-static void clear_screen(void) {
-    for (size_t i = 0; i < 80 * 25; ++i) VGA[i] = ((uint16_t)color << 8) | ' ';
-    row = 0; col = 0;
-}
-
-static void kputc(char c) {
-    if (c == '\n') { col = 0; ++row; }
-    else {
-        VGA[row * 80 + col] = ((uint16_t)color << 8) | (uint8_t)c;
-        if (++col >= 80) { col = 0; ++row; }
-    }
-    if (row >= 25) row = 0;
-}
-
-static void kputs(const char *s) { while (*s) kputc(*s++); }
-
-static void kput_dec(uint32_t value) {
-    char buf[11]; size_t i = 0;
-    if (value == 0) { kputc('0'); return; }
-    while (value && i < sizeof(buf)) { buf[i++] = (char)('0' + value % 10u); value /= 10u; }
-    while (i) kputc(buf[--i]);
-}
+static void boot_dec(uint32_t value) { console_write_dec(value); }
 
 void kernel_main(uint32_t magic, uint32_t multiboot_info) {
-    clear_screen();
-    kputs("LionOS kernel booting...\n\n");
+    console_init();
+    console_write("LionOS kernel booting...\n\n");
 
-    if (magic != 0x36D76289) {
-        kputs("ERROR: invalid Multiboot2 magic.\n");
+    if (magic != 0x36D76289u) {
+        console_write("ERROR: invalid Multiboot2 magic.\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    gdt_init(); kputs("[ OK ] GDT / ring-3 segments\n");
-    tss_init(); kputs("[ OK ] TSS / ring-0 stack\n");
-    idt_init(); kputs("[ OK ] IDT / CPU exceptions / DPL3 syscall\n");
-    pic_init(); kputs("[ OK ] PIC remapped\n");
-    pit_init(100); kputs("[ OK ] PIT 100 Hz\n");
-    keyboard_init(); kputs("[ OK ] PS/2 keyboard / scancode input buffer\n");
+    gdt_init(); console_write("[ OK ] GDT / ring-3 segments\n");
+    tss_init(); console_write("[ OK ] TSS / ring-0 stack\n");
+    idt_init(); console_write("[ OK ] IDT / CPU exceptions / DPL3 syscall\n");
+    pic_init(); console_write("[ OK ] PIC remapped\n");
+    pit_init(100); console_write("[ OK ] PIT 100 Hz / preemptive scheduler clock\n");
+    keyboard_init(); console_write("[ OK ] PS/2 keyboard / scancode input buffer\n");
 
     memory_init(multiboot_info);
-    kputs("[ OK ] Physical memory manager\n       Total pages: ");
-    kput_dec(memory_total_pages());
-    kputs("  Free pages: ");
-    kput_dec(memory_free_pages());
-    kputs("\n");
+    console_write("[ OK ] Physical memory manager\n       Total pages: "); boot_dec(memory_total_pages());
+    console_write("  Free pages: "); boot_dec(memory_free_pages()); console_putc('\n');
 
-    void *page_a = page_alloc();
-    void *page_b = page_alloc();
+    void *page_a = page_alloc(); void *page_b = page_alloc();
     if (page_a && page_b) {
-        page_free(page_a);
-        page_free(page_b);
-        kputs("[ OK ] Page allocation / free\n");
-    } else kputs("[ERR] Page allocator\n");
+        page_free(page_a); page_free(page_b);
+        console_write("[ OK ] Page allocation / free\n");
+    } else console_write("[ERR] Page allocator\n");
 
-    paging_init(); kputs("[ OK ] Paging / supervisor kernel mappings\n");
-
+    paging_init(); console_write("[ OK ] Paging / supervisor kernel mappings\n");
     heap_init();
-    void *a = kmalloc(128);
-    void *b = kmalloc(256);
-    void *large = kmalloc(5000);
+    void *a = kmalloc(128); void *b = kmalloc(256); void *large = kmalloc(5000);
     if (a && b && large) {
-        kfree(b);
-        void *reuse = kmalloc(256);
-        kfree(a);
-        kfree(large);
-        kfree(reuse);
-        kputs((reuse) ? "[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n" : "[ERR] Kernel heap reuse\n");
+        kfree(b); void *reuse = kmalloc(256); kfree(a); kfree(large); kfree(reuse);
+        console_write(reuse ? "[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n" : "[ERR] Kernel heap reuse\n");
     } else {
-        kputs("[ERR] Kernel heap\n");
-        kfree(a);
-        kfree(b);
-        kfree(large);
+        console_write("[ERR] Kernel heap\n"); kfree(a); kfree(b); kfree(large);
     }
 
-    syscall_init();
-    kputs("[ OK ] Syscall ABI / PUTC / GETPID / YIELD / EXIT / keyboard\n");
+    syscall_init(); console_write("[ OK ] Syscall ABI / read / write / memory / keyboard\n");
+    process_init(); console_write("[ OK ] Process table / PID 1 bootstrap\n");
+    console_write("[ OK ] Round-robin scheduler / saved interrupt contexts\n");
+    console_write("[ OK ] Ring-3 address spaces / process reclamation\n");
 
-    process_init();
-    kputs("[ OK ] Process table / PID 1 bootstrap process\n");
-    kputs("[ OK ] Round-robin scheduler / saved interrupt contexts\n");
-    kputs("[ OK ] Process exit / deferred memory reclamation\n");
-
-    kputs("[ OK ] Ring-3 address space prepared\n");
-    kputs("Entering user mode: scheduler test A/B...\n");
+    ramfs_init(); console_write("[ OK ] RAM filesystem / files and directories\n");
+    console_write("[ OK ] Interactive console / scrolling / command shell\n");
+    console_write("\nLionOS is ready.\n");
 
     __asm__ volatile ("sti");
-    if (user_mode_test() != 0) {
-        kputs("[ERR] Ring-3 setup failed\n");
-        for (;;) __asm__ volatile ("cli; hlt");
-    }
+    shell_run();
 
     for (;;) __asm__ volatile ("hlt");
 }
