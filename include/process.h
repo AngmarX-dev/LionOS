@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define LIONOS_PROCESS_MAX 16u
+#define LIONOS_PROCESS_MAX_USER_PAGES 128u
 #define PROCESS_UNUSED 0u
 #define PROCESS_READY 1u
 #define PROCESS_RUNNING 2u
@@ -21,6 +22,8 @@ struct process {
     uint32_t saved_frame;
     uint32_t user_code_page;
     uint32_t user_stack_page;
+    uint32_t user_pages[LIONOS_PROCESS_MAX_USER_PAGES];
+    uint32_t user_page_count;
 };
 
 void process_init(void);
@@ -30,6 +33,8 @@ const char *process_state_name(uint32_t state);
 uint32_t process_current_pid(void);
 struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
                                uint32_t user_code_page, uint32_t user_stack_page);
+struct process *process_create_ex(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                                  const uint32_t *user_pages, uint32_t user_page_count);
 int process_set_current(struct process *process);
 void process_exit_current(void);
 uint32_t process_count(void);
