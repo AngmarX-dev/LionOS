@@ -31,5 +31,6 @@ uint32_t *process_schedule(uint32_t *frame);
 void process_set_saved_frame(struct process *process, uint32_t *frame);
 uint32_t *process_saved_frame(struct process *process);
 uint32_t process_kernel_stack_top(struct process *process);
+void scheduler_idle(void);
 
 #endif
