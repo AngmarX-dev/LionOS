@@ -6,9 +6,16 @@
 #define APIC_BASE_ENABLE 0x800u
 #define CPUID_APIC_BIT (1u << 9)
 #define LAPIC_REG_ID 0x020u
-#define LAPIC_REG_SIVR 0x0F0u
 #define LAPIC_REG_EOI 0x0B0u
+#define LAPIC_REG_ICR_LOW 0x300u
+#define LAPIC_REG_ICR_HIGH 0x310u
+#define LAPIC_REG_SIVR 0x0F0u
 #define LAPIC_SIVR_ENABLE 0x100u
+#define ICR_DELIVERY_INIT (5u << 8)
+#define ICR_DELIVERY_STARTUP (6u << 8)
+#define ICR_LEVEL_ASSERT (1u << 14)
+#define ICR_TRIGGER_LEVEL (1u << 15)
+#define ICR_DELIVERY_STATUS (1u << 12)
 
 static volatile uint32_t *lapic = (volatile uint32_t *)(uintptr_t)LIONOS_LAPIC_VIRT;
 static uint32_t initialized;
@@ -35,6 +42,13 @@ static int cpu_has_apic(void) {
 static uint32_t read_reg(uint32_t reg) { return lapic[reg / 4u]; }
 static void write_reg(uint32_t reg, uint32_t value) { lapic[reg / 4u] = value; }
 
+static void wait_icr(void) {
+    for (uint32_t i = 0; i < 1000000u; ++i) {
+        if ((read_reg(LAPIC_REG_ICR_LOW) & ICR_DELIVERY_STATUS) == 0u) return;
+        __asm__ volatile("pause");
+    }
+}
+
 void lapic_enable(void) {
     uint64_t base = rdmsr(IA32_APIC_BASE_MSR);
     base |= APIC_BASE_ENABLE;
@@ -45,17 +59,13 @@ void lapic_enable(void) {
 
 int lapic_init(void) {
     if (!cpu_has_apic()) return -1;
-
     uint64_t base = rdmsr(IA32_APIC_BASE_MSR);
     if ((base & APIC_BASE_ENABLE) == 0u) {
         base |= APIC_BASE_ENABLE;
         wrmsr(IA32_APIC_BASE_MSR, base);
     }
-
-    /* Add the APIC MMIO page above the identity-mapped low memory region. */
     if (paging_map_kernel_page(LIONOS_LAPIC_VIRT, LIONOS_LAPIC_PHYS, 0x3u) != 0)
         return -1;
-
     lapic_enable();
     return 0;
 }
@@ -66,4 +76,18 @@ uint32_t lapic_id(void) {
 
 void lapic_eoi(void) {
     if (initialized) write_reg(LAPIC_REG_EOI, 0u);
+}
+
+void lapic_send_init(uint32_t apic_id) {
+    if (!initialized) return;
+    write_reg(LAPIC_REG_ICR_HIGH, (apic_id & 0xFFu) << 24);
+    write_reg(LAPIC_REG_ICR_LOW, ICR_DELIVERY_INIT | ICR_LEVEL_ASSERT | ICR_TRIGGER_LEVEL);
+    wait_icr();
+}
+
+void lapic_send_startup(uint32_t apic_id, uint32_t vector) {
+    if (!initialized || vector > 0xFFu) return;
+    write_reg(LAPIC_REG_ICR_HIGH, (apic_id & 0xFFu) << 24);
+    write_reg(LAPIC_REG_ICR_LOW, ICR_DELIVERY_STARTUP | (vector & 0xFFu));
+    wait_icr();
 }
