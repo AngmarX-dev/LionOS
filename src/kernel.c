@@ -7,6 +7,7 @@
 #include "pit.h"
 #include "memory.h"
 #include "tss.h"
+#include "user.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -49,9 +50,9 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
-    gdt_init(); kputs("[ OK ] GDT\n");
+    gdt_init(); kputs("[ OK ] GDT / ring-3 segments\n");
     tss_init(); kputs("[ OK ] TSS / ring-0 stack\n");
-    idt_init(); kputs("[ OK ] IDT / CPU exceptions\n");
+    idt_init(); kputs("[ OK ] IDT / CPU exceptions / DPL3 syscall\n");
     pic_init(); kputs("[ OK ] PIC remapped\n");
     pit_init(100); kputs("[ OK ] PIT 100 Hz\n");
     keyboard_init(); kputs("[ OK ] PS/2 keyboard IRQ1\n");
@@ -70,7 +71,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
         kputs("[ OK ] Page allocation / free\n");
     } else kputs("[ERR] Page allocator\n");
 
-    paging_init(); kputs("[ OK ] Paging (256 MiB identity mapped)\n");
+    paging_init(); kputs("[ OK ] Paging / supervisor kernel mappings\n");
 
     heap_init();
     void *a = kmalloc(128);
@@ -91,9 +92,16 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     }
 
     syscall_init();
-    kputs("[ OK ] Syscall ABI (INT 0x80)\n\n");
-    kputs("LionOS is alive. Interrupts enabled.\n");
+    kputs("[ OK ] Syscall ABI (INT 0x80)\n");
+
+    kputs("[ OK ] Ring-3 user pages prepared\n");
+    kputs("Entering user mode: INT 0x80 echo test...\n");
 
     __asm__ volatile ("sti");
+    if (user_mode_test() != 0) {
+        kputs("[ERR] Ring-3 setup failed\n");
+        for (;;) __asm__ volatile ("cli; hlt");
+    }
+
     for (;;) __asm__ volatile ("hlt");
 }
