@@ -30,5 +30,8 @@ static inline int32_t lion_stat(const char*p,struct lion_stat*s){return(int32_t)
 static inline int32_t lion_ipc_send(uint32_t pid,const void*data,uint32_t length){return(int32_t)lion_syscall3(LIONOS_SYS_IPC_SEND,pid,(uint32_t)(uintptr_t)data,length);}
 static inline int32_t lion_ipc_recv(void*data,uint32_t capacity,uint32_t*sender_pid){return(int32_t)lion_syscall3(LIONOS_SYS_IPC_RECV,(uint32_t)(uintptr_t)data,capacity,(uint32_t)(uintptr_t)sender_pid);}
 static inline uint32_t lion_ipc_pending(void){return lion_syscall0(LIONOS_SYS_IPC_PENDING);}
+static inline int32_t lion_kill(uint32_t pid,uint32_t signal){return(int32_t)lion_syscall2(LIONOS_SYS_KILL,pid,signal);}
+static inline int32_t lion_getstate(uint32_t pid){return(int32_t)lion_syscall1(LIONOS_SYS_GETSTATE,pid);}
+static inline uint32_t lion_sigpending(uint32_t pid){return lion_syscall1(LIONOS_SYS_SIGPENDING,pid);}
 
 #endif
