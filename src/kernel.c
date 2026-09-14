@@ -73,7 +73,20 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     heap_init();
     void *a = kmalloc(128);
     void *b = kmalloc(256);
-    kputs((a && b) ? "[ OK ] Kernel heap / kmalloc\n" : "[ERR] Kernel heap\n");
+    void *large = kmalloc(5000);
+    if (a && b && large) {
+        kfree(b);
+        void *reuse = kmalloc(256);
+        kfree(a);
+        kfree(large);
+        kfree(reuse);
+        kputs((reuse) ? "[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n" : "[ERR] Kernel heap reuse\n");
+    } else {
+        kputs("[ERR] Kernel heap\n");
+        kfree(a);
+        kfree(b);
+        kfree(large);
+    }
 
     syscall_init();
     kputs("[ OK ] Syscall ABI (INT 0x80)\n\n");
