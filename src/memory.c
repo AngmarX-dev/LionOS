@@ -88,20 +88,31 @@ void memory_init(uint32_t multiboot_info) {
     }
 }
 
-void *page_alloc(void) {
-    for (uint32_t word = RESERVED_PAGES / 32u; word < BITMAP_WORDS; ++word) {
-        uint32_t bits = bitmap[word];
-        if (bits == 0xFFFFFFFFu) continue;
-        for (uint32_t bit = 0; bit < 32u; ++bit) {
-            if ((bits & (1u << bit)) == 0) {
-                uint32_t page = word * 32u + bit;
-                mark_used(page);
-                if (free_pages) --free_pages;
-                return (void *)(uintptr_t)(page * PAGE_SIZE);
+void *page_alloc_contiguous(uint32_t count) {
+    if (count == 0 || count > MAX_PAGES - RESERVED_PAGES)
+        return 0;
+
+    uint32_t run = 0;
+    uint32_t start = RESERVED_PAGES;
+    for (uint32_t page = RESERVED_PAGES; page < MAX_PAGES; ++page) {
+        if (is_free(page)) {
+            if (run == 0) start = page;
+            ++run;
+            if (run == count) {
+                for (uint32_t i = 0; i < count; ++i)
+                    mark_used(start + i);
+                free_pages -= count;
+                return (void *)(uintptr_t)(start * PAGE_SIZE);
             }
+        } else {
+            run = 0;
         }
     }
     return 0;
+}
+
+void *page_alloc(void) {
+    return page_alloc_contiguous(1);
 }
 
 void page_free(void *page_ptr) {
