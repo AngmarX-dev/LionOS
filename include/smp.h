@@ -9,6 +9,7 @@
 
 void smp_init(void);
 uint32_t smp_online_count(void);
+uint32_t smp_lock_selftest(void);
 void smp_ap_main(void);
 
 #endif
