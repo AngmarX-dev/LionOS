@@ -18,6 +18,7 @@ struct process {
     uint32_t parent_pid;
     uint32_t exit_code;
     uint32_t wait_pid;
+    uint32_t wait_status_ptr;
     uint32_t reap_pending;
     uint32_t deferred_kernel_stack;
     uint32_t page_directory;
@@ -50,7 +51,7 @@ int process_exec_replace_current(uint32_t entry, uint32_t user_stack, uint32_t p
 int process_set_current(struct process *process);
 void process_exit_current(uint32_t exit_code);
 uint32_t process_fork_current(uint32_t *parent_frame);
-int32_t process_waitpid(uint32_t pid);
+int32_t process_waitpid(uint32_t pid, uint32_t status_ptr);
 uint32_t process_count(void);
 uint32_t *process_schedule(uint32_t *frame);
 void process_set_saved_frame(struct process *process, uint32_t *frame);
