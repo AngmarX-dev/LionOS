@@ -46,7 +46,7 @@ case LIONOS_SYS_IPC_SEND:if(!process_exists(arg0)||arg0==process_current_pid()||
 case LIONOS_SYS_IPC_RECV:{if(arg1==0||arg1>IPC_MESSAGE_MAX||!user_range_ok(arg0,arg1))return SYSCALL_ERR;if(arg2&&!user_range_ok(arg2,sizeof(uint32_t)))return SYSCALL_ERR;uint32_t sender=0;int32_t n=ipc_recv(process_current_pid(),(void*)(uintptr_t)arg0,arg1,&sender);if(n==IPC_RECV_EMPTY)return LIONOS_IPC_EMPTY;if(n<0)return SYSCALL_ERR;if(arg2)*(uint32_t*)(uintptr_t)arg2=sender;return(uint32_t)n;}
 case LIONOS_SYS_IPC_PENDING:return ipc_pending(process_current_pid());
 case LIONOS_SYS_GETPPID:{struct process*p=process_current();return p?p->parent_pid:0u;}
-case LIONOS_SYS_KILL:if(!process_exists(arg0)||arg0==process_current_pid()||arg1==0||arg1>LIONOS_SIG_MAX)return SYSCALL_ERR;return(uint32_t)process_signal(arg0,arg1);
+case LIONOS_SYS_KILL:if(!process_exists(arg0)||arg0==process_current_pid()||!process_is_descendant_or_child(arg0,process_current_pid())||arg1==0||arg1>LIONOS_SIG_MAX)return SYSCALL_ERR;return(uint32_t)process_signal(arg0,arg1);
 case LIONOS_SYS_GETSTATE:return(uint32_t)process_get_state(arg0);
 case LIONOS_SYS_SIGPENDING:return process_signal_pending(arg0);
 case LIONOS_SYS_NET_SEND:if(arg2==0||arg3==0||arg3>NET_PACKET_MAX||!user_range_ok(arg2,arg3))return SYSCALL_ERR;return(uint32_t)net_send(arg0,(uint16_t)(arg1>>16),(uint16_t)arg1,(const void*)(uintptr_t)arg2,arg3);
