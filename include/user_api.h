@@ -29,6 +29,7 @@ static inline int32_t lion_fread(int32_t fd,void*b,uint32_t n){return(int32_t)li
 static inline int32_t lion_fwrite(int32_t fd,const void*b,uint32_t n){return(int32_t)lion_syscall3(LIONOS_SYS_FWRITE,(uint32_t)fd,(uint32_t)(uintptr_t)b,n);}
 static inline int32_t lion_remove(const char*p){return(int32_t)lion_syscall1(LIONOS_SYS_REMOVE,(uint32_t)(uintptr_t)p);}
 static inline int32_t lion_stat(const char*p,struct lion_stat*s){return(int32_t)lion_syscall2(LIONOS_SYS_STAT,(uint32_t)(uintptr_t)p,(uint32_t)(uintptr_t)s);}
+static inline int32_t lion_getfile(uint32_t index,char*name,uint32_t capacity){return(int32_t)lion_syscall3(LIONOS_SYS_GETFILE,index,(uint32_t)(uintptr_t)name,capacity);}
 static inline int32_t lion_ipc_send(uint32_t pid,const void*data,uint32_t length){return(int32_t)lion_syscall3(LIONOS_SYS_IPC_SEND,pid,(uint32_t)(uintptr_t)data,length);}
 static inline int32_t lion_ipc_recv(void*data,uint32_t capacity,uint32_t*sender_pid){return(int32_t)lion_syscall3(LIONOS_SYS_IPC_RECV,(uint32_t)(uintptr_t)data,capacity,(uint32_t)(uintptr_t)sender_pid);}
 static inline uint32_t lion_ipc_pending(void){return lion_syscall0(LIONOS_SYS_IPC_PENDING);}
