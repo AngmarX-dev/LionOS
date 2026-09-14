@@ -33,6 +33,9 @@ void smp_ap_main(void){
        kernel IDT before enabling interrupts so every AP uses the same ISR
        table, including the LAPIC timer vector. */
     idt_load_current();
+    /* Each CPU owns its local LAPIC timer.  Starting it here lets the AP
+       enter the same timer-driven scheduler path as the BSP. */
+    lapic_timer_init();
     __asm__ volatile("sti");
     for(;;)__asm__ volatile("hlt");
 }
