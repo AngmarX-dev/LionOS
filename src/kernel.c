@@ -22,7 +22,7 @@ static void clear_screen(void) {
     col = 0;
 }
 
-static void putc(char c) {
+static void kputc(char c) {
     if (c == '\n') {
         col = 0;
         ++row;
@@ -36,46 +36,46 @@ static void putc(char c) {
     if (row >= 25) row = 0;
 }
 
-static void puts(const char *s) {
-    while (*s) putc(*s++);
+static void kputs(const char *s) {
+    while (*s) kputc(*s++);
 }
 
 void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     (void)multiboot_info;
     clear_screen();
 
-    puts("LionOS kernel booting...\n\n");
+    kputs("LionOS kernel booting...\n\n");
     if (magic != 0x36D76289) {
-        puts("ERROR: invalid Multiboot2 magic.\n");
+        kputs("ERROR: invalid Multiboot2 magic.\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
 
     gdt_init();
-    puts("[ OK ] GDT\n");
+    kputs("[ OK ] GDT\n");
 
     idt_init();
-    puts("[ OK ] IDT / CPU exceptions\n");
+    kputs("[ OK ] IDT / CPU exceptions\n");
 
     pic_init();
-    puts("[ OK ] PIC remapped\n");
+    kputs("[ OK ] PIC remapped\n");
 
     pit_init(100);
-    puts("[ OK ] PIT 100 Hz\n");
+    kputs("[ OK ] PIT 100 Hz\n");
 
     keyboard_init();
-    puts("[ OK ] PS/2 keyboard IRQ1\n");
+    kputs("[ OK ] PS/2 keyboard IRQ1\n");
 
     paging_init();
-    puts("[ OK ] Paging (first 4 MiB identity mapped)\n");
+    kputs("[ OK ] Paging (first 4 MiB identity mapped)\n");
 
     heap_init();
     void *a = kmalloc(128);
     void *b = kmalloc(256);
-    puts((a && b) ? "[ OK ] Kernel heap / kmalloc\n" : "[ERR] Kernel heap\n");
+    kputs((a && b) ? "[ OK ] Kernel heap / kmalloc\n" : "[ERR] Kernel heap\n");
 
     syscall_init();
-    puts("[ OK ] Syscall ABI (INT 0x80)\n\n");
-    puts("LionOS is alive. Interrupts enabled.\n");
+    kputs("[ OK ] Syscall ABI (INT 0x80)\n\n");
+    kputs("LionOS is alive. Interrupts enabled.\n");
 
     __asm__ volatile ("sti");
     for (;;) __asm__ volatile ("hlt");
