@@ -2,6 +2,14 @@ ENTRY(_start)
 
 SECTIONS
 {
+    /* SIPI vectors address the first 1 MiB in 4 KiB units. */
+    . = 0x8000;
+    .smp_trampoline : ALIGN(16)
+    {
+        KEEP(*(.smp_trampoline))
+        KEEP(*(.smp_trampoline.*))
+    }
+
     . = 1M;
     _kernel_start = .;
 
