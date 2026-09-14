@@ -67,6 +67,12 @@ static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, 
             process_exit_current();
             return (uint32_t)pid;
         }
+        case SYS_FORK: {
+            struct process *parent = process_current();
+            uint32_t pid = process_fork_current((uint32_t *)(uintptr_t)arg0);
+            (void)parent;
+            return pid ? pid : SYSCALL_ERR;
+        }
         default: return SYSCALL_ERR;
     }
 }
