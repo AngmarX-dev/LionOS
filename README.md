@@ -1,34 +1,58 @@
 # 🦁 LionOS
 
-> An experimental operating system built from scratch with AI-assisted development.
+> An experimental 32-bit x86 operating system built from scratch with AI-assisted development.
 
-LionOS is a small x86 kernel project focused on learning operating-system internals and low-level programming.
+LionOS is a small kernel project focused on learning operating-system internals, x86 architecture, memory management, processes, scheduling, system calls, and filesystem design.
 
 ## 🚀 Current Progress
 
+### Boot & CPU
 - ✅ Multiboot2 boot
-- ✅ GDT initialization with ring-3 segments
+- ✅ GDT with kernel and ring-3 segments
 - ✅ TSS with per-process kernel stacks
-- ✅ IDT and interrupt handling
-- ✅ PIC/PIT setup
-- ✅ Keyboard input
-- ✅ Physical memory manager
-- ✅ Paging with controlled user mappings
-- ✅ Per-process page directories and CR3 switching
-- ✅ Private user page tables
-- ✅ Kernel heap and `kmalloc`
+- ✅ IDT and interrupt dispatch
+- ✅ PIC remapping
+- ✅ PIT at 100 Hz
 - ✅ CPU exception handling
-- ✅ System call ABI
+- ✅ Safe user-mode page-fault termination
+
+### Memory
+- ✅ Physical page allocator
+- ✅ Paging and supervisor-only kernel mappings
+- ✅ Per-process address spaces
+- ✅ Private user page tables
+- ✅ CR3 address-space switching
+- ✅ Kernel heap with `kmalloc` / `kfree`
+
+### Processes & syscalls
+- ✅ PID-based process table
 - ✅ Ring-3 user-mode entry
-- ✅ Process table and PIDs
-- ✅ Round-robin scheduling
+- ✅ Round-robin preemptive scheduling
 - ✅ Saved interrupt-frame context switching
-- 🚧 Process resource reclamation
-- 🚧 Filesystem and drivers
+- ✅ Deferred process resource reclamation
+- ✅ System-call ABI
+- ✅ Keyboard, console, memory and process syscalls
+
+### User interface & storage
+- ✅ Scrolling VGA text console
+- ✅ PS/2 keyboard input buffer
+- ✅ LionOS Shell v0.4
+- ✅ RAM filesystem (RAMFS)
+- ✅ `ls`, `cat`, `write`, `touch`, `rm`
+- ✅ `mem`, `ps`, `uname`, `uptime`, `version`, `about`
+- 🚧 ELF executable loader
+- 🚧 Userspace shell
+- 🚧 Persistent disk filesystem
+
+### Testing
+- ✅ Multiboot2 kernel validation in CI
+- ✅ ISO generation in CI
+- ✅ Automated QEMU boot smoke test
+- 📦 CI publishes a bootable `lionos-iso` artifact
 
 ## 🛠️ Build
 
-LionOS is developed on Linux using a freestanding 32-bit toolchain.
+LionOS uses a freestanding 32-bit toolchain on Linux.
 
 ### Requirements
 
@@ -37,32 +61,59 @@ LionOS is developed on Linux using a freestanding 32-bit toolchain.
 - GNU Make
 - GRUB / Multiboot2 tools
 - xorriso
+- mtools
 - QEMU
 
 ```bash
 git clone https://github.com/AngmarX-dev/LionOS.git
 cd LionOS
-make
+make iso
+make run
 ```
+
+To verify the kernel without building the ISO:
+
+```bash
+make check
+```
+
+## 🧪 Shell
+
+After booting LionOS, the kernel shell provides commands such as:
+
+```text
+lion> help
+lion> ls
+lion> cat readme.txt
+lion> write hello.txt Hello from LionOS
+lion> cat hello.txt
+lion> ps
+lion> mem
+lion> rm hello.txt
+```
+
+RAMFS is currently memory-backed and is recreated on every boot; it is not yet a persistent disk filesystem.
 
 ## 🧠 Project Focus
 
-LionOS is primarily an educational and experimental project covering:
+LionOS is an educational project covering:
 
 - Kernel development
-- x86 architecture
-- Memory management
+- x86 protected mode
+- GDT / IDT / TSS
 - Interrupts and exceptions
+- Physical memory management
 - Paging and address-space isolation
-- Heap allocation
+- Kernel heap allocation
 - System calls
-- User mode and processes
-- Scheduling and context switching
+- Ring-3 execution
+- Processes and scheduling
+- Filesystem fundamentals
 - Low-level C and Assembly
 
 ## 🤖 AI-Assisted Development
 
-LionOS is developed with extensive AI assistance. The project explores how AI can help design, implement, debug, and document low-level operating-system components while keeping the development process understandable and testable.
+LionOS is developed with extensive AI assistance. The project explores how AI can help design, implement, debug, test, and document low-level operating-system components while keeping the resulting system understandable and testable.
 
 ## 📜 License
 
