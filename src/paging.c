@@ -85,6 +85,23 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
     return 0;
 }
 
+void paging_destroy_address_space(uint32_t pd_physical) {
+    if (pd_physical == 0 || pd_physical == paging_kernel_directory()) return;
+
+    uint32_t *directory = directory_ptr(pd_physical);
+
+    /* User page tables have the U/S bit set; shared kernel tables do not. */
+    for (uint32_t i = 0; i < PAGE_ENTRIES; ++i) {
+        uint32_t pde = directory[i];
+        if ((pde & 0x5u) == 0x5u) {
+            uint32_t table = pde & 0xFFFFF000u;
+            page_free((void *)(uintptr_t)table);
+        }
+    }
+
+    page_free(directory);
+}
+
 void paging_switch_address_space(uint32_t pd_physical) {
     if (pd_physical == 0 || pd_physical == current_directory) return;
     current_directory = pd_physical;
