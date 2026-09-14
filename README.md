@@ -34,6 +34,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Process exit codes
 - ✅ Deferred process resource reclamation
 - ✅ System-call ABI
+- ✅ VFS syscalls: `open`, `close`, `read`, `write`, `remove`, `stat`
 
 ### Executables & storage
 - ✅ Scrolling VGA console
@@ -50,14 +51,15 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ `run <program.elf>` launcher
 - ✅ True `exec()` replacement semantics with PID preservation
 - ✅ Minimal userspace C runtime and libc
-- ✅ Expanded userspace libc: `memmove`, `memcmp`, `strncmp`, `strchr`, `strrchr`, `atoi`
-- ✅ Runtime libc self-test integrated into `process_test.elf`
+- ✅ Expanded userspace libc
 - ✅ Compiler-built 32-bit `hello.elf` embedded in RAMFS
 - ✅ Compiler-built `process_test.elf` embedded in RAMFS
 - ✅ ATA PIO sector read/write driver
 - ✅ Persistent LionFS metadata and fixed-size file allocation
 - ✅ Persistent files survive a kernel reboot
-- 🚧 VFS / filesystem syscall layer
+- ✅ VFS abstraction over RAMFS and persistent LionFS
+- 🚧 Rich directory/path support
+- 🚧 POSIX-style file descriptors per process
 
 ## Testing
 - ✅ Multiboot2 kernel validation in CI
@@ -66,33 +68,14 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ ISO generation in CI
 - ✅ Automated QEMU boot smoke test
 - ✅ Automated persistent-storage reboot test
+- 🚧 Automated VFS userspace integration test
 - 📦 Bootable `lionos-iso` CI artifact
 
-The process lifecycle test exercises:
-
-- Userspace libc string and memory primitives
-- `fork()` parent/child return values
-- Round-robin scheduling with explicit `yield()` calls
-- Blocking `waitpid()`
-- Child exit status delivery (`42`)
-- `exec()` from userspace
-- PID preservation across `exec()`
-
-The persistent-storage test boots the same QEMU disk image twice. The first boot initializes `.boot`; the second boot must read the same marker from disk and emit `LIONOS:PERSIST-OK`.
+The persistent-storage test boots the same QEMU disk image twice. The first boot initializes `.boot`; the second boot verifies that the marker survives reboot.
 
 ## 🛠️ Build
 
 LionOS uses a freestanding 32-bit toolchain on Linux.
-
-### Requirements
-
-- GCC with 32-bit support
-- NASM
-- GNU Make
-- GRUB / Multiboot2 tools
-- xorriso
-- mtools
-- QEMU
 
 ```bash
 git clone https://github.com/AngmarX-dev/LionOS.git
@@ -102,43 +85,40 @@ make disk
 make run
 ```
 
-`make disk` creates `build/lionos-disk.img` only when it does not already exist, so repeated `make run` sessions preserve the filesystem contents. `make clean` removes the image.
+`make disk` creates `build/lionos-disk.img` only when it does not already exist, so repeated `make run` sessions preserve filesystem contents.
 
-To build the standalone userspace ELFs:
+## 🧪 Storage
 
-```bash
-make userspace
-make process-test
-readelf -h build/hello.elf
-readelf -h build/process_test.elf
-```
-
-## 🧪 Shell
+The kernel currently has two filesystem backends:
 
 ```text
-lion> help
-lion> ls
-lion> run hello.elf
-lion> run process_test.elf
-lion> ps
-lion> mem
-lion> cat readme.txt
-lion> write hello.txt Hello from LionOS
-lion> cat readme.txt
-lion> rm hello.txt
-lion> dls
-disk> dwrite notes.txt This survives reboot
-disk> dcat notes.txt
-disk> drm notes.txt
+                 ┌──────────────┐
+userspace ──────►│     VFS      │
+                 └──────┬───────┘
+                    ┌───┴───┐
+                    ▼       ▼
+                 RAMFS    LionFS
+                           │
+                         ATA PIO
+                           │
+                       disk image
 ```
 
-RAMFS is memory-backed and recreated on every boot. The embedded ELF programs are immutable RAMFS entries.
+Userspace can use the new file API through `user_api.h`:
 
-LionFS is a small persistent filesystem stored directly on the QEMU ATA disk. It currently supports up to 32 files, with 24-byte names and 4 KiB per file. It uses fixed file slots rather than a general-purpose free-space allocator; a VFS and richer filesystem layer are planned next.
+```c
+int fd = lion_open("notes.txt", LIONOS_O_READ | LIONOS_O_WRITE);
+lion_fwrite(fd, "hello", 5);
+char buffer[16];
+lion_fread(fd, buffer, sizeof(buffer));
+lion_close(fd);
+```
+
+The VFS currently provides a deliberately small interface suitable for the early kernel. It unifies RAMFS and LionFS while keeping the underlying storage implementations independent.
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` process primitives, in-place `exec()` replacement, a small userspace C runtime/libc, system calls, keyboard/console drivers, RAMFS, an ATA PIO storage driver, a persistent LionFS filesystem, and an ELF32 executable loader.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, and an ELF32 executable loader.
 
 ## 🤖 AI-Assisted Development
 
