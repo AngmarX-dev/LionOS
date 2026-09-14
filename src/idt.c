@@ -10,11 +10,7 @@ struct idt_entry {
     uint16_t base_high;
 } __attribute__((packed));
 
-struct idt_ptr {
-    uint16_t limit;
-    uint32_t base;
-} __attribute__((packed));
-
+struct idt_ptr { uint16_t limit; uint32_t base; } __attribute__((packed));
 static struct idt_entry idt[256];
 static struct idt_ptr idtp;
 
@@ -27,17 +23,15 @@ ISR_DECL(32); ISR_DECL(33); ISR_DECL(34); ISR_DECL(35); ISR_DECL(36); ISR_DECL(3
 ISR_DECL(40); ISR_DECL(41); ISR_DECL(42); ISR_DECL(43); ISR_DECL(44); ISR_DECL(45); ISR_DECL(46); ISR_DECL(47);
 
 static void idt_set_gate(uint8_t n, uint32_t base) {
-    idt[n].base_low = base & 0xFFFF;
+    idt[n].base_low = (uint16_t)(base & 0xFFFFu);
     idt[n].selector = 0x08;
     idt[n].zero = 0;
     idt[n].flags = 0x8E;
-    idt[n].base_high = (base >> 16) & 0xFFFF;
+    idt[n].base_high = (uint16_t)((base >> 16) & 0xFFFFu);
 }
 
 void idt_init(void) {
-    for (int i = 0; i < 256; ++i) {
-        idt[i] = (struct idt_entry){0};
-    }
+    for (int i = 0; i < 256; ++i) idt[i] = (struct idt_entry){0};
 
     void (*handlers[48])(void) = {
         isr0,isr1,isr2,isr3,isr4,isr5,isr6,isr7,isr8,isr9,isr10,isr11,
@@ -46,9 +40,7 @@ void idt_init(void) {
         isr34,isr35,isr36,isr37,isr38,isr39,isr40,isr41,isr42,isr43,isr44,
         isr45,isr46,isr47
     };
-
-    for (int i = 0; i < 48; ++i)
-        idt_set_gate(i, (uint32_t)handlers[i]);
+    for (int i = 0; i < 48; ++i) idt_set_gate((uint8_t)i, (uint32_t)handlers[i]);
 
     extern void isr128(void);
     idt_set_gate(128, (uint32_t)isr128);
@@ -59,22 +51,27 @@ void idt_init(void) {
 }
 
 static volatile uint32_t ticks;
+extern uint32_t syscall_handle(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2);
 
 void interrupt_dispatch(uint32_t *frame) {
     uint32_t vector = frame[12];
+
+    if (vector == 128) {
+        /* pusha layout: EAX=frame[4], EBX=frame[7], ECX=frame[6], EDX=frame[5]. */
+        frame[4] = syscall_handle(frame[4], frame[7], frame[6], frame[5]);
+        return;
+    }
 
     if (vector == 32) {
         ++ticks;
         outb(0x20, 0x20);
     } else if (vector == 33) {
-        uint8_t scancode = inb(0x60);
-        (void)scancode;
+        (void)inb(0x60);
         outb(0x20, 0x20);
     } else if (vector >= 32 && vector < 48) {
-        outb(0x20, 0x20);
         if (vector >= 40) outb(0xA0, 0x20);
+        outb(0x20, 0x20);
     } else if (vector < 32) {
-        /* CPU exception: keep the kernel alive for now and halt interrupts. */
         __asm__ volatile ("cli");
     }
 }
