@@ -46,6 +46,8 @@ void process_init(void) {
         processes[i].pid = 0; processes[i].state = PROCESS_UNUSED; processes[i].page_directory = 0;
         processes[i].entry = 0; processes[i].user_stack = 0; processes[i].kernel_stack_top = 0;
         processes[i].saved_frame = 0; processes[i].user_code_page = 0; processes[i].user_stack_page = 0;
+        processes[i].user_page_count = 0;
+        for (uint32_t j = 0; j < LIONOS_PROCESS_MAX_USER_PAGES; ++j) processes[i].user_pages[j] = 0;
     }
     next_pid = 2; processes[0].pid = 1; processes[0].state = PROCESS_RUNNING;
     current = &processes[0]; init_bootstrap_frame();
@@ -63,17 +65,35 @@ const char *process_state_name(uint32_t state) {
 }
 uint32_t process_current_pid(void) { return current ? current->pid : 0; }
 
-struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
-                               uint32_t user_code_page, uint32_t user_stack_page) {
+struct process *process_create_ex(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                                  const uint32_t *user_pages, uint32_t user_page_count) {
     struct process *process = find_free_slot();
-    if (!process || page_directory == 0 || user_code_page == 0 || user_stack_page == 0) return 0;
+    if (!process || !page_directory || !user_pages || !user_page_count ||
+        user_page_count > LIONOS_PROCESS_MAX_USER_PAGES) return 0;
+
     void *kernel_stack = page_alloc();
     if (!kernel_stack) return 0;
+
     process->pid = next_pid++; if (next_pid == 0) next_pid = 2;
-    process->state = PROCESS_READY; process->page_directory = page_directory; process->entry = entry;
-    process->user_stack = user_stack; process->kernel_stack_top = (uint32_t)(uintptr_t)kernel_stack + 4096u;
-    process->saved_frame = 0; process->user_code_page = user_code_page; process->user_stack_page = user_stack_page;
-    init_interrupt_frame(process); return process;
+    process->state = PROCESS_READY;
+    process->page_directory = page_directory;
+    process->entry = entry;
+    process->user_stack = user_stack;
+    process->kernel_stack_top = (uint32_t)(uintptr_t)kernel_stack + 4096u;
+    process->saved_frame = 0;
+    process->user_page_count = user_page_count;
+    process->user_code_page = user_pages[0];
+    process->user_stack_page = user_pages[user_page_count - 1u];
+    for (uint32_t i = 0; i < user_page_count; ++i) process->user_pages[i] = user_pages[i];
+    for (uint32_t i = user_page_count; i < LIONOS_PROCESS_MAX_USER_PAGES; ++i) process->user_pages[i] = 0;
+    init_interrupt_frame(process);
+    return process;
+}
+
+struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                               uint32_t user_code_page, uint32_t user_stack_page) {
+    uint32_t pages[2] = { user_code_page, user_stack_page };
+    return process_create_ex(entry, user_stack, page_directory, pages, 2u);
 }
 
 int process_set_current(struct process *process) {
@@ -87,13 +107,16 @@ void process_exit_current(void) { if (current && current != &processes[0]) curre
 
 static void reap_process(struct process *process) {
     if (!process || process->state != PROCESS_ZOMBIE) return;
-    if (process->user_code_page) page_free((void *)(uintptr_t)process->user_code_page);
-    if (process->user_stack_page) page_free((void *)(uintptr_t)process->user_stack_page);
+    for (uint32_t i = 0; i < process->user_page_count; ++i) {
+        uint32_t page = process->user_pages[i];
+        if (page) page_free((void *)(uintptr_t)page);
+    }
     if (process->page_directory) paging_destroy_address_space(process->page_directory);
     if (process->kernel_stack_top) page_free((void *)(uintptr_t)(process->kernel_stack_top - 4096u));
     process->pid = 0; process->state = PROCESS_UNUSED; process->page_directory = 0; process->entry = 0;
     process->user_stack = 0; process->kernel_stack_top = 0; process->saved_frame = 0;
-    process->user_code_page = 0; process->user_stack_page = 0;
+    process->user_code_page = 0; process->user_stack_page = 0; process->user_page_count = 0;
+    for (uint32_t i = 0; i < LIONOS_PROCESS_MAX_USER_PAGES; ++i) process->user_pages[i] = 0;
 }
 
 uint32_t process_count(void) {
