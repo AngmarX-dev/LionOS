@@ -11,6 +11,7 @@
 #include "user.h"
 #include "console.h"
 #include "ramfs.h"
+#include "diskfs.h"
 #include "shell.h"
 #include "debug.h"
 
@@ -64,6 +65,13 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     console_write("[ OK ] Ring-3 address spaces / process reclamation\n");
 
     ramfs_init(); console_write("[ OK ] RAM filesystem / files and directories\n");
+    if (diskfs_init() == 0) {
+        console_write("[ OK ] ATA PIO / persistent LionFS\n");
+        debug_write("LIONOS:DISKFS\n");
+    } else {
+        console_write("[ -- ] Persistent disk unavailable (RAMFS only)\n");
+        debug_write("LIONOS:NO-DISK\n");
+    }
     console_write("[ OK ] Interactive console / scrolling / command shell\n");
     console_write("\nLionOS is ready.\n");
     debug_write("LIONOS:READY\n");
