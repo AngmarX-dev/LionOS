@@ -40,10 +40,11 @@ jobs:
           test -s build/lionos.iso
           test -s build/lionos-disk.img
 
-      - name: QEMU boot and persistent filesystem test
+      - name: QEMU SMP boot and persistent filesystem test
         run: |
           set +e
-          timeout 8s qemu-system-i386 \
+          timeout 10s qemu-system-i386 \
+            -smp 2 \
             -cdrom build/lionos.iso \
             -drive file=build/lionos-disk.img,format=raw,if=ide \
             -m 128M \
@@ -60,9 +61,12 @@ jobs:
           fi
           grep -q 'LIONOS:READY' qemu-first.log
           grep -q 'LIONOS:PERSIST-INIT' qemu-first.log
+          grep -q 'LIONOS:READY' qemu-first.log
+          grep -q 'CPU 1 online' qemu-first.log
 
           set +e
-          timeout 8s qemu-system-i386 \
+          timeout 10s qemu-system-i386 \
+            -smp 2 \
             -cdrom build/lionos.iso \
             -drive file=build/lionos-disk.img,format=raw,if=ide \
             -m 128M \
@@ -79,7 +83,8 @@ jobs:
           fi
           grep -q 'LIONOS:READY' qemu-second.log
           grep -q 'LIONOS:PERSIST-OK' qemu-second.log
-          echo "QEMU persistent filesystem test: PASS"
+          grep -q 'CPU 1 online' qemu-second.log
+          echo "QEMU SMP + persistent filesystem test: PASS"
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
