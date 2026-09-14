@@ -25,12 +25,14 @@ static inline uint32_t lion_syscall2(uint32_t number, uint32_t arg0, uint32_t ar
 static inline uint32_t lion_putc(char c) { return lion_syscall1(LIONOS_SYS_PUTC, (uint32_t)(uint8_t)c); }
 static inline uint32_t lion_getpid(void) { return lion_syscall0(LIONOS_SYS_GETPID); }
 static inline uint32_t lion_yield(void) { return lion_syscall0(LIONOS_SYS_YIELD); }
-static inline void lion_exit(void) { (void)lion_syscall0(LIONOS_SYS_EXIT); for (;;) __asm__ volatile ("hlt"); }
+static inline void lion_exit_code(uint32_t code) { (void)lion_syscall1(LIONOS_SYS_EXIT, code); for (;;) __asm__ volatile ("hlt"); }
+static inline void lion_exit(void) { lion_exit_code(0u); }
 static inline uint32_t lion_write(const char *s, uint32_t length) { return lion_syscall2(LIONOS_SYS_WRITE, (uint32_t)(uintptr_t)s, length); }
 static inline uint32_t lion_read(char *buffer, uint32_t length) { return lion_syscall2(LIONOS_SYS_READ, (uint32_t)(uintptr_t)buffer, length); }
 static inline uint32_t lion_clear(void) { return lion_syscall0(LIONOS_SYS_CLEAR); }
 static inline uint32_t lion_meminfo(void) { return lion_syscall0(LIONOS_SYS_MEMINFO); }
 static inline uint32_t lion_exec(const char *name) { return lion_syscall1(LIONOS_SYS_EXEC, (uint32_t)(uintptr_t)name); }
-static inline uint32_t lion_fork(void) { return lion_syscall1(LIONOS_SYS_FORK, 0u); }
+static inline uint32_t lion_fork(void) { return lion_syscall0(LIONOS_SYS_FORK); }
+static inline int32_t lion_waitpid(uint32_t pid) { return (int32_t)lion_syscall1(LIONOS_SYS_WAITPID, pid); }
 
 #endif
