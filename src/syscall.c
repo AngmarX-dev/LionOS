@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "keyboard.h"
 #include "process.h"
 #include "syscall.h"
 
@@ -22,13 +23,20 @@ static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, 
             return process_current_pid();
 
         case SYS_YIELD:
-            /* The dispatcher is ready for a scheduler; no context switch yet. */
             __asm__ volatile ("pause");
             return SYSCALL_OK;
 
         case SYS_EXIT:
             process_exit_current();
             return SYSCALL_OK;
+
+        case SYS_GETCHAR: {
+            int c = keyboard_getchar();
+            return (c < 0) ? SYSCALL_ERR : (uint32_t)(uint8_t)c;
+        }
+
+        case SYS_KBD_AVAIL:
+            return keyboard_available();
 
         default:
             return SYSCALL_ERR;
