@@ -20,6 +20,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Per-process address spaces and CR3 switching
 - ✅ User mappings across the lower 3 GiB
 - ✅ Kernel heap with `kmalloc` / `kfree`
+- 🚧 Copy-on-write memory
 
 ### Processes & syscalls
 - ✅ PID-based process table
@@ -34,8 +35,14 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Process exit codes
 - ✅ Deferred process resource reclamation
 - ✅ 5-argument system-call ABI
+- ✅ Explicit user-pointer/range validation at syscall boundaries
+- ✅ Bounded userspace string and I/O copies
+- ✅ Process ownership checks for signal delivery
+- ✅ Restricted signal control to child/descendant processes
 - ✅ VFS syscalls: `open`, `close`, `read`, `write`, `remove`, `stat`
 - ✅ Userspace file enumeration syscall
+- 🚧 Per-process file-descriptor tables
+- 🚧 Privilege separation / capabilities
 
 ### Executables & storage
 - ✅ Scrolling VGA console
@@ -77,6 +84,16 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Automated persistent-storage reboot test
 - 🚧 Automated VFS/userspace integration test
 - 📦 Bootable `lionos-iso` CI artifact
+
+## 🛡️ Security Model
+
+LionOS treats ring-3 userspace as untrusted code. Syscall entry points validate user virtual-address ranges before copying data, strings are bounded by fixed maximum lengths, and user I/O is capped to prevent oversized kernel copies.
+
+Process-control operations are ownership-aware: a userspace process may only signal its own child/descendant processes through the current `kill` interface. Kernel PID 1 is never exposed as a signal target through this interface.
+
+The ELF loader validates the executable structure and load ranges before creating a userspace address space. Kernel mappings are supervisor-only in cloned process page directories.
+
+This is an educational hardening layer, not a production security boundary. The next major isolation work includes per-process file descriptors, stronger privilege separation, and more complete memory-copy primitives.
 
 ## 🛠️ Build
 
@@ -142,7 +159,7 @@ The VFS currently provides a deliberately small interface suitable for the early
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, and a loopback networking layer.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, and a loopback networking layer.
 
 ## 🤖 AI-Assisted Development
 
