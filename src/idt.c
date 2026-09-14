@@ -5,6 +5,7 @@
 #include "process.h"
 #include "syscall.h"
 #include "tss.h"
+#include "console.h"
 
 struct idt_entry {
     uint16_t base_low;
@@ -56,6 +57,17 @@ void idt_init(void) {
 
 static volatile uint32_t ticks;
 
+static void page_fault_dump(uint32_t *frame, uint32_t fault_address) {
+    console_write("\n[PAGE FAULT] user process terminated\n");
+    console_write("  PID: ");
+    console_write_dec(process_current_pid());
+    console_write("  address: 0x");
+    console_write_hex(fault_address);
+    console_write("  error: 0x");
+    console_write_hex(frame[13]);
+    console_write("\n");
+}
+
 uint32_t *interrupt_dispatch(uint32_t *frame) {
     uint32_t vector = frame[12];
 
@@ -88,6 +100,26 @@ uint32_t *interrupt_dispatch(uint32_t *frame) {
     } else if (vector >= 32 && vector < 48) {
         if (vector >= 40) outb(0xA0, 0x20);
         outb(0x20, 0x20);
+    } else if (vector == 14) {
+        uint32_t fault_address;
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(fault_address));
+
+        /* Frame CS is slot 15. RPL3 means the fault came from userspace. */
+        if ((frame[15] & 0x3u) == 0x3u) {
+            page_fault_dump(frame, fault_address);
+            process_exit_current();
+            uint32_t *next = process_schedule(frame);
+            struct process *current = process_current();
+            if (current) tss_set_kernel_stack(process_kernel_stack_top(current));
+            return next ? next : frame;
+        }
+
+        console_write("\n[FATAL] kernel page fault at 0x");
+        console_write_hex(fault_address);
+        console_write(" error=0x");
+        console_write_hex(frame[13]);
+        console_write("\nSystem halted.\n");
+        for (;;) __asm__ volatile ("cli; hlt");
     } else if (vector < 32) {
         __asm__ volatile ("cli");
     }
