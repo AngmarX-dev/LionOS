@@ -57,12 +57,14 @@ int process_set_current(struct process *process) {
 }
 
 void process_exit_current(void) {
-    if (!current) return;
+    if (!current || current == &processes[0]) return;
+
     current->state = PROCESS_UNUSED;
     current->pid = 0;
     current->page_directory = 0;
     current->entry = 0;
     current->user_stack = 0;
+
     current = &processes[0];
     current->state = PROCESS_RUNNING;
 }
