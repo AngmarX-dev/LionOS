@@ -50,6 +50,8 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ `run <program.elf>` launcher
 - ✅ True `exec()` replacement semantics with PID preservation
 - ✅ Minimal userspace C runtime and libc
+- ✅ Expanded userspace libc: `memmove`, `memcmp`, `strncmp`, `strchr`, `strrchr`, `atoi`
+- ✅ Runtime libc self-test integrated into `process_test.elf`
 - ✅ Compiler-built 32-bit `hello.elf` embedded in RAMFS
 - ✅ Compiler-built `process_test.elf` embedded in RAMFS
 - 🚧 Persistent disk filesystem
@@ -64,6 +66,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 
 The process lifecycle test exercises:
 
+- Userspace libc string and memory primitives
 - `fork()` parent/child return values
 - Round-robin scheduling with explicit `yield()` calls
 - Blocking `waitpid()`
