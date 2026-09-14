@@ -12,6 +12,7 @@
 #include "console.h"
 #include "ramfs.h"
 #include "shell.h"
+#include "debug.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -20,10 +21,12 @@ void syscall_init(void);
 static void boot_dec(uint32_t value) { console_write_dec(value); }
 
 void kernel_main(uint32_t magic, uint32_t multiboot_info) {
+    debug_write("LIONOS:BOOT\n");
     console_init();
     console_write("LionOS kernel booting...\n\n");
 
     if (magic != 0x36D76289u) {
+        debug_write("LIONOS:BAD-MULTIBOOT\n");
         console_write("ERROR: invalid Multiboot2 magic.\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
@@ -63,6 +66,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     ramfs_init(); console_write("[ OK ] RAM filesystem / files and directories\n");
     console_write("[ OK ] Interactive console / scrolling / command shell\n");
     console_write("\nLionOS is ready.\n");
+    debug_write("LIONOS:READY\n");
 
     __asm__ volatile ("sti");
     shell_run();
