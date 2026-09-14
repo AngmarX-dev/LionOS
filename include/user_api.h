@@ -33,5 +33,9 @@ static inline uint32_t lion_ipc_pending(void){return lion_syscall0(LIONOS_SYS_IP
 static inline int32_t lion_kill(uint32_t pid,uint32_t signal){return(int32_t)lion_syscall2(LIONOS_SYS_KILL,pid,signal);}
 static inline int32_t lion_getstate(uint32_t pid){return(int32_t)lion_syscall1(LIONOS_SYS_GETSTATE,pid);}
 static inline uint32_t lion_sigpending(uint32_t pid){return lion_syscall1(LIONOS_SYS_SIGPENDING,pid);}
+static inline int32_t lion_net_send(uint32_t ip,uint16_t src_port,uint16_t dst_port,const void*data,uint32_t length){return(int32_t)lion_syscall3(LIONOS_SYS_NET_SEND,ip,((uint32_t)src_port<<16)|dst_port,(uint32_t)(uintptr_t)data);}
+static inline int32_t lion_net_recv(uint16_t port,void*data,uint32_t capacity,uint32_t*src_ip,uint16_t*src_port){return(int32_t)lion_syscall3(LIONOS_SYS_NET_RECV,port,(uint32_t)(uintptr_t)data,(capacity&0xFFFFu)|((uint32_t)(uintptr_t)src_ip<<16));}
+static inline uint32_t lion_net_pending(uint16_t port){return lion_syscall1(LIONOS_SYS_NET_PENDING,port);}
+static inline uint32_t lion_net_getip(void){return lion_syscall0(LIONOS_SYS_NET_GETIP);}
 
 #endif
