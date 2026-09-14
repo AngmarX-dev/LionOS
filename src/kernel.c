@@ -94,13 +94,14 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     }
 
     syscall_init();
-    kputs("[ OK ] Syscall ABI / SYS_PUTC / SYS_GETPID / SYS_YIELD\n");
+    kputs("[ OK ] Syscall ABI / PUTC / GETPID / YIELD / EXIT\n");
 
     process_init();
     kputs("[ OK ] Process table / PID 1 bootstrap process\n");
+    kputs("[ OK ] Round-robin scheduler / saved interrupt contexts\n");
 
     kputs("[ OK ] Ring-3 address space prepared\n");
-    kputs("Entering user mode: SYS_PUTC test...\n");
+    kputs("Entering user mode: scheduler test A/B...\n");
 
     __asm__ volatile ("sti");
     if (user_mode_test() != 0) {
