@@ -22,6 +22,7 @@ struct process {
     uint32_t user_code_page;
     uint32_t user_stack_page;
     uint32_t user_pages[LIONOS_PROCESS_MAX_USER_PAGES];
+    uint32_t user_page_vas[LIONOS_PROCESS_MAX_USER_PAGES];
     uint32_t user_page_count;
 };
 
@@ -34,8 +35,12 @@ struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t pag
                                uint32_t user_code_page, uint32_t user_stack_page);
 struct process *process_create_ex(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
                                   const uint32_t *user_pages, uint32_t user_page_count);
+struct process *process_create_ex_vas(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                                      const uint32_t *user_pages, const uint32_t *user_page_vas,
+                                      uint32_t user_page_count);
 int process_set_current(struct process *process);
 void process_exit_current(void);
+uint32_t process_fork_current(uint32_t *parent_frame);
 uint32_t process_count(void);
 uint32_t *process_schedule(uint32_t *frame);
 void process_set_saved_frame(struct process *process, uint32_t *frame);
