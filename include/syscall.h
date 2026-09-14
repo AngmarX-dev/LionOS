@@ -22,7 +22,8 @@
 #define SYSCALL_OK LIONOS_SYSCALL_OK
 #define SYSCALL_ERR LIONOS_SYSCALL_ERR
 
-uint32_t syscall_handle(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2);
+uint32_t syscall_handle(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2,
+                        uint32_t arg3, uint32_t arg4);
 void syscall_init(void);
 
 #endif
