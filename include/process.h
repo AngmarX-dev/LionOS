@@ -10,6 +10,7 @@
 #define PROCESS_RUNNING 2u
 #define PROCESS_ZOMBIE 3u
 #define PROCESS_WAITING 4u
+#define PROCESS_STOPPED 5u
 #define PROCESS_CONTEXT_WORDS 19u
 
 struct process {
@@ -31,6 +32,7 @@ struct process {
     uint32_t user_pages[LIONOS_PROCESS_MAX_USER_PAGES];
     uint32_t user_page_vas[LIONOS_PROCESS_MAX_USER_PAGES];
     uint32_t user_page_count;
+    uint32_t pending_signals;
 };
 
 void process_init(void);
