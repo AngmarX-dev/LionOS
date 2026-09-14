@@ -1,10 +1,10 @@
 #include <stdint.h>
 #include "lapic.h"
 #include "paging.h"
-#include "memory.h"
 
 #define IA32_APIC_BASE_MSR 0x1Bu
 #define APIC_BASE_ENABLE 0x800u
+#define CPUID_APIC_BIT (1u << 9)
 #define LAPIC_REG_ID 0x020u
 #define LAPIC_REG_SIVR 0x0F0u
 #define LAPIC_REG_EOI 0x0B0u
@@ -25,6 +25,13 @@ static void wrmsr(uint32_t msr, uint64_t value) {
     __asm__ volatile("wrmsr" : : "c"(msr), "a"(lo), "d"(hi) : "memory");
 }
 
+static int cpu_has_apic(void) {
+    uint32_t a, b, c, d;
+    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1u), "c"(0u));
+    (void)a; (void)b; (void)c;
+    return (d & CPUID_APIC_BIT) != 0u;
+}
+
 static uint32_t read_reg(uint32_t reg) { return lapic[reg / 4u]; }
 static void write_reg(uint32_t reg, uint32_t value) { lapic[reg / 4u] = value; }
 
@@ -37,13 +44,15 @@ void lapic_enable(void) {
 }
 
 int lapic_init(void) {
+    if (!cpu_has_apic()) return -1;
+
     uint64_t base = rdmsr(IA32_APIC_BASE_MSR);
     if ((base & APIC_BASE_ENABLE) == 0u) {
         base |= APIC_BASE_ENABLE;
         wrmsr(IA32_APIC_BASE_MSR, base);
     }
 
-    /* The first 256 MiB is identity mapped; add the APIC MMIO page above it. */
+    /* Add the APIC MMIO page above the identity-mapped low memory region. */
     if (paging_map_kernel_page(LIONOS_LAPIC_VIRT, LIONOS_LAPIC_PHYS, 0x3u) != 0)
         return -1;
 
