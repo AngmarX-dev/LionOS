@@ -10,6 +10,10 @@
 #define SYS_EXIT        4u
 #define SYS_GETCHAR     5u
 #define SYS_KBD_AVAIL   6u
+#define SYS_WRITE       7u
+#define SYS_READ        8u
+#define SYS_CLEAR       9u
+#define SYS_MEMINFO     10u
 
 #define SYSCALL_OK 0u
 #define SYSCALL_ERR ((uint32_t)-1)
