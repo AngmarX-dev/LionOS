@@ -33,31 +33,53 @@ jobs:
             readelf -l "$elf" | grep -q 'LOAD'
           done
 
-      - name: Build ISO
-        run: make iso
+      - name: Build ISO and persistent disk
+        run: |
+          make iso
+          make disk
+          test -s build/lionos.iso
+          test -s build/lionos-disk.img
 
-      - name: Verify ISO exists
-        run: test -s build/lionos.iso
-
-      - name: QEMU boot smoke test
+      - name: QEMU boot and persistent filesystem test
         run: |
           set +e
           timeout 8s qemu-system-i386 \
             -cdrom build/lionos.iso \
+            -drive file=build/lionos-disk.img,format=raw,if=ide \
             -m 128M \
             -display none \
             -serial none \
             -debugcon stdio \
-            -global isa-debugcon.iobase=0xE9 > qemu.log 2>&1
-          status=$?
+            -global isa-debugcon.iobase=0xE9 > qemu-first.log 2>&1
+          first_status=$?
           set -e
-          cat qemu.log
-          if [ "$status" -ne 124 ]; then
-            echo "QEMU exited unexpectedly with status $status"
+          cat qemu-first.log
+          if [ "$first_status" -ne 124 ]; then
+            echo "First QEMU boot exited unexpectedly with status $first_status"
             exit 1
           fi
-          grep -q 'LIONOS:READY' qemu.log
-          echo "QEMU smoke test: LionOS reached READY"
+          grep -q 'LIONOS:READY' qemu-first.log
+          grep -q 'LIONOS:PERSIST-INIT' qemu-first.log
+
+          set +e
+          timeout 8s qemu-system-i386 \
+            -cdrom build/lionos.iso \
+            -drive file=build/lionos-disk.img,format=raw,if=ide \
+            -m 128M \
+            -display none \
+            -serial none \
+            -debugcon stdio \
+            -global isa-debugcon.iobase=0xE9 > qemu-second.log 2>&1
+          second_status=$?
+          set -e
+          cat qemu-second.log
+          if [ "$second_status" -ne 124 ]; then
+            echo "Second QEMU boot exited unexpectedly with status $second_status"
+            exit 1
+          fi
+          grep -q 'LIONOS:READY' qemu-second.log
+          grep -q 'LIONOS:PERSIST-OK' qemu-second.log
+          echo "QEMU persistent filesystem test: PASS"
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
