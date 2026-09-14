@@ -14,38 +14,51 @@ static int streq(const char *a, const char *b) {
     return *a == *b;
 }
 
-void ramfs_init(void) {
-    count = 2;
-    const char *n0 = "readme.txt"; const char *d0 = "Welcome to LionOS.\nBuilt as an experimental 32-bit x86 OS.\n";
-    const char *n1 = "version"; const char *d1 = "LionOS 0.2\n";
-    for (uint32_t i = 0; i < RAMFS_NAME_MAX - 1u && n0[i]; ++i) files[0].name[i] = n0[i];
-    for (uint32_t i = 0; i < RAMFS_DATA_MAX && d0[i]; ++i) files[0].data[i] = d0[i];
-    files[0].size = 61u;
-    for (uint32_t i = 0; i < RAMFS_NAME_MAX - 1u && n1[i]; ++i) files[1].name[i] = n1[i];
-    for (uint32_t i = 0; i < RAMFS_DATA_MAX && d1[i]; ++i) files[1].data[i] = d1[i];
-    files[1].size = 12u;
-}
-
 static struct ramfs_file *find(const char *name) {
     for (uint32_t i = 0; i < count; ++i) if (streq(files[i].name, name)) return &files[i];
     return 0;
+}
+
+static void copy_name(char *dst, const char *src) {
+    uint32_t i = 0;
+    while (src[i] && i < RAMFS_NAME_MAX - 1u) { dst[i] = src[i]; ++i; }
+    dst[i] = 0;
+}
+
+void ramfs_init(void) {
+    count = 0;
+    ramfs_write("readme.txt", "Welcome to LionOS.\nBuilt as an experimental 32-bit x86 OS.\n", 61u);
+    ramfs_write("version", "LionOS 0.3\n", 12u);
+    ramfs_write("motd", "The LionOS kernel is alive.\n", 28u);
 }
 
 uint32_t ramfs_count(void) { return count; }
 const char *ramfs_name(uint32_t index) { return index < count ? files[index].name : 0; }
 const char *ramfs_data(const char *name) { struct ramfs_file *f = find(name); return f ? f->data : 0; }
 uint32_t ramfs_size(const char *name) { struct ramfs_file *f = find(name); return f ? f->size : 0; }
+int ramfs_exists(const char *name) { return find(name) != 0; }
 
 int ramfs_write(const char *name, const char *data, uint32_t size) {
+    if (!name || !*name || !data) return -1;
     struct ramfs_file *f = find(name);
     if (!f) {
         if (count >= RAMFS_MAX_FILES) return -1;
         f = &files[count++];
-        uint32_t i = 0; while (name[i] && i < RAMFS_NAME_MAX - 1u) { f->name[i] = name[i]; ++i; }
-        f->name[i] = 0;
+        copy_name(f->name, name);
     }
     if (size > RAMFS_DATA_MAX) size = RAMFS_DATA_MAX;
     for (uint32_t i = 0; i < size; ++i) f->data[i] = data[i];
     f->size = size;
     return 0;
+}
+
+int ramfs_remove(const char *name) {
+    for (uint32_t i = 0; i < count; ++i) {
+        if (streq(files[i].name, name)) {
+            for (uint32_t j = i + 1u; j < count; ++j) files[j - 1u] = files[j];
+            --count;
+            return 0;
+        }
+    }
+    return -1;
 }
