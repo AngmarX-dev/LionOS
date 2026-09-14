@@ -13,6 +13,58 @@ after_magic:
     dd 8
 multiboot_header_end:
 
+section .smp_trampoline
+align 16
+global smp_trampoline_cr3
+global smp_trampoline_entry
+global smp_trampoline_stack
+global smp_trampoline_cpu
+
+BITS 16
+smp_trampoline_start:
+    cli
+    xor ax, ax
+    mov ds, ax
+    lgdt [smp_gdt_ptr]
+    mov eax, cr0
+    or eax, 1
+    mov cr0, eax
+    jmp 0x08:smp_protected_entry
+
+BITS 32
+smp_protected_entry:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov esp, [smp_trampoline_stack]
+    mov eax, [smp_trampoline_cr3]
+    mov cr3, eax
+    mov eax, cr0
+    or eax, 0x80000000
+    mov cr0, eax
+    mov eax, [smp_trampoline_entry]
+    jmp eax
+
+align 8
+smp_gdt:
+    dq 0x0000000000000000
+    dq 0x00CF9A000000FFFF
+    dq 0x00CF92000000FFFF
+smp_gdt_end:
+
+smp_gdt_ptr:
+    dw smp_gdt_end - smp_gdt - 1
+    dd smp_gdt
+
+align 4
+smp_trampoline_cr3: dd 0
+smp_trampoline_entry: dd 0
+smp_trampoline_stack: dd 0
+smp_trampoline_cpu: dd 0
+smp_trampoline_end:
+
 section .bss
 align 16
 stack_bottom:
