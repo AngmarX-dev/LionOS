@@ -24,6 +24,7 @@ int exec_validate_image(const uint8_t *image, uint32_t size, uint32_t *entry, ui
         if (p->vaddr < USER_BASE || p->vaddr >= 0xC0000000u) return -1;
         if (p->memsz > 0xC0000000u - p->vaddr) return -1;
         if (align_down(p->vaddr) != USER_BASE || p->memsz > PAGE_SIZE) return -1;
+        if (p->filesz > p->memsz || (p->vaddr - USER_BASE) > PAGE_SIZE - p->memsz) return -1;
         if ((p->flags & 0x7u) == 0) return -1;
     }
     if (!load_count || *entry < USER_BASE || *entry >= 0xC0000000u) return -1;
