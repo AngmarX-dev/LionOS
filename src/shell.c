@@ -26,8 +26,9 @@ static void cmd_cat(char *arg) {
     if (!*arg) { console_write("usage: cat <file>\n"); return; }
     const char *data = ramfs_data(arg);
     if (!data) { console_write("cat: file not found\n"); return; }
-    console_write_n(data, ramfs_size(arg));
-    if (ramfs_size(arg) && data[ramfs_size(arg) - 1u] != '\n') console_putc('\n');
+    uint32_t size = ramfs_size(arg);
+    console_write_n(data, size);
+    if (size && data[size - 1u] != '\n') console_putc('\n');
 }
 
 static void cmd_write(char *arg) {
@@ -52,7 +53,7 @@ static void cmd_ps(void) {
         console_write_dec(p->pid);
         console_write("    ");
         console_write(process_state_name(p->state));
-        console_write("    0x");
+        console_write("    ");
         console_write_hex(p->entry);
         console_putc('\n');
     }
