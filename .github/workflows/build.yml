@@ -61,8 +61,7 @@ jobs:
           fi
           grep -q 'LIONOS:READY' qemu-first.log
           grep -q 'LIONOS:PERSIST-INIT' qemu-first.log
-          grep -q 'LIONOS:READY' qemu-first.log
-          grep -q 'CPU 1 online' qemu-first.log
+          grep -q 'LIONOS:SMP-CPU-ONLINE' qemu-first.log
 
           set +e
           timeout 10s qemu-system-i386 \
@@ -83,7 +82,7 @@ jobs:
           fi
           grep -q 'LIONOS:READY' qemu-second.log
           grep -q 'LIONOS:PERSIST-OK' qemu-second.log
-          grep -q 'CPU 1 online' qemu-second.log
+          grep -q 'LIONOS:SMP-CPU-ONLINE' qemu-second.log
           echo "QEMU SMP + persistent filesystem test: PASS"
 
       - name: Upload ISO
