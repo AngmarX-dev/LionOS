@@ -105,11 +105,11 @@ iso: $(KERNEL)
 disk: | $(BUILD)
 	if [ ! -f $(DISK) ]; then truncate -s 8M $(DISK); fi
 
-check: $(KERNEL)
+check: iso disk
 	grub-file --is-x86-multiboot2 $(KERNEL)
 
 run: iso disk
-	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 128M
+	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 128M -smp 2
 
 clean:
 	rm -rf $(BUILD)
