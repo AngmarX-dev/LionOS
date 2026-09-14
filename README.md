@@ -47,7 +47,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ ELF-backed ring-3 process creation
 - ✅ Initial `argc` / `argv` stack
 - ✅ `run <program.elf>` launcher
-- 🚧 True `exec()` replacement semantics
+- ✅ True `exec()` replacement semantics with PID preservation
 - 🚧 Userspace libc / program API
 - 🚧 Persistent disk filesystem
 
@@ -88,7 +88,7 @@ lion> ps
 lion> mem
 lion> cat readme.txt
 lion> write hello.txt Hello from LionOS
-lion> cat hello.txt
+lion> cat readme.txt
 lion> rm hello.txt
 ```
 
@@ -96,7 +96,7 @@ RAMFS is memory-backed and recreated on every boot.
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, system calls, keyboard/console drivers, RAMFS, and an ELF32 executable loader.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` process primitives, in-place `exec()` replacement, system calls, keyboard/console drivers, RAMFS, and an ELF32 executable loader.
 
 ## 🤖 AI-Assisted Development
 
