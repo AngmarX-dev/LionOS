@@ -28,7 +28,7 @@ case SYS_CLEAR:console_clear();return SYSCALL_OK;
 case SYS_MEMINFO:return memory_free_pages();
 case SYS_EXEC:{char name[64];if(copy_user_string(name,sizeof(name),arg0)!=0)return SYSCALL_ERR;int pid=exec_replace_current(name);return pid<0?SYSCALL_ERR:(uint32_t)pid;}
 case SYS_FORK:return process_fork_current(0);
-case SYS_WAITPID:{int32_t result=process_waitpid(arg0);return result==PROCESS_WAIT_BLOCKED?PROCESS_WAIT_BLOCKED:(uint32_t)result;}
+case SYS_WAITPID:if(!user_range_ok(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t result=process_waitpid(arg0,arg1);return result==PROCESS_WAIT_BLOCKED?PROCESS_WAIT_BLOCKED:(uint32_t)result;}
 default:return SYSCALL_ERR;}}
 
 void syscall_init(void){(void)syscall_dispatch;}
