@@ -7,6 +7,7 @@
 #define PROCESS_UNUSED 0u
 #define PROCESS_READY 1u
 #define PROCESS_RUNNING 2u
+#define PROCESS_ZOMBIE 3u
 
 #define PROCESS_CONTEXT_WORDS 19u
 
@@ -18,12 +19,15 @@ struct process {
     uint32_t user_stack;
     uint32_t kernel_stack_top;
     uint32_t saved_frame;
+    uint32_t user_code_page;
+    uint32_t user_stack_page;
 };
 
 void process_init(void);
 struct process *process_current(void);
 uint32_t process_current_pid(void);
-struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory);
+struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                               uint32_t user_code_page, uint32_t user_stack_page);
 int process_set_current(struct process *process);
 void process_exit_current(void);
 uint32_t process_count(void);
