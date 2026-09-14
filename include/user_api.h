@@ -4,10 +4,12 @@
 #include <stdint.h>
 #include "uapi.h"
 
-static inline uint32_t lion_syscall0(uint32_t n){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n):"ebx","ecx","edx","memory");return r;}
-static inline uint32_t lion_syscall1(uint32_t n,uint32_t a){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a):"ecx","edx","memory");return r;}
-static inline uint32_t lion_syscall2(uint32_t n,uint32_t a,uint32_t b){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b):"edx","memory");return r;}
-static inline uint32_t lion_syscall3(uint32_t n,uint32_t a,uint32_t b,uint32_t c){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c):"memory");return r;}
+static inline uint32_t lion_syscall0(uint32_t n){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n):"ebx","ecx","edx","esi","edi","memory");return r;}
+static inline uint32_t lion_syscall1(uint32_t n,uint32_t a){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a):"ecx","edx","esi","edi","memory");return r;}
+static inline uint32_t lion_syscall2(uint32_t n,uint32_t a,uint32_t b){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b):"edx","esi","edi","memory");return r;}
+static inline uint32_t lion_syscall3(uint32_t n,uint32_t a,uint32_t b,uint32_t c){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c):"esi","edi","memory");return r;}
+static inline uint32_t lion_syscall4(uint32_t n,uint32_t a,uint32_t b,uint32_t c,uint32_t d){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c),"S"(d):"edi","memory");return r;}
+static inline uint32_t lion_syscall5(uint32_t n,uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c),"S"(d),"D"(e):"memory");return r;}
 static inline uint32_t lion_putc(char c){return lion_syscall1(LIONOS_SYS_PUTC,(uint32_t)(uint8_t)c);}
 static inline uint32_t lion_getpid(void){return lion_syscall0(LIONOS_SYS_GETPID);}
 static inline uint32_t lion_getppid(void){return lion_syscall0(LIONOS_SYS_GETPPID);}
@@ -33,8 +35,8 @@ static inline uint32_t lion_ipc_pending(void){return lion_syscall0(LIONOS_SYS_IP
 static inline int32_t lion_kill(uint32_t pid,uint32_t signal){return(int32_t)lion_syscall2(LIONOS_SYS_KILL,pid,signal);}
 static inline int32_t lion_getstate(uint32_t pid){return(int32_t)lion_syscall1(LIONOS_SYS_GETSTATE,pid);}
 static inline uint32_t lion_sigpending(uint32_t pid){return lion_syscall1(LIONOS_SYS_SIGPENDING,pid);}
-static inline int32_t lion_net_send(uint32_t ip,uint16_t src_port,uint16_t dst_port,const void*data,uint32_t length){return(int32_t)lion_syscall3(LIONOS_SYS_NET_SEND,ip,((uint32_t)src_port<<16)|dst_port,(uint32_t)(uintptr_t)data);}
-static inline int32_t lion_net_recv(uint16_t port,void*data,uint32_t capacity,uint32_t*src_ip,uint16_t*src_port){return(int32_t)lion_syscall3(LIONOS_SYS_NET_RECV,port,(uint32_t)(uintptr_t)data,(capacity&0xFFFFu)|((uint32_t)(uintptr_t)src_ip<<16));}
+static inline int32_t lion_net_send(uint32_t ip,uint16_t src_port,uint16_t dst_port,const void*data,uint32_t length){return(int32_t)lion_syscall4(LIONOS_SYS_NET_SEND,ip,((uint32_t)src_port<<16)|dst_port,(uint32_t)(uintptr_t)data,length);}
+static inline int32_t lion_net_recv(uint16_t port,void*data,uint32_t capacity,uint32_t*src_ip,uint16_t*src_port){return(int32_t)lion_syscall5(LIONOS_SYS_NET_RECV,port,(uint32_t)(uintptr_t)data,capacity,(uint32_t)(uintptr_t)src_ip,(uint32_t)(uintptr_t)src_port);}
 static inline uint32_t lion_net_pending(uint16_t port){return lion_syscall1(LIONOS_SYS_NET_PENDING,port);}
 static inline uint32_t lion_net_getip(void){return lion_syscall0(LIONOS_SYS_NET_GETIP);}
 
