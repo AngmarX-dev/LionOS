@@ -7,6 +7,7 @@
 #include "console.h"
 #include "debug.h"
 #include "tss.h"
+#include "idt.h"
 #include "spinlock.h"
 
 extern uint32_t smp_trampoline_cr3;
@@ -28,6 +29,10 @@ void smp_ap_main(void){
     uint32_t stack_top=ap_stacks[index]+LIONOS_SMP_STACK_PAGES*4096u;
     cpu_mark_online(index,lapic_id());
     tss_init_cpu(index,stack_top);
+    /* The AP arrives from reset with an unusable/temporary IDT.  Load the
+       kernel IDT before enabling interrupts so every AP uses the same ISR
+       table, including the LAPIC timer vector. */
+    idt_load_current();
     __asm__ volatile("sti");
     for(;;)__asm__ volatile("hlt");
 }
