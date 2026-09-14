@@ -1,13 +1,12 @@
 #include <stdint.h>
 #include "memory.h"
 #include "paging.h"
+#include "process.h"
 #include "user.h"
 
-#define USER_CODE_VA  0x00400000u
-#define USER_STACK_VA 0x00401000u
+#define USER_CODE_VA   0x00400000u
+#define USER_STACK_VA  0x00401000u
 #define USER_STACK_TOP 0x00402000u
-#define USER_CODE_SEL 0x23u
-#define USER_DATA_SEL 0x2Bu
 
 static void enter_user_mode(uint32_t entry, uint32_t stack) __attribute__((noreturn));
 
@@ -30,7 +29,6 @@ static void enter_user_mode(uint32_t entry, uint32_t stack) {
         : [user_entry] "r"(entry), [user_stack] "r"(stack)
         : "ax", "memory"
     );
-
     __builtin_unreachable();
 }
 
@@ -44,10 +42,10 @@ int user_mode_test(void) {
         return -1;
     }
 
-    /* mov eax,1; mov ebx,42; int 0x80; jmp $-2 */
+    /* SYS_PUTC('!'): EAX=1, EBX='!', INT 0x80, then spin. */
     static const uint8_t program[] = {
         0xB8, 0x01, 0x00, 0x00, 0x00,
-        0xBB, 0x2A, 0x00, 0x00, 0x00,
+        0xBB, 0x21, 0x00, 0x00, 0x00,
         0xCD, 0x80,
         0xEB, 0xFE
     };
@@ -61,6 +59,15 @@ int user_mode_test(void) {
         page_free(stack);
         return -1;
     }
+
+    struct process *process = process_current();
+    if (!process) {
+        page_free(code);
+        page_free(stack);
+        return -1;
+    }
+    process->entry = USER_CODE_VA;
+    process->user_stack = USER_STACK_TOP;
 
     enter_user_mode(USER_CODE_VA, USER_STACK_TOP);
 }
