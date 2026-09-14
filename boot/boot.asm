@@ -49,6 +49,7 @@ isr_common:
     push esp
     call interrupt_dispatch
     add esp, 4
+    mov esp, eax
     pop gs
     pop fs
     pop es
@@ -89,7 +90,7 @@ ISR_ERR   13
 ISR_ERR   14
 ISR_NOERR 15
 ISR_NOERR 16
-ISR_ERR   17
+ISR_NOERR 17
 ISR_NOERR 18
 ISR_NOERR 19
 ISR_NOERR 20
