@@ -2,15 +2,15 @@
 #include "memory.h"
 #include "paging.h"
 #include "process.h"
+#include "tss.h"
 
 static struct process processes[LIONOS_PROCESS_MAX];
 static struct process *current;
 static uint32_t next_pid;
 
 static struct process *find_free_slot(void) {
-    for (uint32_t i = 0; i < LIONOS_PROCESS_MAX; ++i) {
+    for (uint32_t i = 0; i < LIONOS_PROCESS_MAX; ++i)
         if (processes[i].state == PROCESS_UNUSED) return &processes[i];
-    }
     return 0;
 }
 
@@ -20,22 +20,17 @@ static uint32_t process_index(const struct process *process) {
 
 static void init_interrupt_frame(struct process *process) {
     uint32_t *frame = (uint32_t *)(uintptr_t)(process->kernel_stack_top - PROCESS_CONTEXT_WORDS * 4u);
-
     for (uint32_t i = 0; i < PROCESS_CONTEXT_WORDS; ++i) frame[i] = 0;
 
-    /* GS FS ES DS, pusha, vector/error, IRET frame. */
     frame[0] = 0x2Bu;
     frame[1] = 0x2Bu;
     frame[2] = 0x2Bu;
     frame[3] = 0x2Bu;
-    frame[12] = 0;
-    frame[13] = 0;
     frame[14] = process->entry;
     frame[15] = 0x23u;
     frame[16] = 0x202u;
     frame[17] = process->user_stack;
     frame[18] = 0x2Bu;
-
     process->saved_frame = (uint32_t)(uintptr_t)frame;
 }
 
@@ -76,6 +71,8 @@ void process_init(void) {
         processes[i].user_stack = 0;
         processes[i].kernel_stack_top = 0;
         processes[i].saved_frame = 0;
+        processes[i].user_code_page = 0;
+        processes[i].user_stack_page = 0;
     }
 
     next_pid = 2;
@@ -86,15 +83,15 @@ void process_init(void) {
 }
 
 struct process *process_current(void) { return current; }
-
 uint32_t process_current_pid(void) { return current ? current->pid : 0; }
 
-struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory) {
+struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                               uint32_t user_code_page, uint32_t user_stack_page) {
     struct process *process = find_free_slot();
-    if (!process || page_directory == 0) return 0;
+    if (!process || page_directory == 0 || user_code_page == 0 || user_stack_page == 0) return 0;
 
-    void *stack_page = page_alloc();
-    if (!stack_page) return 0;
+    void *kernel_stack = page_alloc();
+    if (!kernel_stack) return 0;
 
     process->pid = next_pid++;
     if (next_pid == 0) next_pid = 2;
@@ -102,8 +99,10 @@ struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t pag
     process->page_directory = page_directory;
     process->entry = entry;
     process->user_stack = user_stack;
-    process->kernel_stack_top = (uint32_t)(uintptr_t)stack_page + 4096u;
+    process->kernel_stack_top = (uint32_t)(uintptr_t)kernel_stack + 4096u;
     process->saved_frame = 0;
+    process->user_code_page = user_code_page;
+    process->user_stack_page = user_stack_page;
     init_interrupt_frame(process);
     return process;
 }
@@ -115,19 +114,33 @@ int process_set_current(struct process *process) {
     current = process;
     current->state = PROCESS_RUNNING;
     paging_switch_address_space(current->page_directory);
+    tss_set_kernel_stack(current->kernel_stack_top);
     return 0;
 }
 
 void process_exit_current(void) {
     if (!current || current == &processes[0]) return;
+    current->state = PROCESS_ZOMBIE;
+}
 
-    current->state = PROCESS_UNUSED;
-    current->pid = 0;
-    current->page_directory = 0;
-    current->entry = 0;
-    current->user_stack = 0;
-    current->saved_frame = 0;
-    /* Physical pages and page-table pages are reclaimed by a future reaper. */
+static void reap_process(struct process *process) {
+    if (!process || process->state != PROCESS_ZOMBIE) return;
+
+    if (process->user_code_page) page_free((void *)(uintptr_t)process->user_code_page);
+    if (process->user_stack_page) page_free((void *)(uintptr_t)process->user_stack_page);
+    if (process->page_directory) paging_destroy_address_space(process->page_directory);
+    if (process->kernel_stack_top)
+        page_free((void *)(uintptr_t)(process->kernel_stack_top - 4096u));
+
+    process->pid = 0;
+    process->state = PROCESS_UNUSED;
+    process->page_directory = 0;
+    process->entry = 0;
+    process->user_stack = 0;
+    process->kernel_stack_top = 0;
+    process->saved_frame = 0;
+    process->user_code_page = 0;
+    process->user_stack_page = 0;
 }
 
 uint32_t process_count(void) {
@@ -152,6 +165,7 @@ uint32_t process_kernel_stack_top(struct process *process) {
 uint32_t *process_schedule(uint32_t *frame) {
     if (!current) return frame;
 
+    struct process *previous = current;
     if (current->state == PROCESS_RUNNING)
         current->saved_frame = (uint32_t)(uintptr_t)frame;
 
@@ -165,17 +179,23 @@ uint32_t *process_schedule(uint32_t *frame) {
         current = candidate;
         current->state = PROCESS_RUNNING;
         paging_switch_address_space(current->page_directory);
+        tss_set_kernel_stack(current->kernel_stack_top);
+
+        if (previous != current) reap_process(previous);
         return process_saved_frame(current);
     }
 
-    if (current->state == PROCESS_UNUSED) {
+    if (current->state == PROCESS_ZOMBIE) {
         current = &processes[0];
         current->state = PROCESS_RUNNING;
         paging_switch_address_space(current->page_directory);
+        tss_set_kernel_stack(current->kernel_stack_top);
+        reap_process(previous);
         return process_saved_frame(current);
     }
 
     current->state = PROCESS_RUNNING;
+    tss_set_kernel_stack(current->kernel_stack_top);
     return frame;
 }
 
