@@ -14,6 +14,7 @@
 #define SYS_READ        8u
 #define SYS_CLEAR       9u
 #define SYS_MEMINFO     10u
+#define SYS_EXEC        11u
 
 #define SYSCALL_OK 0u
 #define SYSCALL_ERR ((uint32_t)-1)
