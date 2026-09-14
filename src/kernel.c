@@ -56,7 +56,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     idt_init(); kputs("[ OK ] IDT / CPU exceptions / DPL3 syscall\n");
     pic_init(); kputs("[ OK ] PIC remapped\n");
     pit_init(100); kputs("[ OK ] PIT 100 Hz\n");
-    keyboard_init(); kputs("[ OK ] PS/2 keyboard IRQ1\n");
+    keyboard_init(); kputs("[ OK ] PS/2 keyboard / scancode input buffer\n");
 
     memory_init(multiboot_info);
     kputs("[ OK ] Physical memory manager\n       Total pages: ");
@@ -94,11 +94,12 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     }
 
     syscall_init();
-    kputs("[ OK ] Syscall ABI / PUTC / GETPID / YIELD / EXIT\n");
+    kputs("[ OK ] Syscall ABI / PUTC / GETPID / YIELD / EXIT / keyboard\n");
 
     process_init();
     kputs("[ OK ] Process table / PID 1 bootstrap process\n");
     kputs("[ OK ] Round-robin scheduler / saved interrupt contexts\n");
+    kputs("[ OK ] Process exit / deferred memory reclamation\n");
 
     kputs("[ OK ] Ring-3 address space prepared\n");
     kputs("Entering user mode: scheduler test A/B...\n");
