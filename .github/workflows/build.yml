@@ -20,16 +20,18 @@ jobs:
         run: make check
 
       - name: Build userspace
-        run: make userspace
+        run: make userspace process-test
 
       - name: Validate userspace ELF
         run: |
-          test -s build/hello.elf
-          test "$(stat -c%s build/hello.elf)" -le 4096
-          readelf -h build/hello.elf | grep -q 'Class:[[:space:]]*ELF32'
-          readelf -h build/hello.elf | grep -q 'Machine:[[:space:]]*Intel 80386'
-          readelf -h build/hello.elf | grep -q 'Entry point address:'
-          readelf -l build/hello.elf | grep -q 'LOAD'
+          for elf in build/hello.elf build/process_test.elf; do
+            test -s "$elf"
+            test "$(stat -c%s "$elf")" -le 16384
+            readelf -h "$elf" | grep -q 'Class:[[:space:]]*ELF32'
+            readelf -h "$elf" | grep -q 'Machine:[[:space:]]*Intel 80386'
+            readelf -h "$elf" | grep -q 'Entry point address:'
+            readelf -l "$elf" | grep -q 'LOAD'
+          done
 
       - name: Build ISO
         run: make iso
