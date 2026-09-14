@@ -47,7 +47,9 @@ void process_init(void) {
         processes[i].entry = 0; processes[i].user_stack = 0; processes[i].kernel_stack_top = 0;
         processes[i].saved_frame = 0; processes[i].user_code_page = 0; processes[i].user_stack_page = 0;
         processes[i].user_page_count = 0;
-        for (uint32_t j = 0; j < LIONOS_PROCESS_MAX_USER_PAGES; ++j) processes[i].user_pages[j] = 0;
+        for (uint32_t j = 0; j < LIONOS_PROCESS_MAX_USER_PAGES; ++j) {
+            processes[i].user_pages[j] = 0; processes[i].user_page_vas[j] = 0;
+        }
     }
     next_pid = 2; processes[0].pid = 1; processes[0].state = PROCESS_RUNNING;
     current = &processes[0]; init_bootstrap_frame();
@@ -65,35 +67,76 @@ const char *process_state_name(uint32_t state) {
 }
 uint32_t process_current_pid(void) { return current ? current->pid : 0; }
 
-struct process *process_create_ex(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
-                                  const uint32_t *user_pages, uint32_t user_page_count) {
+struct process *process_create_ex_vas(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                                      const uint32_t *user_pages, const uint32_t *user_page_vas,
+                                      uint32_t user_page_count) {
     struct process *process = find_free_slot();
-    if (!process || !page_directory || !user_pages || !user_page_count ||
+    if (!process || !page_directory || !user_pages || !user_page_vas || !user_page_count ||
         user_page_count > LIONOS_PROCESS_MAX_USER_PAGES) return 0;
-
     void *kernel_stack = page_alloc();
     if (!kernel_stack) return 0;
-
     process->pid = next_pid++; if (next_pid == 0) next_pid = 2;
-    process->state = PROCESS_READY;
-    process->page_directory = page_directory;
-    process->entry = entry;
-    process->user_stack = user_stack;
+    process->state = PROCESS_READY; process->page_directory = page_directory;
+    process->entry = entry; process->user_stack = user_stack;
     process->kernel_stack_top = (uint32_t)(uintptr_t)kernel_stack + 4096u;
-    process->saved_frame = 0;
-    process->user_page_count = user_page_count;
-    process->user_code_page = user_pages[0];
-    process->user_stack_page = user_pages[user_page_count - 1u];
-    for (uint32_t i = 0; i < user_page_count; ++i) process->user_pages[i] = user_pages[i];
-    for (uint32_t i = user_page_count; i < LIONOS_PROCESS_MAX_USER_PAGES; ++i) process->user_pages[i] = 0;
-    init_interrupt_frame(process);
-    return process;
+    process->saved_frame = 0; process->user_page_count = user_page_count;
+    process->user_code_page = user_pages[0]; process->user_stack_page = user_pages[user_page_count - 1u];
+    for (uint32_t i = 0; i < user_page_count; ++i) {
+        process->user_pages[i] = user_pages[i]; process->user_page_vas[i] = user_page_vas[i];
+    }
+    for (uint32_t i = user_page_count; i < LIONOS_PROCESS_MAX_USER_PAGES; ++i) {
+        process->user_pages[i] = 0; process->user_page_vas[i] = 0;
+    }
+    init_interrupt_frame(process); return process;
+}
+
+struct process *process_create_ex(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                                  const uint32_t *user_pages, uint32_t user_page_count) {
+    uint32_t vas[LIONOS_PROCESS_MAX_USER_PAGES];
+    for (uint32_t i = 0; i < user_page_count && i < LIONOS_PROCESS_MAX_USER_PAGES; ++i)
+        vas[i] = i * 4096u;
+    return process_create_ex_vas(entry, user_stack, page_directory, user_pages, vas, user_page_count);
 }
 
 struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
                                uint32_t user_code_page, uint32_t user_stack_page) {
     uint32_t pages[2] = { user_code_page, user_stack_page };
-    return process_create_ex(entry, user_stack, page_directory, pages, 2u);
+    uint32_t vas[2] = { 0x00400000u, 0x00401000u };
+    return process_create_ex_vas(entry, user_stack, page_directory, pages, vas, 2u);
+}
+
+uint32_t process_fork_current(uint32_t *parent_frame) {
+    if (!current || current == &processes[0] || !parent_frame || !current->user_page_count) return 0;
+    struct process *child = find_free_slot();
+    if (!child) return 0;
+    uint32_t pd = paging_create_address_space();
+    if (!pd) return 0;
+    uint32_t copied[LIONOS_PROCESS_MAX_USER_PAGES];
+    uint32_t count = current->user_page_count;
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t src_phys, flags;
+        if (paging_get_user_page(current->page_directory, current->user_page_vas[i], &src_phys, &flags) != 0) goto fail;
+        void *dst = page_alloc();
+        if (!dst) goto fail;
+        copied[i] = (uint32_t)(uintptr_t)dst;
+        for (uint32_t b = 0; b < 4096u; ++b)
+            ((uint8_t *)dst)[b] = ((const uint8_t *)(uintptr_t)src_phys)[b];
+        if (paging_map_user_page_in(pd, current->user_page_vas[i], copied[i], flags) != 0) goto fail;
+    }
+    child = process_create_ex_vas(current->entry, current->user_stack, pd, copied,
+                                   current->user_page_vas, count);
+    if (!child) goto fail;
+    {
+        uint32_t *child_frame = process_saved_frame(child);
+        for (uint32_t i = 0; i < PROCESS_CONTEXT_WORDS; ++i) child_frame[i] = parent_frame[i];
+        child_frame[11] = 0;
+        child->entry = parent_frame[14];
+    }
+    return child->pid;
+fail:
+    for (uint32_t i = 0; i < count; ++i) if (copied[i]) page_free((void *)(uintptr_t)copied[i]);
+    paging_destroy_address_space(pd);
+    return 0;
 }
 
 int process_set_current(struct process *process) {
@@ -107,21 +150,17 @@ void process_exit_current(void) { if (current && current != &processes[0]) curre
 
 static void reap_process(struct process *process) {
     if (!process || process->state != PROCESS_ZOMBIE) return;
-    for (uint32_t i = 0; i < process->user_page_count; ++i) {
-        uint32_t page = process->user_pages[i];
-        if (page) page_free((void *)(uintptr_t)page);
-    }
+    for (uint32_t i = 0; i < process->user_page_count; ++i) if (process->user_pages[i]) page_free((void *)(uintptr_t)process->user_pages[i]);
     if (process->page_directory) paging_destroy_address_space(process->page_directory);
     if (process->kernel_stack_top) page_free((void *)(uintptr_t)(process->kernel_stack_top - 4096u));
     process->pid = 0; process->state = PROCESS_UNUSED; process->page_directory = 0; process->entry = 0;
     process->user_stack = 0; process->kernel_stack_top = 0; process->saved_frame = 0;
     process->user_code_page = 0; process->user_stack_page = 0; process->user_page_count = 0;
-    for (uint32_t i = 0; i < LIONOS_PROCESS_MAX_USER_PAGES; ++i) process->user_pages[i] = 0;
+    for (uint32_t i = 0; i < LIONOS_PROCESS_MAX_USER_PAGES; ++i) { process->user_pages[i] = 0; process->user_page_vas[i] = 0; }
 }
 
 uint32_t process_count(void) {
-    uint32_t count = 0; for (uint32_t i = 0; i < LIONOS_PROCESS_MAX; ++i)
-        if (processes[i].state != PROCESS_UNUSED) ++count; return count;
+    uint32_t count = 0; for (uint32_t i = 0; i < LIONOS_PROCESS_MAX; ++i) if (processes[i].state != PROCESS_UNUSED) ++count; return count;
 }
 void process_set_saved_frame(struct process *process, uint32_t *frame) { if (process) process->saved_frame = (uint32_t)(uintptr_t)frame; }
 uint32_t *process_saved_frame(struct process *process) { return process ? (uint32_t *)(uintptr_t)process->saved_frame : 0; }
