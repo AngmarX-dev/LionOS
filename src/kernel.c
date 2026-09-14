@@ -7,6 +7,7 @@
 #include "pit.h"
 #include "memory.h"
 #include "tss.h"
+#include "process.h"
 #include "user.h"
 
 void pic_init(void);
@@ -68,6 +69,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     void *page_b = page_alloc();
     if (page_a && page_b) {
         page_free(page_a);
+        page_free(page_b);
         kputs("[ OK ] Page allocation / free\n");
     } else kputs("[ERR] Page allocator\n");
 
@@ -92,10 +94,13 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     }
 
     syscall_init();
-    kputs("[ OK ] Syscall ABI (INT 0x80)\n");
+    kputs("[ OK ] Syscall ABI / SYS_PUTC / SYS_GETPID / SYS_YIELD\n");
 
-    kputs("[ OK ] Ring-3 user pages prepared\n");
-    kputs("Entering user mode: INT 0x80 echo test...\n");
+    process_init();
+    kputs("[ OK ] Process table / PID 1 bootstrap process\n");
+
+    kputs("[ OK ] Ring-3 address space prepared\n");
+    kputs("Entering user mode: SYS_PUTC test...\n");
 
     __asm__ volatile ("sti");
     if (user_mode_test() != 0) {
