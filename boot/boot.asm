@@ -6,8 +6,8 @@ multiboot_header:
     dd 0xE85250D6
 after_magic:
     dd 0
-    dd multiboot_header_end - multiboot_header
-    dd -(0xE85250D6 + 0 + (multiboot_header_end - multiboot_header))
+dd multiboot_header_end - multiboot_header
+dd -(0xE85250D6 + 0 + (multiboot_header_end - multiboot_header))
     dw 0
     dw 0
     dd 8
@@ -19,7 +19,6 @@ global smp_trampoline_cr3
 global smp_trampoline_entry
 global smp_trampoline_stack
 global smp_trampoline_cpu
-
 BITS 16
 smp_trampoline_start:
     cli
@@ -30,7 +29,6 @@ smp_trampoline_start:
     or eax, 1
     mov cr0, eax
     jmp 0x08:smp_protected_entry
-
 BITS 32
 smp_protected_entry:
     mov ax, 0x10
@@ -46,18 +44,15 @@ smp_protected_entry:
     mov cr0, eax
     mov eax, [smp_trampoline_entry]
     jmp eax
-
 align 8
 smp_gdt:
     dq 0x0000000000000000
     dq 0x00CF9A000000FFFF
     dq 0x00CF92000000FFFF
 smp_gdt_end:
-
 smp_gdt_ptr:
     dw smp_gdt_end - smp_gdt - 1
     dd smp_gdt
-
 align 4
 smp_trampoline_cr3: dd 0
 smp_trampoline_entry: dd 0
@@ -75,7 +70,6 @@ stack_top:
 section .text
 global _start
 extern kernel_main
-
 _start:
     cli
     mov esp, stack_top
@@ -117,7 +111,6 @@ isr%1:
     push dword %1
     jmp isr_common
 %endmacro
-
 %macro ISR_ERR 1
 global isr%1
 isr%1:
@@ -133,16 +126,16 @@ ISR_NOERR 4
 ISR_NOERR 5
 ISR_NOERR 6
 ISR_NOERR 7
-ISR_ERR   8
+ISR_ERR 8
 ISR_NOERR 9
-ISR_ERR   10
-ISR_ERR   11
-ISR_ERR   12
-ISR_ERR   13
-ISR_ERR   14
+ISR_ERR 10
+ISR_ERR 11
+ISR_ERR 12
+ISR_ERR 13
+ISR_ERR 14
 ISR_NOERR 15
 ISR_NOERR 16
-ISR_ERR   17
+ISR_NOERR 17
 ISR_NOERR 18
 ISR_NOERR 19
 ISR_NOERR 20
@@ -155,9 +148,8 @@ ISR_NOERR 26
 ISR_NOERR 27
 ISR_NOERR 28
 ISR_NOERR 29
-ISR_ERR   30
+ISR_ERR 30
 ISR_NOERR 31
-
 ISR_NOERR 32
 ISR_NOERR 33
 ISR_NOERR 34
@@ -174,5 +166,5 @@ ISR_NOERR 44
 ISR_NOERR 45
 ISR_NOERR 46
 ISR_NOERR 47
-
+ISR_NOERR 48
 ISR_NOERR 128
