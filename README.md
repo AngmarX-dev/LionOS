@@ -18,7 +18,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Physical page allocator
 - ✅ Paging with supervisor-only kernel mappings
 - ✅ Per-process address spaces and CR3 switching
-- ✅ Private user page tables
+- ✅ Private user page tables across the user virtual-address range
 - ✅ Kernel heap with `kmalloc` / `kfree`
 
 ### Processes & syscalls
@@ -26,19 +26,23 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Ring-3 user-mode entry
 - ✅ Round-robin preemptive scheduling
 - ✅ Saved interrupt-frame context switching
-- ✅ Deferred process resource reclamation
+- ✅ Process-owned user-page tracking and reclamation
 - ✅ System-call ABI
 
 ### User interface & storage
 - ✅ Scrolling VGA console
 - ✅ PS/2 keyboard input
-- ✅ LionOS Shell v0.4
+- ✅ LionOS Shell v0.6
 - ✅ RAM filesystem
 - ✅ `ls`, `cat`, `write`, `touch`, `rm`
 - ✅ Process diagnostics with `ps`
-- ✅ ELF32/i386 executable validation groundwork
-- 🚧 Full ELF segment loader
-- 🚧 `exec()` and filesystem-backed user programs
+- ✅ ELF32/i386 executable validation
+- ✅ Multi-page ELF `PT_LOAD` loading
+- ✅ BSS zero-fill
+- ✅ Initial user stack mapping
+- ✅ `run <program.elf>` process launcher
+- ✅ Built-in `hello.elf` RAMFS program
+- 🚧 Full `exec()` replacement semantics
 - 🚧 Userspace shell
 - 🚧 Persistent disk filesystem
 
@@ -74,19 +78,18 @@ make run
 ```text
 lion> help
 lion> ls
-lion> cat readme.txt
-lion> write hello.txt Hello from LionOS
-lion> cat hello.txt
-lion> ps
-lion> mem
-lion> rm hello.txt
+hello.elf
+lion> run hello.elf
+run: started PID 2
 ```
+
+The built-in ELF program exercises the ring-3 syscall path and terminates through `SYS_EXIT`.
 
 RAMFS is memory-backed and recreated on every boot.
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, system calls, keyboard/console drivers, RAMFS, and the initial ELF32 validation layer.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, system calls, keyboard/console drivers, RAMFS, and a constrained ELF32 program loader.
 
 ## 🤖 AI-Assisted Development
 
