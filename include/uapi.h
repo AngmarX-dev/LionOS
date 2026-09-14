@@ -2,9 +2,9 @@
 #define LIONOS_UAPI_H
 
 #include <stdint.h>
+#include "vfs_uapi.h"
 
 #define LIONOS_UAPI_VERSION 1u
-
 #define LIONOS_SYSCALL_ABI 1u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u
