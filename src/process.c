@@ -7,6 +7,7 @@
 #define PROCESS_WAIT_ANY 0u
 #define PROCESS_WAIT_BLOCKED (-2)
 #define PROCESS_SYSCALL_ERR 0xFFFFFFFFu
+#define PAGE_SIZE 4096u
 
 static struct process processes[LIONOS_PROCESS_MAX];
 static struct process *current;
@@ -14,6 +15,12 @@ static uint32_t next_pid;
 
 static struct process *find_free_slot(void) { for (uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) if (processes[i].state==PROCESS_UNUSED) return &processes[i]; return 0; }
 static uint32_t process_index(const struct process *p) { return (uint32_t)(p-processes); }
+static int write_user_u32(const struct process *p,uint32_t ptr,uint32_t value) {
+    uint32_t physical,flags;
+    if(!p||!ptr||ptr>0xBFFFFFFCu||(ptr&(sizeof(uint32_t)-1u)))return -1;
+    if(paging_get_user_page(p->page_directory,ptr&~(PAGE_SIZE-1u),&physical,&flags)!=0)return -1;
+    (void)flags;*(uint32_t *)(uintptr_t)(physical+(ptr&(PAGE_SIZE-1u)))=value;return 0;
+}
 
 static void clear_process(struct process *p) {
     p->pid=0; p->state=PROCESS_UNUSED; p->parent_pid=0; p->exit_code=0; p->wait_pid=0; p->wait_status_ptr=0; p->reap_pending=0; p->deferred_kernel_stack=0;
@@ -74,11 +81,11 @@ static void reap_process(struct process *p){if(!p||p->state!=PROCESS_ZOMBIE)retu
 int32_t process_waitpid(uint32_t pid,uint32_t status_ptr){
     if(!current||current==&processes[0]||!status_ptr)return -1;
     struct process *z=find_zombie_child(current->pid,pid);
-    if(z){*(uint32_t *)(uintptr_t)status_ptr=z->exit_code;int32_t result=(int32_t)z->pid;reap_process(z);return result;}
+    if(z){if(write_user_u32(current,status_ptr,z->exit_code)!=0)return -1;int32_t result=(int32_t)z->pid;reap_process(z);return result;}
     if(!has_child(current->pid,pid))return -1;
     current->wait_pid=pid;current->wait_status_ptr=status_ptr;current->state=PROCESS_WAITING;return PROCESS_WAIT_BLOCKED;
 }
-static void wake_waiting_parent(struct process *child){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process *p=&processes[i];if(p->state!=PROCESS_WAITING||p->pid!=child->parent_pid)continue;if(p->wait_pid!=PROCESS_WAIT_ANY&&p->wait_pid!=child->pid)continue;uint32_t *f=process_saved_frame(p);if(f)f[11]=child->pid;if(p->wait_status_ptr)*(uint32_t *)(uintptr_t)p->wait_status_ptr=child->exit_code;p->wait_pid=0;p->wait_status_ptr=0;p->state=PROCESS_READY;child->reap_pending=1;return;}}
+static void wake_waiting_parent(struct process *child){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process *p=&processes[i];if(p->state!=PROCESS_WAITING||p->pid!=child->parent_pid)continue;if(p->wait_pid!=PROCESS_WAIT_ANY&&p->wait_pid!=child->pid)continue;uint32_t *f=process_saved_frame(p);if(f)f[11]=child->pid;if(p->wait_status_ptr)write_user_u32(p,p->wait_status_ptr,child->exit_code);p->wait_pid=0;p->wait_status_ptr=0;p->state=PROCESS_READY;child->reap_pending=1;return;}}
 void process_exit_current(uint32_t code){if(!current||current==&processes[0])return;current->exit_code=code;current->state=PROCESS_ZOMBIE;wake_waiting_parent(current);}
 int process_set_current(struct process *p){if(!p||p->state==PROCESS_UNUSED||!p->page_directory)return -1;if(current&&current!=p&&current->state==PROCESS_RUNNING)current->state=PROCESS_READY;current=p;current->state=PROCESS_RUNNING;paging_switch_address_space(p->page_directory);tss_set_kernel_stack(p->kernel_stack_top);return 0;}
 uint32_t process_count(void){uint32_t n=0;for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED)++n;return n;}
