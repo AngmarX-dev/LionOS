@@ -9,6 +9,7 @@
 #define USER_MIN 0x00400000u
 #define USER_MAX 0xC0000000u
 #define USER_COPY_MAX 4096u
+#define PROCESS_WAIT_BLOCKED ((uint32_t)-2)
 
 static int user_range_ok(uint32_t ptr, uint32_t len) {
     if (len == 0) return ptr >= USER_MIN && ptr < USER_MAX;
@@ -37,7 +38,7 @@ static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, 
             console_putc((char)arg0); return SYSCALL_OK;
         case SYS_GETPID: return process_current_pid();
         case SYS_YIELD: __asm__ volatile ("pause"); return SYSCALL_OK;
-        case SYS_EXIT: process_exit_current(); return SYSCALL_OK;
+        case SYS_EXIT: process_exit_current(arg0); return SYSCALL_OK;
         case SYS_GETCHAR: {
             int c = keyboard_getchar();
             return c < 0 ? SYSCALL_ERR : (uint32_t)(uint8_t)c;
@@ -67,11 +68,10 @@ static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, 
             process_exit_current();
             return (uint32_t)pid;
         }
-        case SYS_FORK: {
-            struct process *parent = process_current();
-            uint32_t pid = process_fork_current((uint32_t *)(uintptr_t)arg0);
-            (void)parent;
-            return pid ? pid : SYSCALL_ERR;
+        case SYS_FORK: return process_fork_current(0);
+        case SYS_WAITPID: {
+            int32_t result = process_waitpid(arg0);
+            return result == PROCESS_WAIT_BLOCKED ? PROCESS_WAIT_BLOCKED : (uint32_t)result;
         }
         default: return SYSCALL_ERR;
     }
