@@ -7,6 +7,7 @@
 #include "console.h"
 #include "debug.h"
 #include "tss.h"
+#include "spinlock.h"
 
 extern uint32_t smp_trampoline_cr3;
 extern uint32_t smp_trampoline_entry;
@@ -15,8 +16,11 @@ extern uint32_t smp_trampoline_cpu;
 
 static uint32_t online_count=1u;
 static uint32_t ap_stacks[LIONOS_MAX_CPUS];
+static struct spinlock smp_lock;
 static void delay(uint32_t loops){for(volatile uint32_t i=0;i<loops;++i)__asm__ volatile("pause");}
 static int wait_for_online(uint32_t index){for(uint32_t i=0;i<LIONOS_SMP_START_TIMEOUT;++i){const struct cpu_info*c=cpu_get(index);if(c&&c->online)return 0;__asm__ volatile("pause");}return-1;}
+
+uint32_t smp_lock_selftest(void){uint32_t flags=spinlock_irqsave_acquire(&smp_lock);uint32_t ok=smp_lock.value==1u;spinlock_irqrestore_release(&smp_lock,flags);return ok;}
 
 void smp_ap_main(void){
     uint32_t index=smp_trampoline_cpu;
@@ -30,6 +34,7 @@ void smp_ap_main(void){
 
 void smp_init(void){
     online_count=1u;
+    spinlock_init(&smp_lock);
     if(cpu_count_hint()<=1u||lapic_id()==0xFFFFFFFFu)return;
     smp_trampoline_cr3=paging_kernel_directory();
     smp_trampoline_entry=(uint32_t)(uintptr_t)&smp_ap_main;
