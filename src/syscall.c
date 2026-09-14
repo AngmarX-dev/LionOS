@@ -4,6 +4,7 @@
 #include "ipc.h"
 #include "keyboard.h"
 #include "memory.h"
+#include "net.h"
 #include "process.h"
 #include "signal.h"
 #include "syscall.h"
@@ -19,8 +20,8 @@ static int user_range_ok(uint32_t ptr,uint32_t len){if(len==0)return ptr>=USER_M
 static int copy_user_string(char*dst,uint32_t dst_size,uint32_t user_ptr){if(!dst||dst_size<2u||!user_range_ok(user_ptr,1u))return-1;for(uint32_t i=0;i<dst_size-1u;++i){uint32_t a=user_ptr+i;if(!user_range_ok(a,1u))return-1;dst[i]=*(const char*)(uintptr_t)a;if(!dst[i])return 0;}dst[dst_size-1u]=0;return-1;}
 static int process_exists(uint32_t pid){if(!pid)return 0;for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i){struct process*p=process_at(i);if(p&&p->state!=PROCESS_UNUSED&&p->pid==pid)return 1;}return 0;}
 
-static uint32_t syscall_dispatch(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2){switch(number){
-case SYS_ABI_VERSION:return 2u;
+static uint32_t syscall_dispatch(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2,uint32_t arg3,uint32_t arg4){switch(number){
+case SYS_ABI_VERSION:return 4u;
 case SYS_PUTC:if(arg0>0xFFu)return SYSCALL_ERR;console_putc((char)arg0);return SYSCALL_OK;
 case SYS_GETPID:return process_current_pid();
 case SYS_YIELD:__asm__ volatile("pause");return SYSCALL_OK;
@@ -47,6 +48,10 @@ case LIONOS_SYS_GETPPID:{struct process*p=process_current();return p?p->parent_p
 case LIONOS_SYS_KILL:if(!process_exists(arg0)||arg0==process_current_pid()||arg1==0||arg1>LIONOS_SIG_MAX)return SYSCALL_ERR;return(uint32_t)process_signal(arg0,arg1);
 case LIONOS_SYS_GETSTATE:return(uint32_t)process_get_state(arg0);
 case LIONOS_SYS_SIGPENDING:return process_signal_pending(arg0);
+case LIONOS_SYS_NET_SEND:if(arg2==0||arg3==0||arg3>NET_PACKET_MAX||!user_range_ok(arg2,arg3))return SYSCALL_ERR;return(uint32_t)net_send(arg0,(uint16_t)(arg1>>16),(uint16_t)arg1,(const void*)(uintptr_t)arg2,arg3);
+case LIONOS_SYS_NET_RECV:{if(arg1==0||arg1>NET_PACKET_MAX||!user_range_ok(arg1,arg2))return SYSCALL_ERR;uint32_t sip=0;uint16_t sport=0;int32_t n=net_recv((uint16_t)arg0,(void*)(uintptr_t)arg1,arg2,&sip,&sport);if(n==NET_RECV_EMPTY)return LIONOS_NET_EMPTY;if(n<0)return SYSCALL_ERR;if(arg3&&user_range_ok(arg3,sizeof(uint32_t)))*(uint32_t*)(uintptr_t)arg3=sip;if(arg4&&user_range_ok(arg4,sizeof(uint16_t)))*(uint16_t*)(uintptr_t)arg4=sport;return(uint32_t)n;}
+case LIONOS_SYS_NET_PENDING:return net_pending((uint16_t)arg0);
+case LIONOS_SYS_NET_GETIP:return net_local_ip();
 default:return SYSCALL_ERR;}}
 void syscall_init(void){(void)syscall_dispatch;}
-uint32_t syscall_handle(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2){return syscall_dispatch(number,arg0,arg1,arg2);}
+uint32_t syscall_handle(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2,uint32_t arg3,uint32_t arg4){return syscall_dispatch(number,arg0,arg1,arg2,arg3,arg4);}
