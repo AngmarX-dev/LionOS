@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "memory.h"
+#include "paging.h"
 #include "process.h"
 
 static struct process processes[LIONOS_PROCESS_MAX];
@@ -22,7 +23,7 @@ static void init_interrupt_frame(struct process *process) {
 
     for (uint32_t i = 0; i < PROCESS_CONTEXT_WORDS; ++i) frame[i] = 0;
 
-    /* Layout consumed by isr_common: GS FS ES DS, pusha, vector/error, IRET frame. */
+    /* GS FS ES DS, pusha, vector/error, IRET frame. */
     frame[0] = 0x2Bu;
     frame[1] = 0x2Bu;
     frame[2] = 0x2Bu;
@@ -40,15 +41,18 @@ static void init_interrupt_frame(struct process *process) {
 
 static void init_bootstrap_frame(void) {
     struct process *bootstrap = &processes[0];
-    bootstrap->kernel_stack_top = (uint32_t)(uintptr_t)page_alloc() + 4096u;
-    if (bootstrap->kernel_stack_top == 4096u) {
+    void *stack_page = page_alloc();
+    if (!stack_page) {
         bootstrap->kernel_stack_top = 0;
         bootstrap->saved_frame = 0;
         return;
     }
 
+    bootstrap->kernel_stack_top = (uint32_t)(uintptr_t)stack_page + 4096u;
+    bootstrap->page_directory = paging_kernel_directory();
     bootstrap->entry = (uint32_t)(uintptr_t)&process_schedule;
     bootstrap->user_stack = bootstrap->kernel_stack_top;
+
     uint32_t *frame = (uint32_t *)(uintptr_t)(bootstrap->kernel_stack_top - PROCESS_CONTEXT_WORDS * 4u);
     for (uint32_t i = 0; i < PROCESS_CONTEXT_WORDS; ++i) frame[i] = 0;
     frame[0] = 0x10u;
@@ -81,17 +85,13 @@ void process_init(void) {
     init_bootstrap_frame();
 }
 
-struct process *process_current(void) {
-    return current;
-}
+struct process *process_current(void) { return current; }
 
-uint32_t process_current_pid(void) {
-    return current ? current->pid : 0;
-}
+uint32_t process_current_pid(void) { return current ? current->pid : 0; }
 
 struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory) {
     struct process *process = find_free_slot();
-    if (!process) return 0;
+    if (!process || page_directory == 0) return 0;
 
     void *stack_page = page_alloc();
     if (!stack_page) return 0;
@@ -109,11 +109,12 @@ struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t pag
 }
 
 int process_set_current(struct process *process) {
-    if (!process || process->state == PROCESS_UNUSED) return -1;
+    if (!process || process->state == PROCESS_UNUSED || process->page_directory == 0) return -1;
     if (current && current != process && current->state == PROCESS_RUNNING)
         current->state = PROCESS_READY;
     current = process;
     current->state = PROCESS_RUNNING;
+    paging_switch_address_space(current->page_directory);
     return 0;
 }
 
@@ -126,7 +127,7 @@ void process_exit_current(void) {
     current->entry = 0;
     current->user_stack = 0;
     current->saved_frame = 0;
-    /* Kernel stack is retained until a dedicated process reaper is added. */
+    /* Physical pages and page-table pages are reclaimed by a future reaper. */
 }
 
 uint32_t process_count(void) {
@@ -160,15 +161,17 @@ uint32_t *process_schedule(uint32_t *frame) {
         struct process *candidate = &processes[index];
         if (candidate->state != PROCESS_READY) continue;
 
-        current->state = (current->state == PROCESS_RUNNING) ? PROCESS_READY : current->state;
+        if (current->state == PROCESS_RUNNING) current->state = PROCESS_READY;
         current = candidate;
         current->state = PROCESS_RUNNING;
+        paging_switch_address_space(current->page_directory);
         return process_saved_frame(current);
     }
 
     if (current->state == PROCESS_UNUSED) {
         current = &processes[0];
         current->state = PROCESS_RUNNING;
+        paging_switch_address_space(current->page_directory);
         return process_saved_frame(current);
     }
 
@@ -177,7 +180,5 @@ uint32_t *process_schedule(uint32_t *frame) {
 }
 
 void scheduler_idle(void) {
-    for (;;) {
-        __asm__ volatile ("sti; hlt");
-    }
+    for (;;) __asm__ volatile ("sti; hlt");
 }
