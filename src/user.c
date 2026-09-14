@@ -25,7 +25,7 @@ static void enter_user_mode(uint32_t entry, uint32_t stack) {
         "orl $0x200, (%%esp)\n"
         "pushl $0x23\n"
         "pushl %[user_entry]\n"
-        "iretd\n"
+        "iret\n"
         :
         : [user_entry] "r"(entry), [user_stack] "r"(stack)
         : "ax", "memory"
