@@ -15,7 +15,9 @@ IPC_TEST_EMBED := $(BUILD)/ipc_test_elf.o
 SIGNAL_TEST_ELF := $(BUILD)/signal_test.elf
 SIGNAL_TEST_OBJS := $(USER_COMMON_OBJS) $(BUILD)/signal_test.o
 SIGNAL_TEST_EMBED := $(BUILD)/signal_test_elf.o
-
+NET_TEST_ELF := $(BUILD)/net_test.elf
+NET_TEST_OBJS := $(USER_COMMON_OBJS) $(BUILD)/net_test.o
+NET_TEST_EMBED := $(BUILD)/net_test_elf.o
 CC := gcc
 LD := ld
 NASM := nasm
@@ -23,19 +25,16 @@ CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-un
 USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
-
 C_SOURCES := $(wildcard src/*.c)
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
-
-.PHONY: all clean iso disk run check userspace process-test ipc-test signal-test
-
+.PHONY: all clean iso disk run check userspace process-test ipc-test signal-test net-test
 all: $(KERNEL)
 userspace: $(HELLO_ELF)
 process-test: $(PROCESS_TEST_ELF)
 ipc-test: $(IPC_TEST_ELF)
 signal-test: $(SIGNAL_TEST_ELF)
-
+net-test: $(NET_TEST_ELF)
 $(BUILD):
 	mkdir -p $(BUILD)
 $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
@@ -54,7 +53,8 @@ $(BUILD)/ipc_test.o: user/ipc_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/signal_test.o: user/signal_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
-
+$(BUILD)/net_test.o: user/net_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(HELLO_ELF): $(HELLO_OBJS) user/user.ld | $(BUILD)
 	$(LD) $(USER_LDFLAGS) -o $@ $(HELLO_OBJS)
 $(PROCESS_TEST_ELF): $(PROCESS_TEST_OBJS) user/user.ld | $(BUILD)
@@ -63,7 +63,8 @@ $(IPC_TEST_ELF): $(IPC_TEST_OBJS) user/user.ld | $(BUILD)
 	$(LD) $(USER_LDFLAGS) -o $@ $(IPC_TEST_OBJS)
 $(SIGNAL_TEST_ELF): $(SIGNAL_TEST_OBJS) user/user.ld | $(BUILD)
 	$(LD) $(USER_LDFLAGS) -o $@ $(SIGNAL_TEST_OBJS)
-
+$(NET_TEST_ELF): $(NET_TEST_OBJS) user/user.ld | $(BUILD)
+	$(LD) $(USER_LDFLAGS) -o $@ $(NET_TEST_OBJS)
 $(HELLO_EMBED): $(HELLO_ELF) | $(BUILD)
 	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary hello.elf -o hello_elf.o
 $(PROCESS_TEST_EMBED): $(PROCESS_TEST_ELF) | $(BUILD)
@@ -72,9 +73,10 @@ $(IPC_TEST_EMBED): $(IPC_TEST_ELF) | $(BUILD)
 	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary ipc_test.elf -o ipc_test_elf.o
 $(SIGNAL_TEST_EMBED): $(SIGNAL_TEST_ELF) | $(BUILD)
 	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary signal_test.elf -o signal_test_elf.o
-
-$(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(HELLO_EMBED) $(PROCESS_TEST_EMBED) $(IPC_TEST_EMBED) $(SIGNAL_TEST_EMBED) linker.ld
-	$(LD) $(LDFLAGS) -o $@ $(ASM_OBJECTS) $(C_OBJECTS) $(HELLO_EMBED) $(PROCESS_TEST_EMBED) $(IPC_TEST_EMBED) $(SIGNAL_TEST_EMBED)
+$(NET_TEST_EMBED): $(NET_TEST_ELF) | $(BUILD)
+	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary net_test.elf -o net_test_elf.o
+$(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(HELLO_EMBED) $(PROCESS_TEST_EMBED) $(IPC_TEST_EMBED) $(SIGNAL_TEST_EMBED) $(NET_TEST_EMBED) linker.ld
+	$(LD) $(LDFLAGS) -o $@ $(ASM_OBJECTS) $(C_OBJECTS) $(HELLO_EMBED) $(PROCESS_TEST_EMBED) $(IPC_TEST_EMBED) $(SIGNAL_TEST_EMBED) $(NET_TEST_EMBED)
 	grub-file --is-x86-multiboot2 $@
 iso: $(KERNEL)
 	mkdir -p $(BUILD)/iso/boot/grub
