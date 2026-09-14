@@ -8,6 +8,8 @@
 #define SYS_GETPID      2u
 #define SYS_YIELD       3u
 #define SYS_EXIT        4u
+#define SYS_GETCHAR     5u
+#define SYS_KBD_AVAIL   6u
 
 #define SYSCALL_OK 0u
 #define SYSCALL_ERR ((uint32_t)-1)
