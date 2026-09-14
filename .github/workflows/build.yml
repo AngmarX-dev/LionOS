@@ -1,0 +1,32 @@
+name: Build LionOS
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-common xorriso qemu-system-x86
+
+      - name: Build kernel
+        run: make check
+
+      - name: Build ISO
+        run: make iso
+
+      - name: Verify ISO exists
+        run: test -s build/lionos.iso
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: lionos-iso
+          path: build/lionos.iso
