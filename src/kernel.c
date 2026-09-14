@@ -68,7 +68,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
         kputs("[ OK ] Page allocation / free\n");
     } else kputs("[ERR] Page allocator\n");
 
-    paging_init(); kputs("[ OK ] Paging (first 4 MiB identity mapped)\n");
+    paging_init(); kputs("[ OK ] Paging (256 MiB identity mapped)\n");
 
     heap_init();
     void *a = kmalloc(128);
