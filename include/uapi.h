@@ -6,7 +6,7 @@
 #include "ipc.h"
 #include "net.h"
 
-#define LIONOS_UAPI_VERSION 4u
+#define LIONOS_UAPI_VERSION 5u
 #define LIONOS_SYSCALL_ABI 4u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u
@@ -32,6 +32,7 @@
 #define LIONOS_SYS_NET_RECV 28u
 #define LIONOS_SYS_NET_PENDING 29u
 #define LIONOS_SYS_NET_GETIP 30u
+#define LIONOS_SYS_GETFILE 31u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
