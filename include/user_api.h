@@ -33,6 +33,6 @@ static inline uint32_t lion_clear(void) { return lion_syscall0(LIONOS_SYS_CLEAR)
 static inline uint32_t lion_meminfo(void) { return lion_syscall0(LIONOS_SYS_MEMINFO); }
 static inline uint32_t lion_exec(const char *name) { return lion_syscall1(LIONOS_SYS_EXEC, (uint32_t)(uintptr_t)name); }
 static inline uint32_t lion_fork(void) { return lion_syscall0(LIONOS_SYS_FORK); }
-static inline int32_t lion_waitpid(uint32_t pid) { return (int32_t)lion_syscall1(LIONOS_SYS_WAITPID, pid); }
+static inline int32_t lion_waitpid(uint32_t pid, int32_t *status) { return (int32_t)lion_syscall2(LIONOS_SYS_WAITPID, pid, (uint32_t)(uintptr_t)status); }
 
 #endif
