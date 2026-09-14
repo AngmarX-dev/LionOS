@@ -6,12 +6,9 @@
 #include "tss.h"
 #include "user.h"
 
-#define USER1_CODE_VA   0x00400000u
-#define USER1_STACK_VA  0x00401000u
-#define USER1_STACK_TOP 0x00402000u
-#define USER2_CODE_VA   0x00402000u
-#define USER2_STACK_VA  0x00403000u
-#define USER2_STACK_TOP 0x00404000u
+#define USER_CODE_VA   0x00400000u
+#define USER_STACK_VA  0x00401000u
+#define USER_STACK_TOP 0x00402000u
 
 static void enter_user_mode(uint32_t entry, uint32_t stack) __attribute__((noreturn));
 
@@ -69,20 +66,24 @@ static const uint8_t program2[] = {
 
 static int setup_user_process(uint8_t *code, uint8_t *stack,
                               const uint8_t *program, uint32_t program_size,
-                              uint32_t code_va, uint32_t stack_va,
                               uint32_t stack_top, struct process **out_process) {
+    uint32_t page_directory = paging_create_address_space();
+    if (!page_directory) return -1;
+
     for (uint32_t i = 0; i < 4096u; ++i) {
         stack[i] = 0;
         code[i] = 0x90u;
     }
     for (uint32_t i = 0; i < program_size; ++i) code[i] = program[i];
 
-    if (paging_map_user_page(code_va, (uint32_t)code, 0x5u) != 0 ||
-        paging_map_user_page(stack_va, (uint32_t)stack, 0x7u) != 0) {
+    if (paging_map_user_page_in(page_directory, USER_CODE_VA,
+                                (uint32_t)code, 0x5u) != 0 ||
+        paging_map_user_page_in(page_directory, USER_STACK_VA,
+                                (uint32_t)stack, 0x7u) != 0) {
         return -1;
     }
 
-    *out_process = process_create(code_va, stack_top, 0);
+    *out_process = process_create(USER_CODE_VA, stack_top, page_directory);
     if (!*out_process) return -1;
     return 0;
 }
@@ -105,9 +106,9 @@ int user_mode_test(void) {
     struct process *process2 = 0;
 
     if (setup_user_process(code1, stack1, program1, sizeof(program1),
-                           USER1_CODE_VA, USER1_STACK_VA, USER1_STACK_TOP, &process1) != 0 ||
+                           USER_STACK_TOP, &process1) != 0 ||
         setup_user_process(code2, stack2, program2, sizeof(program2),
-                           USER2_CODE_VA, USER2_STACK_VA, USER2_STACK_TOP, &process2) != 0) {
+                           USER_STACK_TOP, &process2) != 0) {
         page_free(code1);
         page_free(stack1);
         page_free(code2);
@@ -119,5 +120,5 @@ int user_mode_test(void) {
     tss_set_kernel_stack(process_kernel_stack_top(process1));
 
     (void)process2;
-    enter_user_mode(USER1_CODE_VA, USER1_STACK_TOP);
+    enter_user_mode(USER_CODE_VA, USER_STACK_TOP);
 }
