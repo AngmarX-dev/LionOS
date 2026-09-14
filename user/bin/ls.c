@@ -6,7 +6,7 @@ int main(void) {
     while (lion_getfile(index, name, sizeof(name)) >= 0) {
         struct lion_stat st;
         if (lion_stat(name, &st) == 0)
-            printf("%-16s %u bytes\n", name, st.size);
+            printf("%s %u bytes\n", name, st.size);
         else
             puts(name);
         ++index;
