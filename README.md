@@ -30,6 +30,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ `fork()` with private userspace address-space copies
 - ✅ Parent/child process relationships
 - ✅ Blocking `waitpid()` with zombie retention and deferred reaping
+- ✅ `waitpid()` exit-status delivery to userspace
 - ✅ Process exit codes
 - ✅ Deferred process resource reclamation
 - ✅ System-call ABI
@@ -50,14 +51,25 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ True `exec()` replacement semantics with PID preservation
 - ✅ Minimal userspace C runtime and libc
 - ✅ Compiler-built 32-bit `hello.elf` embedded in RAMFS
+- ✅ Compiler-built `process_test.elf` embedded in RAMFS
 - 🚧 Persistent disk filesystem
 
 ## Testing
 - ✅ Multiboot2 kernel validation in CI
 - ✅ 32-bit userspace ELF validation in CI
+- ✅ Userspace process-test ELF validation in CI
 - ✅ ISO generation in CI
 - ✅ Automated QEMU boot smoke test
 - 📦 Bootable `lionos-iso` CI artifact
+
+The process lifecycle test exercises:
+
+- `fork()` parent/child return values
+- Round-robin scheduling with explicit `yield()` calls
+- Blocking `waitpid()`
+- Child exit status delivery (`42`)
+- `exec()` from userspace
+- PID preservation across `exec()`
 
 ## 🛠️ Build
 
@@ -80,11 +92,13 @@ make iso
 make run
 ```
 
-To build the standalone userspace ELF:
+To build the standalone userspace ELFs:
 
 ```bash
 make userspace
+make process-test
 readelf -h build/hello.elf
+readelf -h build/process_test.elf
 ```
 
 ## 🧪 Shell
@@ -93,6 +107,7 @@ readelf -h build/hello.elf
 lion> help
 lion> ls
 lion> run hello.elf
+lion> run process_test.elf
 lion> ps
 lion> mem
 lion> cat readme.txt
@@ -101,7 +116,7 @@ lion> cat readme.txt
 lion> rm hello.txt
 ```
 
-RAMFS is memory-backed and recreated on every boot.
+RAMFS is memory-backed and recreated on every boot. The embedded ELF programs are immutable RAMFS entries.
 
 ## 🧠 Architecture
 
