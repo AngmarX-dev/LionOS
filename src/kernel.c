@@ -6,6 +6,7 @@
 #include "heap.h"
 #include "pit.h"
 #include "memory.h"
+#include "tss.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -49,6 +50,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info) {
     }
 
     gdt_init(); kputs("[ OK ] GDT\n");
+    tss_init(); kputs("[ OK ] TSS / ring-0 stack\n");
     idt_init(); kputs("[ OK ] IDT / CPU exceptions\n");
     pic_init(); kputs("[ OK ] PIC remapped\n");
     pit_init(100); kputs("[ OK ] PIT 100 Hz\n");
