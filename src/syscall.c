@@ -65,7 +65,7 @@ static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, 
             if (copy_user_string(name, sizeof(name), arg0) != 0) return SYSCALL_ERR;
             int pid = exec_run_file(name);
             if (pid < 0) return SYSCALL_ERR;
-            process_exit_current();
+            process_exit_current(0u);
             return (uint32_t)pid;
         }
         case SYS_FORK: return process_fork_current(0);
