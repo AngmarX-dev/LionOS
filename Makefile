@@ -1,5 +1,6 @@
 BUILD := build
 ISO := $(BUILD)/lionos.iso
+DISK := $(BUILD)/lionos-disk.img
 KERNEL := $(BUILD)/lionos.bin
 USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o
 HELLO_ELF := $(BUILD)/hello.elf
@@ -21,7 +22,7 @@ C_SOURCES := $(wildcard src/*.c)
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso run check userspace process-test
+.PHONY: all clean iso disk run check userspace process-test
 
 all: $(KERNEL)
 
@@ -72,11 +73,14 @@ iso: $(KERNEL)
 	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO) $(BUILD)/iso
 
+disk: | $(BUILD)
+	if [ ! -f $(DISK) ]; then truncate -s 8M $(DISK); fi
+
 check: $(KERNEL)
 	grub-file --is-x86-multiboot2 $(KERNEL)
 
-run: iso
-	qemu-system-i386 -cdrom $(ISO) -m 128M
+run: iso disk
+	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 128M
 
 clean:
 	rm -rf $(BUILD)
