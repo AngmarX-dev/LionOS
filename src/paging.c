@@ -47,7 +47,7 @@ uint32_t paging_create_address_space(void) {
 
     for (uint32_t i = 0; i < PAGE_ENTRIES; ++i) directory[i] = 0;
 
-    /* Copy the kernel's identity-mapped lower 256 MiB as supervisor-only. */
+    /* Kernel identity mappings are shared but remain supervisor-only. */
     for (uint32_t i = 0; i < PAGE_TABLE_COUNT; ++i)
         directory[i] = page_directory[i] & ~0x4u;
 
@@ -68,7 +68,8 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
     uint32_t pde = directory[directory_index];
     uint32_t *table;
 
-    if (pde & 0x1u) {
+    /* Never promote a shared supervisor kernel table to user access. */
+    if ((pde & 0x1u) && (pde & 0x4u)) {
         table = directory_ptr(pde & 0xFFFFF000u);
     } else {
         table = (uint32_t *)page_alloc();
