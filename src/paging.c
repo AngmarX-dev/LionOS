@@ -5,6 +5,7 @@
 #define PAGE_SIZE 4096u
 #define PAGE_TABLE_COUNT 64u
 #define PAGE_ENTRIES 1024u
+#define USER_LIMIT 0xC0000000u
 #define IDENTITY_MAP_SIZE (PAGE_TABLE_COUNT * PAGE_ENTRIES * PAGE_SIZE)
 
 static uint32_t page_directory[PAGE_ENTRIES] __attribute__((aligned(4096)));
@@ -47,7 +48,7 @@ uint32_t paging_create_address_space(void) {
 
     for (uint32_t i = 0; i < PAGE_ENTRIES; ++i) directory[i] = 0;
 
-    /* Kernel identity mappings are shared but remain supervisor-only. */
+    /* Kernel identity mappings are shared but supervisor-only. */
     for (uint32_t i = 0; i < PAGE_TABLE_COUNT; ++i)
         directory[i] = page_directory[i] & ~0x4u;
 
@@ -56,19 +57,19 @@ uint32_t paging_create_address_space(void) {
 
 int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
                             uint32_t physical_address, uint32_t flags) {
-    if (pd_physical == 0 ||
+    if (pd_physical == 0 || virtual_address >= USER_LIMIT ||
         (virtual_address & (PAGE_SIZE - 1u)) != 0 ||
         (physical_address & (PAGE_SIZE - 1u)) != 0) return -1;
 
     uint32_t directory_index = virtual_address >> 22;
     uint32_t table_index = (virtual_address >> 12) & 0x3FFu;
-    if (directory_index >= PAGE_TABLE_COUNT) return -1;
+    if (directory_index >= PAGE_ENTRIES) return -1;
 
     uint32_t *directory = directory_ptr(pd_physical);
     uint32_t pde = directory[directory_index];
     uint32_t *table;
 
-    /* Never promote a shared supervisor kernel table to user access. */
+    /* Shared kernel tables remain supervisor-only; user mappings get a private table. */
     if ((pde & 0x1u) && (pde & 0x4u)) {
         table = directory_ptr(pde & 0xFFFFF000u);
     } else {
@@ -89,8 +90,6 @@ void paging_destroy_address_space(uint32_t pd_physical) {
     if (pd_physical == 0 || pd_physical == paging_kernel_directory()) return;
 
     uint32_t *directory = directory_ptr(pd_physical);
-
-    /* User page tables have the U/S bit set; shared kernel tables do not. */
     for (uint32_t i = 0; i < PAGE_ENTRIES; ++i) {
         uint32_t pde = directory[i];
         if ((pde & 0x5u) == 0x5u) {
@@ -98,7 +97,6 @@ void paging_destroy_address_space(uint32_t pd_physical) {
             page_free((void *)(uintptr_t)table);
         }
     }
-
     page_free(directory);
 }
 
@@ -108,6 +106,4 @@ void paging_switch_address_space(uint32_t pd_physical) {
     __asm__ volatile ("mov %0, %%cr3" : : "r"(pd_physical) : "memory");
 }
 
-uint32_t paging_current_address_space(void) {
-    return current_directory;
-}
+uint32_t paging_current_address_space(void) { return current_directory; }
