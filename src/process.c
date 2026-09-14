@@ -6,6 +6,7 @@
 
 #define PROCESS_WAIT_ANY 0u
 #define PROCESS_WAIT_BLOCKED (-2)
+#define PROCESS_SYSCALL_ERR 0xFFFFFFFFu
 
 static struct process processes[LIONOS_PROCESS_MAX];
 static struct process *current;
@@ -59,11 +60,11 @@ int process_exec_replace_current(uint32_t entry,uint32_t stack,uint32_t pd,const
 }
 
 uint32_t process_fork_current(uint32_t *parent_frame){
-    if(!current||current==&processes[0]||!parent_frame||!current->user_page_count)return 0;struct process *slot=find_free_slot();if(!slot)return 0;uint32_t pd=paging_create_address_space();if(!pd)return 0;
+    if(!current||current==&processes[0]||!parent_frame||!current->user_page_count)return PROCESS_SYSCALL_ERR;struct process *slot=find_free_slot();if(!slot)return PROCESS_SYSCALL_ERR;uint32_t pd=paging_create_address_space();if(!pd)return PROCESS_SYSCALL_ERR;
     uint32_t copied[LIONOS_PROCESS_MAX_USER_PAGES]={0};uint32_t count=current->user_page_count;
     for(uint32_t i=0;i<count;++i){uint32_t src,flags;if(paging_get_user_page(current->page_directory,current->user_page_vas[i],&src,&flags)!=0)goto fail;void *dst=page_alloc();if(!dst)goto fail;copied[i]=(uint32_t)(uintptr_t)dst;for(uint32_t b=0;b<4096u;++b)((uint8_t*)dst)[b]=((const uint8_t*)(uintptr_t)src)[b];if(paging_map_user_page_in(pd,current->user_page_vas[i],copied[i],flags)!=0)goto fail;}
     slot=process_create_ex_vas(current->entry,current->user_stack,pd,copied,current->user_page_vas,count);if(!slot)goto fail;slot->parent_pid=current->pid;{uint32_t *cf=process_saved_frame(slot);for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i)cf[i]=parent_frame[i];cf[11]=0;}return slot->pid;
-fail:for(uint32_t i=0;i<count;++i)if(copied[i])page_free((void *)(uintptr_t)copied[i]);paging_destroy_address_space(pd);return 0;
+fail:for(uint32_t i=0;i<count;++i)if(copied[i])page_free((void *)(uintptr_t)copied[i]);paging_destroy_address_space(pd);return PROCESS_SYSCALL_ERR;
 }
 
 static int is_child_of(const struct process *child,uint32_t parent_pid,uint32_t pid){return child->state!=PROCESS_UNUSED&&child->parent_pid==parent_pid&&(pid==PROCESS_WAIT_ANY||child->pid==pid);}
