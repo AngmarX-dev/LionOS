@@ -25,6 +25,8 @@ struct process {
 
 void process_init(void);
 struct process *process_current(void);
+struct process *process_at(uint32_t index);
+const char *process_state_name(uint32_t state);
 uint32_t process_current_pid(void);
 struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
                                uint32_t user_code_page, uint32_t user_stack_page);
