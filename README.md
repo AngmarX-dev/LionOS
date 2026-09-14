@@ -26,8 +26,12 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Ring-3 user-mode entry
 - ✅ Round-robin preemptive scheduling
 - ✅ Saved interrupt-frame context switching
-- ✅ Deferred process resource reclamation
 - ✅ Per-process user-page ownership
+- ✅ `fork()` with private userspace address-space copies
+- ✅ Parent/child process relationships
+- ✅ Blocking `waitpid()` with zombie retention and deferred reaping
+- ✅ Process exit codes
+- ✅ Deferred process resource reclamation
 - ✅ System-call ABI
 
 ### Executables & storage
@@ -47,7 +51,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - 🚧 Userspace libc / program API
 - 🚧 Persistent disk filesystem
 
-### Testing
+## Testing
 - ✅ Multiboot2 kernel validation in CI
 - ✅ ISO generation in CI
 - ✅ Automated QEMU boot smoke test
@@ -92,7 +96,7 @@ RAMFS is memory-backed and recreated on every boot.
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, system calls, keyboard/console drivers, RAMFS, and an ELF32 executable loader.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, system calls, keyboard/console drivers, RAMFS, and an ELF32 executable loader.
 
 ## 🤖 AI-Assisted Development
 
