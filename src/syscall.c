@@ -1,53 +1,55 @@
 #include <stdint.h>
+#include "console.h"
 #include "keyboard.h"
+#include "memory.h"
 #include "process.h"
 #include "syscall.h"
 
-static volatile uint16_t *const VGA = (uint16_t *)0xB8000;
-static uint16_t cursor;
+#define USER_MIN 0x00400000u
+#define USER_MAX 0x00402000u
+
+static int user_range_ok(uint32_t ptr, uint32_t len) {
+    if (len == 0) return ptr >= USER_MIN && ptr <= USER_MAX;
+    if (ptr < USER_MIN || ptr >= USER_MAX) return 0;
+    return len <= USER_MAX - ptr;
+}
 
 static uint32_t syscall_dispatch(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
-    (void)arg1;
     (void)arg2;
-
     switch (number) {
-        case SYS_ABI_VERSION:
-            return 1;
-
+        case SYS_ABI_VERSION: return 1;
         case SYS_PUTC:
             if (arg0 > 0xFFu) return SYSCALL_ERR;
-            VGA[cursor++ % (80u * 25u)] = (uint16_t)0x0F00u | (uint16_t)arg0;
-            return SYSCALL_OK;
-
-        case SYS_GETPID:
-            return process_current_pid();
-
-        case SYS_YIELD:
-            __asm__ volatile ("pause");
-            return SYSCALL_OK;
-
-        case SYS_EXIT:
-            process_exit_current();
-            return SYSCALL_OK;
-
+            console_putc((char)arg0); return SYSCALL_OK;
+        case SYS_GETPID: return process_current_pid();
+        case SYS_YIELD: __asm__ volatile ("pause"); return SYSCALL_OK;
+        case SYS_EXIT: process_exit_current(); return SYSCALL_OK;
         case SYS_GETCHAR: {
             int c = keyboard_getchar();
-            return (c < 0) ? SYSCALL_ERR : (uint32_t)(uint8_t)c;
+            return c < 0 ? SYSCALL_ERR : (uint32_t)(uint8_t)c;
         }
-
-        case SYS_KBD_AVAIL:
-            return keyboard_available();
-
-        default:
-            return SYSCALL_ERR;
+        case SYS_KBD_AVAIL: return keyboard_available();
+        case SYS_WRITE:
+            if (!user_range_ok(arg0, arg1)) return SYSCALL_ERR;
+            console_write_n((const char *)(uintptr_t)arg0, arg1);
+            return arg1;
+        case SYS_READ: {
+            if (!user_range_ok(arg0, arg1)) return SYSCALL_ERR;
+            uint32_t n = 0;
+            while (n < arg1) {
+                int c = keyboard_getchar();
+                if (c < 0) break;
+                ((char *)(uintptr_t)arg0)[n++] = (char)c;
+            }
+            return n;
+        }
+        case SYS_CLEAR: console_clear(); return SYSCALL_OK;
+        case SYS_MEMINFO: return memory_free_pages();
+        default: return SYSCALL_ERR;
     }
 }
 
-void syscall_init(void) {
-    cursor = 0;
-    (void)syscall_dispatch;
-}
-
+void syscall_init(void) { (void)syscall_dispatch; }
 uint32_t syscall_handle(uint32_t number, uint32_t arg0, uint32_t arg1, uint32_t arg2) {
     return syscall_dispatch(number, arg0, arg1, arg2);
 }
