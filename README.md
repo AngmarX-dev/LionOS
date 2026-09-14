@@ -48,11 +48,13 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Initial `argc` / `argv` stack
 - ✅ `run <program.elf>` launcher
 - ✅ True `exec()` replacement semantics with PID preservation
-- 🚧 Userspace libc / program API
+- ✅ Minimal userspace C runtime and libc
+- ✅ Compiler-built 32-bit `hello.elf` embedded in RAMFS
 - 🚧 Persistent disk filesystem
 
 ## Testing
 - ✅ Multiboot2 kernel validation in CI
+- ✅ 32-bit userspace ELF validation in CI
 - ✅ ISO generation in CI
 - ✅ Automated QEMU boot smoke test
 - 📦 Bootable `lionos-iso` CI artifact
@@ -78,6 +80,13 @@ make iso
 make run
 ```
 
+To build the standalone userspace ELF:
+
+```bash
+make userspace
+readelf -h build/hello.elf
+```
+
 ## 🧪 Shell
 
 ```text
@@ -96,7 +105,7 @@ RAMFS is memory-backed and recreated on every boot.
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` process primitives, in-place `exec()` replacement, system calls, keyboard/console drivers, RAMFS, and an ELF32 executable loader.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` process primitives, in-place `exec()` replacement, a small userspace C runtime/libc, system calls, keyboard/console drivers, RAMFS, and an ELF32 executable loader.
 
 ## 🤖 AI-Assisted Development
 
