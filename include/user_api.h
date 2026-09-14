@@ -2,7 +2,7 @@
 #define LIONOS_USER_API_H
 
 #include <stdint.h>
-#include "syscall.h"
+#include "uapi.h"
 
 static inline uint32_t lion_syscall0(uint32_t number) {
     uint32_t result;
@@ -22,14 +22,14 @@ static inline uint32_t lion_syscall2(uint32_t number, uint32_t arg0, uint32_t ar
     return result;
 }
 
-static inline uint32_t lion_putc(char c) { return lion_syscall1(SYS_PUTC, (uint32_t)(uint8_t)c); }
-static inline uint32_t lion_getpid(void) { return lion_syscall0(SYS_GETPID); }
-static inline uint32_t lion_yield(void) { return lion_syscall0(SYS_YIELD); }
-static inline void lion_exit(void) { (void)lion_syscall0(SYS_EXIT); for (;;) __asm__ volatile ("hlt"); }
-static inline uint32_t lion_write(const char *s, uint32_t length) { return lion_syscall2(SYS_WRITE, (uint32_t)(uintptr_t)s, length); }
-static inline uint32_t lion_read(char *buffer, uint32_t length) { return lion_syscall2(SYS_READ, (uint32_t)(uintptr_t)buffer, length); }
-static inline uint32_t lion_clear(void) { return lion_syscall0(SYS_CLEAR); }
-static inline uint32_t lion_meminfo(void) { return lion_syscall0(SYS_MEMINFO); }
-static inline uint32_t lion_exec(const char *name) { return lion_syscall1(SYS_EXEC, (uint32_t)(uintptr_t)name); }
+static inline uint32_t lion_putc(char c) { return lion_syscall1(LIONOS_SYS_PUTC, (uint32_t)(uint8_t)c); }
+static inline uint32_t lion_getpid(void) { return lion_syscall0(LIONOS_SYS_GETPID); }
+static inline uint32_t lion_yield(void) { return lion_syscall0(LIONOS_SYS_YIELD); }
+static inline void lion_exit(void) { (void)lion_syscall0(LIONOS_SYS_EXIT); for (;;) __asm__ volatile ("hlt"); }
+static inline uint32_t lion_write(const char *s, uint32_t length) { return lion_syscall2(LIONOS_SYS_WRITE, (uint32_t)(uintptr_t)s, length); }
+static inline uint32_t lion_read(char *buffer, uint32_t length) { return lion_syscall2(LIONOS_SYS_READ, (uint32_t)(uintptr_t)buffer, length); }
+static inline uint32_t lion_clear(void) { return lion_syscall0(LIONOS_SYS_CLEAR); }
+static inline uint32_t lion_meminfo(void) { return lion_syscall0(LIONOS_SYS_MEMINFO); }
+static inline uint32_t lion_exec(const char *name) { return lion_syscall1(LIONOS_SYS_EXEC, (uint32_t)(uintptr_t)name); }
 
 #endif
