@@ -1,3 +1,5 @@
+#include <stdint.h>
+#include "memory.h"
 #include "process.h"
 
 static struct process processes[LIONOS_PROCESS_MAX];
@@ -11,6 +13,56 @@ static struct process *find_free_slot(void) {
     return 0;
 }
 
+static uint32_t process_index(const struct process *process) {
+    return (uint32_t)(process - processes);
+}
+
+static void init_interrupt_frame(struct process *process) {
+    uint32_t *frame = (uint32_t *)(uintptr_t)(process->kernel_stack_top - PROCESS_CONTEXT_WORDS * 4u);
+
+    for (uint32_t i = 0; i < PROCESS_CONTEXT_WORDS; ++i) frame[i] = 0;
+
+    /* Layout consumed by isr_common: GS FS ES DS, pusha, vector/error, IRET frame. */
+    frame[0] = 0x2Bu;
+    frame[1] = 0x2Bu;
+    frame[2] = 0x2Bu;
+    frame[3] = 0x2Bu;
+    frame[12] = 0;
+    frame[13] = 0;
+    frame[14] = process->entry;
+    frame[15] = 0x23u;
+    frame[16] = 0x202u;
+    frame[17] = process->user_stack;
+    frame[18] = 0x2Bu;
+
+    process->saved_frame = (uint32_t)(uintptr_t)frame;
+}
+
+static void init_bootstrap_frame(void) {
+    struct process *bootstrap = &processes[0];
+    bootstrap->kernel_stack_top = (uint32_t)(uintptr_t)page_alloc() + 4096u;
+    if (bootstrap->kernel_stack_top == 4096u) {
+        bootstrap->kernel_stack_top = 0;
+        bootstrap->saved_frame = 0;
+        return;
+    }
+
+    bootstrap->entry = (uint32_t)(uintptr_t)&process_schedule;
+    bootstrap->user_stack = bootstrap->kernel_stack_top;
+    uint32_t *frame = (uint32_t *)(uintptr_t)(bootstrap->kernel_stack_top - PROCESS_CONTEXT_WORDS * 4u);
+    for (uint32_t i = 0; i < PROCESS_CONTEXT_WORDS; ++i) frame[i] = 0;
+    frame[0] = 0x10u;
+    frame[1] = 0x10u;
+    frame[2] = 0x10u;
+    frame[3] = 0x10u;
+    frame[14] = (uint32_t)(uintptr_t)&scheduler_idle;
+    frame[15] = 0x08u;
+    frame[16] = 0x202u;
+    frame[17] = bootstrap->kernel_stack_top;
+    frame[18] = 0x10u;
+    bootstrap->saved_frame = (uint32_t)(uintptr_t)frame;
+}
+
 void process_init(void) {
     for (uint32_t i = 0; i < LIONOS_PROCESS_MAX; ++i) {
         processes[i].pid = 0;
@@ -18,12 +70,15 @@ void process_init(void) {
         processes[i].page_directory = 0;
         processes[i].entry = 0;
         processes[i].user_stack = 0;
+        processes[i].kernel_stack_top = 0;
+        processes[i].saved_frame = 0;
     }
 
     next_pid = 2;
     processes[0].pid = 1;
     processes[0].state = PROCESS_RUNNING;
     current = &processes[0];
+    init_bootstrap_frame();
 }
 
 struct process *process_current(void) {
@@ -38,12 +93,18 @@ struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t pag
     struct process *process = find_free_slot();
     if (!process) return 0;
 
+    void *stack_page = page_alloc();
+    if (!stack_page) return 0;
+
     process->pid = next_pid++;
     if (next_pid == 0) next_pid = 2;
     process->state = PROCESS_READY;
     process->page_directory = page_directory;
     process->entry = entry;
     process->user_stack = user_stack;
+    process->kernel_stack_top = (uint32_t)(uintptr_t)stack_page + 4096u;
+    process->saved_frame = 0;
+    init_interrupt_frame(process);
     return process;
 }
 
@@ -64,9 +125,8 @@ void process_exit_current(void) {
     current->page_directory = 0;
     current->entry = 0;
     current->user_stack = 0;
-
-    current = &processes[0];
-    current->state = PROCESS_RUNNING;
+    current->saved_frame = 0;
+    /* Kernel stack is retained until a dedicated process reaper is added. */
 }
 
 uint32_t process_count(void) {
@@ -74,4 +134,50 @@ uint32_t process_count(void) {
     for (uint32_t i = 0; i < LIONOS_PROCESS_MAX; ++i)
         if (processes[i].state != PROCESS_UNUSED) ++count;
     return count;
+}
+
+void process_set_saved_frame(struct process *process, uint32_t *frame) {
+    if (process) process->saved_frame = (uint32_t)(uintptr_t)frame;
+}
+
+uint32_t *process_saved_frame(struct process *process) {
+    return process ? (uint32_t *)(uintptr_t)process->saved_frame : 0;
+}
+
+uint32_t process_kernel_stack_top(struct process *process) {
+    return process ? process->kernel_stack_top : 0;
+}
+
+uint32_t *process_schedule(uint32_t *frame) {
+    if (!current) return frame;
+
+    if (current->state == PROCESS_RUNNING)
+        current->saved_frame = (uint32_t)(uintptr_t)frame;
+
+    uint32_t start = process_index(current);
+    for (uint32_t step = 1; step <= LIONOS_PROCESS_MAX; ++step) {
+        uint32_t index = (start + step) % LIONOS_PROCESS_MAX;
+        struct process *candidate = &processes[index];
+        if (candidate->state != PROCESS_READY) continue;
+
+        current->state = (current->state == PROCESS_RUNNING) ? PROCESS_READY : current->state;
+        current = candidate;
+        current->state = PROCESS_RUNNING;
+        return process_saved_frame(current);
+    }
+
+    if (current->state == PROCESS_UNUSED) {
+        current = &processes[0];
+        current->state = PROCESS_RUNNING;
+        return process_saved_frame(current);
+    }
+
+    current->state = PROCESS_RUNNING;
+    return frame;
+}
+
+void scheduler_idle(void) {
+    for (;;) {
+        __asm__ volatile ("sti; hlt");
+    }
 }
