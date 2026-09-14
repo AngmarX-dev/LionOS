@@ -18,6 +18,12 @@ static int starts(const char *s, const char *prefix) {
 
 static const char *skip_spaces(const char *s) { while (*s == ' ') ++s; return s; }
 
+static uint32_t text_len(const char *s) {
+    uint32_t n = 0;
+    while (s[n] && n < 256u) ++n;
+    return n;
+}
+
 static void prompt(void) { console_write("\nlion> "); }
 
 static void print_file(const char *name) {
@@ -85,7 +91,8 @@ static void command(char *cmd) {
         } else {
             *p++ = 0;
             p = (char *)skip_spaces(p);
-            if (ramfs_write(name, p, 256u) != 0) console_write("write: cannot create file\n");
+            uint32_t size = text_len(p);
+            if (ramfs_write(name, p, size) != 0) console_write("write: cannot create file\n");
         }
     } else if (eq(cmd, "uname")) {
         console_write("LionOS 0.3 x86 i386 kernel\n");
