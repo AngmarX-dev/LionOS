@@ -5,8 +5,8 @@
 #include "vfs_uapi.h"
 #include "ipc.h"
 
-#define LIONOS_UAPI_VERSION 2u
-#define LIONOS_SYSCALL_ABI 2u
+#define LIONOS_UAPI_VERSION 3u
+#define LIONOS_SYSCALL_ABI 3u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u
 #define LIONOS_SYS_YIELD 3u
@@ -24,6 +24,9 @@
 #define LIONOS_SYS_IPC_RECV 21u
 #define LIONOS_SYS_IPC_PENDING 22u
 #define LIONOS_SYS_GETPPID 23u
+#define LIONOS_SYS_KILL 24u
+#define LIONOS_SYS_GETSTATE 25u
+#define LIONOS_SYS_SIGPENDING 26u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
