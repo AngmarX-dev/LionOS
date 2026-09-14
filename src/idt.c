@@ -22,11 +22,11 @@ ISR_DECL(24); ISR_DECL(25); ISR_DECL(26); ISR_DECL(27); ISR_DECL(28); ISR_DECL(2
 ISR_DECL(32); ISR_DECL(33); ISR_DECL(34); ISR_DECL(35); ISR_DECL(36); ISR_DECL(37); ISR_DECL(38); ISR_DECL(39);
 ISR_DECL(40); ISR_DECL(41); ISR_DECL(42); ISR_DECL(43); ISR_DECL(44); ISR_DECL(45); ISR_DECL(46); ISR_DECL(47);
 
-static void idt_set_gate(uint8_t n, uint32_t base) {
+static void idt_set_gate(uint8_t n, uint32_t base, uint8_t flags) {
     idt[n].base_low = (uint16_t)(base & 0xFFFFu);
     idt[n].selector = 0x08;
     idt[n].zero = 0;
-    idt[n].flags = 0x8E;
+    idt[n].flags = flags;
     idt[n].base_high = (uint16_t)((base >> 16) & 0xFFFFu);
 }
 
@@ -40,10 +40,11 @@ void idt_init(void) {
         isr34,isr35,isr36,isr37,isr38,isr39,isr40,isr41,isr42,isr43,isr44,
         isr45,isr46,isr47
     };
-    for (int i = 0; i < 48; ++i) idt_set_gate((uint8_t)i, (uint32_t)handlers[i]);
+    for (int i = 0; i < 48; ++i) idt_set_gate((uint8_t)i, (uint32_t)handlers[i], 0x8E);
 
     extern void isr128(void);
-    idt_set_gate(128, (uint32_t)isr128);
+    /* DPL=3: ring-3 code may invoke the controlled syscall entry point. */
+    idt_set_gate(128, (uint32_t)isr128, 0xEE);
 
     idtp.limit = sizeof(idt) - 1;
     idtp.base = (uint32_t)&idt;
