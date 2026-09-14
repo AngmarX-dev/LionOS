@@ -59,6 +59,7 @@ uint32_t *process_schedule(uint32_t *frame);
 void process_set_saved_frame(struct process *process, uint32_t *frame);
 uint32_t *process_saved_frame(struct process *process);
 uint32_t process_kernel_stack_top(struct process *process);
+int process_is_descendant_or_child(uint32_t pid, uint32_t ancestor_pid);
 void scheduler_idle(void);
 
 #endif
