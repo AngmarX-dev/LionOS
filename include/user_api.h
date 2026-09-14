@@ -31,5 +31,6 @@ static inline uint32_t lion_read(char *buffer, uint32_t length) { return lion_sy
 static inline uint32_t lion_clear(void) { return lion_syscall0(LIONOS_SYS_CLEAR); }
 static inline uint32_t lion_meminfo(void) { return lion_syscall0(LIONOS_SYS_MEMINFO); }
 static inline uint32_t lion_exec(const char *name) { return lion_syscall1(LIONOS_SYS_EXEC, (uint32_t)(uintptr_t)name); }
+static inline uint32_t lion_fork(void) { return lion_syscall1(LIONOS_SYS_FORK, 0u); }
 
 #endif
