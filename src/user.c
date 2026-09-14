@@ -3,11 +3,15 @@
 #include "paging.h"
 #include "process.h"
 #include "syscall.h"
+#include "tss.h"
 #include "user.h"
 
-#define USER_CODE_VA   0x00400000u
-#define USER_STACK_VA  0x00401000u
-#define USER_STACK_TOP 0x00402000u
+#define USER1_CODE_VA   0x00400000u
+#define USER1_STACK_VA  0x00401000u
+#define USER1_STACK_TOP 0x00402000u
+#define USER2_CODE_VA   0x00402000u
+#define USER2_STACK_VA  0x00403000u
+#define USER2_STACK_TOP 0x00404000u
 
 static void enter_user_mode(uint32_t entry, uint32_t stack) __attribute__((noreturn));
 
@@ -33,46 +37,85 @@ static void enter_user_mode(uint32_t entry, uint32_t stack) {
     __builtin_unreachable();
 }
 
-int user_mode_test(void) {
-    uint8_t *code = (uint8_t *)page_alloc();
-    uint8_t *stack = (uint8_t *)page_alloc();
+static const uint8_t program1[] = {
+    0xB8, SYS_PUTC, 0x00, 0x00, 0x00,
+    0xBB, 'A', 0x00, 0x00, 0x00,
+    0xCD, 0x80,
+    0xB8, SYS_YIELD, 0x00, 0x00, 0x00,
+    0xCD, 0x80,
+    0xB8, SYS_PUTC, 0x00, 0x00, 0x00,
+    0xBB, 'a', 0x00, 0x00, 0x00,
+    0xCD, 0x80,
+    0xB8, SYS_EXIT, 0x00, 0x00, 0x00,
+    0xCD, 0x80,
+    0xF4,
+    0xEB, 0xFC
+};
 
-    if (!code || !stack) {
-        if (code) page_free(code);
-        if (stack) page_free(stack);
-        return -1;
-    }
+static const uint8_t program2[] = {
+    0xB8, SYS_PUTC, 0x00, 0x00, 0x00,
+    0xBB, 'B', 0x00, 0x00, 0x00,
+    0xCD, 0x80,
+    0xB8, SYS_YIELD, 0x00, 0x00, 0x00,
+    0xCD, 0x80,
+    0xB8, SYS_PUTC, 0x00, 0x00, 0x00,
+    0xBB, 'b', 0x00, 0x00, 0x00,
+    0xCD, 0x80,
+    0xB8, SYS_EXIT, 0x00, 0x00, 0x00,
+    0xCD, 0x80,
+    0xF4,
+    0xEB, 0xFC
+};
 
-    /* SYS_PUTC('!'), SYS_YIELD, SYS_EXIT, then halt in user mode. */
-    static const uint8_t program[] = {
-        0xB8, SYS_PUTC, 0x00, 0x00, 0x00,
-        0xBB, 0x21, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-        0xB8, SYS_YIELD, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-        0xB8, SYS_EXIT, 0x00, 0x00, 0x00,
-        0xCD, 0x80,
-        0xFA,
-        0xF4,
-        0xEB, 0xFC
-    };
-
-    for (uint32_t i = 0; i < sizeof(program); ++i) code[i] = program[i];
+static int setup_user_process(uint8_t *code, uint8_t *stack,
+                              const uint8_t *program, uint32_t code_va,
+                              uint32_t stack_va, uint32_t stack_top,
+                              struct process **out_process) {
     for (uint32_t i = 0; i < 4096u; ++i) stack[i] = 0;
+    for (uint32_t i = 0; i < 4096u; ++i) code[i] = 0x90u;
+    for (uint32_t i = 0; i < 128u && program[i] != 0; ++i) code[i] = program[i];
 
-    if (paging_map_user_page(USER_CODE_VA, (uint32_t)code, 0x5u) != 0 ||
-        paging_map_user_page(USER_STACK_VA, (uint32_t)stack, 0x7u) != 0) {
-        page_free(code);
-        page_free(stack);
+    if (paging_map_user_page(code_va, (uint32_t)code, 0x5u) != 0 ||
+        paging_map_user_page(stack_va, (uint32_t)stack, 0x7u) != 0) {
         return -1;
     }
 
-    struct process *process = process_create(USER_CODE_VA, USER_STACK_TOP, 0);
-    if (!process || process_set_current(process) != 0) {
-        page_free(code);
-        page_free(stack);
+    *out_process = process_create(code_va, stack_top, 0);
+    if (!*out_process) return -1;
+    return 0;
+}
+
+int user_mode_test(void) {
+    uint8_t *code1 = (uint8_t *)page_alloc();
+    uint8_t *stack1 = (uint8_t *)page_alloc();
+    uint8_t *code2 = (uint8_t *)page_alloc();
+    uint8_t *stack2 = (uint8_t *)page_alloc();
+
+    if (!code1 || !stack1 || !code2 || !stack2) {
+        if (code1) page_free(code1);
+        if (stack1) page_free(stack1);
+        if (code2) page_free(code2);
+        if (stack2) page_free(stack2);
         return -1;
     }
 
-    enter_user_mode(USER_CODE_VA, USER_STACK_TOP);
+    struct process *process1 = 0;
+    struct process *process2 = 0;
+
+    if (setup_user_process(code1, stack1, program1, USER1_CODE_VA,
+                           USER1_STACK_VA, USER1_STACK_TOP, &process1) != 0 ||
+        setup_user_process(code2, stack2, program2, USER2_CODE_VA,
+                           USER2_STACK_VA, USER2_STACK_TOP, &process2) != 0) {
+        page_free(code1);
+        page_free(stack1);
+        page_free(code2);
+        page_free(stack2);
+        return -1;
+    }
+
+    if (process_set_current(process1) != 0) return -1;
+    tss_set_kernel_stack(process_kernel_stack_top(process1));
+
+    (void)process2;
+    enter_user_mode(USER1_CODE_VA, USER1_STACK_TOP);
 }
