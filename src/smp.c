@@ -5,6 +5,7 @@
 #include "memory.h"
 #include "paging.h"
 #include "console.h"
+#include "debug.h"
 
 extern uint32_t smp_trampoline_cr3;
 extern uint32_t smp_trampoline_entry;
@@ -35,8 +36,8 @@ void smp_ap_main(void) {
     }
 
     cpu_mark_online(index, lapic_id());
-    __asm__ volatile("sti");
-    for (;;) __asm__ volatile("hlt");
+    /* Keep the AP quiescent until per-CPU IDT/TSS and scheduler state exist. */
+    for (;;) __asm__ volatile("cli; hlt");
 }
 
 void smp_init(void) {
@@ -51,8 +52,7 @@ void smp_init(void) {
     uint32_t target_count = cpu_count_hint();
     if (target_count > LIONOS_MAX_CPUS) target_count = LIONOS_MAX_CPUS;
 
-    /* QEMU/xAPIC exposes the additional logical CPUs with contiguous IDs.
-       ACPI MADT enumeration will replace this assumption in the next step. */
+    /* QEMU/xAPIC exposes additional CPUs with contiguous APIC IDs. */
     for (uint32_t index = 1u; index < target_count; ++index) {
         uint32_t stack_pages = LIONOS_SMP_STACK_PAGES;
         ap_stacks[index] = (uint32_t)(uintptr_t)page_alloc_contiguous(stack_pages);
@@ -73,10 +73,12 @@ void smp_init(void) {
             console_write("[ OK ] CPU ");
             console_write_dec(index);
             console_write(" online\n");
+            debug_write("LIONOS:SMP-CPU-ONLINE\n");
         } else {
             console_write("[ -- ] CPU ");
             console_write_dec(index);
             console_write(" AP startup timeout\n");
+            debug_write("LIONOS:SMP-CPU-TIMEOUT\n");
             break;
         }
     }
