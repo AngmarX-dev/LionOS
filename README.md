@@ -7,15 +7,21 @@ LionOS is a small x86 kernel project focused on learning operating-system intern
 ## 🚀 Current Progress
 
 - ✅ Multiboot2 boot
-- ✅ GDT initialization
+- ✅ GDT initialization with ring-3 segments
+- ✅ TSS with per-process kernel stacks
 - ✅ IDT and interrupt handling
 - ✅ PIC/PIT setup
 - ✅ Keyboard input
 - ✅ Physical memory manager
-- ✅ Paging
+- ✅ Paging with controlled user mappings
 - ✅ Kernel heap and `kmalloc`
 - ✅ CPU exception handling
-- ✅ System calls
+- ✅ System call ABI
+- ✅ Ring-3 user-mode entry
+- ✅ Process table and PIDs
+- ✅ Round-robin scheduling
+- ✅ Saved interrupt-frame context switching
+- 🚧 Per-process address-space isolation
 - 🚧 More kernel features in development
 
 ## 🛠️ Build
@@ -32,7 +38,7 @@ LionOS is developed on Linux using a freestanding 32-bit toolchain.
 - QEMU
 
 ```bash
-git clone https://github.com/Ehsan1389A-gif/LionOS.git
+git clone https://github.com/AngmarX-dev/LionOS.git
 cd LionOS
 make
 ```
@@ -48,6 +54,8 @@ LionOS is primarily an educational and experimental project covering:
 - Paging
 - Heap allocation
 - System calls
+- User mode and processes
+- Scheduling and context switching
 - Low-level C and Assembly
 
 ## 🤖 AI-Assisted Development
