@@ -7,10 +7,18 @@
 #define RESERVED_PAGES 1024u
 
 #define MULTIBOOT2_TAG_END 0
+#define MULTIBOOT2_TAG_MODULE 3
 #define MULTIBOOT2_TAG_MMAP 6
 #define MULTIBOOT2_MEMORY_AVAILABLE 1
 
 struct mb2_tag { uint32_t type; uint32_t size; };
+struct mb2_module_tag {
+    uint32_t type;
+    uint32_t size;
+    uint32_t mod_start;
+    uint32_t mod_end;
+    char string[0];
+};
 struct mb2_mmap_tag {
     uint32_t type;
     uint32_t size;
@@ -23,6 +31,9 @@ struct mb2_mmap_entry {
     uint32_t type;
     uint32_t reserved;
 };
+
+extern uint8_t _kernel_start;
+extern uint8_t _kernel_end;
 
 static uint32_t bitmap[BITMAP_WORDS];
 static uint32_t total_pages;
@@ -41,16 +52,32 @@ static int is_free(uint32_t page) {
     return (bitmap[page >> 5] & (1u << (page & 31u))) == 0;
 }
 
+static void reserve_range(uint64_t start, uint64_t end) {
+    if (end <= start) return;
+
+    uint64_t aligned_start = start & ~(uint64_t)(PAGE_SIZE - 1u);
+    uint64_t aligned_end = (end + PAGE_SIZE - 1u) & ~(uint64_t)(PAGE_SIZE - 1u);
+
+    for (uint64_t addr = aligned_start; addr < aligned_end; addr += PAGE_SIZE) {
+        uint32_t page = (uint32_t)(addr / PAGE_SIZE);
+        if (page < MAX_PAGES && is_free(page)) {
+            mark_used(page);
+            if (free_pages) --free_pages;
+        }
+    }
+}
+
 void memory_init(uint32_t multiboot_info) {
     for (uint32_t i = 0; i < BITMAP_WORDS; ++i) bitmap[i] = 0xFFFFFFFFu;
     total_pages = 0;
     free_pages = 0;
 
-    uint8_t *tags = (uint8_t *)(uintptr_t)(multiboot_info + 8u);
+    uint8_t *info = (uint8_t *)(uintptr_t)multiboot_info;
     uint32_t total_size = *(uint32_t *)(uintptr_t)multiboot_info;
-    uint8_t *end = (uint8_t *)(uintptr_t)(multiboot_info + total_size);
+    uint8_t *tags = info + 8u;
+    uint8_t *end = info + total_size;
 
-    while (tags < end) {
+    while (tags + sizeof(struct mb2_tag) <= end) {
         struct mb2_tag *tag = (struct mb2_tag *)tags;
         if (tag->type == MULTIBOOT2_TAG_END) break;
 
@@ -76,15 +103,32 @@ void memory_init(uint32_t multiboot_info) {
                 p += mmap->entry_size;
             }
         }
+
         tags += (tag->size + 7u) & ~7u;
     }
 
-    /* Keep the first 4 MiB reserved for bootstrap data and the kernel. */
-    for (uint32_t page = 0; page < RESERVED_PAGES; ++page) {
-        if (is_free(page)) {
-            mark_used(page);
-            if (free_pages) --free_pages;
+    /* Keep bootstrap memory reserved. */
+    reserve_range(0, RESERVED_PAGES * PAGE_SIZE);
+
+    /* Reserve the linked kernel image even if it grows beyond the bootstrap area. */
+    reserve_range((uint32_t)(uintptr_t)&_kernel_start,
+                  (uint32_t)(uintptr_t)&_kernel_end);
+
+    /* Reserve the Multiboot information structure itself. */
+    reserve_range(multiboot_info, (uint64_t)multiboot_info + total_size);
+
+    /* Reserve Multiboot modules so the PMM cannot hand their pages to the kernel. */
+    tags = info + 8u;
+    while (tags + sizeof(struct mb2_tag) <= end) {
+        struct mb2_tag *tag = (struct mb2_tag *)tags;
+        if (tag->type == MULTIBOOT2_TAG_END) break;
+
+        if (tag->type == MULTIBOOT2_TAG_MODULE && tag->size >= 16u) {
+            struct mb2_module_tag *module = (struct mb2_module_tag *)tag;
+            reserve_range(module->mod_start, module->mod_end);
         }
+
+        tags += (tag->size + 7u) & ~7u;
     }
 }
 
