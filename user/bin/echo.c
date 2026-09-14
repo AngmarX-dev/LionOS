@@ -3,8 +3,8 @@
 int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
         if (i > 1) putchar(' ');
-        puts(argv[i]);
-        if (i + 1 < argc) { /* puts added a newline; keep utility simple below. */ }
+        lion_write(argv[i], strlen(argv[i]));
     }
+    putchar('\n');
     return 0;
 }
