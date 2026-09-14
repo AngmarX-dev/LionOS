@@ -10,6 +10,7 @@ static inline uint32_t lion_syscall2(uint32_t n,uint32_t a,uint32_t b){uint32_t 
 static inline uint32_t lion_syscall3(uint32_t n,uint32_t a,uint32_t b,uint32_t c){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c):"memory");return r;}
 static inline uint32_t lion_putc(char c){return lion_syscall1(LIONOS_SYS_PUTC,(uint32_t)(uint8_t)c);}
 static inline uint32_t lion_getpid(void){return lion_syscall0(LIONOS_SYS_GETPID);}
+static inline uint32_t lion_getppid(void){return lion_syscall0(LIONOS_SYS_GETPPID);}
 static inline uint32_t lion_yield(void){return lion_syscall0(LIONOS_SYS_YIELD);}
 static inline void lion_exit_code(uint32_t c){(void)lion_syscall1(LIONOS_SYS_EXIT,c);for(;;)__asm__ volatile("hlt");}
 static inline void lion_exit(void){lion_exit_code(0);}
