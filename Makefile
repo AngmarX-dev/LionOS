@@ -13,6 +13,7 @@ LD := ld
 NASM := nasm
 # GUI drawing helpers may be staged before their next rendering layer uses them.
 CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
+GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation
 USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
@@ -37,6 +38,9 @@ $(BUILD):
 
 $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
 	$(NASM) -f elf32 $< -o $@
+
+$(BUILD)/gui.o: src/gui.c | $(BUILD)
+	$(CC) $(GUI_CFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
