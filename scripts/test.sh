@@ -23,7 +23,9 @@ run_qemu() {
     local status=$?
     set -e
 
-    if [ -f "$log_file" ]; then cat "$log_file"; fi
+    if [ -f "$log_file" ]; then
+        cat "$log_file"
+    fi
     if [ "$status" -ne 124 ]; then
         echo "LionOS test: QEMU exited unexpectedly with status $status" >&2
         return 1
@@ -33,7 +35,7 @@ run_qemu() {
 run_gui_smoke() {
     local log_file="$1"
     local monitor_socket="build/gui-monitor.sock"
-    local pid
+    local pid=0
     rm -f "$log_file" "$monitor_socket"
 
     qemu-system-i386 \
@@ -50,19 +52,16 @@ run_gui_smoke() {
     pid=$!
 
     cleanup_gui() {
-        if kill -0 "$pid" 2>/dev/null; then
+        if [ "$pid" -ne 0 ] && kill -0 "$pid" 2>/dev/null; then
             kill "$pid" 2>/dev/null || true
             wait "$pid" 2>/dev/null || true
         fi
         rm -f "$monitor_socket"
     }
-    trap cleanup_gui RETURN
     trap cleanup_gui EXIT
 
     for _ in $(seq 1 100); do
-        if [ -f "$log_file" ] \
-            && grep -q 'LIONOS:READY' "$log_file" \
-            && grep -q 'LIONOS:GUI-ENTER' "$log_file"; then
+        if [ -f "$log_file" ] && grep -q 'LIONOS:READY' "$log_file"; then
             break
         fi
         sleep 0.1
@@ -70,7 +69,6 @@ run_gui_smoke() {
 
     grep -q 'LIONOS:READY' "$log_file"
     grep -q 'LIONOS:GUI-ENTER' "$log_file"
-    sleep 0.25
 
     python3 - "$monitor_socket" <<'PY'
 import socket
@@ -87,11 +85,8 @@ for _ in range(100):
             sock.recv(4096)
         except socket.timeout:
             pass
-        for _ in range(3):
-            sock.sendall(b"sendkey q\n")
-            time.sleep(0.15)
-            if _ < 2:
-                time.sleep(0.05)
+        sock.sendall(b"sendkey q\n")
+        time.sleep(0.1)
         sock.close()
         break
     except (FileNotFoundError, ConnectionRefusedError):
@@ -101,7 +96,9 @@ else:
 PY
 
     for _ in $(seq 1 100); do
-        if grep -q 'LIONOS:GUI-EXIT' "$log_file"; then break; fi
+        if grep -q 'LIONOS:GUI-EXIT' "$log_file"; then
+            break
+        fi
         sleep 0.1
     done
 
