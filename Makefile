@@ -123,7 +123,7 @@ $(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(USER_EMBEDS) linker.ld
 iso: $(KERNEL)
 	mkdir -p $(BUILD)/iso/boot/grub
 	cp $(KERNEL) $(BUILD)/iso/boot/lionos.bin
-	cp boot/grub.cfg $(BUILD)/iso/boot/grub.cfg
+	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO) $(BUILD)/iso
 
 disk: | $(BUILD)
