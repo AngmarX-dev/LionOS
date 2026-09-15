@@ -85,7 +85,7 @@ for _ in range(100):
             sock.recv(4096)
         except socket.timeout:
             pass
-        sock.sendall(b"sendkey esc\n")
+        sock.sendall(b"sendkey q\n")
         time.sleep(0.1)
         sock.close()
         break
@@ -138,5 +138,4 @@ grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-second.log
 
 echo "[5/5] Graphical desktop / keyboard escape smoke test"
 run_gui_smoke build/qemu-gui.log
-
 echo "LionOS Phase 23 + Phase 26 GUI test: PASS"
