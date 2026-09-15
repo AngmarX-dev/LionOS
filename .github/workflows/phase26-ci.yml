@@ -1,0 +1,27 @@
+name: LionOS Phase 26 CI
+
+on:
+  push:
+    branches:
+      - phase-26-gui
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib nasm grub-pc-bin grub-common xorriso qemu-system-x86
+
+      - name: Build and run LionOS tests
+        run: |
+          make clean
+          make test
