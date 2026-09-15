@@ -15,7 +15,12 @@ static uint32_t backend_for(const char *p){if(ramfs_data(p))return VFS_BACKEND_R
 static int find_fd(int fd){return fd>=0&&fd<(int)VFS_FD_MAX&&fds[fd].used;}
 int vfs_init(void){for(uint32_t i=0;i<VFS_FD_MAX;++i)fds[i].used=0;return 0;}
 int vfs_open(const char *path,uint32_t flags){char clean[VFS_PATH_MAX];if(copy_path(clean,path)<0)return VFS_FD_INVALID;uint32_t backend=backend_for(clean);if(backend==VFS_BACKEND_NONE){if(!(flags&VFS_F_WRITE))return VFS_FD_INVALID;if(diskfs_available()){static const char empty[]="";if(diskfs_write(clean,empty,0)==0)backend=VFS_BACKEND_DISKFS;}if(backend==VFS_BACKEND_NONE){if(ramfs_write(clean,"",0)==0)backend=VFS_BACKEND_RAMFS;else return VFS_FD_INVALID;}}
-for(uint32_t i=0;i<VFS_FD_MAX;++i)if(!fds[i].used){fds[i].used=1;fds[i].backend=backend;fds[i].flags=flags;fds[i].offset=(flags&VFS_F_APPEND)?(backend==VFS_BACKEND_DISKFS?diskfs_size(clean):ramfs_size(clean)):0;uint32_t j=0;while(clean[j]){fds[i].path[j]=clean[j];++j;}fds[i].path[j]=0;return(int)i;}return VFS_FD_INVALID;}
+for(uint32_t i=0;i<VFS_FD_MAX;++i){
+    if(!fds[i].used)
+        continue;
+    fds[i].used=1;fds[i].backend=backend;fds[i].flags=flags;fds[i].offset=(flags&VFS_F_APPEND)?(backend==VFS_BACKEND_DISKFS?diskfs_size(clean):ramfs_size(clean)):0;uint32_t j=0;while(clean[j]){fds[i].path[j]=clean[j];++j;}fds[i].path[j]=0;return(int)i;
+}
+return VFS_FD_INVALID;}
 int vfs_close(int fd){if(!find_fd(fd))return-1;fds[fd].used=0;return 0;}
 int vfs_read(int fd,void *buffer,uint32_t length){if(!find_fd(fd)||!buffer||length>VFS_IO_MAX)return-1;struct vfs_fd*f=&fds[fd];uint32_t size=f->backend==VFS_BACKEND_DISKFS?diskfs_size(f->path):ramfs_size(f->path);if(f->offset>=size)return 0;uint32_t wanted=length;if(wanted>size-f->offset)wanted=size-f->offset;if(f->backend==VFS_BACKEND_DISKFS){uint8_t temp[VFS_IO_MAX];if(diskfs_read(f->path,temp,sizeof(temp))<0)return-1;for(uint32_t i=0;i<wanted;++i)((uint8_t*)buffer)[i]=temp[f->offset+i];}else{const uint8_t*src=(const uint8_t*)ramfs_data(f->path);if(!src)return-1;for(uint32_t i=0;i<wanted;++i)((uint8_t*)buffer)[i]=src[f->offset+i];}f->offset+=wanted;return(int)wanted;}
 int vfs_write(int fd,const void*buffer,uint32_t length){if(!find_fd(fd)||!buffer||length>VFS_IO_MAX)return-1;struct vfs_fd*f=&fds[fd];if(!(f->flags&VFS_F_WRITE)||f->offset!=0)return-1;int r=f->backend==VFS_BACKEND_DISKFS?diskfs_write(f->path,buffer,length):ramfs_write(f->path,buffer,length);if(r<0)return-1;f->offset=length;return(int)length;}
