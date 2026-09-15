@@ -11,6 +11,7 @@ static volatile uint8_t shift_down;
 static volatile uint8_t extended_prefix;
 
 static const char keymap[128] = {
+    [0x01] = 27,
     [0x02] = '1', [0x03] = '2', [0x04] = '3', [0x05] = '4', [0x06] = '5',
     [0x07] = '6', [0x08] = '7', [0x09] = '8', [0x0A] = '9', [0x0B] = '0',
     [0x0C] = '-', [0x0D] = '=', [0x10] = 'q', [0x11] = 'w', [0x12] = 'e',
