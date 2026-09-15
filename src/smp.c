@@ -18,6 +18,9 @@ extern uint32_t smp_trampoline_cpu;
 static uint32_t online_count=1u;
 static uint32_t ap_stacks[LIONOS_MAX_CPUS];
 static struct spinlock smp_lock;
+
+/* AP startup has architectural timing requirements.  Keep these delays
+   deliberately conservative because a busy-loop delay is host/CPU dependent. */
 static void delay(uint32_t loops){for(volatile uint32_t i=0;i<loops;++i)__asm__ volatile("pause");}
 static int wait_for_online(uint32_t index){for(uint32_t i=0;i<LIONOS_SMP_START_TIMEOUT;++i){const struct cpu_info*c=cpu_get(index);if(c&&c->online)return 0;__asm__ volatile("pause");}return-1;}
 
@@ -55,11 +58,33 @@ void smp_init(void){
         smp_trampoline_stack=ap_stacks[index]+stack_pages*4096u;
         smp_trampoline_cpu=index;
         uint32_t target_apic=bsp_id+index;
-        lapic_send_init(target_apic);delay(100000u);
-        lapic_send_startup(target_apic,LIONOS_SMP_TRAMPOLINE>>12);delay(200000u);
+
+        /* Intel's AP startup sequence requires a settling interval after
+           INIT deassertion before the first SIPI.  The old short busy-wait
+           was fast enough on some hosts but could be too short under QEMU. */
+        lapic_send_init(target_apic);
+        delay(10000000u);
+
         lapic_send_startup(target_apic,LIONOS_SMP_TRAMPOLINE>>12);
-        if(wait_for_online(index)==0){++online_count;console_write("[ OK ] CPU ");console_write_dec(index);console_write(" online / APIC ");console_write_dec(target_apic);console_write(" / per-CPU TSS ready\n");debug_write("LIONOS:SMP-CPU-ONLINE\n");}
-        else{console_write("[ -- ] CPU ");console_write_dec(index);console_write(" AP startup timeout\n");debug_write("LIONOS:SMP-CPU-TIMEOUT\n");break;}
+        /* Allow the AP to enter real mode before issuing the second SIPI. */
+        delay(1000000u);
+        lapic_send_startup(target_apic,LIONOS_SMP_TRAMPOLINE>>12);
+
+        if(wait_for_online(index)==0){
+            ++online_count;
+            console_write("[ OK ] CPU ");
+            console_write_dec(index);
+            console_write(" online / APIC ");
+            console_write_dec(target_apic);
+            console_write(" / per-CPU TSS ready\n");
+            debug_write("LIONOS:SMP-CPU-ONLINE\n");
+        }else{
+            console_write("[ -- ] CPU ");
+            console_write_dec(index);
+            console_write(" AP startup timeout\n");
+            debug_write("LIONOS:SMP-CPU-TIMEOUT\n");
+            break;
+        }
     }
 }
 uint32_t smp_online_count(void){return online_count;}
