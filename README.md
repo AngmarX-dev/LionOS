@@ -13,7 +13,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ IDT and interrupt dispatch
 - ✅ PIC/PIT
 - ✅ CPU exceptions and safe user page-fault handling
-- 🚧 SMP CPU bring-up (Phase 22)
+- ✅ SMP CPU bring-up (Phase 22)
 - ✅ CPUID CPU topology detection on the BSP
 - ✅ Local APIC discovery and BSP enablement
 - ✅ AP startup trampoline and INIT-SIPI-SIPI delivery
@@ -87,18 +87,52 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Atomic test-and-set spinlock
 - ✅ IRQ-save / IRQ-restore locking primitive
 - ✅ BSP spinlock self-test during boot
+- ✅ Atomic AP online handshake
 - 🚧 Process-table locking
 - 🚧 Memory/VFS/IPC/network locking
 
-## Testing
+## 🧪 Testing
 - ✅ Multiboot2 kernel validation in CI
 - ✅ 32-bit userspace ELF validation in CI
 - ✅ Userspace process-test ELF validation in CI
 - ✅ ISO generation in CI
-- 🚧 Automated QEMU SMP boot test
+- ✅ Automated 2-CPU QEMU SMP boot test
 - ✅ Automated persistent-storage reboot test
 - 🚧 Automated VFS/userspace integration test
 - 📦 Bootable `lionos-iso` CI artifact
+
+Run the complete local stability suite with:
+
+```bash
+make test
+```
+
+A successful run verifies both first and second SMP boots, persistent-storage recovery, and the final `LIONOS:READY` state.
+
+## 🧩 Phase 22 — SMP ✅
+
+The first AP bring-up path is implemented and validated under the two-CPU QEMU test configuration. The BSP initializes the local APIC, prepares a low-memory real-mode trampoline at `0x8000`, allocates an AP kernel stack, sends `INIT` followed by `SIPI` startup messages, and waits for the AP to report online.
+
+The AP enters protected mode, loads the kernel page directory, jumps to `smp_ap_main()`, records its APIC ID, initializes a per-CPU TSS and IDT, enables its local APIC timer, and enables interrupts. The BSP uses an atomic online handshake before reporting the CPU online.
+
+The BSP also uses a local APIC periodic timer on vector `48`, which drives the existing scheduler clock after process initialization. The legacy PIT timer IRQ is masked when the LAPIC timer is active.
+
+An atomic spinlock primitive with IRQ-save/restore support is available as the synchronization foundation. A boot-time self-test verifies the primitive without pretending that the entire kernel is already SMP-safe.
+
+The current bootstrap still assumes contiguous xAPIC IDs as used by the QEMU SMP test. ACPI MADT enumeration will replace that assumption before broad hardware support. Shared kernel structures are not yet fully locked, so APs do not run the normal scheduler concurrently yet.
+
+## 🧩 Phase 23 — Stability & Persistence ✅
+
+Phase 23 adds an automated stability suite covering the release baseline:
+
+- clean kernel and userspace rebuild
+- ELF32/i386 userspace validation
+- ISO generation
+- first SMP boot and persistent filesystem initialization
+- second SMP boot and persistence verification
+- required SMP and `READY` boot markers
+
+The full suite is implemented in [`scripts/test.sh`](scripts/test.sh) and is also executed by CI.
 
 ## 🛡️ Security Model
 
@@ -109,16 +143,6 @@ Process-control operations are ownership-aware: a userspace process may only sig
 The ELF loader validates the executable structure and load ranges before creating a userspace address space. Kernel mappings are supervisor-only in cloned process page directories.
 
 This is an educational hardening layer, not a production security boundary. The next major isolation work includes per-process file descriptors, stronger privilege separation, and more complete memory-copy primitives.
-
-## 🧩 Phase 22 — SMP
-
-The first AP bring-up path is implemented. The BSP initializes the local APIC, prepares a low-memory real-mode trampoline at `0x8000`, allocates an AP kernel stack, sends `INIT` followed by two `SIPI` messages, and waits for the AP to report online.
-
-The AP enters protected mode, loads the kernel page directory, jumps to `smp_ap_main()`, records its APIC ID, and initializes a per-CPU TSS before remaining halted. The BSP now also has a local APIC periodic timer on vector `48`, which drives the existing scheduler clock after process initialization. The legacy PIT timer IRQ is masked when the LAPIC timer is active.
-
-An atomic spinlock primitive with IRQ-save/restore support is now available as the synchronization foundation. A boot-time self-test verifies the primitive without pretending that the entire kernel is already SMP-safe.
-
-The current bootstrap still assumes contiguous xAPIC IDs as used by the QEMU SMP test. ACPI MADT enumeration will replace that assumption before broad hardware support. Shared kernel structures are not yet fully locked, so APs do not run the normal scheduler concurrently yet.
 
 ## 🛠️ Build
 
@@ -134,11 +158,17 @@ make disk
 make run
 ```
 
-`make run` starts QEMU with two virtual CPUs for the current SMP bring-up test.
+`make run` starts QEMU with two virtual CPUs for the current SMP bring-up configuration.
 
 `make userland` builds every userspace ELF. `make` embeds the userland programs into RAMFS as part of the kernel image.
 
 `make disk` creates `build/lionos-disk.img` only when it does not already exist, so repeated `make run` sessions preserve filesystem contents.
+
+For the complete release-baseline validation, run:
+
+```bash
+make test
+```
 
 ## 🧪 Userland
 
@@ -186,7 +216,13 @@ The VFS currently provides a deliberately small interface suitable for the early
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, Local APIC support, AP startup, per-CPU TSS bootstrap, a LAPIC scheduler timer, and initial SMP synchronization primitives.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, Local APIC support, AP startup, per-CPU TSS/IDT bootstrap, a LAPIC scheduler timer, and initial SMP synchronization primitives.
+
+## 📦 Phase 24 — Documentation & Release Preparation
+
+Phase 24 packages the validated SMP and stability work for an experimental release milestone. The release checklist and known scope limitations are documented in [`docs/PHASE-24-RELEASE.md`](docs/PHASE-24-RELEASE.md).
+
+The repository's CI workflow runs `make test` and publishes the bootable ISO as the `lionos-iso` artifact.
 
 ## 🤖 AI-Assisted Development
 
@@ -198,4 +234,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ## ⚠️ Status
 
-LionOS is an early-stage experimental operating system. It is not intended for production use.
+LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 focuses on documentation and release preparation. LionOS is not intended for production use.
