@@ -23,7 +23,7 @@ static void set_tss_gate(struct gdt_entry *gdt,uint32_t base,uint32_t limit){
     set_gate(gdt,4u,0u,0u,0u,0u);
 }
 
-static void load_cpu_gdt(uint32_t cpu,uint32_t tss_base,uint32_t tss_limit){
+static void build_cpu_gdt(uint32_t cpu,uint32_t tss_base,uint32_t tss_limit){
     if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
     struct gdt_entry *gdt=gdts[cpu];
     for(uint32_t i=0;i<GDT_ENTRIES;++i)gdt[i]=(struct gdt_entry){0};
@@ -33,12 +33,43 @@ static void load_cpu_gdt(uint32_t cpu,uint32_t tss_base,uint32_t tss_limit){
     set_gate(gdt,5u,0u,0xFFFFFFFFu,0xFAu,0xCFu);
     set_gate(gdt,6u,0u,0xFFFFFFFFu,0xF2u,0xCFu);
     gps[cpu].limit=(uint16_t)(sizeof(gdts[cpu])-1u); gps[cpu].base=(uint32_t)(uintptr_t)gdts[cpu];
-    __asm__ volatile("lgdt %0\nmov $0x10, %%ax\nmov %%ax, %%ds\nmov %%ax, %%es\nmov %%ax, %%fs\nmov %%ax, %%gs\nmov %%ax, %%ss\nljmp $0x08, $1f\n1:\n" : : "m"(gps[cpu]) : "ax","memory");
 }
 
-void gdt_init(void){load_cpu_gdt(0u,0u,0u);}
-void gdt_load_cpu(uint32_t cpu,uint32_t tss_base,uint32_t tss_limit){load_cpu_gdt(cpu,tss_base,tss_limit);}
-void gdt_set_tss(uint32_t base,uint32_t limit){load_cpu_gdt(0u,base,limit);}
+static void load_cpu_gdt_full(uint32_t cpu){
+    if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
+    __asm__ volatile(
+        "lgdt %0\n"
+        "mov $0x10, %%ax\n"
+        "mov %%ax, %%ds\n"
+        "mov %%ax, %%es\n"
+        "mov %%ax, %%fs\n"
+        "mov %%ax, %%gs\n"
+        "mov %%ax, %%ss\n"
+        "ljmp $0x08, $1f\n"
+        "1:\n"
+        : : "m"(gps[cpu]) : "ax","memory");
+}
+
+void gdt_init(void){
+    build_cpu_gdt(0u,0u,0u);
+    load_cpu_gdt_full(0u);
+}
+
+void gdt_load_cpu(uint32_t cpu,uint32_t tss_base,uint32_t tss_limit){
+    if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
+    build_cpu_gdt(cpu,tss_base,tss_limit);
+    /* APs enter through the trampoline with valid 0x08/0x10 segment
+       registers already loaded. Reloading SS and performing a far jump
+       here is unnecessary and can fault during early AP startup. The
+       descriptor caches remain valid across LGDT, so only replace GDTR. */
+    __asm__ volatile("lgdt %0" : : "m"(gps[cpu]) : "memory");
+}
+
+void gdt_set_tss(uint32_t base,uint32_t limit){
+    build_cpu_gdt(0u,base,limit);
+    __asm__ volatile("lgdt %0" : : "m"(gps[0u]) : "memory");
+}
+
 uint32_t gdt_user_code_selector(void){return GDT_USER_CODE;}
 uint32_t gdt_user_data_selector(void){return GDT_USER_DATA;}
 uint32_t gdt_tss_selector(void){return GDT_TSS;}
