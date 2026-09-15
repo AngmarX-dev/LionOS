@@ -16,7 +16,7 @@ static int find_fd(int fd){return fd>=0&&fd<(int)VFS_FD_MAX&&fds[fd].used;}
 int vfs_init(void){for(uint32_t i=0;i<VFS_FD_MAX;++i)fds[i].used=0;return 0;}
 int vfs_open(const char *path,uint32_t flags){char clean[VFS_PATH_MAX];if(copy_path(clean,path)<0)return VFS_FD_INVALID;uint32_t backend=backend_for(clean);if(backend==VFS_BACKEND_NONE){if(!(flags&VFS_F_WRITE))return VFS_FD_INVALID;if(diskfs_available()){static const char empty[]="";if(diskfs_write(clean,empty,0)==0)backend=VFS_BACKEND_DISKFS;}if(backend==VFS_BACKEND_NONE){if(ramfs_write(clean,"",0)==0)backend=VFS_BACKEND_RAMFS;else return VFS_FD_INVALID;}}
 for(uint32_t i=0;i<VFS_FD_MAX;++i){
-    if(!fds[i].used)
+    if(fds[i].used)
         continue;
     fds[i].used=1;fds[i].backend=backend;fds[i].flags=flags;fds[i].offset=(flags&VFS_F_APPEND)?(backend==VFS_BACKEND_DISKFS?diskfs_size(clean):ramfs_size(clean)):0;uint32_t j=0;while(clean[j]){fds[i].path[j]=clean[j];++j;}fds[i].path[j]=0;return(int)i;
 }
