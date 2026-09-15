@@ -36,7 +36,17 @@ void lapic_enable(void){uint64_t base=rdmsr(IA32_APIC_BASE_MSR);base|=APIC_BASE_
 int lapic_init(void){if(!cpu_has_apic())return-1;uint64_t base=rdmsr(IA32_APIC_BASE_MSR);if((base&APIC_BASE_ENABLE)==0u){base|=APIC_BASE_ENABLE;wrmsr(IA32_APIC_BASE_MSR,base);}if(paging_map_kernel_page(LIONOS_LAPIC_VIRT,LIONOS_LAPIC_PHYS,0x3u)!=0)return-1;lapic_enable();return 0;}
 uint32_t lapic_id(void){return initialized?(read_reg(LAPIC_REG_ID)>>24):0xFFFFFFFFu;}
 void lapic_eoi(void){if(initialized)write_reg(LAPIC_REG_EOI,0u);}
-void lapic_send_init(uint32_t apic_id){if(!initialized)return;write_reg(0x310u,(apic_id&0xFFu)<<24);write_reg(0x300u,ICR_DELIVERY_INIT|ICR_LEVEL_ASSERT|ICR_TRIGGER_LEVEL);wait_icr();}
+void lapic_send_init(uint32_t apic_id){
+    if(!initialized)return;
+    /* AP startup requires a level-triggered INIT assertion followed by
+       an INIT deassertion before the SIPI sequence. */
+    write_reg(0x310u,(apic_id&0xFFu)<<24);
+    write_reg(0x300u,ICR_DELIVERY_INIT|ICR_LEVEL_ASSERT|ICR_TRIGGER_LEVEL);
+    wait_icr();
+    write_reg(0x310u,(apic_id&0xFFu)<<24);
+    write_reg(0x300u,ICR_DELIVERY_INIT|ICR_TRIGGER_LEVEL);
+    wait_icr();
+}
 void lapic_send_startup(uint32_t apic_id,uint32_t vector){if(!initialized||vector>0xFFu)return;write_reg(0x310u,(apic_id&0xFFu)<<24);write_reg(0x300u,ICR_DELIVERY_STARTUP|(vector&0xFFu));wait_icr();}
 void lapic_timer_init(void){if(!initialized)return;timer_ticks=0u;write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);write_reg(LAPIC_REG_LVT_TIMER,LAPIC_TIMER_PERIODIC|LIONOS_LAPIC_TIMER_VECTOR);write_reg(LAPIC_REG_TIMER_INIT,LAPIC_TIMER_INITIAL);}
 uint32_t lapic_timer_ticks(void){return timer_ticks;}
