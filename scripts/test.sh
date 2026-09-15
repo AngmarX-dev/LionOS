@@ -7,6 +7,24 @@ cd "$ROOT_DIR"
 TIMEOUT_SECONDS="${LIONOS_TEST_TIMEOUT:-10}"
 QEMU_MEMORY="${LIONOS_TEST_MEMORY:-128M}"
 
+GUI_QEMU_PID=0
+GUI_MONITOR_SOCKET=""
+
+cleanup_gui() {
+    if [ "$GUI_QEMU_PID" -ne 0 ] && kill -0 "$GUI_QEMU_PID" 2>/dev/null; then
+        kill "$GUI_QEMU_PID" 2>/dev/null || true
+        wait "$GUI_QEMU_PID" 2>/dev/null || true
+    fi
+    GUI_QEMU_PID=0
+
+    if [ -n "$GUI_MONITOR_SOCKET" ]; then
+        rm -f "$GUI_MONITOR_SOCKET"
+    fi
+    GUI_MONITOR_SOCKET=""
+}
+
+trap cleanup_gui EXIT
+
 run_qemu() {
     local log_file="$1"
     set +e
@@ -34,9 +52,8 @@ run_qemu() {
 
 run_gui_smoke() {
     local log_file="$1"
-    local monitor_socket="build/gui-monitor.sock"
-    local pid=0
-    rm -f "$log_file" "$monitor_socket"
+    GUI_MONITOR_SOCKET="build/gui-monitor.sock"
+    rm -f "$log_file" "$GUI_MONITOR_SOCKET"
 
     qemu-system-i386 \
         -smp 2 \
@@ -47,18 +64,9 @@ run_gui_smoke() {
         -serial none \
         -debugcon "file:$log_file" \
         -global isa-debugcon.iobase=0xE9 \
-        -monitor "unix:$monitor_socket,server=on,wait=off" \
+        -monitor "unix:$GUI_MONITOR_SOCKET,server=on,wait=off" \
         >/dev/null 2>&1 &
-    pid=$!
-
-    cleanup_gui() {
-        if [ "$pid" -ne 0 ] && kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
-            wait "$pid" 2>/dev/null || true
-        fi
-        rm -f "$monitor_socket"
-    }
-    trap cleanup_gui EXIT
+    GUI_QEMU_PID=$!
 
     for _ in $(seq 1 100); do
         if [ -f "$log_file" ] && grep -q 'LIONOS:READY' "$log_file"; then
@@ -70,7 +78,7 @@ run_gui_smoke() {
     grep -q 'LIONOS:READY' "$log_file"
     grep -q 'LIONOS:GUI-ENTER' "$log_file"
 
-    python3 - "$monitor_socket" <<'PY'
+    python3 - "$GUI_MONITOR_SOCKET" <<'PY'
 import socket
 import sys
 import time
