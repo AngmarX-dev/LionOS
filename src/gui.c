@@ -24,9 +24,46 @@
 #define C_TEXT     0xEEF4FCu
 #define C_DIM      0x8FA7C2u
 #define C_GOOD     0x55D187u
-#define C_WARN     0xF4A261u
 #define C_DANGER   0x5B2A34u
 #define C_CURSOR   0xFFFFFFu
+
+#define GUI_EVENT_QUEUE 32u
+#define GUI_WINDOW_MAX  4u
+#define WIN_DESKTOP     0u
+#define WIN_TERMINAL    1u
+#define WIN_ABOUT       2u
+
+#define GUI_EVENT_NONE          0u
+#define GUI_EVENT_MOUSE_MOVE    1u
+#define GUI_EVENT_MOUSE_PRESS   2u
+#define GUI_EVENT_KEY           3u
+
+struct gui_event {
+    uint8_t type;
+    uint8_t button;
+    int key;
+    uint32_t x;
+    uint32_t y;
+};
+
+struct gui_window {
+    uint8_t id;
+    uint8_t visible;
+    uint8_t modal;
+    uint8_t focused;
+    uint32_t x;
+    uint32_t y;
+    uint32_t w;
+    uint32_t h;
+};
+
+static struct gui_event event_queue[GUI_EVENT_QUEUE];
+static uint32_t event_read;
+static uint32_t event_write;
+static struct gui_window windows[GUI_WINDOW_MAX];
+static uint32_t window_count;
+static uint32_t focused_window;
+static uint32_t dirty;
 
 static const uint8_t font[26][7]={
 {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11},{0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E},
@@ -83,13 +120,120 @@ static void draw_cursor(uint32_t mx,uint32_t my){
     framebuffer_fill_rect(x+4u,y+14u,6u,3u,C_CURSOR);
 }
 
-static void draw_desktop(uint32_t mx,uint32_t my,const char*status){
+static void invalidate(void){dirty=1u;}
+
+static void queue_event(uint8_t type,uint8_t button,int key,uint32_t x,uint32_t y){
+    uint32_t next=(event_write+1u)%GUI_EVENT_QUEUE;
+    if(next==event_read)return;
+    event_queue[event_write].type=type;
+    event_queue[event_write].button=button;
+    event_queue[event_write].key=key;
+    event_queue[event_write].x=x;
+    event_queue[event_write].y=y;
+    event_write=next;
+}
+
+static int next_event(struct gui_event *event){
+    if(event_read==event_write)return 0;
+    *event=event_queue[event_read];
+    event_read=(event_read+1u)%GUI_EVENT_QUEUE;
+    return 1;
+}
+
+static struct gui_window *window_by_id(uint8_t id){
+    for(uint32_t i=0;i<window_count;++i)if(windows[i].id==id)return &windows[i];
+    return 0;
+}
+
+static void wm_focus(uint8_t id){
+    for(uint32_t i=0;i<window_count;++i)windows[i].focused=(windows[i].id==id)?1u:0u;
+    focused_window=id;
+    invalidate();
+}
+
+static struct gui_window *wm_top_at(uint32_t x,uint32_t y){
+    for(int i=(int)window_count-1;i>=0;--i){
+        struct gui_window *w=&windows[i];
+        if(!w->visible)continue;
+        if(x>=w->x&&x<w->x+w->w&&y>=w->y&&y<w->y+w->h)return w;
+    }
+    return 0;
+}
+
+static void wm_show(uint8_t id){
+    struct gui_window *w=window_by_id(id);
+    if(!w)return;
+    w->visible=1u;
+    if(id==WIN_ABOUT)w->modal=1u;
+    wm_focus(id);
+}
+
+static void wm_hide(uint8_t id){
+    struct gui_window *w=window_by_id(id);
+    if(!w)return;
+    w->visible=0u;
+    w->modal=0u;
+    if(focused_window==id)wm_focus(WIN_DESKTOP);
+    else invalidate();
+}
+
+static void wm_init(void){
+    event_read=event_write=0u;
+    window_count=3u;
+    windows[0].id=WIN_DESKTOP; windows[0].visible=1u; windows[0].modal=0u; windows[0].focused=1u;
+    windows[1].id=WIN_TERMINAL; windows[1].visible=0u; windows[1].modal=0u; windows[1].focused=0u;
+    windows[1].x=GRID_X+16u*CELL_W; windows[1].y=GRID_Y+8u*CELL_H; windows[1].w=52u*CELL_W; windows[1].h=24u*CELL_H;
+    windows[2].id=WIN_ABOUT; windows[2].visible=0u; windows[2].modal=1u; windows[2].focused=0u;
+    windows[2].x=GRID_X+9u*CELL_W; windows[2].y=GRID_Y+6u*CELL_H; windows[2].w=60u*CELL_W; windows[2].h=24u*CELL_H;
+    focused_window=WIN_DESKTOP;
+    dirty=1u;
+}
+
+static void draw_window_shell(const struct gui_window *w,const char *title,uint32_t fill){
+    framebuffer_fill_rect(w->x,w->y,w->w,w->h,C_BORDER);
+    framebuffer_fill_rect(w->x+3u,w->y+3u,w->w-6u,w->h-6u,fill);
+    framebuffer_fill_rect(w->x+3u,w->y+3u,w->w-6u,28u,w->focused?C_CARD2:C_CARD);
+    uint32_t title_col=(w->x-GRID_X)/CELL_W+2u;
+    uint32_t title_row=(w->y-GRID_Y)/CELL_H+1u;
+    draw_text(title,title_col,title_row,C_TEXT);
+    framebuffer_fill_rect(w->x+w->w-54u,w->y+7u,12u,12u,0xF4A261u);
+    framebuffer_fill_rect(w->x+w->w-36u,w->y+7u,12u,12u,C_GOOD);
+    framebuffer_fill_rect(w->x+w->w-18u,w->y+7u,12u,12u,C_DANGER);
+}
+
+static void draw_terminal_window(void){
+    struct gui_window *w=window_by_id(WIN_TERMINAL);
+    if(!w||!w->visible)return;
+    draw_window_shell(w,"TERMINAL",C_TOP);
+    uint32_t col=(w->x-GRID_X)/CELL_W+3u;
+    uint32_t row=(w->y-GRID_Y)/CELL_H+3u;
+    draw_text("LIONOS TERMINAL WINDOW",col,row,C_ACCENT);
+    draw_text("A REAL CONSOLE CAN TAKE OVER WITH T",col,row+3u,C_TEXT);
+    draw_text("MOUSE AND KEYBOARD EVENTS ARE ROUTED",col,row+6u,C_DIM);
+    draw_text("THROUGH THE GUI EVENT DISPATCHER",col,row+8u,C_DIM);
+    draw_text("ESC CLOSES THIS WINDOW",col,row+12u,C_ACCENT2);
+}
+
+static void draw_about_window(void){
+    struct gui_window *w=window_by_id(WIN_ABOUT);
+    if(!w||!w->visible)return;
+    draw_window_shell(w,"ABOUT LIONOS",C_TOP);
+    uint32_t col=(w->x-GRID_X)/CELL_W+4u;
+    uint32_t row=(w->y-GRID_Y)/CELL_H+5u;
+    draw_text("32 BIT X86 EXPERIMENTAL OS",col,row,C_TEXT);
+    draw_text("MULTIBOOT2 GRUB BOOT",col,row+3u,C_DIM);
+    draw_text("SMP MEMORY PROCESS VFS",col,row+5u,C_DIM);
+    draw_text("MOUSE PS2 FRAMEBUFFER UI",col,row+7u,C_DIM);
+    draw_text("WINDOWS AND EVENTS",col,row+9u,C_GOOD);
+    draw_text("A Q OR ESC CLOSE",col,row+12u,C_ACCENT2);
+}
+
+static void draw_desktop(uint32_t mx,uint32_t my,const char *status){
     uint32_t width=framebuffer_width(),height=framebuffer_height();
     framebuffer_clear(C_BG);
-
-    framebuffer_fill_rect(0,0,width,52u,C_TOP);
-    framebuffer_fill_rect(0,52u,220u,height-100u,C_SIDE);
-    framebuffer_fill_rect(0,height-48u,width,48u,C_TOP);
+    framebuffer_fill_rect(0u,0u,width,52u,C_TOP);
+    framebuffer_fill_rect(0u,52u,220u,height-100u,C_SIDE);
+    framebuffer_fill_rect(0u,height-48u,width,48u,C_TOP);
     framebuffer_fill_rect(220u,52u,2u,height-100u,C_BORDER);
 
     draw_text("LIONOS",2u,1u,C_ACCENT);
@@ -98,13 +242,13 @@ static void draw_desktop(uint32_t mx,uint32_t my,const char*status){
     panel(2u,5u,16u,28u,C_SIDE);
     draw_text("DESKTOP",4u,7u,C_DIM);
     button(4u,9u,12u,3u,C_CARD2,"HOME");
-    button(4u,14u,12u,3u,C_CARD,"TERMINAL");
-    button(4u,19u,12u,3u,C_CARD,"ABOUT");
+    button(4u,14u,12u,3u,focused_window==WIN_TERMINAL?C_CARD2:C_CARD,"TERMINAL");
+    button(4u,19u,12u,3u,focused_window==WIN_ABOUT?C_CARD2:C_CARD,"ABOUT");
     button(4u,24u,12u,3u,C_DANGER,"EXIT");
     draw_text("LIONOS",5u,29u,C_ACCENT);
 
     draw_text("WELCOME BACK",20u,6u,C_TEXT);
-    draw_text("A SMALL DESKTOP FOR A SMALL KERNEL",20u,8u,C_DIM);
+    draw_text("WINDOWS  EVENTS  COMPOSITOR",20u,8u,C_DIM);
 
     panel(20u,11u,24u,13u,C_CARD);
     dot(22u,13u,C_GOOD);
@@ -119,31 +263,24 @@ static void draw_desktop(uint32_t mx,uint32_t my,const char*status){
     button(49u,20u,18u,3u,C_CARD2,"ABOUT");
 
     panel(20u,26u,51u,9u,C_CARD);
-    draw_text("LIONOS CORE",23u,28u,C_ACCENT);
-    draw_text("32 BIT X86",23u,31u,C_TEXT);
-    draw_text("MULTIBOOT2  GRUB  LAPIC  VFS",39u,28u,C_DIM);
-    draw_text("MOUSE POLLING  PS2 INPUT  HEAP",39u,31u,C_DIM);
-    draw_text("PHASE 26 GRAPHICAL DESKTOP",39u,33u,C_GOOD);
+    draw_text("LIONOS GUI",23u,28u,C_ACCENT);
+    draw_text("EVENT QUEUE",23u,31u,C_TEXT);
+    draw_text("WINDOW MANAGER",39u,28u,C_DIM);
+    draw_text("FOCUS AND Z ORDER",39u,31u,C_DIM);
+    draw_text("INVALIDATION BASED REDRAW",39u,33u,C_GOOD);
 
     draw_text("READY",2u,46u,C_GOOD);
     draw_text("Q / ESC  SHELL",19u,46u,C_DIM);
     draw_text("A  ABOUT",46u,46u,C_DIM);
-    draw_text("MOUSE  CLICK ACTION",60u,46u,C_DIM);
+    draw_text("MOUSE  EVENTS",60u,46u,C_DIM);
     draw_cursor(mx,my);
 }
 
-static void draw_about(uint32_t mx,uint32_t my){
-    uint32_t x=GRID_X+9u*CELL_W,y=GRID_Y+6u*CELL_H,w=60u*CELL_W,h=24u*CELL_H;
-    framebuffer_fill_rect(x,y,w,h,C_BORDER);
-    framebuffer_fill_rect(x+3u,y+3u,w-6u,h-6u,C_TOP);
-    draw_text("ABOUT LIONOS",14u,9u,C_ACCENT);
-    draw_text("32 BIT X86 EXPERIMENTAL OS",14u,12u,C_TEXT);
-    draw_text("MULTIBOOT2 GRUB BOOT",14u,15u,C_DIM);
-    draw_text("SMP MEMORY PROCESS VFS",14u,17u,C_DIM);
-    draw_text("MOUSE PS2 AND FRAMEBUFFER UI",14u,19u,C_DIM);
-    draw_text("TERMINAL AND DESKTOP TOGETHER",14u,21u,C_GOOD);
-    draw_text("PRESS A Q OR ESC TO CLOSE",14u,24u,C_ACCENT2);
-    button(62u,7u,4u,2u,C_DANGER,"X");
+static void render(uint32_t mx,uint32_t my){
+    draw_desktop(mx,my,"EVENT SYSTEM READY");
+    /* Desktop is the back-most surface; windows are composited above it. */
+    draw_terminal_window();
+    draw_about_window();
     draw_cursor(mx,my);
 }
 
@@ -155,6 +292,86 @@ static void return_shell(void){
     debug_write("LIONOS:GUI-EXIT\n");
 }
 
+static void poll_input(uint32_t mx,uint32_t my,uint32_t previous_buttons){
+    keyboard_poll();
+    mouse_poll();
+
+    uint32_t nx=mouse_x();
+    uint32_t ny=(mouse_y()*GRID_H)/25u;
+    if(nx>=GRID_W)nx=GRID_W-1u;
+    if(ny>=GRID_H)ny=GRID_H-1u;
+    if(nx!=mx||ny!=my)queue_event(GUI_EVENT_MOUSE_MOVE,0u,0,nx,ny);
+
+    uint32_t buttons=mouse_buttons();
+    if((buttons&1u)&&!(previous_buttons&1u))queue_event(GUI_EVENT_MOUSE_PRESS,1u,0,nx,ny);
+
+    while(keyboard_available()){
+        int key=keyboard_getchar();
+        queue_event(GUI_EVENT_KEY,0u,key,nx,ny);
+    }
+}
+
+static void handle_mouse_press(uint32_t x,uint32_t y){
+    struct gui_window *top=wm_top_at(x*CELL_W+GRID_X,y*CELL_H+GRID_Y);
+    struct gui_window *about=window_by_id(WIN_ABOUT);
+
+    if(about&&about->visible){
+        if(top&&top->id==WIN_ABOUT){
+            uint32_t cx=about->x+about->w-24u;
+            if(x*CELL_W+GRID_X>=cx){
+                wm_hide(WIN_ABOUT);
+                debug_write("LIONOS:GUI-ABOUT-CLOSE-MOUSE\n");
+            }
+        }else{
+            wm_hide(WIN_ABOUT);
+            debug_write("LIONOS:GUI-ABOUT-CLOSE-OUTSIDE\n");
+        }
+        return;
+    }
+
+    if(top){
+        wm_focus(top->id);
+        if(top->id==WIN_TERMINAL){
+            return;
+        }
+    }
+
+    if((x>=4u&&x<16u&&y>=14u&&y<17u)||(x>=49u&&x<67u&&y>=16u&&y<19u)){
+        wm_show(WIN_TERMINAL);
+        debug_write("LIONOS:GUI-TERMINAL-OPEN\n");
+        return;
+    }
+    if((x>=4u&&x<16u&&y>=19u&&y<22u)||(x>=49u&&x<67u&&y>=20u&&y<23u)){
+        wm_show(WIN_ABOUT);
+        debug_write("LIONOS:GUI-ABOUT-OPEN\n");
+        return;
+    }
+    if(x>=4u&&x<16u&&y>=24u&&y<27u){
+        return_shell();
+    }
+}
+
+static void handle_key(int key){
+    struct gui_window *about=window_by_id(WIN_ABOUT);
+    struct gui_window *terminal=window_by_id(WIN_TERMINAL);
+
+    if(key==27||key=='q'||key=='Q'){
+        if(about&&about->visible){wm_hide(WIN_ABOUT);debug_write("LIONOS:GUI-ABOUT-CLOSE-KEY\n");}
+        else return_shell();
+        return;
+    }
+    if(key=='a'||key=='A'){
+        if(about&&about->visible)wm_hide(WIN_ABOUT);else wm_show(WIN_ABOUT);
+        debug_write("LIONOS:GUI-ABOUT-KEY\n");
+        return;
+    }
+    if(key=='t'||key=='T'){
+        return_shell();
+        return;
+    }
+    if(key==13&&terminal&&terminal->visible){return_shell();return;}
+}
+
 void gui_run(void){
     debug_write("LIONOS:GUI-ENTER\n");
     if(!framebuffer_available()){
@@ -164,82 +381,32 @@ void gui_run(void){
 
     mouse_set_cursor_visible(0u);
     while(keyboard_available())(void)keyboard_getchar();
+    wm_init();
 
-    uint32_t about_open=0u;
-    uint32_t previous_buttons=mouse_buttons();
     uint32_t mx=mouse_x();
     uint32_t my=(mouse_y()*GRID_H)/25u;
     if(mx>=GRID_W)mx=GRID_W-1u;
     if(my>=GRID_H)my=GRID_H-1u;
+    uint32_t previous_buttons=mouse_buttons();
 
-    const char*status="SYSTEM READY";
-    draw_desktop(mx,my,status);
+    render(mx,my);
+    dirty=0u;
 
     for(;;){
-        keyboard_poll();
-        mouse_poll();
+        poll_input(mx,my,previous_buttons);
+        previous_buttons=mouse_buttons();
 
-        uint32_t next_mx=mouse_x();
-        uint32_t next_my=(mouse_y()*GRID_H)/25u;
-        if(next_mx>=GRID_W)next_mx=GRID_W-1u;
-        if(next_my>=GRID_H)next_my=GRID_H-1u;
-
-        int redraw=(next_mx!=mx||next_my!=my)&&!about_open;
-        mx=next_mx;
-        my=next_my;
-
-        uint32_t buttons=mouse_buttons();
-        if((buttons&1u)&&!(previous_buttons&1u)){
-            if(about_open){
-                if(mx>=62u&&mx<66u&&my>=7u&&my<9u){
-                    about_open=0u;
-                    redraw=1;
-                    debug_write("LIONOS:GUI-ABOUT-CLOSE-MOUSE\n");
-                }else if(mx<9u||mx>=69u||my<6u||my>=30u){
-                    about_open=0u;
-                    redraw=1;
-                    debug_write("LIONOS:GUI-ABOUT-CLOSE-OUTSIDE\n");
-                }
-            }else if((mx>=4u&&mx<16u&&my>=14u&&my<17u)||(mx>=49u&&mx<67u&&my>=16u&&my<19u)){
-                return_shell();
-                return;
-            }else if((mx>=4u&&mx<16u&&my>=19u&&my<22u)||(mx>=49u&&mx<67u&&my>=20u&&my<23u)){
-                about_open=1u;
-                redraw=1;
-                debug_write("LIONOS:GUI-ABOUT-OPEN\n");
-            }else if(mx>=4u&&mx<16u&&my>=24u&&my<27u){
-                return_shell();
-                return;
-            }
-        }
-        previous_buttons=buttons;
-
-        while(keyboard_available()){
-            int ch=keyboard_getchar();
-            if(ch==27||ch=='q'||ch=='Q'){
-                if(about_open){
-                    about_open=0u;
-                    redraw=1;
-                    debug_write("LIONOS:GUI-ABOUT-CLOSE-KEY\n");
-                }else{
-                    return_shell();
-                    return;
-                }
-            }else if(ch=='a'||ch=='A'){
-                about_open=about_open?0u:1u;
-                redraw=1;
-                debug_write("LIONOS:GUI-ABOUT-KEY\n");
-            }else if(ch=='t'||ch=='T'){
-                return_shell();
-                return;
-            }
+        struct gui_event event;
+        while(next_event(&event)){
+            if(event.type==GUI_EVENT_MOUSE_MOVE){mx=event.x;my=event.y;invalidate();}
+            else if(event.type==GUI_EVENT_MOUSE_PRESS){handle_mouse_press(event.x,event.y);invalidate();}
+            else if(event.type==GUI_EVENT_KEY){handle_key(event.key);invalidate();}
         }
 
-        if(redraw){
-            draw_desktop(mx,my,status);
-            if(about_open)draw_about(mx,my);
+        if(dirty){
+            render(mx,my);
+            dirty=0u;
         }
-
         __asm__ volatile("pause");
     }
 }
