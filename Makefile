@@ -20,13 +20,16 @@ C_SOURCES := $(filter-out src/ramfs.c,$(wildcard src/*.c))
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso disk run check userspace userland process-test ipc-test signal-test net-test
+.PHONY: all clean iso disk run check test userspace userland process-test ipc-test signal-test net-test
 all: $(KERNEL)
 userspace userland: $(USER_ELFS)
 process-test: $(BUILD)/process_test.elf
 ipc-test: $(BUILD)/ipc_test.elf
 signal-test: $(BUILD)/signal_test.elf
 net-test: $(BUILD)/net_test.elf
+
+test:
+	bash scripts/test.sh
 
 $(BUILD):
 	mkdir -p $(BUILD)
