@@ -10,6 +10,7 @@ QEMU_MEMORY="${LIONOS_TEST_MEMORY:-128M}"
 run_qemu() {
     local log_file="$1"
     set +e
+    rm -f "$log_file"
     timeout "${TIMEOUT_SECONDS}s" qemu-system-i386 \
         -smp 2 \
         -cdrom build/lionos.iso \
@@ -17,12 +18,14 @@ run_qemu() {
         -m "$QEMU_MEMORY" \
         -display none \
         -serial none \
-        -debugcon stdio \
-        -global isa-debugcon.iobase=0xE9 >"$log_file" 2>&1
+        -debugcon "file:$log_file" \
+        -global isa-debugcon.iobase=0xE9
     local status=$?
     set -e
 
-    cat "$log_file"
+    if [ -f "$log_file" ]; then
+        cat "$log_file"
+    fi
     if [ "$status" -ne 124 ]; then
         echo "LionOS test: QEMU exited unexpectedly with status $status" >&2
         return 1
