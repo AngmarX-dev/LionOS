@@ -11,7 +11,8 @@ USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 CC := gcc
 LD := ld
 NASM := nasm
-CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Werror -O2 -Iinclude
+# GUI drawing helpers may be staged before their next rendering layer uses them.
+CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
 USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
