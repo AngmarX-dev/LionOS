@@ -9,7 +9,7 @@ struct cpu_info {
     uint32_t index;
     uint32_t apic_id;
     uint32_t logical_per_package;
-    uint32_t online;
+    volatile uint32_t online;
 };
 
 void cpu_init(void);
