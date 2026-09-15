@@ -20,14 +20,23 @@ static void scroll(void) {
 }
 
 void console_init(void) {
-    color = 0x0Fu;
+    color = CONSOLE_COLOR_LIGHT_GRAY;
     console_clear();
 }
 
 void console_clear(void) {
     for (uint32_t i = 0; i < VGA_WIDTH * VGA_HEIGHT; ++i)
         VGA[i] = ((uint16_t)color << 8) | ' ';
-    row = 0; col = 0;
+    row = 0;
+    col = 0;
+}
+
+void console_set_color(uint8_t fg) {
+    color = (uint8_t)(fg & 0x0Fu);
+}
+
+uint8_t console_color(void) {
+    return color;
 }
 
 void console_putc(char c) {
