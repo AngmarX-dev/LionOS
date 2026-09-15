@@ -4,10 +4,17 @@
 #include <stdint.h>
 #include "uapi.h"
 
+#define LIONOS_SIG_NONE 0u
+#define LIONOS_SIG_TERM 15u
+#define LIONOS_SIG_KILL 9u
+#define LIONOS_SIG_STOP 19u
+#define LIONOS_SIG_CONT 18u
+#define LIONOS_SIG_MAX 31u
+
 static inline uint32_t lion_syscall0(uint32_t n){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n):"ebx","ecx","edx","esi","edi","memory");return r;}
 static inline uint32_t lion_syscall1(uint32_t n,uint32_t a){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a):"ecx","edx","esi","edi","memory");return r;}
 static inline uint32_t lion_syscall2(uint32_t n,uint32_t a,uint32_t b){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b):"edx","esi","edi","memory");return r;}
-static inline uint32_t lion_syscall3(uint32_t n,uint32_t a,uint32_t b,uint32_t c){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c):"esi","edi","memory");return r;}
+static inline uint32_t lion_syscall3(uint32_t n,uint32_t a,uint32_t b,uint32_t c){uint32_t r;__asm__ volatile("int $0x80":"=a"(r),"a"(n),"b"(a),"c"(b),"d"(c):"esi","edi","memory");return r;}
 static inline uint32_t lion_syscall4(uint32_t n,uint32_t a,uint32_t b,uint32_t c,uint32_t d){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c),"S"(d):"edi","memory");return r;}
 static inline uint32_t lion_syscall5(uint32_t n,uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c),"S"(d),"D"(e):"memory");return r;}
 static inline uint32_t lion_putc(char c){return lion_syscall1(LIONOS_SYS_PUTC,(uint32_t)(uint8_t)c);}
