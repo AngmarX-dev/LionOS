@@ -38,9 +38,6 @@ void smp_ap_main(void){
     if(index>=LIONOS_MAX_CPUS){debug_write("LIONOS:SMP-AP-BAD-INDEX\n");for(;;)__asm__ volatile("cli; hlt");}
     uint32_t stack_top=ap_stacks[index]+LIONOS_SMP_STACK_PAGES*4096u;
     debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
-    cpu_mark_online(index,lapic_id());
-    __atomic_fetch_or(&ap_online_mask,1u<<index,__ATOMIC_RELEASE);
-    debug_write("LIONOS:SMP-AP-ONLINE-MARKED\n");
     tss_init_cpu(index,stack_top);
     debug_write("LIONOS:SMP-AP-TSS-OK\n");
     idt_load_current();
@@ -49,6 +46,9 @@ void smp_ap_main(void){
     debug_write("LIONOS:SMP-AP-TIMER-OK\n");
     __asm__ volatile("sti");
     debug_write("LIONOS:SMP-AP-STI-OK\n");
+    cpu_mark_online(index,lapic_id());
+    __atomic_fetch_or(&ap_online_mask,1u<<index,__ATOMIC_RELEASE);
+    debug_write("LIONOS:SMP-AP-ONLINE-MARKED\n");
     for(;;)__asm__ volatile("hlt");
 }
 
