@@ -10,7 +10,7 @@
 
 #define KERNEL_MMIO_BASE 0xF0000000u
 #define KERNEL_MMIO_PDE_START (KERNEL_MMIO_BASE >> 22)
-#define KERNEL_MMIO_PDE_COUNT 4u
+#define KERNEL_MMIO_PDE_COUNT 64u
 
 static uint32_t page_directory[PAGE_ENTRIES] __attribute__((aligned(4096)));
 static uint32_t page_tables[PAGE_TABLE_COUNT][PAGE_ENTRIES] __attribute__((aligned(4096)));
@@ -43,7 +43,7 @@ uint32_t paging_kernel_directory(void) { return (uint32_t)(uintptr_t)page_direct
 
 int paging_map_kernel_page(uint32_t virtual_address, uint32_t physical_address, uint32_t flags) {
     if ((virtual_address & (PAGE_SIZE - 1u)) || (physical_address & (PAGE_SIZE - 1u))) return -1;
-    if (virtual_address < 0xC0000000u) return -1;
+    if (virtual_address < KERNEL_MMIO_BASE) return -1;
 
     uint32_t directory_index = virtual_address >> 22;
     uint32_t table_index = (virtual_address >> 12) & 0x3FFu;
