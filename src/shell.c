@@ -101,7 +101,10 @@ void shell_run(void){
     mouse_show();
     for(;;){
         mouse_poll();
-        if(!keyboard_available()){__asm__ volatile("hlt");continue;}
+        if(!keyboard_available()){
+            __asm__ volatile("pause");
+            continue;
+        }
         int c=keyboard_getchar();
         if(c<0)continue;
         mouse_hide();
