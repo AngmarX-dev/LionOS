@@ -54,8 +54,10 @@ LionOS is a small educational kernel focused on operating-system internals and l
 
 ### Executables & storage
 - ✅ Scrolling VGA console
+- ✅ Colored VGA console API
 - ✅ PS/2 keyboard input
 - ✅ LionOS Shell
+- ✅ Phase 25 color-coded shell UI
 - ✅ RAM filesystem
 - ✅ `ls`, `cat`, `write`, `touch`, `rm`
 - ✅ Process diagnostics with `ps`
@@ -133,6 +135,25 @@ Phase 23 adds an automated stability suite covering the release baseline:
 - required SMP and `READY` boot markers
 
 The full suite is implemented in [`scripts/test.sh`](scripts/test.sh) and is also executed by CI.
+
+## 📦 Phase 24 — Documentation & Release Preparation 🚧
+
+Phase 24 packages the validated SMP and stability work for an experimental release milestone. The release checklist and known scope limitations are documented in [`docs/PHASE-24-RELEASE.md`](docs/PHASE-24-RELEASE.md).
+
+## 🎨 Phase 25 — UI 🚧
+
+Phase 25 starts the user-facing UI layer while keeping the kernel's existing text-mode architecture stable.
+
+The first UI slice adds:
+
+- VGA foreground color support
+- a clearer LionOS shell banner
+- a color-coded `lion:/ >` prompt
+- categorized `help` output
+- colored success, status, and error messages
+- a cleaner `about`, `ls`, `run`, and file-command presentation
+
+This is currently a text-mode TUI milestone. A graphical framebuffer interface can be considered later.
 
 ## 🛡️ Security Model
 
@@ -216,13 +237,7 @@ The VFS currently provides a deliberately small interface suitable for the early
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, Local APIC support, AP startup, per-CPU TSS/IDT bootstrap, a LAPIC scheduler timer, and initial SMP synchronization primitives.
-
-## 📦 Phase 24 — Documentation & Release Preparation
-
-Phase 24 packages the validated SMP and stability work for an experimental release milestone. The release checklist and known scope limitations are documented in [`docs/PHASE-24-RELEASE.md`](docs/PHASE-24-RELEASE.md).
-
-The repository's CI workflow runs `make test` and publishes the bootable ISO as the `lionos-iso` artifact.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, Local APIC support, AP startup, per-CPU TSS/IDT bootstrap, a LAPIC scheduler timer, initial SMP synchronization primitives, and the new colored text-mode shell UI.
 
 ## 🤖 AI-Assisted Development
 
@@ -234,4 +249,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ## ⚠️ Status
 
-LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 focuses on documentation and release preparation. LionOS is not intended for production use.
+LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 release preparation is underway, and Phase 25 UI development has begun. LionOS is not intended for production use.
