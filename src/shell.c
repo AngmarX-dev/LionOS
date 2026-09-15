@@ -3,6 +3,7 @@
 #include "exec.h"
 #include "keyboard.h"
 #include "memory.h"
+#include "mouse.h"
 #include "process.h"
 #include "shell.h"
 #include "vfs.h"
@@ -41,6 +42,7 @@ static void banner(void){
     console_write("==============================================================\n");
     ui_dim();
     console_write("SMP: 2 CPU test path   |   VFS: RAMFS + LionFS   |   ELF32\n");
+    console_write("Mouse: PS/2 text cursor   |   Keyboard: PS/2 IRQ1\n");
     console_write("Type 'help' for commands.\n");
     ui_normal();
 }
@@ -59,15 +61,18 @@ static void cmd_stat(char *arg){arg=skip_spaces(arg);if(!*arg){ui_error();consol
 
 static void cmd_ps(void){console_write("PID   STATE      ENTRY\n");for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i){struct process *p=process_at(i);if(!p||p->state==PROCESS_UNUSED)continue;console_write_dec(p->pid);console_write("    ");ui_accent();console_write(process_state_name(p->state));ui_normal();console_write("    ");console_write_hex(p->entry);console_putc('\n');}}
 
+static void cmd_mouse(void){console_write("Mouse: x=");console_write_dec(mouse_x());console_write(" y=");console_write_dec(mouse_y());console_write(" buttons=");console_write_hex((uint32_t)mouse_buttons());console_putc('\n');}
+
 static void command(char *cmd){
     if(eq(cmd,"help")){
         ui_title(); console_write("LionOS Shell v0.8\n"); ui_normal();
-        console_write("System : "); ui_accent(); console_write("help clear mem ps uname uptime version about\n"); ui_normal();
+        console_write("System : "); ui_accent(); console_write("help clear mem ps uname uptime version about mouse\n"); ui_normal();
         console_write("Files  : "); ui_accent(); console_write("pwd ls cat write touch rm stat\n"); ui_normal();
         console_write("Exec   : "); ui_accent(); console_write("run <program.elf>\n"); ui_normal();
         ui_dim(); console_write("RAMFS and persistent LionFS are exposed through the VFS.\n"); ui_normal();
+        ui_dim(); console_write("Mouse is available as a text cursor; run 'mouse' to inspect position/buttons.\n"); ui_normal();
     }
-    else if(eq(cmd,"clear")){console_clear();banner();}
+    else if(eq(cmd,"clear")){mouse_hide();console_clear();banner();}
     else if(prefix(cmd,"echo ")){console_write(cmd+5);console_putc('\n');}
     else if(eq(cmd,"pwd"))console_write("/\n");
     else if(eq(cmd,"ls"))cmd_ls();
@@ -78,6 +83,7 @@ static void command(char *cmd){
     else if(prefix(cmd,"stat "))cmd_stat(cmd+5);
     else if(eq(cmd,"mem")){console_write("Pages: total=");console_write_dec(memory_total_pages());console_write(" free=");console_write_dec(memory_free_pages());console_putc('\n');}
     else if(eq(cmd,"ps"))cmd_ps();
+    else if(eq(cmd,"mouse"))cmd_mouse();
     else if(prefix(cmd,"run ")){char *n=skip_spaces(cmd+4);if(!*n){ui_error();console_write("usage: run <program.elf>\n");ui_normal();return;}int pid=exec_run_file(n);if(pid<0){ui_error();console_write("run: invalid or unsupported ELF32 file\n");ui_normal();}else{ui_ok();console_write("run: started PID ");console_write_dec((uint32_t)pid);console_putc('\n');ui_normal();}}
     else if(eq(cmd,"uname"))console_write("LionOS 0.8 x86 i386 kernel\n");
     else if(eq(cmd,"version"))console_write("LionOS version 0.8\n");
@@ -92,12 +98,16 @@ void shell_run(void){
     console_clear();
     banner();
     prompt();
+    mouse_show();
     for(;;){
+        mouse_poll();
         if(!keyboard_available()){__asm__ volatile("hlt");continue;}
         int c=keyboard_getchar();
         if(c<0)continue;
+        mouse_hide();
         if(c=='\n'){line[len]=0;console_putc('\n');command(line);len=0;prompt();}
         else if(c=='\b'){if(len){--len;console_putc('\b');}}
         else if(c>=32&&c<127&&len<SHELL_LINE_MAX-1u){line[len++]=(char)c;console_putc((char)c);}
+        mouse_show();
     }
 }
