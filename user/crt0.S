@@ -1,7 +1,7 @@
 .section .text
 .global _start
 .extern main
-.extern lion_exit_code
+.extern lion_exit_code_bridge
 .type _start, @function
 
 _start:
@@ -15,9 +15,10 @@ _start:
     add $8, %esp
 
     push %eax
-    call lion_exit_code
+    call lion_exit_code_bridge
 
 1:
+    cli
     hlt
     jmp 1b
 
