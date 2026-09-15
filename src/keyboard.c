@@ -3,6 +3,8 @@
 #include "keyboard.h"
 
 #define KEYBOARD_BUFFER_SIZE 128u
+#define PS2_STATUS 0x64u
+#define PS2_DATA 0x60u
 
 static volatile uint8_t buffer[KEYBOARD_BUFFER_SIZE];
 static volatile uint32_t read_index;
@@ -86,6 +88,17 @@ void keyboard_handle_scancode(uint8_t scancode) {
     if (scancode < 128u) {
         char c = shift_down ? shiftmap[scancode] : keymap[scancode];
         if (c) push_char((uint8_t)c);
+    }
+}
+
+void keyboard_poll(void) {
+    /* Fallback for contexts such as the early graphical UI where relying only
+       on IRQ1 can make injected/held keys appear unresponsive. Never consume
+       controller bytes belonging to the mouse (AUX status bit set). */
+    while (inb(PS2_STATUS) & 0x01u) {
+        uint8_t status = inb(PS2_STATUS);
+        if (status & 0x20u) break;
+        keyboard_handle_scancode(inb(PS2_DATA));
     }
 }
 
