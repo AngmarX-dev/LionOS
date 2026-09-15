@@ -13,7 +13,7 @@ LD := ld
 NASM := nasm
 CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
 GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation
-GUI_DESKTOP_CFLAGS := $(CFLAGS) -Dterminal_focus='windows[0].focused'
+GUI_DESKTOP_CFLAGS := $(CFLAGS)
 USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
@@ -123,7 +123,7 @@ $(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(USER_EMBEDS) linker.ld
 iso: $(KERNEL)
 	mkdir -p $(BUILD)/iso/boot/grub
 	cp $(KERNEL) $(BUILD)/iso/boot/lionos.bin
-	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
+	cp boot/grub.cfg $(BUILD)/iso/boot/grub.cfg
 	grub-mkrescue -o $(ISO) $(BUILD)/iso
 
 disk: | $(BUILD)
