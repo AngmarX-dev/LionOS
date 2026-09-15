@@ -18,9 +18,17 @@ extern uint32_t smp_trampoline_cpu;
 static uint32_t online_count=1u;
 static uint32_t ap_stacks[LIONOS_MAX_CPUS];
 static struct spinlock smp_lock;
+static volatile uint32_t ap_online_mask;
 
 static void delay(uint32_t loops){for(volatile uint32_t i=0;i<loops;++i)__asm__ volatile("pause");}
-static int wait_for_online(uint32_t index){for(uint32_t i=0;i<LIONOS_SMP_START_TIMEOUT;++i){const struct cpu_info*c=cpu_get(index);if(c&&c->online)return 0;__asm__ volatile("pause");}return-1;}
+static int wait_for_online(uint32_t index){
+    uint32_t mask=1u<<index;
+    for(uint32_t i=0;i<LIONOS_SMP_START_TIMEOUT;++i){
+        if(__atomic_load_n(&ap_online_mask,__ATOMIC_ACQUIRE)&mask)return 0;
+        __asm__ volatile("pause");
+    }
+    return -1;
+}
 
 uint32_t smp_lock_selftest(void){uint32_t flags=spinlock_irqsave_acquire(&smp_lock);uint32_t ok=smp_lock.value==1u;spinlock_irqrestore_release(&smp_lock,flags);return ok;}
 
@@ -31,6 +39,8 @@ void smp_ap_main(void){
     uint32_t stack_top=ap_stacks[index]+LIONOS_SMP_STACK_PAGES*4096u;
     debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
     cpu_mark_online(index,lapic_id());
+    __atomic_fetch_or(&ap_online_mask,1u<<index,__ATOMIC_RELEASE);
+    debug_write("LIONOS:SMP-AP-ONLINE-MARKED\n");
     tss_init_cpu(index,stack_top);
     debug_write("LIONOS:SMP-AP-TSS-OK\n");
     idt_load_current();
@@ -44,6 +54,7 @@ void smp_ap_main(void){
 
 void smp_init(void){
     online_count=1u;
+    ap_online_mask=0u;
     spinlock_init(&smp_lock);
     debug_write("LIONOS:SMP-ENTER\n");
     if(cpu_count_hint()<=1u){debug_write("LIONOS:SMP-CPU-COUNT-1\n");return;}
