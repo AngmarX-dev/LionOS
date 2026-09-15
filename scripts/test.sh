@@ -93,7 +93,7 @@ for _ in range(100):
             sock.recv(4096)
         except socket.timeout:
             pass
-        sock.sendall(b"sendkey q\n")
+        sock.sendall(b"sendkey esc\n")
         time.sleep(0.1)
         sock.close()
         break
