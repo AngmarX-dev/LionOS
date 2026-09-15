@@ -11,13 +11,14 @@ USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 CC := gcc
 LD := ld
 NASM := nasm
-# GUI drawing helpers may be staged before their next rendering layer uses them.
 CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
+GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation
+GUI_DESKTOP_CFLAGS := $(CFLAGS)
 USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
 
-C_SOURCES := $(filter-out src/ramfs.c,$(wildcard src/*.c))
+C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/gui.c src/gui_runtime.c,$(wildcard src/*.c))
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
@@ -37,6 +38,15 @@ $(BUILD):
 
 $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
 	$(NASM) -f elf32 $< -o $@
+
+$(BUILD)/gui_runtime.o: src/gui_runtime.c | $(BUILD)
+	$(CC) $(GUI_CFLAGS) -c $< -o $@
+
+$(BUILD)/gui_desktop.o: src/gui_desktop.c | $(BUILD)
+	$(CC) $(GUI_DESKTOP_CFLAGS) -c $< -o $@
+
+$(BUILD)/kernel_runtime.o: src/kernel_runtime.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@

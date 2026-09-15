@@ -8,16 +8,21 @@
 #define USER_LIMIT 0xC0000000u
 #define IDENTITY_MAP_SIZE (PAGE_TABLE_COUNT * PAGE_ENTRIES * PAGE_SIZE)
 
+#define KERNEL_MMIO_BASE 0xF0000000u
+#define KERNEL_MMIO_PDE_START (KERNEL_MMIO_BASE >> 22)
+#define KERNEL_MMIO_PDE_COUNT 64u
+
 static uint32_t page_directory[PAGE_ENTRIES] __attribute__((aligned(4096)));
 static uint32_t page_tables[PAGE_TABLE_COUNT][PAGE_ENTRIES] __attribute__((aligned(4096)));
-static uint32_t kernel_mmio_table[PAGE_ENTRIES] __attribute__((aligned(4096)));
+static uint32_t kernel_mmio_tables[KERNEL_MMIO_PDE_COUNT][PAGE_ENTRIES] __attribute__((aligned(4096)));
 static uint32_t current_directory;
 
 static uint32_t *directory_ptr(uint32_t physical) { return (uint32_t *)(uintptr_t)physical; }
 
 void paging_init(void) {
     for (uint32_t i = 0; i < PAGE_ENTRIES; ++i) page_directory[i] = 0;
-    for (uint32_t i = 0; i < PAGE_ENTRIES; ++i) kernel_mmio_table[i] = 0;
+    for (uint32_t table = 0; table < KERNEL_MMIO_PDE_COUNT; ++table)
+        for (uint32_t i = 0; i < PAGE_ENTRIES; ++i) kernel_mmio_tables[table][i] = 0;
     for (uint32_t table = 0; table < PAGE_TABLE_COUNT; ++table) {
         for (uint32_t page = 0; page < PAGE_ENTRIES; ++page) {
             uint32_t physical = (table * PAGE_ENTRIES + page) * PAGE_SIZE;
@@ -38,11 +43,15 @@ uint32_t paging_kernel_directory(void) { return (uint32_t)(uintptr_t)page_direct
 
 int paging_map_kernel_page(uint32_t virtual_address, uint32_t physical_address, uint32_t flags) {
     if ((virtual_address & (PAGE_SIZE - 1u)) || (physical_address & (PAGE_SIZE - 1u))) return -1;
-    if (virtual_address < 0xC0000000u) return -1;
+    if (virtual_address < KERNEL_MMIO_BASE) return -1;
 
     uint32_t directory_index = virtual_address >> 22;
     uint32_t table_index = (virtual_address >> 12) & 0x3FFu;
-    uint32_t *table = kernel_mmio_table;
+    if (directory_index < KERNEL_MMIO_PDE_START ||
+        directory_index >= KERNEL_MMIO_PDE_START + KERNEL_MMIO_PDE_COUNT) return -1;
+
+    uint32_t mmio_index = directory_index - KERNEL_MMIO_PDE_START;
+    uint32_t *table = kernel_mmio_tables[mmio_index];
     page_directory[directory_index] = (uint32_t)(uintptr_t)table | 0x3u;
     table[table_index] = (physical_address & 0xFFFFF000u) | (flags & 0x3u) | 0x1u;
 
