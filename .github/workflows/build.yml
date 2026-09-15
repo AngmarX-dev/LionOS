@@ -16,74 +16,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
 
-      - name: Build kernel
-        run: make check
-
-      - name: Build userspace
-        run: make userspace process-test
-
-      - name: Validate userspace ELF
-        run: |
-          for elf in build/hello.elf build/process_test.elf; do
-            test -s "$elf"
-            test "$(stat -c%s "$elf")" -le 16384
-            readelf -h "$elf" | grep -q 'Class:[[:space:]]*ELF32'
-            readelf -h "$elf" | grep -q 'Machine:[[:space:]]*Intel 80386'
-            readelf -h "$elf" | grep -q 'Entry point address:'
-            readelf -l "$elf" | grep -q 'LOAD'
-          done
-
-      - name: Build ISO and persistent disk
-        run: |
-          make iso
-          make disk
-          test -s build/lionos.iso
-          test -s build/lionos-disk.img
-
-      - name: QEMU SMP boot and persistent filesystem test
-        run: |
-          set +e
-          timeout 10s qemu-system-i386 \
-            -smp 2 \
-            -cdrom build/lionos.iso \
-            -drive file=build/lionos-disk.img,format=raw,if=ide \
-            -m 128M \
-            -display none \
-            -serial none \
-            -debugcon stdio \
-            -global isa-debugcon.iobase=0xE9 > qemu-first.log 2>&1
-          first_status=$?
-          set -e
-          cat qemu-first.log
-          if [ "$first_status" -ne 124 ]; then
-            echo "First QEMU boot exited unexpectedly with status $first_status"
-            exit 1
-          fi
-          grep -q 'LIONOS:READY' qemu-first.log
-          grep -q 'LIONOS:PERSIST-INIT' qemu-first.log
-          grep -q 'LIONOS:SMP-CPU-ONLINE' qemu-first.log
-
-          set +e
-          timeout 10s qemu-system-i386 \
-            -smp 2 \
-            -cdrom build/lionos.iso \
-            -drive file=build/lionos-disk.img,format=raw,if=ide \
-            -m 128M \
-            -display none \
-            -serial none \
-            -debugcon stdio \
-            -global isa-debugcon.iobase=0xE9 > qemu-second.log 2>&1
-          second_status=$?
-          set -e
-          cat qemu-second.log
-          if [ "$second_status" -ne 124 ]; then
-            echo "Second QEMU boot exited unexpectedly with status $second_status"
-            exit 1
-          fi
-          grep -q 'LIONOS:READY' qemu-second.log
-          grep -q 'LIONOS:PERSIST-OK' qemu-second.log
-          grep -q 'LIONOS:SMP-CPU-ONLINE' qemu-second.log
-          echo "QEMU SMP + persistent filesystem test: PASS"
+      - name: Run Phase 23 stability suite
+        run: make test
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
