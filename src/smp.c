@@ -69,10 +69,12 @@ void smp_init(void){
         debug_write("LIONOS:SMP-SIPI1\n");
         lapic_send_startup(target_apic,LIONOS_SMP_TRAMPOLINE>>12);
         debug_write("LIONOS:SMP-SIPI1-DONE\n");
-        delay(1000000u);
-        debug_write("LIONOS:SMP-SIPI2\n");
-        lapic_send_startup(target_apic,LIONOS_SMP_TRAMPOLINE>>12);
-        debug_write("LIONOS:SMP-SIPI2-DONE\n");
+        if(wait_for_online(index)!=0){
+            debug_write("LIONOS:SMP-SIPI1-TIMEOUT\n");
+            debug_write("LIONOS:SMP-SIPI2\n");
+            lapic_send_startup(target_apic,LIONOS_SMP_TRAMPOLINE>>12);
+            debug_write("LIONOS:SMP-SIPI2-DONE\n");
+        }
         if(wait_for_online(index)==0){
             ++online_count;
             console_write("[ OK ] CPU ");
