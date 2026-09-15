@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include "user_libc.h"
+#include "user_api.h"
 
 uint32_t strlen(const char *s) {
     uint32_t n = 0;
@@ -132,4 +133,12 @@ int printf(const char *format, ...) {
     }
     va_end(ap);
     return written;
+}
+
+/* Exported bridge for crt0.S. user_api.h's lion_exit_code is static inline. */
+void lion_exit_code_bridge(int code) {
+    lion_exit_code((uint32_t)code);
+    for (;;) {
+        __asm__ volatile ("cli; hlt");
+    }
 }
