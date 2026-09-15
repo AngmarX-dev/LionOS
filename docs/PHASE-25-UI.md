@@ -1,25 +1,51 @@
 # Phase 25 — LionOS UI
 
-Phase 25 begins the user-facing UI work for LionOS.
+Phase 25 is the first dedicated user-facing UI phase for LionOS.
 
-## v0.1 UI direction
+## Text UI milestone
 
-LionOS currently uses the classic 80x25 VGA text console. The first UI milestone keeps that architecture and improves the shell experience without changing kernel/process behavior.
+LionOS keeps the 80x25 VGA text console for the initial UI rather than jumping directly to a graphical framebuffer desktop.
 
-### First goals
+### Implemented
 
 - Colored VGA console output
-- Cleaner LionOS shell banner
-- Color-coded prompt
-- Improved command/help presentation
-- Clear visual distinction between normal output and errors
-- Preserve the existing keyboard, VFS, ELF, SMP, and persistence behavior
+- Branded LionOS shell banner
+- Color-coded prompt and command output
+- Clear visual distinction between normal output, status, and errors
+- Polled PS/2 mouse initialization
+- Text-mode mouse cursor with yellow-on-blue highlight
+- Mouse position tracking across the 80x25 console grid
+- Mouse button state tracking
+- `mouse` shell command for position/button diagnostics
+- Keyboard input remains on the existing PS/2 IRQ1 path
 
-## Current scope
+## Mouse architecture
 
-This phase is a **text-mode UI/TUI** milestone, not a graphical framebuffer desktop.
+The first mouse implementation uses **polling** rather than IRQ12. The kernel initializes the PS/2 auxiliary device before enabling interrupts, then the shell polls the controller while the LAPIC/PIT timer continues to wake the idle shell loop.
 
-A future graphical UI can be added after the text-console layer is stable.
+The mouse driver exposes:
+
+```c
+mouse_init();
+mouse_poll();
+mouse_show();
+mouse_hide();
+mouse_x();
+mouse_y();
+mouse_buttons();
+```
+
+This deliberately keeps the new UI input path isolated while SMP and scheduler subsystems remain experimentally SMP-safe rather than fully concurrent.
+
+## Future UI work
+
+- Mouse click actions for shell/UI widgets
+- Scroll-wheel support
+- Interactive text menus
+- Selection/highlighting
+- Better cursor rendering
+- Framebuffer graphics mode
+- Window manager / desktop experiments
 
 ## Validation
 
