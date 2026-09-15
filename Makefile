@@ -44,18 +44,28 @@ $(BUILD)/libc.o: user/libc.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
 $(BUILD)/hello.o: user/hello.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/process_test.o: user/process_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/ipc_test.o: user/ipc_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/signal_test.o: user/signal_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/net_test.o: user/net_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
 $(BUILD)/echo.o: user/bin/echo.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/cat.o: user/bin/cat.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/ls.o: user/bin/ls.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/pwd.o: user/bin/pwd.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/uname.o: user/bin/uname.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/rm.o: user/bin/rm.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/stat.o: user/bin/stat.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
