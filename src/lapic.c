@@ -38,13 +38,17 @@ uint32_t lapic_id(void){return initialized?(read_reg(LAPIC_REG_ID)>>24):0xFFFFFF
 void lapic_eoi(void){if(initialized)write_reg(LAPIC_REG_EOI,0u);}
 void lapic_send_init(uint32_t apic_id){
     if(!initialized)return;
-    /* AP startup requires a level-triggered INIT assertion followed by
-       an INIT deassertion before the SIPI sequence. */
+    /* Assert INIT as a level-triggered IPI. */
     write_reg(0x310u,(apic_id&0xFFu)<<24);
     write_reg(0x300u,ICR_DELIVERY_INIT|ICR_LEVEL_ASSERT|ICR_TRIGGER_LEVEL);
     wait_icr();
+
+    /* Deassert INIT with the level bit cleared.  The trigger-mode bit is
+       intentionally cleared as well; this is the standard xAPIC INIT
+       deassert form and avoids leaving the target in a level-triggered
+       INIT state under QEMU. */
     write_reg(0x310u,(apic_id&0xFFu)<<24);
-    write_reg(0x300u,ICR_DELIVERY_INIT|ICR_TRIGGER_LEVEL);
+    write_reg(0x300u,ICR_DELIVERY_INIT);
     wait_icr();
 }
 void lapic_send_startup(uint32_t apic_id,uint32_t vector){if(!initialized||vector>0xFFu)return;write_reg(0x310u,(apic_id&0xFFu)<<24);write_reg(0x300u,ICR_DELIVERY_STARTUP|(vector&0xFFu));wait_icr();}
