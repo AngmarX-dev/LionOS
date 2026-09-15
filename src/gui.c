@@ -81,45 +81,50 @@ static void draw_cursor(uint32_t mx, uint32_t my) {
     framebuffer_fill_rect(x + 4u, y + 14u, 6u, 3u, C_CURSOR);
 }
 
-static void draw_desktop(uint32_t mx, uint32_t my, uint32_t about_open, const char *status) {
+static void draw_desktop(uint32_t mx, uint32_t my, const char *status) {
     framebuffer_clear(C_BG);
     uint32_t width = framebuffer_width();
     uint32_t height = framebuffer_height();
-
     framebuffer_fill_rect(0, 0, width, 44u, C_PANEL2);
     framebuffer_fill_rect(0, height - 44u, width, 44u, C_PANEL2);
     framebuffer_fill_rect(0, 44u, width, height - 88u, C_BG);
-
     draw_text("LIONOS DESKTOP", 2u, 1u, C_ACCENT);
     draw_text("PHASE 26", 67u, 1u, C_DIM);
     draw_text("READY", 2u, 45u, C_GOOD);
     draw_text("ESC SHELL", 61u, 45u, C_DIM);
-
     framebuffer_fill_rect(GRID_X, GRID_Y, 72u * CELL_W, 20u * CELL_H, C_BORDER);
     framebuffer_fill_rect(GRID_X + 3u, GRID_Y + 3u, 72u * CELL_W - 6u, 20u * CELL_H - 6u, C_PANEL);
     draw_text("WELCOME TO LIONOS", 3u, 15u, C_TEXT);
     draw_text("SMP AND STORAGE ONLINE", 3u, 18u, C_DIM);
     draw_text("GRAPHICAL INPUT ENABLED", 3u, 20u, C_DIM);
     draw_text(status, 3u, 23u, C_GOOD);
-
     button(8u, 28u, 18u, 4u, 0x1D4164u, "TERMINAL");
     button(31u, 28u, 15u, 4u, 0x35506Fu, "ABOUT");
     button(51u, 28u, 14u, 4u, 0x5B2A34u, "EXIT");
-
-    if (about_open) {
-        framebuffer_fill_rect(GRID_X + 10u * CELL_W, GRID_Y + 8u * CELL_H,
-                              58u * CELL_W, 20u * CELL_H, C_BORDER);
-        framebuffer_fill_rect(GRID_X + 10u * CELL_W + 3u, GRID_Y + 8u * CELL_H + 3u,
-                              58u * CELL_W - 6u, 20u * CELL_H - 6u, C_PANEL2);
-        draw_text("LIONOS", 14u, 11u, C_ACCENT);
-        draw_text("32 BIT X86 EXPERIMENTAL OS", 14u, 14u, C_TEXT);
-        draw_text("MULTIBOOT2 GRUB BOOT", 14u, 16u, C_TEXT);
-        draw_text("SMP MEMORY PROCESS VFS", 14u, 18u, C_TEXT);
-        draw_text("MOUSE POLLING INPUT", 14u, 20u, C_TEXT);
-        draw_text("PRESS A AGAIN OR Q", 14u, 23u, C_DIM);
-    }
-
     draw_cursor(mx, my);
+}
+
+static void draw_about(uint32_t mx, uint32_t my) {
+    uint32_t x = GRID_X + 10u * CELL_W;
+    uint32_t y = GRID_Y + 8u * CELL_H;
+    uint32_t w = 58u * CELL_W;
+    uint32_t h = 20u * CELL_H;
+    framebuffer_fill_rect(x, y, w, h, C_BORDER);
+    framebuffer_fill_rect(x + 3u, y + 3u, w - 6u, h - 6u, C_PANEL2);
+    draw_text("LIONOS", 14u, 11u, C_ACCENT);
+    draw_text("32 BIT X86 EXPERIMENTAL OS", 14u, 14u, C_TEXT);
+    draw_text("MULTIBOOT2 GRUB BOOT", 14u, 16u, C_TEXT);
+    draw_text("SMP MEMORY PROCESS VFS", 14u, 18u, C_TEXT);
+    draw_text("MOUSE POLLING INPUT", 14u, 20u, C_TEXT);
+    draw_text("PRESS A OR Q TO CLOSE", 14u, 23u, C_DIM);
+    button(62u, 9u, 4u, 2u, 0x5B2A34u, "X");
+    draw_cursor(mx, my);
+}
+
+static void return_shell(void) {
+    mouse_set_cursor_visible(1u);
+    mouse_show();
+    debug_write("LIONOS:GUI-EXIT\n");
 }
 
 void gui_run(void) {
@@ -128,7 +133,6 @@ void gui_run(void) {
         debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");
         return;
     }
-
     mouse_set_cursor_visible(0u);
     while (keyboard_available()) (void)keyboard_getchar();
 
@@ -139,7 +143,7 @@ void gui_run(void) {
     if (mx >= GRID_W) mx = GRID_W - 1u;
     if (my >= GRID_H) my = GRID_H - 1u;
     const char *status = "GRAPHICS ONLINE";
-    draw_desktop(mx, my, about_open, status);
+    draw_desktop(mx, my, status);
 
     for (;;) {
         keyboard_poll();
@@ -149,30 +153,31 @@ void gui_run(void) {
         uint32_t next_my = (mouse_y() * GRID_H) / 25u;
         if (next_mx >= GRID_W) next_mx = GRID_W - 1u;
         if (next_my >= GRID_H) next_my = GRID_H - 1u;
-
-        int redraw = (next_mx != mx || next_my != my);
+        int redraw = (next_mx != mx || next_my != my) && !about_open;
         mx = next_mx;
         my = next_my;
 
         uint32_t buttons = mouse_buttons();
         if ((buttons & 1u) && !(previous_buttons & 1u)) {
-            if (mx >= 8u && mx < 26u && my >= 28u && my < 32u) {
-                status = "OPENING SHELL";
-                draw_desktop(mx, my, 0u, status);
-                debug_write("LIONOS:GUI-TERMINAL\n");
-                mouse_set_cursor_visible(1u);
-                mouse_show();
-                debug_write("LIONOS:GUI-EXIT\n");
+            if (about_open) {
+                if (mx >= 62u && mx < 66u && my >= 9u && my < 11u) {
+                    about_open = 0u;
+                    redraw = 1;
+                    debug_write("LIONOS:GUI-ABOUT-CLOSE-MOUSE\n");
+                } else if (mx < 10u || mx >= 68u || my < 8u || my >= 28u) {
+                    about_open = 0u;
+                    redraw = 1;
+                    debug_write("LIONOS:GUI-ABOUT-CLOSE-OUTSIDE\n");
+                }
+            } else if (mx >= 8u && mx < 26u && my >= 28u && my < 32u) {
+                return_shell();
                 return;
-            }
-            if (mx >= 31u && mx < 46u && my >= 28u && my < 32u) {
-                about_open = about_open ? 0u : 1u;
+            } else if (mx >= 31u && mx < 46u && my >= 28u && my < 32u) {
+                about_open = 1u;
                 redraw = 1;
-            }
-            if (mx >= 51u && mx < 65u && my >= 28u && my < 32u) {
-                mouse_set_cursor_visible(1u);
-                mouse_show();
-                debug_write("LIONOS:GUI-EXIT\n");
+                debug_write("LIONOS:GUI-ABOUT-OPEN\n");
+            } else if (mx >= 51u && mx < 65u && my >= 28u && my < 32u) {
+                return_shell();
                 return;
             }
         }
@@ -181,24 +186,32 @@ void gui_run(void) {
         while (keyboard_available()) {
             int ch = keyboard_getchar();
             if (ch == 27 || ch == 'q' || ch == 'Q') {
-                mouse_set_cursor_visible(1u);
-                mouse_show();
-                debug_write("LIONOS:GUI-EXIT\n");
-                return;
-            }
-            if (ch == 'a' || ch == 'A') {
+                if (about_open) {
+                    about_open = 0u;
+                    redraw = 1;
+                    debug_write("LIONOS:GUI-ABOUT-CLOSE-KEY\n");
+                } else {
+                    return_shell();
+                    return;
+                }
+            } else if (ch == 'a' || ch == 'A') {
                 about_open = about_open ? 0u : 1u;
                 redraw = 1;
-            }
-            if (ch == 't' || ch == 'T') {
-                mouse_set_cursor_visible(1u);
-                mouse_show();
-                debug_write("LIONOS:GUI-EXIT\n");
+                debug_write("LIONOS:GUI-ABOUT-KEY\n");
+            } else if (ch == 't' || ch == 'T') {
+                return_shell();
                 return;
             }
         }
 
-        if (redraw) draw_desktop(mx, my, about_open, status);
+        if (redraw) {
+            draw_desktop(mx, my, status);
+            if (about_open) draw_about(mx, my);
+        }
+        if (about_open) {
+            /* Keep the modal static while servicing input; do not redraw the full framebuffer for pointer motion. */
+            draw_about(mx, my);
+        }
         __asm__ volatile("pause");
     }
 }
