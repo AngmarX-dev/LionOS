@@ -1,101 +1,52 @@
 # Phase 26 — LionOS Graphical UI
 
-Phase 26 begins the transition from the VGA text console to a real graphical desktop environment.
+Phase 26 begins the real graphical desktop layer while preserving the Phase 23 stability baseline and the Phase 25 text UI as the fallback path.
 
-## Design goals
+## Stage 26.1 — Framebuffer foundation
 
-- Keep the existing text shell available as a recovery/debug fallback.
-- Add a framebuffer abstraction instead of drawing directly from shell code.
-- Introduce a simple 2D graphics primitive layer: pixels, rectangles, lines, and text.
-- Build a compositor/window manager with movable windows, title bars, buttons, and focus.
-- Integrate keyboard and mouse input into GUI events.
-- Add a desktop background, taskbar, launcher, and clock.
-- Build a small set of native GUI applications.
+- Multiboot2 framebuffer request: 1024x768x32
+- GRUB graphical payload configuration
+- Framebuffer discovery from the Multiboot2 framebuffer tag
+- High-memory framebuffer mapping through the existing kernel MMIO page table
+- Basic 32-bit RGB pixel and rectangle drawing
+- Dark desktop background with LionOS gold/blue UI accents
+- Framebuffer-backed text console with a small built-in bitmap font
 
-## Planned architecture
+## Stage 26.2 — Input
 
-```text
-                 LionOS Kernel
-                       |
-             +---------+---------+
-             |                   |
-        Input devices       Framebuffer
-        keyboard/mouse          |
-             |             2D graphics
-             |                   |
-             +---------+---------+
-                       |
-                GUI event queue
-                       |
-                 Window manager
-                       |
-                 Compositor
-                 /     |      \
-                /      |       \
-            Desktop  Taskbar  Windows
-```
+Next:
 
-## UI direction
+- PS/2 mouse integration with the graphical cursor
+- Keyboard event routing into the graphical shell
+- Click/focus handling
 
-The first desktop should feel familiar like a lightweight combination of classic Windows and Linux desktop conventions while keeping LionOS's own visual identity:
+## Stage 26.3 — Desktop compositor
 
-- dark blue/black desktop background
-- LionOS gold/yellow accents
-- blue title bars and panels
-- clean rectangular windows
-- visible focus state
-- simple Start/launcher menu
-- taskbar with running applications
-- mouse cursor
+Planned:
 
-The project should not copy proprietary artwork, icons, or branding from Windows/macOS/Linux. The goal is familiar interaction patterns with an original LionOS visual design.
+- Window surfaces
+- Window borders and title bars
+- Dragging and focus
+- Minimize/maximize/close controls
+- Taskbar/dock
+- Desktop launcher
 
-## Milestones
+## Stage 26.4 — Native applications
 
-### 26.1 Framebuffer foundation
-- framebuffer information structure
-- pixel format handling
-- back buffer
-- clear/fill operations
-- rectangle primitives
-- bitmap/font rendering
+Planned first applications:
 
-### 26.2 GUI input
-- mouse cursor rendering
-- mouse movement events
-- left/right/middle button events
-- keyboard events
-- GUI focus handling
+- Terminal
+- File manager
+- Text editor
+- Settings
+- System information
 
-### 26.3 Window manager
-- window creation/destruction
-- z-order
-- focus
-- dragging
-- minimize/close controls
-- clipping
-- repainting
+## Regression gate
 
-### 26.4 Desktop shell
-- desktop background
-- taskbar
-- launcher/menu
-- clock
-- system status area
-
-### 26.5 Native applications
-- terminal
-- file manager
-- text editor
-- system information
-- settings
-
-## Regression rule
-
-Every GUI milestone must keep the existing kernel regression suite passing:
+Every graphical change must continue to pass:
 
 ```bash
 make test
 ```
 
-SMP, persistence, userspace, and storage behavior must not regress because of UI work.
+The graphical layer is additive. A framebuffer failure must fall back to the existing VGA console rather than making the kernel unbootable.

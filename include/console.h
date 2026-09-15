@@ -6,7 +6,7 @@
 #define CONSOLE_COLOR_BLACK         0x00u
 #define CONSOLE_COLOR_BLUE          0x01u
 #define CONSOLE_COLOR_GREEN         0x02u
-#define CONSOLE_COLOR_CYAN         0x03u
+#define CONSOLE_COLOR_CYAN          0x03u
 #define CONSOLE_COLOR_RED           0x04u
 #define CONSOLE_COLOR_MAGENTA       0x05u
 #define CONSOLE_COLOR_BROWN         0x06u
@@ -29,6 +29,7 @@ void console_write_dec(uint32_t value);
 void console_write_hex(uint32_t value);
 void console_set_color(uint8_t fg);
 uint8_t console_color(void);
+void console_use_framebuffer(void);
 uint32_t console_row(void);
 uint32_t console_col(void);
 
