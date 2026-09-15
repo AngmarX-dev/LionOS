@@ -22,6 +22,9 @@ global smp_trampoline_cpu
 BITS 16
 smp_trampoline_start:
     cli
+    mov dx, 0xE9
+    mov al, 'A'
+    out dx, al
     xor ax, ax
     mov ds, ax
     lgdt [smp_gdt_ptr]
@@ -31,6 +34,9 @@ smp_trampoline_start:
     jmp 0x08:smp_protected_entry
 BITS 32
 smp_protected_entry:
+    mov dx, 0xE9
+    mov al, 'B'
+    out dx, al
     mov ax, 0x10
     mov ds, ax
     mov es, ax
@@ -42,6 +48,9 @@ smp_protected_entry:
     mov eax, cr0
     or eax, 0x80000000
     mov cr0, eax
+    mov dx, 0xE9
+    mov al, 'C'
+    out dx, al
     mov eax, [smp_trampoline_entry]
     jmp eax
 align 8
@@ -135,7 +144,7 @@ ISR_ERR 13
 ISR_ERR 14
 ISR_NOERR 15
 ISR_NOERR 16
-ISR_ERR 17
+ISR_NOERR 17
 ISR_NOERR 18
 ISR_NOERR 19
 ISR_NOERR 20
