@@ -26,14 +26,19 @@ uint32_t smp_lock_selftest(void){uint32_t flags=spinlock_irqsave_acquire(&smp_lo
 
 void smp_ap_main(void){
     uint32_t index=smp_trampoline_cpu;
-    if(index>=LIONOS_MAX_CPUS)for(;;)__asm__ volatile("cli; hlt");
+    debug_write("LIONOS:SMP-AP-MAIN-ENTER\n");
+    if(index>=LIONOS_MAX_CPUS){debug_write("LIONOS:SMP-AP-BAD-INDEX\n");for(;;)__asm__ volatile("cli; hlt");}
     uint32_t stack_top=ap_stacks[index]+LIONOS_SMP_STACK_PAGES*4096u;
-    debug_write("LIONOS:SMP-AP-MAIN\n");
+    debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
     cpu_mark_online(index,lapic_id());
     tss_init_cpu(index,stack_top);
+    debug_write("LIONOS:SMP-AP-TSS-OK\n");
     idt_load_current();
+    debug_write("LIONOS:SMP-AP-IDT-OK\n");
     lapic_timer_init();
+    debug_write("LIONOS:SMP-AP-TIMER-OK\n");
     __asm__ volatile("sti");
+    debug_write("LIONOS:SMP-AP-STI-OK\n");
     for(;;)__asm__ volatile("hlt");
 }
 
