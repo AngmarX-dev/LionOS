@@ -14,7 +14,9 @@
 #define LAPIC_SIVR_ENABLE 0x100u
 #define LAPIC_TIMER_PERIODIC (1u << 17)
 #define LAPIC_TIMER_DIV_16 0x3u
-#define LAPIC_TIMER_INITIAL 1000000u
+/* QEMU's standard x86 LAPIC clock is 1 GHz; divide-by-16 with
+   this count targets a 60 Hz periodic timer for the desktop. */
+#define LAPIC_TIMER_INITIAL 1041667u
 #define ICR_DELIVERY_INIT (5u << 8)
 #define ICR_DELIVERY_STARTUP (6u << 8)
 #define ICR_LEVEL_ASSERT (1u << 14)
