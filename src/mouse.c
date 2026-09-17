@@ -113,9 +113,9 @@ static void handle_packet(void) {
     int32_t dy = (int32_t)(int8_t)packet[2];
     current_buttons = status & 0x07u;
 
-    /* Scale raw mouse motion down to the 80x25 text grid. */
-    int32_t cell_dx = dx / 3;
-    int32_t cell_dy = -(dy / 3);
+    /* Use a finer text-grid response so the GUI cursor feels responsive. */
+    int32_t cell_dx = dx / 2;
+    int32_t cell_dy = -(dy / 2);
     if (dx > 0 && cell_dx == 0) cell_dx = 1;
     if (dx < 0 && cell_dx == 0) cell_dx = -1;
     if (dy > 0 && cell_dy == 0) cell_dy = -1;
