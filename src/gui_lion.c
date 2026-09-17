@@ -201,8 +201,7 @@ static void draw_settings(const struct ui_window*w){
 }
 
 static void draw_icon(uint32_t x,uint32_t y,const char*name,char symbol,uint32_t accent){
-    fill(x,y,54u,44u,COL_PANEL2);border(x,y,54u,44u,COL_GOLD_DIM);text_line("",x,y,accent,COL_PANEL2);
-    text(symbol,x+21u,y+12u,accent,COL_PANEL2);
+    fill(x,y,54u,44u,COL_PANEL2);border(x,y,54u,44u,COL_GOLD_DIM);text(symbol,x+21u,y+12u,accent,COL_PANEL2);
     text_line(name,x-8u,y+52u,COL_TEXT,COL_GROUND);
 }
 
@@ -226,12 +225,19 @@ static void draw_taskbar(void){
     draw_task_button(232u,y+10u,86u,COL_PANEL,"FILES");
     draw_task_button(326u,y+10u,82u,COL_PANEL,"ABOUT");
     draw_task_button(416u,y+10u,98u,COL_PANEL,"SETTINGS");
-    text_line("WIFI",w>180u?w-214u:540u,y+8u,COL_DIM,COL_PANEL);text_line("VOL",w>180u?w-160u:600u,y+8u,COL_DIM,COL_PANEL);text_line("22:35",w>180u?w-92u:670u,y+8u,COL_TEXT,COL_PANEL);
+    text_line("WIFI",w>240u?w-214u:12u,y+8u,COL_DIM,COL_PANEL);
+    text_line("VOL",w>186u?w-160u:66u,y+8u,COL_DIM,COL_PANEL);
+    text_line("19:6",w>118u?w-92u:112u,y+8u,COL_TEXT,COL_PANEL);
 }
 
 static void draw_start_menu(void){
-    if(!start_open)return;uint32_t w=framebuffer_width(),h=framebuffer_height();uint32_t mw=w>520u?420u:300u;uint32_t mh=h>520u?390u:h>360u?300u:240u;uint32_t x=12u,y=h-TASKBAR_H-mh-8u;
-    fill(x,y,mw,mh,COL_PANEL);border(x,y,mw,mh,COL_GOLD_DIM);fill(x,y,mw,54u,COL_PANEL2);text_line("LIONOS",x+18u,y+18u,COL_GOLD,COL_PANEL2);text_line("Pinned applications",x+18u,y+72u,COL_DIM,COL_PANEL);
+    if(!start_open) return;
+    uint32_t w=framebuffer_width(),h=framebuffer_height();
+    uint32_t mw=w>520u?420u:300u;
+    uint32_t mh=h>520u?390u:h>360u?300u:240u;
+    uint32_t x=12u,y=h-TASKBAR_H-mh-8u;
+    fill(x,y,mw,mh,COL_PANEL);border(x,y,mw,mh,COL_GOLD_DIM);fill(x,y,mw,54u,COL_PANEL2);
+    text_line("LIONOS",x+18u,y+18u,COL_GOLD,COL_PANEL2);text_line("Pinned applications",x+18u,y+72u,COL_DIM,COL_PANEL);
     fill(x+18u,y+96u,mw-36u,38u,COL_PANEL2);border(x+18u,y+96u,mw-36u,38u,COL_GOLD_DIM);text_line("TERMINAL",x+32u,y+106u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+142u,mw-36u,38u,COL_PANEL2);border(x+18u,y+142u,mw-36u,38u,COL_GOLD_DIM);text_line("FILES",x+32u,y+152u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+188u,mw-36u,38u,COL_PANEL2);border(x+18u,y+188u,mw-36u,38u,COL_GOLD_DIM);text_line("ABOUT",x+32u,y+198u,COL_TEXT,COL_PANEL2);
@@ -253,7 +259,8 @@ static void init_windows(void){
     windows[1]=(struct ui_window){WIN_FILES,0u,0u,0u,0u,(sw*25u)/100u,(sh*17u)/100u,(sw*50u)/100u,(sh*58u)/100u,0u,0u,0u,0u};
     windows[2]=(struct ui_window){WIN_ABOUT,0u,0u,0u,0u,(sw*34u)/100u,(sh*20u)/100u,(sw*36u)/100u,(sh*48u)/100u,0u,0u,0u,0u};
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
-    terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;}
+    terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;
+}
 static void close_gui(void){gui_active=0u;mouse_set_cursor_visible(1u);mouse_show();debug_write("LIONOS:GUI-EXIT\n");}
 
 static void handle_window_click(struct ui_window*w){
@@ -264,7 +271,6 @@ static void handle_window_click(struct ui_window*w){
         if(x>=w->x+w->w-52u){toggle_max(w->id);return;}
         if(x>=w->x+w->w-76u){minimize(w->id);return;}
         if(!w->maximized){drag_active=1u;drag_id=w->id;drag_dx=(int)x-(int)w->x;drag_dy=(int)y-(int)w->y;}
-        return;
     }
 }
 
@@ -278,7 +284,9 @@ static void handle_click(void){
         if(x>=416u&&x<514u){show(WIN_SETTINGS);return;}
     }
     if(start_open){
-        uint32_t mw=framebuffer_width()>520u?420u:300u;uint32_t mh=framebuffer_height()>520u?390u:framebuffer_height()>360u?300u:240u;uint32_t sx=12u,sy=h-TASKBAR_H-mh-8u;
+        uint32_t mw=framebuffer_width()>520u?420u:300u;
+        uint32_t mh=framebuffer_height()>520u?390u:framebuffer_height()>360u?300u:240u;
+        uint32_t sx=12u,sy=h-TASKBAR_H-mh-8u;
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+96u&&y<sy+134u){show(WIN_TERMINAL);terminal_init();return;}
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+142u&&y<sy+180u){show(WIN_FILES);return;}
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+188u&&y<sy+226u){show(WIN_ABOUT);return;}
@@ -286,7 +294,10 @@ static void handle_click(void){
         if(mh>330u&&x>=sx+18u&&x<sx+158u&&y>=sy+mh-52u&&y<sy+mh-18u){close_gui();return;}
         start_open=0u;
     }
-    for(int i=(int)WIN_MAX-1;i>=0;--i){struct ui_window*w=&windows[i];if(w->visible&&!w->minimized&&x>=w->x&&x<w->x+w->w&&y>=w->y&&y<w->y+w->h){handle_window_click(w);return;}}
+    for(int i=(int)WIN_MAX-1;i>=0;--i){
+        struct ui_window*w=&windows[i];
+        if(w->visible&&!w->minimized&&x>=w->x&&x<w->x+w->w&&y>=w->y&&y<w->y+w->h){handle_window_click(w);return;}
+    }
     if(x>=18u&&x<90u&&y>=18u&&y<62u){show(WIN_TERMINAL);terminal_init();return;}
     if(x>=18u&&x<90u&&y>=106u&&y<150u){show(WIN_FILES);return;}
     if(x>=18u&&x<90u&&y>=194u&&y<238u){show(WIN_ABOUT);return;}
@@ -294,10 +305,15 @@ static void handle_click(void){
 }
 
 static void handle_move(void){
-    if(!drag_active)return;struct ui_window*w=window_by_id(drag_id);if(!w||!w->visible){drag_active=0u;return;}
+    if(!drag_active)return;
+    struct ui_window*w=window_by_id(drag_id);
+    if(!w||!w->visible){drag_active=0u;return;}
     int nx=(int)mouse_px_x-drag_dx,ny=(int)mouse_px_y-drag_dy;
     int max_y=(int)framebuffer_height()-(int)TASKBAR_H-(int)TITLE_H;
-    if(nx<4)nx=4;if(ny<0)ny=0;if(nx+(int)w->w>(int)framebuffer_width()-4)nx=(int)framebuffer_width()-(int)w->w-4;if(ny>max_y)ny=max_y;
+    if(nx<4)nx=4;
+    if(ny<0)ny=0;
+    if(nx+(int)w->w>(int)framebuffer_width()-4)nx=(int)framebuffer_width()-(int)w->w-4;
+    if(ny>max_y)ny=max_y;
     w->x=(uint32_t)nx;w->y=(uint32_t)ny;
 }
 
@@ -324,6 +340,15 @@ void gui_start(void){
     if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
     mouse_set_cursor_visible(0u);while(keyboard_available())(void)keyboard_getchar();init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
 }
-void gui_step(void){if(!gui_active)return;keyboard_poll();mouse_poll();mouse_px_x=px();mouse_px_y=py();uint32_t buttons=mouse_buttons();if((buttons&1u)&&!(previous_buttons&1u))handle_click();if(!(buttons&1u)&&(previous_buttons&1u))drag_active=0u;handle_move();while(keyboard_available())handle_key(keyboard_getchar());previous_buttons=buttons;render_all();}
+void gui_step(void){
+    if(!gui_active)return;
+    keyboard_poll();mouse_poll();mouse_px_x=px();mouse_px_y=py();
+    uint32_t buttons=mouse_buttons();
+    if((buttons&1u)&&!(previous_buttons&1u))handle_click();
+    if(!(buttons&1u)&&(previous_buttons&1u))drag_active=0u;
+    handle_move();
+    while(keyboard_available())handle_key(keyboard_getchar());
+    previous_buttons=buttons;render_all();
+}
 int gui_is_active(void){return gui_active!=0u;}
 void gui_run(void){gui_start();}
