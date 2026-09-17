@@ -18,7 +18,7 @@ USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchrono
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
 
-C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/gui.c src/gui_runtime.c src/gui_desktop.c,$(wildcard src/*.c))
+C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/gui.c src/gui_runtime.c src/gui_desktop.c src/gui_lion.c,$(wildcard src/*.c))
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
@@ -39,11 +39,8 @@ $(BUILD):
 $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
 	$(NASM) -f elf32 $< -o $@
 
-$(BUILD)/gui_runtime.o: src/gui_runtime.c | $(BUILD)
+$(BUILD)/gui_lion.o: src/gui_lion.c | $(BUILD)
 	$(CC) $(GUI_CFLAGS) -c $< -o $@
-
-$(BUILD)/gui_desktop.o: src/gui_desktop.c | $(BUILD)
-	$(CC) $(GUI_DESKTOP_CFLAGS) -c $< -o $@
 
 $(BUILD)/kernel_runtime.o: src/kernel_runtime.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -116,8 +113,8 @@ $(BUILD)/userland_test.elf: $(USER_COMMON_OBJS) $(BUILD)/userland_test.o user/us
 $(BUILD)/%_elf.o: $(BUILD)/%.elf | $(BUILD)
 	cd $(BUILD) && $(LD) -r -m elf_i386 -b binary $*.elf -o $*_elf.o
 
-$(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(USER_EMBEDS) linker.ld
-	$(LD) $(LDFLAGS) -o $@ $(ASM_OBJECTS) $(C_OBJECTS) $(USER_EMBEDS)
+$(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(USER_EMBEDS) $(BUILD)/kernel_runtime.o $(BUILD)/gui_lion.o linker.ld
+	$(LD) $(LDFLAGS) -o $@ $(ASM_OBJECTS) $(C_OBJECTS) $(BUILD)/kernel_runtime.o $(BUILD)/gui_lion.o $(USER_EMBEDS)
 	grub-file --is-x86-multiboot2 $@
 
 iso: $(KERNEL)
