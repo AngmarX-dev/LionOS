@@ -18,7 +18,7 @@ USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchrono
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
 
-C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/gui.c src/gui_runtime.c,$(wildcard src/*.c))
+C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/gui.c src/gui_runtime.c src/gui_desktop.c,$(wildcard src/*.c))
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
