@@ -22,6 +22,7 @@
 static volatile uint16_t *const vga = (volatile uint16_t *)0xB8000;
 static uint32_t initialized;
 static uint32_t cursor_visible;
+static uint32_t cursor_enabled = 1u;
 static uint32_t cursor_x_pos = VGA_WIDTH / 2u;
 static uint32_t cursor_y_pos = VGA_HEIGHT / 2u;
 static uint16_t cursor_saved_cell;
@@ -75,10 +76,15 @@ void mouse_hide(void) {
 }
 
 void mouse_show(void) {
-    if (!initialized || cursor_visible) return;
+    if (!cursor_enabled || !initialized || cursor_visible) return;
     cursor_save();
     vga[cursor_y_pos * VGA_WIDTH + cursor_x_pos] = ((uint16_t)CURSOR_COLOR << 8) | CURSOR_GLYPH;
     cursor_visible = 1u;
+}
+
+void mouse_set_cursor_visible(uint32_t visible) {
+    cursor_enabled = visible ? 1u : 0u;
+    if (!cursor_enabled) mouse_hide();
 }
 
 static void cursor_move(int32_t dx, int32_t dy) {
@@ -119,6 +125,7 @@ static void handle_packet(void) {
 
 int mouse_init(void) {
     initialized = 0u;
+    cursor_enabled = 1u;
     cursor_visible = 0u;
     packet_index = 0u;
     current_buttons = 0u;

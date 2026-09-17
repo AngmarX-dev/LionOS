@@ -3,6 +3,8 @@
 #include "keyboard.h"
 
 #define KEYBOARD_BUFFER_SIZE 128u
+#define PS2_STATUS 0x64u
+#define PS2_DATA 0x60u
 
 static volatile uint8_t buffer[KEYBOARD_BUFFER_SIZE];
 static volatile uint32_t read_index;
@@ -11,6 +13,7 @@ static volatile uint8_t shift_down;
 static volatile uint8_t extended_prefix;
 
 static const char keymap[128] = {
+    [0x01] = 27,
     [0x02] = '1', [0x03] = '2', [0x04] = '3', [0x05] = '4', [0x06] = '5',
     [0x07] = '6', [0x08] = '7', [0x09] = '8', [0x0A] = '9', [0x0B] = '0',
     [0x0C] = '-', [0x0D] = '=', [0x10] = 'q', [0x11] = 'w', [0x12] = 'e',
@@ -85,6 +88,17 @@ void keyboard_handle_scancode(uint8_t scancode) {
     if (scancode < 128u) {
         char c = shift_down ? shiftmap[scancode] : keymap[scancode];
         if (c) push_char((uint8_t)c);
+    }
+}
+
+void keyboard_poll(void) {
+    /* Fallback for contexts such as the early graphical UI where relying only
+       on IRQ1 can make injected/held keys appear unresponsive. Never consume
+       controller bytes belonging to the mouse (AUX status bit set). */
+    while (inb(PS2_STATUS) & 0x01u) {
+        uint8_t status = inb(PS2_STATUS);
+        if (status & 0x20u) break;
+        keyboard_handle_scancode(inb(PS2_DATA));
     }
 }
 

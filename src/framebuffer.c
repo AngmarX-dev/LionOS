@@ -3,7 +3,7 @@
 #include "paging.h"
 
 #define FB_VIRTUAL_BASE 0xF0000000u
-#define FB_MAX_MAPPED_SIZE 0x00400000u
+#define FB_MAX_MAPPED_SIZE 0x01000000u
 #define MB2_TAG_FRAMEBUFFER 8u
 #define MB2_TAG_END 0u
 #define PAGE_SIZE 4096u
