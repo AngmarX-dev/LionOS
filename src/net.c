@@ -2,6 +2,7 @@
 #include "net.h"
 #include "spinlock.h"
 #include "io.h"
+#include "process.h"
 
 #define RTL8139_VENDOR 0x10ECu
 #define RTL8139_DEVICE 0x8139u
@@ -172,10 +173,10 @@ static int rtl_tx_frame(const uint8_t *frame, uint32_t length) {
     if (!rtl_ready || !frame || length < ETH_HDR_LEN || length > RTL_TX_SIZE) return -1;
     uint32_t slot = rtl_tx_index++ & (RTL_TX_COUNT - 1u);
     for (uint32_t i = 0; i < length; ++i) rtl_tx[slot][i] = frame[i];
-    outl(rtl_base + REG_TX0 + slot * 4u, (uint32_t)(uintptr_t)rtl_tx[slot]);
-    outl(rtl_base + REG_TX0 + slot * 4u + 0x10u, length);
+    outl(rtl_base + 0x20u + slot * 4u, (uint32_t)(uintptr_t)rtl_tx[slot]);
+    outl(rtl_base + REG_TX0 + slot * 4u, length);
     for (uint32_t i = 0; i < 100000u; ++i) {
-        uint32_t status = inl(rtl_base + REG_TX0 + slot * 4u + 0x10u);
+        uint32_t status = inl(rtl_base + REG_TX0 + slot * 4u);
         if (status & 0x80000000u) return 0;
         if (status & 0x40000000u) return -1;
     }
