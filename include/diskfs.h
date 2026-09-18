@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define DISKFS_MAX_FILES 32u
-#define DISKFS_NAME_MAX 24u
+#define DISKFS_NAME_MAX 64u
 #define DISKFS_MAX_FILE_SIZE 4096u
 
 int diskfs_init(void);
