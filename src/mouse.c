@@ -56,8 +56,8 @@ static int mouse_command(uint8_t command) {
 void mouse_set_bounds(uint32_t width, uint32_t height) {
     if (width) cursor_width = width;
     if (height) cursor_height = height;
-    if (cursor_x_pos >= cursor_width) cursor_x_pos = cursor_width - 1u;
-    if (cursor_y_pos >= cursor_height) cursor_y_pos = cursor_height - 1u;
+    cursor_x_pos = cursor_width / 2u;
+    cursor_y_pos = cursor_height / 2u;
 }
 static void cursor_move(int32_t dx, int32_t dy) {
     int32_t nx = (int32_t)cursor_x_pos + dx;
