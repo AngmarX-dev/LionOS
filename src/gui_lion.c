@@ -217,7 +217,9 @@ static void draw_wallpaper(void){
     for(uint32_t i=0;i<96u;++i){uint32_t x=(i*53u+17u)%w;uint32_t base=h-(i%11u)*3u;uint32_t bh=10u+(i%9u)*3u;if(base>bh)fill(x,base-bh,2u,bh,COL_GROUND);}
 }
 
-static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}\nstatic void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label){uint32_t tw=label_width(label);uint32_t tx=x+(w>tw?w-tw:0u)/2u;fill(x,y,w,34u,c);border(x,y,w,34u,COL_GOLD_DIM);text_line(label,tx,y+8u,COL_TEXT,c);}
+static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
+
+static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label){uint32_t tw=label_width(label);uint32_t tx=x+(w>tw?w-tw:0u)/2u;fill(x,y,w,34u,c);border(x,y,w,34u,COL_GOLD_DIM);text_line(label,tx,y+8u,COL_TEXT,c);}
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
     fill(0u,y,w,TASKBAR_H,COL_PANEL);fill(0u,y,w,1u,COL_GOLD_DIM);
