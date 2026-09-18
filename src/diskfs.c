@@ -21,7 +21,7 @@ static int streq(const char *a,const char *b){if(!a||!b)return 0;while(*a&&*a==*
 static void copy_name(char *dst,const char *src){uint32_t i=0;while(src[i]&&i<DISKFS_NAME_MAX-1u){dst[i]=src[i];++i;}dst[i]=0;}
 static int valid_name(const char *name){if(!name||!*name)return 0;uint32_t n=0;while(name[n]){if(name[n]=='\\')return 0;if(++n>=DISKFS_NAME_MAX)return 0;}return 1;}
 static int find(const char *name){for(uint32_t i=0;i<DISKFS_MAX_FILES;++i)if(entries[i].name[0]&&streq(entries[i].name,name))return(int)i;return-1;}
-static int write_directory_sector(uint32_t s){zero(sector,ATA_SECTOR_SIZE);const uint8_t *src=(const uint8_t*)entries+s*ATA_SECTOR_SIZE;for(uint32_t i=0;i<ATA_SECTOR_SIZE;++i)sector[i]=src[i];return ata_write_sector(DISKFS_DIR_LBA+s,sector);}
+static int write_directory_sector(uint32_t s){zero(sector,ATA_SECTOR_SIZE);const uint8_t *src=((const uint8_t*)entries)+s*ATA_SECTOR_SIZE;for(uint32_t i=0;i<ATA_SECTOR_SIZE;++i)sector[i]=src[i];return ata_write_sector(DISKFS_DIR_LBA+s,sector);}
 static int save_super(void){zero(sector,ATA_SECTOR_SIZE);sector[0]='L';sector[1]='I';sector[2]='O';sector[3]='N';sector[4]='F';sector[5]='S';sector[6]='1';*(uint32_t*)&sector[8]=DISKFS_VERSION;*(uint32_t*)&sector[12]=file_count;return ata_write_sector(DISKFS_SUPER_LBA,sector);}
 static int format(void){zero(entries,sizeof(entries));file_count=0;if(save_super()<0)return-1;for(uint32_t i=0;i<DISKFS_DIR_SECTORS;++i)if(write_directory_sector(i)<0)return-1;return 0;}
 
