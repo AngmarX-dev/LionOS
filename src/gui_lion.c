@@ -217,7 +217,9 @@ static void draw_wallpaper(void){
     for(uint32_t i=0;i<96u;++i){uint32_t x=(i*53u+17u)%w;uint32_t base=h-(i%11u)*3u;uint32_t bh=10u+(i%9u)*3u;if(base>bh)fill(x,base-bh,2u,bh,COL_GROUND);}
 }
 
-static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}\nstatic void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label){uint32_t tw=label_width(label);uint32_t tx=x+(w>tw?w-tw:0u)/2u;fill(x,y,w,34u,c);border(x,y,w,34u,COL_GOLD_DIM);text_line(label,tx,y+8u,COL_TEXT,c);}
+static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
+
+static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label){uint32_t tw=label_width(label);uint32_t tx=x+(w>tw?w-tw:0u)/2u;fill(x,y,w,34u,c);border(x,y,w,34u,COL_GOLD_DIM);text_line(label,tx,y+8u,COL_TEXT,c);}
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
     fill(0u,y,w,TASKBAR_H,COL_PANEL);fill(0u,y,w,1u,COL_GOLD_DIM);
@@ -270,7 +272,8 @@ static void init_windows(void){
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
     terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;
 }
-static void close_gui(void){gui_active=0u;debug_write("LIONOS:GUI-EXIT\\n");}
+static void close_gui(void){gui_active=0u;debug_write("LIONOS:GUI-EXIT\
+");}
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
@@ -333,7 +336,8 @@ static void handle_key(int key){
         close_gui();return;
     }
     if(terminal_focus){
-        if(key=='\n'||key==13){terminal_command();return;}
+        if(key=='
+'||key==13){terminal_command();return;}
         if(key=='\b'||key==127){if(term_len){--term_len;term_input[term_len]=0;}return;}
         if(key>=32&&key<127&&term_len<120u){term_input[term_len++]=(char)key;term_input[term_len]=0;}
         return;
@@ -345,10 +349,13 @@ static void handle_key(int key){
 }
 
 void gui_start(void){
-    debug_write("LIONOS:GUI-ENTER\\n");
-    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\\n");return;}
+    debug_write("LIONOS:GUI-ENTER\
+");
+    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\
+");return;}
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
-    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\\n");return;}
+    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\
+");return;}
     while(keyboard_available())(void)keyboard_getchar();
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
 }
