@@ -1,7 +1,7 @@
 #include "gui.h"
 #include "shell.h"
 
-static void gui_desktop_run(void);
+void gui_desktop_run(void);
 static void lionos_gui_bootstrap(void);
 static void lionos_gui_or_shell_loop(void);
 
