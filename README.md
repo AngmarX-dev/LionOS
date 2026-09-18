@@ -121,7 +121,7 @@ The BSP also uses a local APIC periodic timer on vector `48`, which drives the e
 
 An atomic spinlock primitive with IRQ-save/restore support is available as the synchronization foundation. A boot-time self-test verifies the primitive without pretending that the entire kernel is already SMP-safe.
 
-The current bootstrap still assumes contiguous xAPIC IDs as used by the QEMU SMP test. ACPI MADT enumeration will replace that assumption before broad hardware support. Shared kernel structures are not yet fully locked, so APs do not run the normal scheduler concurrently yet.
+CPU enumeration now consumes ACPI MADT processor entries when Multiboot provides a valid RSDP/RSDT/XSDT path, with CPUID topology as a safe fallback. AP startup uses the enumerated APIC IDs instead of assuming contiguous IDs. Shared kernel structures have IRQ-safe locking foundations for process, memory, VFS, IPC, and loopback networking, but APs do not run the normal userspace scheduler concurrently yet.
 
 ## 🧩 Phase 23 — Stability & Persistence ✅
 
