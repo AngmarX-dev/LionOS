@@ -20,7 +20,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Per-CPU TSS bootstrap
 - ✅ Local APIC timer interrupt and BSP preemption clock
 - 🚧 Per-CPU scheduler state and concurrent scheduling
-- 🚧 ACPI MADT CPU enumeration
+- ✅ ACPI MADT CPU enumeration with QEMU-safe fallback
 
 ### Memory
 - ✅ Physical page allocator
