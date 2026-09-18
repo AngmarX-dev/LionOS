@@ -49,7 +49,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Restricted signal control to child/descendant processes
 - ✅ VFS syscalls: `open`, `close`, `read`, `write`, `remove`, `stat`
 - ✅ Userspace file enumeration syscall
-- 🚧 Per-process file-descriptor tables
+- ✅ Per-process file-descriptor tables
 - 🚧 Privilege separation / capabilities
 
 ### Executables & storage
@@ -77,8 +77,8 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Persistent LionFS metadata and fixed-size file allocation
 - ✅ Persistent files survive a kernel reboot
 - ✅ VFS abstraction over RAMFS and persistent LionFS
-- 🚧 Rich directory/path support
-- 🚧 POSIX-style file descriptors per process
+- ✅ Normalized hierarchical directory/path names
+- ✅ POSIX-style per-process file descriptors
 
 ### Networking
 - ✅ Loopback IPv4 transport (`127.0.0.1`)
@@ -90,8 +90,8 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ IRQ-save / IRQ-restore locking primitive
 - ✅ BSP spinlock self-test during boot
 - ✅ Atomic AP online handshake
-- 🚧 Process-table locking
-- 🚧 Memory/VFS/IPC/network locking
+- ✅ Process-table locking
+- ✅ Memory/VFS/IPC/network locking
 
 ## 🧪 Testing
 - ✅ Multiboot2 kernel validation in CI
@@ -140,11 +140,11 @@ The full suite is implemented in [`scripts/test.sh`](scripts/test.sh) and is als
 
 Phase 24 packages the validated SMP and stability work for an experimental release milestone. The release checklist and known scope limitations are documented in [`docs/PHASE-24-RELEASE.md`](docs/PHASE-24-RELEASE.md).
 
-## 🎨 Phase 25 — UI 🚧
+## 🎨 Phase 25/26 — UI ✅
 
-Phase 25 starts the user-facing UI layer while keeping the kernel's existing text-mode architecture stable.
+The user-facing UI layer now includes both the Phase 25 text-mode improvements and the Phase 26 graphical desktop.
 
-The first UI slice adds:
+The UI includes:
 
 - VGA foreground color support
 - a clearer LionOS shell banner
@@ -152,8 +152,10 @@ The first UI slice adds:
 - categorized `help` output
 - colored success, status, and error messages
 - a cleaner `about`, `ls`, `run`, and file-command presentation
-
-This is currently a text-mode TUI milestone. A graphical framebuffer interface can be considered later.
+- framebuffer desktop rendering at 1920×1080 when available
+- mouse cursor and pixel-coordinate input
+- desktop backbuffer/present path driven by the LAPIC wake-up clock
+- graphical desktop windows, taskbar, launcher, and shell handoff
 
 ## 🛡️ Security Model
 
@@ -249,4 +251,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ## ⚠️ Status
 
-LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 release preparation is underway, and Phase 25 UI development has begun. LionOS is not intended for production use.
+LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 release preparation is underway, and the Phase 25/26 UI milestones are implemented. LionOS is not intended for production use.
