@@ -351,4 +351,4 @@ void gui_step(void){
     previous_buttons=buttons;render_all();
 }
 int gui_is_active(void){return gui_active!=0u;}
-static void gui_desktop_run(void){\n    gui_start();\n    if(!gui_active)return;\n    uint32_t last_frame=lapic_timer_ticks();\n    for(;;){\n        while(gui_active && lapic_timer_ticks()==last_frame)\n            __asm__ volatile("sti; hlt");\n        if(!gui_active)break;\n        last_frame=lapic_timer_ticks();\n        gui_step();\n    }\n}
+void gui_desktop_run(void){\n    gui_start();\n    if(!gui_active)return;\n    uint32_t last_frame=lapic_timer_ticks();\n    for(;;){\n        while(gui_active && lapic_timer_ticks()==last_frame)\n            __asm__ volatile("sti; hlt");\n        if(!gui_active)break;\n        last_frame=lapic_timer_ticks();\n        gui_step();\n    }\n}
