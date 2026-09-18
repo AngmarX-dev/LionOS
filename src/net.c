@@ -146,7 +146,7 @@ static int rtl_init(void) {
     outl(rtl_base + REG_RCR, RCR_AB | RCR_APM | RCR_AM | RCR_AAP | RCR_WRAP);
     outl(rtl_base + REG_TCR, 0x03000700u);
     outl(rtl_base + REG_RXBUF, (uint32_t)(uintptr_t)rtl_rx);
-    outw(rtl_base + REG_CAPR, 0xFFF0u);
+    outw(rtl_base + REG_CAPR, 0u);
     outb(rtl_base + REG_CMD, CMD_RXTXON);
     outw(rtl_base + REG_IMR, 0u);
     (void)inw(rtl_base + REG_ISR);
