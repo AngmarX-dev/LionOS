@@ -177,7 +177,7 @@ static int rtl_tx_frame(const uint8_t *frame, uint32_t length) {
     outl(rtl_base + REG_TX0 + slot * 4u, length);
     for (uint32_t i = 0; i < 100000u; ++i) {
         uint32_t status = inl(rtl_base + REG_TX0 + slot * 4u);
-        if (status & 0x80000000u) return 0;
+        if (status & 0x00008000u) return 0;
         if (status & 0x40000000u) return -1;
     }
     return -1;
@@ -283,11 +283,11 @@ int32_t net_ping(uint32_t target_ip) {
     uint8_t mac[6];
     if (arp_resolve(next_hop, mac) != 0) return -1;
     uint16_t id = (uint16_t)(process_current_pid() & 0xFFFFu);
+    int32_t received = 0;
     for (uint16_t seq = 1u; seq <= 4u; ++seq) {
-        if (send_icmp(target_ip, mac, id, seq) != 0) return -1;
-        if (wait_icmp_reply(target_ip, id, seq) != 0) return -1;
+        if (send_icmp(target_ip, mac, id, seq) == 0 && wait_icmp_reply(target_ip, id, seq) == 0) ++received;
     }
-    return 0;
+    return received ? received : -1;
 }
 
 void net_init(void) {
