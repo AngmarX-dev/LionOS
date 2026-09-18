@@ -217,7 +217,7 @@ static void draw_wallpaper(void){
     for(uint32_t i=0;i<96u;++i){uint32_t x=(i*53u+17u)%w;uint32_t base=h-(i%11u)*3u;uint32_t bh=10u+(i%9u)*3u;if(base>bh)fill(x,base-bh,2u,bh,COL_GROUND);}
 }
 
-static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label){fill(x,y,w,34u,c);border(x,y,w,34u,COL_GOLD_DIM);text_line(label,x+12u,y+8u,COL_TEXT,c);}
+static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}\nstatic void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label){uint32_t tw=label_width(label);uint32_t tx=x+(w>tw?w-tw:0u)/2u;fill(x,y,w,34u,c);border(x,y,w,34u,COL_GOLD_DIM);text_line(label,tx,y+8u,COL_TEXT,c);}
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
     fill(0u,y,w,TASKBAR_H,COL_PANEL);fill(0u,y,w,1u,COL_GOLD_DIM);
@@ -239,10 +239,10 @@ static void draw_start_menu(void){
     uint32_t x=12u,y=h-TASKBAR_H-mh-8u;
     fill(x,y,mw,mh,COL_PANEL);border(x,y,mw,mh,COL_GOLD_DIM);fill(x,y,mw,54u,COL_PANEL2);
     text_line("LIONOS",x+18u,y+18u,COL_GOLD,COL_PANEL2);text_line("Pinned applications",x+18u,y+72u,COL_DIM,COL_PANEL);
-    fill(x+18u,y+96u,mw-36u,38u,COL_PANEL2);border(x+18u,y+96u,mw-36u,38u,COL_GOLD_DIM);text_line("TERMINAL",x+32u,y+106u,COL_TEXT,COL_PANEL2);
-    fill(x+18u,y+142u,mw-36u,38u,COL_PANEL2);border(x+18u,y+142u,mw-36u,38u,COL_GOLD_DIM);text_line("FILES",x+32u,y+152u,COL_TEXT,COL_PANEL2);
-    fill(x+18u,y+188u,mw-36u,38u,COL_PANEL2);border(x+18u,y+188u,mw-36u,38u,COL_GOLD_DIM);text_line("ABOUT",x+32u,y+198u,COL_TEXT,COL_PANEL2);
-    fill(x+18u,y+234u,mw-36u,38u,COL_PANEL2);border(x+18u,y+234u,mw-36u,38u,COL_GOLD_DIM);text_line("SETTINGS",x+32u,y+244u,COL_TEXT,COL_PANEL2);
+    fill(x+18u,y+96u,mw-36u,38u,COL_PANEL2);border(x+18u,y+96u,mw-36u,38u,COL_GOLD_DIM);text_line("TERMINAL",x+(mw-label_width("TERMINAL"))/2u,y+106u,COL_TEXT,COL_PANEL2);
+    fill(x+18u,y+142u,mw-36u,38u,COL_PANEL2);border(x+18u,y+142u,mw-36u,38u,COL_GOLD_DIM);text_line("FILES",x+(mw-label_width("FILES"))/2u,y+152u,COL_TEXT,COL_PANEL2);
+    fill(x+18u,y+188u,mw-36u,38u,COL_PANEL2);border(x+18u,y+188u,mw-36u,38u,COL_GOLD_DIM);text_line("ABOUT",x+(mw-label_width("ABOUT"))/2u,y+198u,COL_TEXT,COL_PANEL2);
+    fill(x+18u,y+234u,mw-36u,38u,COL_PANEL2);border(x+18u,y+234u,mw-36u,38u,COL_GOLD_DIM);text_line("SETTINGS",x+(mw-label_width("SETTINGS"))/2u,y+244u,COL_TEXT,COL_PANEL2);
     if(mh>330u){fill(x+18u,y+mh-52u,140u,34u,COL_DANGER);border(x+18u,y+mh-52u,140u,34u,COL_GOLD_DIM);text_line("POWER",x+32u,y+mh-44u,COL_TEXT,COL_DANGER);}
 }
 
