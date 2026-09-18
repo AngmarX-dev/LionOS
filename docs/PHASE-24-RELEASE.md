@@ -72,8 +72,6 @@ The SMP implementation is still a bootstrap layer rather than a fully concurrent
 
 Not yet release-complete production features include:
 
-- ACPI MADT CPU enumeration
-- Fully concurrent per-CPU scheduling
 - Fully concurrent per-CPU scheduling
 - ACPI MADT-based CPU enumeration
 - Full privilege/capability separation
