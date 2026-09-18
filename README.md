@@ -83,7 +83,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 ### Networking
 - ✅ Loopback IPv4 transport (`127.0.0.1`)
 - ✅ Packet queues and userspace send/receive syscalls
-- 🚧 Physical NIC driver
+- ✅ RTL8139 physical NIC driver\n- ✅ ARP + IPv4 + ICMP echo (ping)\n- ✅ Terminal `ping` command (QEMU user networking)
 
 ### SMP synchronization
 - ✅ Atomic test-and-set spinlock
@@ -203,7 +203,7 @@ lion:/ > run ls.elf
 lion:/ > run cat.elf
 lion:/ > run pwd.elf
 lion:/ > run uname.elf
-lion:/ > run stat.elf
+lion:/ > run stat.elf\nlion:/ > ping 10.0.2.2
 ```
 
 The kernel exposes a small UAPI through `include/uapi.h` and `include/user_api.h`. User processes receive an explicit capability mask covering console, filesystem, process-control, IPC, and networking operations; the admin capability is reserved for the kernel and cannot be granted through the userspace process API. `lion_getfile()` provides indexed VFS enumeration to userspace, allowing `ls.elf` to operate without kernel shell code.
@@ -239,7 +239,7 @@ The VFS currently provides a deliberately small interface suitable for the early
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, Local APIC support, AP startup, per-CPU TSS/IDT bootstrap, a LAPIC scheduler timer, initial SMP synchronization primitives, and the new colored text-mode shell UI.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback and RTL8139 Ethernet networking layer with ARP/IPv4/ICMP support, Local APIC support, AP startup, per-CPU TSS/IDT bootstrap, a LAPIC scheduler timer, initial SMP synchronization primitives, and the new colored text-mode shell UI.
 
 ## 🤖 AI-Assisted Development
 
