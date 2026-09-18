@@ -21,8 +21,10 @@ int32_t ipc_send(uint32_t receiver_pid, uint32_t sender_pid, const void *data, u
         messages[i].receiver_pid = receiver_pid;
         messages[i].length = length;
         for (uint32_t j = 0; j < length; ++j) messages[i].data[j] = src[j];
+        spinlock_irqrestore_release(&ipc_lock,irq);
         return (int32_t)length;
     }
+    spinlock_irqrestore_release(&ipc_lock,irq);
     return -1;
 }
 
