@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "framebuffer.h"
 #include "paging.h"
+#include "heap.h"
 
 #define FB_VIRTUAL_BASE 0xF0000000u
 #define FB_MAX_MAPPED_SIZE 0x01000000u
@@ -49,6 +50,8 @@ static uint8_t green_size;
 static uint8_t blue_pos;
 static uint8_t blue_size;
 static uint32_t enabled;
+static uint32_t *desktop_buffer;
+static uint32_t desktop_mode;
 
 static uint32_t channel(uint8_t value, uint8_t size, uint8_t position) {
     if (!size) return 0u;
@@ -182,6 +185,26 @@ int framebuffer_available(void) { return enabled != 0u; }
 uint32_t framebuffer_width(void) { return fb_width_value; }
 uint32_t framebuffer_height(void) { return fb_height_value; }
 
+int framebuffer_begin_desktop(void) {
+    if (!enabled) return -1;
+    if (desktop_mode) return 0;
+    uint64_t pixels = (uint64_t)fb_width_value * fb_height_value;
+    if (pixels > 0xFFFFFFFFu / sizeof(uint32_t)) return -1;
+    desktop_buffer = (uint32_t *)kmalloc((size_t)pixels * sizeof(uint32_t));
+    if (!desktop_buffer) return -1;
+    desktop_mode = 1u;
+    return 0;
+}
+
+void framebuffer_present(void) {
+    if (!enabled || !desktop_mode || !desktop_buffer) return;
+    for (uint32_t y = 0; y < fb_height_value; ++y) {
+        volatile uint32_t *dst = (volatile uint32_t *)(fb + y * fb_pitch);
+        const uint32_t *src = desktop_buffer + y * fb_width_value;
+        for (uint32_t x = 0; x < fb_width_value; ++x) dst[x] = src[x];
+    }
+}
+
 void framebuffer_clear(uint32_t color) {
     framebuffer_fill_rect(0u, 0u, fb_width_value, fb_height_value, color);
 }
@@ -193,7 +216,7 @@ void framebuffer_fill_rect(uint32_t x, uint32_t y, uint32_t width, uint32_t heig
     if (height > fb_height_value - y) height = fb_height_value - y;
     uint32_t packed = pack_rgb(color);
     for (uint32_t yy = y; yy < y + height; ++yy) {
-        volatile uint32_t *line = (volatile uint32_t *)(fb + yy * fb_pitch + x * 4u);
+        volatile uint32_t *line = desktop_mode ? (volatile uint32_t *)(desktop_buffer + yy * fb_width_value + x) : (volatile uint32_t *)(fb + yy * fb_pitch + x * 4u);
         for (uint32_t xx = 0; xx < width; ++xx) line[xx] = packed;
     }
 }
