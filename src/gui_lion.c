@@ -115,8 +115,8 @@ static void fill(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){framebu
 static void border(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){if(w<2u||h<2u)return;fill(x,y,w,1u,c);fill(x,y+h-1u,w,1u,c);fill(x,y,1u,h,c);fill(x+w-1u,y,1u,h,c);}
 static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){uint8_t rows[FONT_H];glyph(c,rows);fill(x,y,CHAR_W,CHAR_H,bg);for(uint32_t gy=0;gy<FONT_H;++gy)for(uint32_t gx=0;gx<FONT_W;++gx)if(rows[gy]&(1u<<(FONT_W-1u-gx)))fill(x+gx*FONT_SCALE,y+gy*FONT_SCALE+2u,FONT_SCALE,FONT_SCALE,fg);}
 static void text_line(const char*s,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){while(*s&&x+CHAR_W<framebuffer_width()){text(*s,x,y,fg,bg);x+=CHAR_W;++s;}}
-static uint32_t px(void){uint32_t w=framebuffer_width();uint32_t x=mouse_x();return w?(x*(w-1u))/79u:0u;}
-static uint32_t py(void){uint32_t h=framebuffer_height();uint32_t y=mouse_y();return h?(y*(h-1u))/24u:0u;}
+static uint32_t px(void){return mouse_x();}
+static uint32_t py(void){return mouse_y();}
 static struct ui_window*window_by_id(uint8_t id){return id>=1u&&id<=WIN_MAX?&windows[id-1u]:0;}
 static void focus(uint8_t id){for(uint32_t i=0;i<WIN_MAX;++i)windows[i].focused=(windows[i].id==id&&windows[i].visible&&!windows[i].minimized)?1u:0u;}
 static void show(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;w->visible=1u;w->minimized=0u;focus(id);start_open=0u;if(id==WIN_TERMINAL)terminal_focus=1u;}
@@ -245,13 +245,13 @@ static void draw_start_menu(void){
     if(mh>330u){fill(x+18u,y+mh-52u,140u,34u,COL_DANGER);border(x+18u,y+mh-52u,140u,34u,COL_GOLD_DIM);text_line("POWER",x+32u,y+mh-44u,COL_TEXT,COL_DANGER);}
 }
 
-static void draw_cursor(uint32_t x,uint32_t y){fill(x,y,3u,20u,COL_TEXT);fill(x,y,11u,3u,COL_TEXT);fill(x+4u,y+13u,6u,3u,COL_TEXT);fill(x+7u,y+16u,5u,3u,COL_TEXT);}
+static void draw_cursor(uint32_t x,uint32_t y){\n    fill(x,y,2u,20u,COL_TEXT);\n    fill(x+2u,y+2u,2u,15u,COL_TEXT);\n    fill(x+4u,y+4u,2u,12u,COL_TEXT);\n    fill(x+6u,y+6u,2u,10u,COL_TEXT);\n    fill(x+8u,y+8u,2u,8u,COL_TEXT);\n    fill(x+3u,y+14u,4u,2u,COL_GROUND);\n    fill(x+5u,y+16u,5u,2u,COL_GROUND);\n}
 static void draw_desktop_background(void){draw_wallpaper();}
 static void draw_desktop_icons(void){uint32_t base_y=18u;draw_icon(18u,base_y,"Terminal",'>',COL_GOLD);draw_icon(18u,base_y+88u,"Files",'#',COL_OK);draw_icon(18u,base_y+176u,"About",'i',COL_GOLD);draw_icon(18u,base_y+264u,"Settings",'+',COL_GOLD);}
 
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
-static void render_all(void){draw_desktop_background();draw_desktop_icons();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);}
+static void render_all(void){draw_desktop_background();draw_desktop_icons();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);framebuffer_present();}
 
 static void init_windows(void){
     uint32_t sw=framebuffer_width(),sh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();
@@ -338,7 +338,7 @@ static void handle_key(int key){
 void gui_start(void){
     debug_write("LIONOS:GUI-ENTER\n");
     if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
-    mouse_set_cursor_visible(0u);while(keyboard_available())(void)keyboard_getchar();init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
+    mouse_set_bounds(framebuffer_width(),framebuffer_height());\n    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\\n");return;}\n    while(keyboard_available())(void)keyboard_getchar();\n    init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
 }
 void gui_step(void){
     if(!gui_active)return;
