@@ -52,7 +52,7 @@ void cpu_init(uint32_t multiboot_info){
     __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(1u),"c"(0u));uint32_t logical=(b>>16)&0xFFu;if(!logical)logical=1u;if(logical>LIONOS_MAX_CPUS)logical=LIONOS_MAX_CPUS;uint32_t bsp=(b>>24)&0xFFu;
     cpu_hint=logical;cpus[0].apic_id=bsp;cpus[0].logical_per_package=logical;cpus[0].online=1u;
     if(max_leaf>=0xBu){__asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(0xBu),"c"(0u));if(b&&b<=LIONOS_MAX_CPUS)cpu_hint=b;}
-    uint32_t acpi_count=acpi_enumerate(multiboot_info,bsp);if(acpi_count){cpu_hint=acpi_count;}
+    (void)c;(void)d;uint32_t acpi_count=acpi_enumerate(multiboot_info,bsp);if(acpi_count){cpu_hint=acpi_count;}
 }
 uint32_t cpu_count_hint(void){return cpu_hint;}
 uint32_t cpu_current_index(void){uint32_t id=lapic_id();if(id!=0xFFFFFFFFu)for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i)if(cpus[i].online&&cpus[i].apic_id==id)return i;return 0u;}
