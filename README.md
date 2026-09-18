@@ -50,7 +50,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ VFS syscalls: `open`, `close`, `read`, `write`, `remove`, `stat`
 - ✅ Userspace file enumeration syscall
 - ✅ Per-process file-descriptor tables
-- 🚧 Privilege separation / capabilities
+- ✅ Per-process capability sets with non-escalating syscall gates
 
 ### Executables & storage
 - ✅ Scrolling VGA console
@@ -163,7 +163,7 @@ LionOS treats ring-3 userspace as untrusted code. Syscall entry points validate 
 
 Process-control operations are ownership-aware: a userspace process may only signal its own child/descendant processes through the current `kill` interface. Kernel PID 1 is never exposed as a signal target through this interface.
 
-The ELF loader validates the executable structure and load ranges before creating a userspace address space. Kernel mappings are supervisor-only in cloned process page directories.
+The ELF loader validates the executable structure and load ranges before creating a userspace address space. Kernel mappings are supervisor-only in cloned process page directories. Syscalls additionally check the current process capability mask before entering console, filesystem, process-control, IPC, or networking operations.
 
 This is an educational hardening layer, not a production security boundary. The next major isolation work includes per-process file descriptors, stronger privilege separation, and more complete memory-copy primitives.
 
@@ -206,7 +206,7 @@ lion:/ > run uname.elf
 lion:/ > run stat.elf
 ```
 
-The kernel exposes a small UAPI through `include/uapi.h` and `include/user_api.h`. `lion_getfile()` provides indexed VFS enumeration to userspace, allowing `ls.elf` to operate without kernel shell code.
+The kernel exposes a small UAPI through `include/uapi.h` and `include/user_api.h`. User processes receive an explicit capability mask covering console, filesystem, process-control, IPC, and networking operations; the admin capability is reserved for the kernel and cannot be granted through the userspace process API. `lion_getfile()` provides indexed VFS enumeration to userspace, allowing `ls.elf` to operate without kernel shell code.
 
 ## 🧪 Storage
 
