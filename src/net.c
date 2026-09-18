@@ -40,15 +40,6 @@
 #define NET_NETMASK 0xFFFFFF00u
 #define NET_EPHEMERAL_PORT 40000u
 
-struct net_packet {
-    uint32_t used;
-    uint32_t src_ip;
-    uint32_t dst_ip;
-    uint16_t src_port;
-    uint16_t dst_port;
-    uint16_t length;
-    uint8_t data[NET_PACKET_MAX];
-};
 
 struct eth_hdr {
     uint8_t dst[6];
@@ -323,7 +314,9 @@ int32_t net_recv(uint16_t port, void *data, uint32_t capacity, uint32_t *src_ip,
     for (uint32_t i = 0; i < NET_QUEUE_MAX; ++i) if (queue[i].used && queue[i].dst_port == port) {
         uint32_t n=queue[i].length<capacity?queue[i].length:capacity;
         for (uint32_t j=0;j<n;++j)((uint8_t*)data)[j]=queue[i].data[j];
-        if(src_ip)*src_ip=queue[i].src_ip;if(src_port)*src_port=queue[i].src_port;queue[i].used=0;
+        if (src_ip) *src_ip=queue[i].src_ip;
+        if (src_port) *src_port=queue[i].src_port;
+        queue[i].used=0;
         spinlock_irqrestore_release(&net_lock,irq);return (int32_t)n;
     }
     spinlock_irqrestore_release(&net_lock,irq);return NET_RECV_EMPTY;
