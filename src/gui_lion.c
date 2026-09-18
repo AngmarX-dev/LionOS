@@ -335,7 +335,7 @@ static void handle_key(int key){
         close_gui();return;
     }
     if(terminal_focus){
-        if(key=='\\n'||key==13){terminal_command();return;}
+        if(key=='\n'||key==13){terminal_command();return;}
         if(key=='\b'||key==127){if(term_len){--term_len;term_input[term_len]=0;}return;}
         if(key>=32&&key<127&&term_len<120u){term_input[term_len++]=(char)key;term_input[term_len]=0;}
         return;
