@@ -34,10 +34,10 @@ case SYS_MEMINFO:return memory_free_pages();
 case SYS_EXEC:{char name[64];if(copy_user_string(name,sizeof(name),arg0)!=0)return SYSCALL_ERR;int pid=exec_replace_current(name);return pid<0?SYSCALL_ERR:(uint32_t)pid;}
 case SYS_FORK:return process_fork_current(0);
 case SYS_WAITPID:if(!user_range_ok(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t result=process_waitpid(arg0,arg1);return result==(int32_t)PROCESS_WAIT_BLOCKED?PROCESS_WAIT_BLOCKED:(uint32_t)result;}
-case LIONOS_SYS_OPEN:{char path[VFS_PATH_MAX];if(copy_user_string(path,sizeof(path),arg0)!=0)return SYSCALL_ERR;return(uint32_t)vfs_open(path,arg1);}
-case LIONOS_SYS_CLOSE:return(uint32_t)vfs_close((int)arg0);
-case LIONOS_SYS_FREAD:if(arg2>USER_COPY_MAX||!user_range_ok(arg1,arg2))return SYSCALL_ERR;return(uint32_t)vfs_read((int)arg0,(void*)(uintptr_t)arg1,arg2);
-case LIONOS_SYS_FWRITE:if(arg2>USER_COPY_MAX||!user_range_ok(arg1,arg2))return SYSCALL_ERR;return(uint32_t)vfs_write((int)arg0,(const void*)(uintptr_t)arg1,arg2);
+case LIONOS_SYS_OPEN:{char path[VFS_PATH_MAX];struct process*p=process_current();if(copy_user_string(path,sizeof(path),arg0)!=0||!p)return SYSCALL_ERR;return(uint32_t)vfs_open_for_process(p,path,arg1);}
+case LIONOS_SYS_CLOSE:{struct process*p=process_current();return(uint32_t)vfs_close_for_process(p,(int)arg0);}
+case LIONOS_SYS_FREAD:if(arg2>USER_COPY_MAX||!user_range_ok(arg1,arg2))return SYSCALL_ERR;return(uint32_t)vfs_read_for_process(process_current(),(int)arg0,(void*)(uintptr_t)arg1,arg2);
+case LIONOS_SYS_FWRITE:if(arg2>USER_COPY_MAX||!user_range_ok(arg1,arg2))return SYSCALL_ERR;return(uint32_t)vfs_write_for_process(process_current(),(int)arg0,(const void*)(uintptr_t)arg1,arg2);
 case LIONOS_SYS_REMOVE:{char path[VFS_PATH_MAX];if(copy_user_string(path,sizeof(path),arg0)!=0)return SYSCALL_ERR;return(uint32_t)vfs_remove(path);}
 case LIONOS_SYS_STAT:{char path[VFS_PATH_MAX];struct lion_stat*st=(struct lion_stat*)(uintptr_t)arg1;if(copy_user_string(path,sizeof(path),arg0)!=0||!user_range_ok(arg1,sizeof(*st)))return SYSCALL_ERR;struct vfs_stat kst;if(vfs_stat_path(path,&kst)<0)return SYSCALL_ERR;st->size=kst.size;st->backend=kst.backend;st->flags=kst.flags;return SYSCALL_OK;}
 case LIONOS_SYS_GETFILE:{if(arg1==0||arg2<2u||!user_range_ok(arg1,arg2))return SYSCALL_ERR;const char*n=vfs_name(arg0);if(!n)return SYSCALL_ERR;uint32_t i=0;while(n[i]&&i<arg2-1u){((char*)(uintptr_t)arg1)[i]=n[i];++i;}((char*)(uintptr_t)arg1)[i]=0;return i;}
