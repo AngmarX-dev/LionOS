@@ -4,7 +4,7 @@ DISK := $(BUILD)/lionos-disk.img
 KERNEL := $(BUILD)/lionos.bin
 USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o
 
-USER_PROGRAMS := hello process_test ipc_test signal_test net_test echo cat ls pwd uname rm stat userland_test
+USER_PROGRAMS := hello process_test ipc_test signal_test net_test echo cat ls pwd uname rm stat ping userland_test
 USER_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 
@@ -79,6 +79,8 @@ $(BUILD)/rm.o: user/bin/rm.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/stat.o: user/bin/stat.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/ping.o: user/bin/ping.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 
 $(BUILD)/userland_test.o: user/userland_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
@@ -107,6 +109,8 @@ $(BUILD)/rm.elf: $(USER_COMMON_OBJS) $(BUILD)/rm.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/rm.o
 $(BUILD)/stat.elf: $(USER_COMMON_OBJS) $(BUILD)/stat.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/stat.o
+$(BUILD)/ping.elf: $(USER_COMMON_OBJS) $(BUILD)/ping.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/ping.o
 $(BUILD)/userland_test.elf: $(USER_COMMON_OBJS) $(BUILD)/userland_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/userland_test.o
 
@@ -130,7 +134,7 @@ check: iso disk
 	grub-file --is-x86-multiboot2 $(KERNEL)
 
 run: iso disk
-	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 128M -smp 2
+	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 128M -smp 2 -netdev user,id=lionnet -device rtl8139,netdev=lionnet
 
 clean:
 	rm -rf $(BUILD)
