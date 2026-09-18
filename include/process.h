@@ -12,6 +12,8 @@
 #define PROCESS_WAITING 4u
 #define PROCESS_STOPPED 5u
 #define PROCESS_CONTEXT_WORDS 19u
+#define PROCESS_FD_MAX 32u
+#define PROCESS_FD_PATH_MAX 64u
 
 struct process {
     uint32_t pid;
@@ -33,6 +35,11 @@ struct process {
     uint32_t user_page_vas[LIONOS_PROCESS_MAX_USER_PAGES];
     uint32_t user_page_count;
     uint32_t pending_signals;
+    uint8_t fd_used[PROCESS_FD_MAX];
+    uint8_t fd_backend[PROCESS_FD_MAX];
+    uint32_t fd_flags[PROCESS_FD_MAX];
+    uint32_t fd_offset[PROCESS_FD_MAX];
+    char fd_path[PROCESS_FD_MAX][PROCESS_FD_PATH_MAX];
 };
 
 void process_init(void);
