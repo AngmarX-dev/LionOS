@@ -4,6 +4,6 @@
 void gui_run(void);
 void gui_start(void);
 void gui_step(void);
-int gui_is_active(void);
+int gui_is_active(void);\nvoid gui_run(void);
 
 #endif
