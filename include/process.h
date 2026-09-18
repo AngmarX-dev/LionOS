@@ -66,6 +66,9 @@ int process_exec_replace_current(uint32_t entry, uint32_t user_stack, uint32_t p
                                  const uint32_t *user_pages, const uint32_t *user_page_vas,
                                  uint32_t user_page_count);
 int process_set_current(struct process *process);
+int process_has_capability(const struct process *process, uint32_t capability);
+uint32_t process_capabilities(const struct process *process);
+int process_set_capabilities(struct process *process, uint32_t capabilities);
 void process_exit_current(uint32_t exit_code);
 uint32_t process_fork_current(uint32_t *parent_frame);
 int32_t process_waitpid(uint32_t pid, uint32_t status_ptr);
