@@ -37,11 +37,11 @@ static uint32_t acpi_find_madt(uint32_t rsdt,uint64_t xsdt,uint8_t revision){
 static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
     if(!mb2)return 0u;
     uint32_t total=*(uint32_t*)(uintptr_t)mb2;uint8_t*tag=(uint8_t*)(uintptr_t)mb2+8u;uint8_t*end=(uint8_t*)(uintptr_t)mb2+total;uint32_t madt=0;
-    while(tag+8u<=end){struct mb2_tag*t=(struct mb2_tag*)tag;if(t->type==MB2_TAG_END)break;if((t->type==MB2_TAG_ACPI_OLD||t->type==MB2_TAG_ACPI_NEW)&&t->size>=16u){const struct acpi_rsdp20*r=(const struct acpi_rsdp20*)(tag+8u);if(r->revision>=2u&&t->size>=8u+36u&&checksum8((const uint8_t*)r,36u)==0u&&checksum8((const uint8_t*)r,r->length)<=0u)madt=acpi_find_madt(r->rsdt,r->xsdt,r->revision);else if(t->size>=8u+20u&&checksum8((const uint8_t*)r,20u)==0u)madt=acpi_find_madt(r->rsdt,0,1u);if(madt)break;}tag+=(t->size+7u)&~7u;}
+    while(tag+8u<=end){struct mb2_tag*t=(struct mb2_tag*)tag;if(t->type==MB2_TAG_END)break;if((t->type==MB2_TAG_ACPI_OLD||t->type==MB2_TAG_ACPI_NEW)&&t->size>=16u){const struct acpi_rsdp20*r=(const struct acpi_rsdp20*)(tag+8u);if(r->revision>=2u&&t->size>=8u+36u&&checksum8((const uint8_t*)r,36u)==0u )madt=acpi_find_madt(r->rsdt,r->xsdt,r->revision);else if(t->size>=8u+20u&&checksum8((const uint8_t*)r,20u)==0u)madt=acpi_find_madt(r->rsdt,0,1u);if(madt)break;}tag+=(t->size+7u)&~7u;}
     if(!madt)return 0u;
     const struct acpi_madt*m=(const struct acpi_madt*)(uintptr_t)madt;uint32_t found=0u;uint32_t bsp_index=0xFFFFFFFFu;const uint8_t*p=(const uint8_t*)m+44u;const uint8_t*endm=(const uint8_t*)m+m->h.length;
     while(p+2u<=endm){uint8_t type=p[0],len=p[1];if(len<2u||p+len>endm)break;if(type==0u&&len>=8u){uint32_t apic=p[3],flags=*(const uint32_t*)(const void*)(p+4u);if((flags&1u)&&found<ACPI_MAX_CPUS){cpus[found].apic_id=apic;cpus[found].logical_per_package=1u;if(apic==bsp_apic)bsp_index=found;++found;}}else if(type==9u&&len>=16u){uint32_t apic=*(const uint32_t*)(const void*)(p+4u),flags=*(const uint32_t*)(const void*)(p+8u);if((flags&1u)&&found<ACPI_MAX_CPUS){cpus[found].apic_id=apic;cpus[found].logical_per_package=1u;if(apic==bsp_apic)bsp_index=found;++found;}}p+=len;}
-    if(!found)return 0u;
+    if(!found||bsp_index==0xFFFFFFFFu){reset_cpus();return 0u;}
     if(bsp_index!=0xFFFFFFFFu&&bsp_index!=0u){struct cpu_info tmp=cpus[0];cpus[0]=cpus[bsp_index];cpus[bsp_index]=tmp;}
     for(uint32_t i=0;i<found;++i){cpus[i].index=i;cpus[i].online=(i==0u);}
     return found;
