@@ -53,6 +53,7 @@ case LIONOS_SYS_NET_SEND:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;if(arg2
 case LIONOS_SYS_NET_RECV:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;{if(arg1==0||arg1>NET_PACKET_MAX||!user_range_ok(arg1,arg2))return SYSCALL_ERR;uint32_t sip=0;uint16_t sport=0;int32_t n=net_recv((uint16_t)arg0,(void*)(uintptr_t)arg1,arg2,&sip,&sport);if(n==NET_RECV_EMPTY)return LIONOS_NET_EMPTY;if(n<0)return SYSCALL_ERR;if(arg3&&user_range_ok(arg3,sizeof(uint32_t)))*(uint32_t*)(uintptr_t)arg3=sip;if(arg4&&user_range_ok(arg4,sizeof(uint16_t)))*(uint16_t*)(uintptr_t)arg4=sport;return(uint32_t)n;}
 case LIONOS_SYS_NET_PENDING:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;return net_pending((uint16_t)arg0);
 case LIONOS_SYS_NET_GETIP:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;return net_local_ip();
+case LIONOS_SYS_NET_PING:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;return (uint32_t)net_ping(arg0);
 default:return SYSCALL_ERR;}}
 void syscall_init(void){(void)syscall_dispatch;}
 uint32_t syscall_handle(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2,uint32_t arg3,uint32_t arg4){return syscall_dispatch(number,arg0,arg1,arg2,arg3,arg4);}
