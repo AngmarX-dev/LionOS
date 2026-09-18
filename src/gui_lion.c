@@ -5,7 +5,8 @@
 #include "keyboard.h"
 #include "mouse.h"
 #include "memory.h"
-#include "vfs.h"\n#include "lapic.h"
+#include "vfs.h"
+#include "lapic.h"
 
 #define FONT_W 5u
 #define FONT_H 7u
@@ -245,7 +246,15 @@ static void draw_start_menu(void){
     if(mh>330u){fill(x+18u,y+mh-52u,140u,34u,COL_DANGER);border(x+18u,y+mh-52u,140u,34u,COL_GOLD_DIM);text_line("POWER",x+32u,y+mh-44u,COL_TEXT,COL_DANGER);}
 }
 
-static void draw_cursor(uint32_t x,uint32_t y){\n    fill(x,y,2u,20u,COL_TEXT);\n    fill(x+2u,y+2u,2u,15u,COL_TEXT);\n    fill(x+4u,y+4u,2u,12u,COL_TEXT);\n    fill(x+6u,y+6u,2u,10u,COL_TEXT);\n    fill(x+8u,y+8u,2u,8u,COL_TEXT);\n    fill(x+3u,y+14u,4u,2u,COL_GROUND);\n    fill(x+5u,y+16u,5u,2u,COL_GROUND);\n}
+static void draw_cursor(uint32_t x,uint32_t y){
+    fill(x,y,2u,20u,COL_TEXT);
+    fill(x+2u,y+2u,2u,15u,COL_TEXT);
+    fill(x+4u,y+4u,2u,12u,COL_TEXT);
+    fill(x+6u,y+6u,2u,10u,COL_TEXT);
+    fill(x+8u,y+8u,2u,8u,COL_TEXT);
+    fill(x+3u,y+14u,4u,2u,COL_GROUND);
+    fill(x+5u,y+16u,5u,2u,COL_GROUND);
+}
 static void draw_desktop_background(void){draw_wallpaper();}
 static void draw_desktop_icons(void){uint32_t base_y=18u;draw_icon(18u,base_y,"Terminal",'>',COL_GOLD);draw_icon(18u,base_y+88u,"Files",'#',COL_OK);draw_icon(18u,base_y+176u,"About",'i',COL_GOLD);draw_icon(18u,base_y+264u,"Settings",'+',COL_GOLD);}
 
@@ -261,7 +270,8 @@ static void init_windows(void){
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
     terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;
 }
-static void close_gui(void){gui_active=0u;mouse_set_cursor_visible(1u);mouse_show();debug_write("LIONOS:GUI-EXIT\n");}
+static void close_gui(void){gui_active=0u;mouse_set_cursor_visible(1u);mouse_show();debug_write("LIONOS:GUI-EXIT
+");}
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
@@ -324,7 +334,8 @@ static void handle_key(int key){
         close_gui();return;
     }
     if(terminal_focus){
-        if(key=='\n'||key==13){terminal_command();return;}
+        if(key=='
+'||key==13){terminal_command();return;}
         if(key=='\b'||key==127){if(term_len){--term_len;term_input[term_len]=0;}return;}
         if(key>=32&&key<127&&term_len<120u){term_input[term_len++]=(char)key;term_input[term_len]=0;}
         return;
@@ -336,9 +347,15 @@ static void handle_key(int key){
 }
 
 void gui_start(void){
-    debug_write("LIONOS:GUI-ENTER\n");
-    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
-    mouse_set_bounds(framebuffer_width(),framebuffer_height());\n    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\\n");return;}\n    while(keyboard_available())(void)keyboard_getchar();\n    init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
+    debug_write("LIONOS:GUI-ENTER
+");
+    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER
+");return;}
+    mouse_set_bounds(framebuffer_width(),framebuffer_height());
+    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\
+");return;}
+    while(keyboard_available())(void)keyboard_getchar();
+    init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
 }
 void gui_step(void){
     if(!gui_active)return;
