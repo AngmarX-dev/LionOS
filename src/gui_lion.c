@@ -270,8 +270,7 @@ static void init_windows(void){
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
     terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;
 }
-static void close_gui(void){gui_active=0u;mouse_set_cursor_visible(1u);mouse_show();debug_write("LIONOS:GUI-EXIT
-");}
+static void close_gui(void){gui_active=0u;debug_write("LIONOS:GUI-EXIT\\n");}
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
@@ -334,8 +333,7 @@ static void handle_key(int key){
         close_gui();return;
     }
     if(terminal_focus){
-        if(key=='
-'||key==13){terminal_command();return;}
+        if(key=='\\n'||key==13){terminal_command();return;}
         if(key=='\b'||key==127){if(term_len){--term_len;term_input[term_len]=0;}return;}
         if(key>=32&&key<127&&term_len<120u){term_input[term_len++]=(char)key;term_input[term_len]=0;}
         return;
@@ -347,13 +345,10 @@ static void handle_key(int key){
 }
 
 void gui_start(void){
-    debug_write("LIONOS:GUI-ENTER
-");
-    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER
-");return;}
+    debug_write("LIONOS:GUI-ENTER\\n");
+    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\\n");return;}
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
-    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\
-");return;}
+    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\\n");return;}
     while(keyboard_available())(void)keyboard_getchar();
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
 }
