@@ -252,3 +252,8 @@ MIT License. See [LICENSE](LICENSE).
 ## ⚠️ Status
 
 LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 release preparation is underway, and the Phase 25/26 UI milestones are implemented. LionOS is not intended for production use.
+
+## Display target
+
+LionOS boots the graphical desktop at 1920x1080x32 when the firmware/virtual display exposes that mode; the desktop timer is configured for 60 Hz.
+
