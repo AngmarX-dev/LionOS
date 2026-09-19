@@ -34,7 +34,6 @@ static void print_ip(uint32_t ip) {
 int main(void) {
     const char *target = "10.0.2.2";
     char input[32];
-    uint32_t n = 0;
     int ok;
     (void)input;
     /* ping accepts one IPv4 argument when invoked as: run ping.elf <ip>.
