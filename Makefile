@@ -22,7 +22,7 @@ C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/kernel_runtime.c src/gui.
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso disk run check test userspace userland process-test ipc-test signal-test net-test
+.PHONY: all clean iso usb disk run check test userspace userland process-test ipc-test signal-test net-test
 all: $(KERNEL)
 userspace userland: $(USER_ELFS)
 process-test: $(BUILD)/process_test.elf
@@ -126,6 +126,9 @@ iso: $(KERNEL)
 	cp $(KERNEL) $(BUILD)/iso/boot/lionos.bin
 	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
 	grub-mkrescue -o $(ISO) $(BUILD)/iso
+
+usb: iso
+	cp $(ISO) $(BUILD)/lionos-usb.img
 
 disk: | $(BUILD)
 	if [ ! -f $(DISK) ]; then truncate -s 8M $(DISK); fi
