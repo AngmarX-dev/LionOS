@@ -47,5 +47,6 @@ static inline int32_t lion_net_send(uint32_t ip,uint16_t src_port,uint16_t dst_p
 static inline int32_t lion_net_recv(uint16_t port,void*data,uint32_t capacity,uint32_t*src_ip,uint16_t*src_port){return(int32_t)lion_syscall5(LIONOS_SYS_NET_RECV,port,(uint32_t)(uintptr_t)data,capacity,(uint32_t)(uintptr_t)src_ip,(uint32_t)(uintptr_t)src_port);}
 static inline uint32_t lion_net_pending(uint16_t port){return lion_syscall1(LIONOS_SYS_NET_PENDING,port);}
 static inline uint32_t lion_net_getip(void){return lion_syscall0(LIONOS_SYS_NET_GETIP);}
+static inline int32_t lion_net_ping(uint32_t ip){return (int32_t)lion_syscall1(LIONOS_SYS_NET_PING,ip);}
 
 #endif

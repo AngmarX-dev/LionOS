@@ -68,18 +68,16 @@ Before cutting a public release:
 
 ## Known scope limitations
 
-The SMP implementation is a bootstrap layer, not a fully concurrent SMP scheduler. The current bring-up path is designed around the QEMU topology used by the test suite and still needs broader hardware enumeration and synchronization work.
+The SMP implementation is still a bootstrap layer rather than a fully concurrent scheduler. Shared process state, memory, VFS, IPC, and loopback networking now have IRQ-safe locking foundations, while APs remain out of normal userspace scheduling until per-CPU scheduler state and broader hardware enumeration are complete.
 
 Not yet release-complete production features include:
 
-- ACPI MADT CPU enumeration
 - Fully concurrent per-CPU scheduling
-- Complete locking for shared kernel subsystems
-- Per-process file-descriptor tables
+- ACPI MADT-based CPU enumeration
 - Full privilege/capability separation
 - Physical network-card drivers
 - Copy-on-write memory
-- Rich directory/path semantics
+- Automated end-to-end userspace VFS integration coverage
 
 These limitations are expected for an educational experimental operating system.
 

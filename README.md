@@ -20,7 +20,7 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Per-CPU TSS bootstrap
 - ✅ Local APIC timer interrupt and BSP preemption clock
 - 🚧 Per-CPU scheduler state and concurrent scheduling
-- 🚧 ACPI MADT CPU enumeration
+- ✅ ACPI MADT CPU enumeration with QEMU-safe fallback
 
 ### Memory
 - ✅ Physical page allocator
@@ -49,8 +49,8 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Restricted signal control to child/descendant processes
 - ✅ VFS syscalls: `open`, `close`, `read`, `write`, `remove`, `stat`
 - ✅ Userspace file enumeration syscall
-- 🚧 Per-process file-descriptor tables
-- 🚧 Privilege separation / capabilities
+- ✅ Per-process file-descriptor tables
+- ✅ Per-process capability sets with non-escalating syscall gates
 
 ### Executables & storage
 - ✅ Scrolling VGA console
@@ -77,21 +77,21 @@ LionOS is a small educational kernel focused on operating-system internals and l
 - ✅ Persistent LionFS metadata and fixed-size file allocation
 - ✅ Persistent files survive a kernel reboot
 - ✅ VFS abstraction over RAMFS and persistent LionFS
-- 🚧 Rich directory/path support
-- 🚧 POSIX-style file descriptors per process
+- ✅ Normalized hierarchical directory/path names
+- ✅ POSIX-style per-process file descriptors
 
 ### Networking
 - ✅ Loopback IPv4 transport (`127.0.0.1`)
 - ✅ Packet queues and userspace send/receive syscalls
-- 🚧 Physical NIC driver
+- ✅ RTL8139 physical NIC driver\n- ✅ ARP + IPv4 + ICMP echo (ping)\n- ✅ Terminal `ping` command (QEMU user networking)
 
 ### SMP synchronization
 - ✅ Atomic test-and-set spinlock
 - ✅ IRQ-save / IRQ-restore locking primitive
 - ✅ BSP spinlock self-test during boot
 - ✅ Atomic AP online handshake
-- 🚧 Process-table locking
-- 🚧 Memory/VFS/IPC/network locking
+- ✅ Process-table locking
+- ✅ Memory/VFS/IPC/network locking
 
 ## 🧪 Testing
 - ✅ Multiboot2 kernel validation in CI
@@ -121,7 +121,7 @@ The BSP also uses a local APIC periodic timer on vector `48`, which drives the e
 
 An atomic spinlock primitive with IRQ-save/restore support is available as the synchronization foundation. A boot-time self-test verifies the primitive without pretending that the entire kernel is already SMP-safe.
 
-The current bootstrap still assumes contiguous xAPIC IDs as used by the QEMU SMP test. ACPI MADT enumeration will replace that assumption before broad hardware support. Shared kernel structures are not yet fully locked, so APs do not run the normal scheduler concurrently yet.
+CPU enumeration now consumes ACPI MADT processor entries when Multiboot provides a valid RSDP/RSDT/XSDT path, with CPUID topology as a safe fallback. AP startup uses the enumerated APIC IDs instead of assuming contiguous IDs. Shared kernel structures have IRQ-safe locking foundations for process, memory, VFS, IPC, and loopback networking, but APs do not run the normal userspace scheduler concurrently yet.
 
 ## 🧩 Phase 23 — Stability & Persistence ✅
 
@@ -140,11 +140,11 @@ The full suite is implemented in [`scripts/test.sh`](scripts/test.sh) and is als
 
 Phase 24 packages the validated SMP and stability work for an experimental release milestone. The release checklist and known scope limitations are documented in [`docs/PHASE-24-RELEASE.md`](docs/PHASE-24-RELEASE.md).
 
-## 🎨 Phase 25 — UI 🚧
+## 🎨 Phase 25/26 — UI ✅
 
-Phase 25 starts the user-facing UI layer while keeping the kernel's existing text-mode architecture stable.
+The user-facing UI layer now includes both the Phase 25 text-mode improvements and the Phase 26 graphical desktop.
 
-The first UI slice adds:
+The UI includes:
 
 - VGA foreground color support
 - a clearer LionOS shell banner
@@ -152,8 +152,10 @@ The first UI slice adds:
 - categorized `help` output
 - colored success, status, and error messages
 - a cleaner `about`, `ls`, `run`, and file-command presentation
-
-This is currently a text-mode TUI milestone. A graphical framebuffer interface can be considered later.
+- framebuffer desktop rendering at 1920×1080 when available
+- mouse cursor and pixel-coordinate input
+- desktop backbuffer/present path driven by the LAPIC wake-up clock
+- graphical desktop windows, taskbar, launcher, and shell handoff
 
 ## 🛡️ Security Model
 
@@ -161,7 +163,7 @@ LionOS treats ring-3 userspace as untrusted code. Syscall entry points validate 
 
 Process-control operations are ownership-aware: a userspace process may only signal its own child/descendant processes through the current `kill` interface. Kernel PID 1 is never exposed as a signal target through this interface.
 
-The ELF loader validates the executable structure and load ranges before creating a userspace address space. Kernel mappings are supervisor-only in cloned process page directories.
+The ELF loader validates the executable structure and load ranges before creating a userspace address space. Kernel mappings are supervisor-only in cloned process page directories. Syscalls additionally check the current process capability mask before entering console, filesystem, process-control, IPC, or networking operations.
 
 This is an educational hardening layer, not a production security boundary. The next major isolation work includes per-process file descriptors, stronger privilege separation, and more complete memory-copy primitives.
 
@@ -201,10 +203,10 @@ lion:/ > run ls.elf
 lion:/ > run cat.elf
 lion:/ > run pwd.elf
 lion:/ > run uname.elf
-lion:/ > run stat.elf
+lion:/ > run stat.elf\nlion:/ > ping 10.0.2.2
 ```
 
-The kernel exposes a small UAPI through `include/uapi.h` and `include/user_api.h`. `lion_getfile()` provides indexed VFS enumeration to userspace, allowing `ls.elf` to operate without kernel shell code.
+The kernel exposes a small UAPI through `include/uapi.h` and `include/user_api.h`. User processes receive an explicit capability mask covering console, filesystem, process-control, IPC, and networking operations; the admin capability is reserved for the kernel and cannot be granted through the userspace process API. `lion_getfile()` provides indexed VFS enumeration to userspace, allowing `ls.elf` to operate without kernel shell code.
 
 ## 🧪 Storage
 
@@ -237,7 +239,7 @@ The VFS currently provides a deliberately small interface suitable for the early
 
 ## 🧠 Architecture
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback networking layer, Local APIC support, AP startup, per-CPU TSS/IDT bootstrap, a LAPIC scheduler timer, initial SMP synchronization primitives, and the new colored text-mode shell UI.
+LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback and RTL8139 Ethernet networking layer with ARP/IPv4/ICMP support, Local APIC support, AP startup, per-CPU TSS/IDT bootstrap, a LAPIC scheduler timer, initial SMP synchronization primitives, and the new colored text-mode shell UI.
 
 ## 🤖 AI-Assisted Development
 
@@ -249,4 +251,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ## ⚠️ Status
 
-LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 release preparation is underway, and Phase 25 UI development has begun. LionOS is not intended for production use.
+LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 release preparation is underway, and the Phase 25/26 UI milestones are implemented. LionOS is not intended for production use.

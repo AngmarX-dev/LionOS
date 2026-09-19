@@ -12,6 +12,8 @@
 #define VFS_BACKEND_RAMFS 1u
 #define VFS_BACKEND_DISKFS 2u
 
+struct process;
+
 struct vfs_stat {
     uint32_t size;
     uint32_t backend;
@@ -20,6 +22,10 @@ struct vfs_stat {
 
 int vfs_init(void);
 int vfs_open(const char *path, uint32_t flags);
+int vfs_open_for_process(struct process *process, const char *path, uint32_t flags);
+int vfs_close_for_process(struct process *process, int fd);
+int vfs_read_for_process(struct process *process, int fd, void *buffer, uint32_t length);
+int vfs_write_for_process(struct process *process, int fd, const void *buffer, uint32_t length);
 int vfs_close(int fd);
 int vfs_read(int fd, void *buffer, uint32_t length);
 int vfs_write(int fd, const void *buffer, uint32_t length);

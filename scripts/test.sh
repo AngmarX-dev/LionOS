@@ -115,7 +115,7 @@ PY
     grep -q 'LIONOS:READY' "$log_file"
 }
 
-echo "== LionOS Phase 23 stability + Phase 26 GUI smoke test =="
+echo "== LionOS stability + VFS integration + Phase 26 GUI smoke test =="
 echo "[1/5] Building kernel, userspace, ISO, and persistent disk"
 make clean
 make
@@ -136,14 +136,16 @@ echo "[3/5] First SMP boot / filesystem initialization"
 run_qemu build/qemu-first.log
 grep -q 'LIONOS:READY' build/qemu-first.log
 grep -q 'LIONOS:PERSIST-INIT' build/qemu-first.log
+grep -q 'LIONOS:VFS-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-first.log
 
 echo "[4/5] Second SMP boot / persistence verification"
 run_qemu build/qemu-second.log
 grep -q 'LIONOS:READY' build/qemu-second.log
 grep -q 'LIONOS:PERSIST-OK' build/qemu-second.log
+grep -q 'LIONOS:VFS-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-second.log
 
 echo "[5/5] Graphical desktop / keyboard escape smoke test"
 run_gui_smoke build/qemu-gui.log
-echo "LionOS Phase 23 + Phase 26 GUI test: PASS"
+echo "LionOS stability + VFS integration + Phase 26 GUI test: PASS"

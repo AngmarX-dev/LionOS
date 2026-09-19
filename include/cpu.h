@@ -12,7 +12,7 @@ struct cpu_info {
     volatile uint32_t online;
 };
 
-void cpu_init(void);
+void cpu_init(uint32_t multiboot_info);
 uint32_t cpu_count_hint(void);
 uint32_t cpu_current_index(void);
 const struct cpu_info *cpu_get(uint32_t index);
