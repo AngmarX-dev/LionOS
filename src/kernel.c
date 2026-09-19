@@ -31,9 +31,9 @@ static void vfs_boot_test(void){
     static const char path[]="/tests/../vfs-selftest.txt";
     static const char payload[]="LionOS VFS integration OK\n";
     char buffer[sizeof(payload)];
-    int fd=vfs_open(path,LIONOS_O_WRITE);
+    int fd=vfs_open(path,2u);
     if(fd<0||vfs_write(fd,payload,sizeof(payload)-1u)!=(int)(sizeof(payload)-1u)||vfs_close(fd)<0){debug_write("LIONOS:VFS-TEST-FAIL\n");console_write("[ERR] VFS integration self-test\n");return;}
-    fd=vfs_open("/vfs-selftest.txt",LIONOS_O_READ);
+    fd=vfs_open("/vfs-selftest.txt",1u);
     if(fd<0||vfs_read(fd,buffer,sizeof(buffer))!=(int)(sizeof(payload)-1u)||vfs_close(fd)<0){debug_write("LIONOS:VFS-TEST-FAIL\n");console_write("[ERR] VFS integration self-test\n");return;}
     for(uint32_t i=0;i<sizeof(payload)-1u;++i)if(buffer[i]!=payload[i]){debug_write("LIONOS:VFS-TEST-FAIL\n");console_write("[ERR] VFS integration self-test\n");return;}
     debug_write("LIONOS:VFS-TEST-OK\n");console_write("[ OK ] VFS path / per-process descriptor integration\n");
