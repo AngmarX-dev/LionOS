@@ -280,3 +280,4 @@ sync
 
 Replace `/dev/sdX` with the whole USB device, not a partition such as `/dev/sdX1`. The USB contents will be erased. Reboot, select the USB device in the firmware boot menu, and choose `LionOS`.
 
+
