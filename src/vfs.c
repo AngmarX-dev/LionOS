@@ -85,7 +85,9 @@ static int write_slot(struct vfs_fd *f,const void *buffer,uint32_t length) {
     if(!fd_valid(f)||!buffer||length>VFS_IO_MAX||(f->flags&VFS_F_WRITE)==0)return -1;
     if(f->offset!=0 && !(f->flags&VFS_F_APPEND))return -1;
     int r=f->backend==VFS_BACKEND_DISKFS?diskfs_write(f->path,buffer,length):ramfs_write(f->path,buffer,length);
-    if(r<0)return -1; f->offset=length; return (int)length;
+    if(r<0)return -1;
+    f->offset=length;
+    return (int)length;
 }
 
 int vfs_init(void){spinlock_init(&vfs_lock);for(uint32_t i=0;i<VFS_FD_MAX;++i)kernel_fds[i].used=0;return 0;}
@@ -111,9 +113,9 @@ int vfs_open_for_process(struct process *p,const char *path,uint32_t flags){
     }
     spinlock_irqrestore_release(&vfs_lock,irq);return fd;
 }
-int vfs_close_for_process(struct process *p,int fd){if(!p||fd<0||fd>=PROCESS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=p->fd_used[fd]?0:-1;p->fd_used[fd]=0;spinlock_irqrestore_release(&vfs_lock,irq);return r;}
-int vfs_read_for_process(struct process *p,int fd,void *buffer,uint32_t length){if(!p||fd<0||fd>=PROCESS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);if(!p->fd_used[fd]){spinlock_irqrestore_release(&vfs_lock,irq);return-1;}struct vfs_fd f={1u,p->fd_backend[fd],p->fd_flags[fd],p->fd_offset[fd],{0}};for(uint32_t i=0;i<VFS_PATH_MAX;++i)f.path[i]=p->fd_path[fd][i];int r=read_slot(&f,buffer,length);p->fd_offset[fd]=f.offset;spinlock_irqrestore_release(&vfs_lock,irq);return r;}
-int vfs_write_for_process(struct process *p,int fd,const void *buffer,uint32_t length){if(!p||fd<0||fd>=PROCESS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);if(!p->fd_used[fd]){spinlock_irqrestore_release(&vfs_lock,irq);return-1;}struct vfs_fd f={1u,p->fd_backend[fd],p->fd_flags[fd],p->fd_offset[fd],{0}};for(uint32_t i=0;i<VFS_PATH_MAX;++i)f.path[i]=p->fd_path[fd][i];int r=write_slot(&f,buffer,length);p->fd_offset[fd]=f.offset;spinlock_irqrestore_release(&vfs_lock,irq);return r;}
+int vfs_close_for_process(struct process *p,int fd){if(!p||fd<0||(uint32_t)fd>=PROCESS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=p->fd_used[fd]?0:-1;p->fd_used[fd]=0;spinlock_irqrestore_release(&vfs_lock,irq);return r;}
+int vfs_read_for_process(struct process *p,int fd,void *buffer,uint32_t length){if(!p||fd<0||(uint32_t)fd>=PROCESS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);if(!p->fd_used[fd]){spinlock_irqrestore_release(&vfs_lock,irq);return-1;}struct vfs_fd f={1u,p->fd_backend[fd],p->fd_flags[fd],p->fd_offset[fd],{0}};for(uint32_t i=0;i<VFS_PATH_MAX;++i)f.path[i]=p->fd_path[fd][i];int r=read_slot(&f,buffer,length);p->fd_offset[fd]=f.offset;spinlock_irqrestore_release(&vfs_lock,irq);return r;}
+int vfs_write_for_process(struct process *p,int fd,const void *buffer,uint32_t length){if(!p||fd<0||(uint32_t)fd>=PROCESS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);if(!p->fd_used[fd]){spinlock_irqrestore_release(&vfs_lock,irq);return-1;}struct vfs_fd f={1u,p->fd_backend[fd],p->fd_flags[fd],p->fd_offset[fd],{0}};for(uint32_t i=0;i<VFS_PATH_MAX;++i)f.path[i]=p->fd_path[fd][i];int r=write_slot(&f,buffer,length);p->fd_offset[fd]=f.offset;spinlock_irqrestore_release(&vfs_lock,irq);return r;}
 
 int vfs_open(const char *path,uint32_t flags){char clean[VFS_PATH_MAX];if(path_normalize(clean,path)<0)return VFS_FD_INVALID;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=open_slot(kernel_fds,clean,flags);spinlock_irqrestore_release(&vfs_lock,irq);return r;}
 int vfs_close(int fd){if(fd<0||fd>=(int)VFS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=close_slot(&kernel_fds[fd]);spinlock_irqrestore_release(&vfs_lock,irq);return r;}
