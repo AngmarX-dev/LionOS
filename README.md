@@ -257,3 +257,26 @@ LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up an
 
 LionOS boots the graphical desktop at 1920x1080x32 when the firmware/virtual display exposes that mode; the desktop timer is configured for 60 Hz.
 
+
+## 💾 Live USB Boot
+
+The CI build produces `build/lionos-usb.img`, a raw copy of the bootable LionOS ISO intended for live USB use. It boots LionOS without installing it to the USB drive; the current live system runs from the boot media and uses the existing RAMFS for the session.
+
+Create the image locally with:
+
+```bash
+make clean
+make usb
+```
+
+Write it to a USB stick **only after confirming the correct device**:
+
+```bash
+lsblk
+sudo umount /dev/sdX* 2>/dev/null || true
+sudo dd if=build/lionos-usb.img of=/dev/sdX bs=4M status=progress conv=fsync
+sync
+```
+
+Replace `/dev/sdX` with the whole USB device, not a partition such as `/dev/sdX1`. The USB contents will be erased. Reboot, select the USB device in the firmware boot menu, and choose `LionOS`.
+
