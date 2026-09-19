@@ -19,8 +19,17 @@ jobs:
       - name: Run Phase 23 stability suite
         run: make test
 
+      - name: Build live USB image
+        run: make usb
+
+      - name: Verify USB image is bootable as a disk
+        run: |
+          timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
+
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
           name: lionos-iso
-          path: build/lionos.iso
+          path: |
+            build/lionos.iso
+            build/lionos-usb.img
