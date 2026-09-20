@@ -23,6 +23,7 @@ void net_init(void);
 uint32_t net_local_ip(void);
 int32_t net_physical_ready(void);
 int32_t net_ping(uint32_t target_ip);
+int32_t net_http_get(uint32_t target_ip, const char *path, void *out, uint32_t capacity);
 int32_t net_send(uint32_t dst_ip, uint16_t src_port, uint16_t dst_port,
                  const void *data, uint32_t length);
 int32_t net_recv(uint16_t port, void *data, uint32_t capacity,
