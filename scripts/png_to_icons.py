@@ -11,7 +11,8 @@ from pathlib import Path
 
 SIZE = 48
 ICONS = {
-    "lionos": "Icons/lionos-icon.png",\n    "terminal": "Icons/Terminal-icon.png",
+    "lionos": "Icons/lionos-icon.png",
+    "terminal": "Icons/Terminal-icon.png",
     "browser": "Icons/Browser-icon.png",
     "desktop": "Icons/Desktop-icon.png",
     "documents": "Icons/DocumentsFolder-icon.png",
