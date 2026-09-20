@@ -71,10 +71,10 @@ if [ "${LIONOS_QEMU_DRY_RUN:-0}" = "1" ]; then
     exit 0
 fi
 
-DISPLAY_ARGS="-display"
-DISPLAY_VALUE="gtk,fullscreen=on,zoom-to-fit=on"
+DISPLAY_VALUE="gtk,zoom-to-fit=on"
+FULLSCREEN_ARGS="-full-screen"
 if [ "${LIONOS_QEMU_FULLSCREEN:-1}" = "0" ]; then
-    DISPLAY_VALUE="gtk,fullscreen=off,zoom-to-fit=on"
+    FULLSCREEN_ARGS=""
 fi
 
 exec qemu-system-i386 \
@@ -84,4 +84,4 @@ exec qemu-system-i386 \
     -smp 2 \
     -netdev user,id=lionnet \
     -device rtl8139,netdev=lionnet \
-    "$DISPLAY_ARGS" "$DISPLAY_VALUE"
+    -display "$DISPLAY_VALUE" $FULLSCREEN_ARGS
