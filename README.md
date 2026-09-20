@@ -281,3 +281,11 @@ sync
 Replace `/dev/sdX` with the whole USB device, not a partition such as `/dev/sdX1`. The USB contents will be erased. Reboot, select the USB device in the firmware boot menu, and choose `LionOS`.
 
 
+
+## 🌐 LionOS Browser
+
+The graphical desktop now includes a built-in experimental browser application. It provides a native framebuffer URL bar, HTTP/1.x page loading, basic HTML-tag stripping, keyboard input, and mouse controls.
+
+Current networking scope is intentionally small: the browser supports **HTTP over IPv4 using numeric addresses** (for example `http://10.0.2.2/`). DNS, HTTPS/TLS, JavaScript, CSS layout, images, cookies, and persistent browser storage are not implemented yet.
+
+Open it from the desktop **Browser** icon, the taskbar, or the LionOS launcher. Press **Esc** to close it.
