@@ -23,19 +23,19 @@
 #define WIN_MAX 4u
 
 /* Warm, restrained palette matching the supplied LionOS visual reference. */
-#define COL_SKY_TOP 0x241708u
-#define COL_SKY_MID 0x6B3F18u
-#define COL_SUN 0xF2B736u
-#define COL_GROUND 0x0E0A06u
-#define COL_PANEL 0x1C140Bu
-#define COL_PANEL2 0x241A0Fu
-#define COL_TEXT 0xECE2CCu
-#define COL_DIM 0xA89980u
-#define COL_GOLD 0xE0A530u
-#define COL_GOLD_DIM 0x8A6A26u
-#define COL_DANGER 0xC1502Eu
-#define COL_OK 0x8FAE5Cu
-#define COL_INPUT 0x0E0A06u
+#define COL_SKY_TOP 0x07111Fu
+#define COL_SKY_MID 0x12345Au
+#define COL_SUN 0xF2C94Cu
+#define COL_GROUND 0x050A12u
+#define COL_PANEL 0x0B1422u
+#define COL_PANEL2 0x13233Au
+#define COL_TEXT 0xF2F5FAu
+#define COL_DIM 0x91A4BCu
+#define COL_GOLD 0xF2C94Cu
+#define COL_GOLD_DIM 0x7D6726u
+#define COL_DANGER 0xC94B4Bu
+#define COL_OK 0x61C58Au
+#define COL_INPUT 0x050A12u
 
 struct ui_window {
     uint8_t id;
@@ -208,31 +208,84 @@ static void draw_icon(uint32_t x,uint32_t y,const char*name,char symbol,uint32_t
 }
 
 static void draw_sun(uint32_t cx,uint32_t cy,uint32_t r){for(int dy=-(int)r;dy<=(int)r;++dy){uint32_t ady=(uint32_t)(dy<0?-dy:dy);uint32_t rem=ady>r?0u:r-ady;uint32_t half=(rem*rem)/(r?r:1u);uint32_t dx=0u;while((dx+1u)*(dx+1u)<=half)++dx;fill(cx>=dx?cx-dx:0u,cy+(uint32_t)dy,dx*2u+1u,1u,COL_SUN);}}
-static void draw_wallpaper(void){
-    uint32_t w=framebuffer_width(),h=framebuffer_height();uint32_t sky_h=(h*63u)/100u;
-    const uint32_t sky[8]={0x241708u,0x2C1A0Bu,0x39210Du,0x46280Fu,0x533012u,0x5F3715u,0x673B17u,0x6B3F18u};
-    for(uint32_t i=0;i<8u;++i){uint32_t y0=(sky_h*i)/8u;uint32_t y1=(sky_h*(i+1u))/8u;fill(0u,y0,w,y1-y0,sky[i]);}
-    fill(0u,sky_h,w,h-sky_h,COL_GROUND);
-    draw_sun((w*78u)/100u,(h*18u)/100u,(h>200u?h/22u:12u));
-    uint32_t horizon=(h*61u)/100u;fill(0u,horizon,w,(h*8u)/100u,COL_GROUND);
-    for(uint32_t i=0;i<96u;++i){uint32_t x=(i*53u+17u)%w;uint32_t base=h-(i%11u)*3u;uint32_t bh=10u+(i%9u)*3u;if(base>bh)fill(x,base-bh,2u,bh,COL_GROUND);}
-}
+static uint32_t label_width(const char*label);
 
+static void draw_lion_logo(uint32_t cx,uint32_t cy,uint32_t s){
+    uint32_t m=s*2u+1u;
+    fill(cx-m*3u,cy-m*3u,m*2u,m,COL_GOLD);
+    fill(cx+m,cy-m*3u,m*2u,m,COL_GOLD);
+    fill(cx-m*4u,cy-m*2u,m*8u,m*6u,COL_GOLD);
+    fill(cx-m*3u,cy-m*1u,m*6u,m*5u,COL_PANEL);
+    fill(cx-m*2u,cy-m*1u,m,m,COL_GOLD);
+    fill(cx+m,cy-m*1u,m,m,COL_GOLD);
+    fill(cx-m*2u,cy+m,m*4u,m*2u,COL_GOLD);
+    fill(cx-m,cy+m*3u,m*2u,m,COL_GOLD);
+    fill(cx-m*3u,cy+m*4u,m,m,COL_GOLD);
+    fill(cx+m*2u,cy+m*4u,m,m,COL_GOLD);
+}
+static void draw_wallpaper(void){
+    uint32_t w=framebuffer_width(),h=framebuffer_height();
+    uint32_t sky_h=(h*68u)/100u;
+    const uint32_t sky[8]={0x07111Fu,0x09182Au,0x0B2037u,0x0E2944u,0x12345Au,0x163D68u,0x1A4671u,0x1E4D78u};
+    for(uint32_t i=0;i<8u;++i){
+        uint32_t y0=(sky_h*i)/8u,y1=(sky_h*(i+1u))/8u;
+        fill(0u,y0,w,y1-y0,sky[i]);
+    }
+    fill(0u,sky_h,w,h-sky_h,COL_GROUND);
+    for(uint32_t i=0;i<72u;++i){
+        uint32_t x=(i*97u+31u)%w;
+        uint32_t y=(i*53u+19u)%(sky_h>30u?sky_h-20u:10u);
+        if((i%5u)!=0u) fill(x,y,2u,2u,COL_TEXT);
+    }
+    draw_sun((w*78u)/100u,(h*22u)/100u,(h>200u?h/24u:10u));
+    uint32_t horizon=(h*62u)/100u;
+    fill(0u,horizon,w,h-horizon,COL_GROUND);
+    for(uint32_t i=0;i<18u;++i){
+        uint32_t x=(i*w)/18u;
+        uint32_t peak=70u+(i%6u)*18u;
+        uint32_t width=(w/12u)+(i%3u)*28u;
+        for(uint32_t r=0u;r<peak;r+=6u){
+            uint32_t inset=(r*width)/(peak?peak:1u);
+            uint32_t yy=horizon-peak+r;
+            if(yy<horizon) fill(x+inset,yy,width>inset*2u?width-inset*2u:2u,6u,0x0A1727u);
+        }
+    }
+    for(uint32_t i=0;i<12u;++i){
+        uint32_t x=(i*w)/12u;
+        uint32_t peak=42u+(i%4u)*14u;
+        for(uint32_t r=0u;r<peak;r+=5u){
+            uint32_t inset=(r*70u)/(peak?peak:1u);
+            uint32_t yy=horizon-peak+r;
+            if(yy<horizon) fill(x+inset,yy,70u>inset*2u?70u-inset*2u:2u,5u,0x10263Bu);
+        }
+    }
+    uint32_t logo_s=h>700u?4u:3u;
+    draw_lion_logo(w/2u,(h*31u)/100u,logo_s);
+    {
+        const char title[]="LionOS";
+        uint32_t tw=label_width(title);
+        text_line(title,w>tw?(w-tw)/2u:8u,(h*42u)/100u,COL_TEXT,COL_GROUND);
+        const char sub[]="Small - Fast - Powerful";
+        uint32_t sw=label_width(sub);
+        text_line(sub,w>sw?(w-sw)/2u:8u,(h*46u)/100u,COL_GOLD,COL_GROUND);
+    }
+}
 static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
 
 static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label){uint32_t tw=label_width(label);uint32_t tx=x+(w>tw?w-tw:0u)/2u;fill(x,y,w,34u,c);border(x,y,w,34u,COL_GOLD_DIM);text_line(label,tx,y+8u,COL_TEXT,c);}
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
-    fill(0u,y,w,TASKBAR_H,COL_PANEL);fill(0u,y,w,1u,COL_GOLD_DIM);
-    draw_task_button(12u,y+10u,92u,COL_PANEL2,"LIONOS");
-    draw_task_button(112u,y+10u,112u,terminal_focus?COL_PANEL2:COL_PANEL,"TERMINAL");
-    draw_task_button(232u,y+10u,86u,COL_PANEL,"FILES");
-    draw_task_button(326u,y+10u,82u,COL_PANEL,"ABOUT");
-    draw_task_button(416u,y+10u,98u,COL_PANEL,"SETTINGS");
-    draw_task_button(524u,y+10u,104u,browser_is_active()?COL_PANEL2:COL_PANEL,"BROWSER");
-    text_line("WIFI",w>240u?w-214u:12u,y+8u,COL_DIM,COL_PANEL);
-    text_line("VOL",w>186u?w-160u:66u,y+8u,COL_DIM,COL_PANEL);
-    text_line("19:6",w>118u?w-92u:112u,y+8u,COL_TEXT,COL_PANEL);
+    fill(0u,y,w,TASKBAR_H,COL_PANEL);fill(0u,y,w,2u,COL_GOLD_DIM);
+    draw_task_button(12u,y+9u,104u,COL_PANEL2,"LIONOS");
+    draw_task_button(124u,y+9u,112u,terminal_focus?COL_PANEL2:COL_PANEL,"TERMINAL");
+    draw_task_button(244u,y+9u,86u,COL_PANEL,"FILES");
+    draw_task_button(338u,y+9u,82u,COL_PANEL,"ABOUT");
+    draw_task_button(428u,y+9u,98u,COL_PANEL,"SETTINGS");
+    draw_task_button(534u,y+9u,104u,browser_is_active()?COL_PANEL2:COL_PANEL,"BROWSER");
+    if(w>760u){
+        text_line("ONLINE",w-340u,y+18u,COL_OK,COL_PANEL);
+        text_line("19:6",w-112u,y+18u,COL_TEXT,COL_PANEL);
+    }
 }
 
 static void draw_start_menu(void){
@@ -261,7 +314,14 @@ static void draw_cursor(uint32_t x,uint32_t y){
     fill(x+5u,y+16u,5u,2u,COL_GROUND);
 }
 static void draw_desktop_background(void){draw_wallpaper();}
-static void draw_desktop_icons(void){uint32_t base_y=18u;draw_icon(18u,base_y,"Terminal",'>',COL_GOLD);draw_icon(18u,base_y+88u,"Files",'#',COL_OK);draw_icon(18u,base_y+176u,"About",'i',COL_GOLD);draw_icon(18u,base_y+264u,"Settings",'+',COL_GOLD);draw_icon(18u,base_y+352u,"Browser",'@',COL_GOLD);}
+static void draw_desktop_icons(void){
+    uint32_t base_y=24u;
+    draw_icon(22u,base_y,"Terminal",'>',COL_GOLD);
+    draw_icon(22u,base_y+88u,"Files",'#',COL_OK);
+    draw_icon(22u,base_y+176u,"About",'i',COL_GOLD);
+    draw_icon(22u,base_y+264u,"Settings",'+',COL_GOLD);
+    draw_icon(22u,base_y+352u,"Browser",'@',COL_GOLD);
+}
 
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
@@ -315,11 +375,11 @@ static void handle_click(void){
         struct ui_window*w=&windows[i];
         if(w->visible&&!w->minimized&&x>=w->x&&x<w->x+w->w&&y>=w->y&&y<w->y+w->h){handle_window_click(w);return;}
     }
-    if(x>=18u&&x<90u&&y>=18u&&y<62u){show(WIN_TERMINAL);terminal_init();return;}
-    if(x>=18u&&x<90u&&y>=106u&&y<150u){show(WIN_FILES);return;}
-    if(x>=18u&&x<90u&&y>=194u&&y<238u){show(WIN_ABOUT);return;}
-    if(x>=18u&&x<90u&&y>=282u&&y<326u){show(WIN_SETTINGS);return;}
-    if(x>=18u&&x<90u&&y>=370u&&y<414u){browser_start();return;}
+    if(x>=22u&&x<96u&&y>=24u&&y<68u){show(WIN_TERMINAL);terminal_init();return;}
+    if(x>=22u&&x<96u&&y>=112u&&y<156u){show(WIN_FILES);return;}
+    if(x>=22u&&x<96u&&y>=200u&&y<244u){show(WIN_ABOUT);return;}
+    if(x>=22u&&x<96u&&y>=288u&&y<332u){show(WIN_SETTINGS);return;}
+    if(x>=22u&&x<96u&&y>=376u&&y<420u){browser_start();return;}
 }
 
 static void handle_move(void){
