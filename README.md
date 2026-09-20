@@ -183,6 +183,22 @@ make run
 
 `make run` starts QEMU with two virtual CPUs for the current SMP bring-up configuration.
 
+`make run` automatically detects the active host display resolution on Linux (using `xrandr`, then `xdpyinfo`), rebuilds the QEMU boot image with that framebuffer mode, and opens QEMU fullscreen with scaling enabled. This makes the LionOS guest framebuffer match the host display mode instead of keeping a hard-coded 1920x1080 mode for QEMU.
+
+To override automatic detection:
+
+```bash
+LIONOS_QEMU_RESOLUTION=1920x1080 make run
+```
+
+To keep the host-sized framebuffer but open QEMU in a normal window:
+
+```bash
+LIONOS_QEMU_FULLSCREEN=0 make run
+```
+
+The normal `make iso` and live-USB image remain on the stable 1920x1080 boot target; only the QEMU development launcher uses the host-resolution path.
+
 `make userland` builds every userspace ELF. `make` embeds the userland programs into RAMFS as part of the kernel image.
 
 `make disk` creates `build/lionos-disk.img` only when it does not already exist, so repeated `make run` sessions preserve filesystem contents.

@@ -141,8 +141,8 @@ disk: | $(BUILD)
 check: iso disk
 	grub-file --is-x86-multiboot2 $(KERNEL)
 
-run: iso disk
-	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 128M -smp 2 -netdev user,id=lionnet -device rtl8139,netdev=lionnet
+run: $(KERNEL) disk
+	sh scripts/qemu_fullscreen.sh
 
 clean:
 	rm -rf $(BUILD)
