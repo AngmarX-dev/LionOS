@@ -366,12 +366,12 @@ static void handle_click(void){
     uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height();
     if(browser_is_active()){browser_mouse_click(x,y);return;}
     if(y>=h-TASKBAR_H){
-        if(x>=12u&&x<104u){start_open=!start_open;return;}
-        if(x>=112u&&x<224u){show(WIN_TERMINAL);terminal_init();return;}
-        if(x>=232u&&x<318u){show(WIN_FILES);return;}
-        if(x>=326u&&x<408u){show(WIN_ABOUT);return;}
-        if(x>=416u&&x<514u){show(WIN_SETTINGS);return;}
-        if(x>=524u&&x<628u){browser_start();return;}
+        if(x>=16u&&x<180u){start_open=!start_open;return;}
+        if(x>=218u&&x<260u){show(WIN_TERMINAL);terminal_init();return;}
+        if(x>=270u&&x<312u){show(WIN_FILES);return;}
+        if(x>=322u&&x<364u){browser_start();return;}
+        if(x>=374u&&x<416u){show(WIN_SETTINGS);return;}
+        if(x>=426u&&x<468u){show(WIN_ABOUT);return;}
     }
     if(start_open){
         uint32_t mw=framebuffer_width()>520u?420u:300u;
