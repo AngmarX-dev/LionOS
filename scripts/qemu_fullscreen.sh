@@ -16,8 +16,8 @@ detect_resolution() {
             / connected( primary)? / {
                 for (i = 1; i <= NF; ++i) {
                     if ($i ~ /^[0-9]+x[0-9]+\+/) {
-                        sub(/\\+.*/, "", $i)
-                        print $i
+                        split($i, mode, "+")
+                        print mode[1]
                         exit
                     }
                 }
@@ -25,7 +25,7 @@ detect_resolution() {
     fi
 
     if [ -z "$RES" ] && command -v xdpyinfo >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
-        RES="$(xdpyinfo 2>/dev/null | awk '/dimensions:/ {print $2; exit}')"
+        RES="$(xdpyinfo 2>/dev/null | awk '/dimensions:/ {split($2, mode, "x"); print mode[1] "x" mode[2]; exit}')"
     fi
 
     if [ -z "$RES" ]; then
