@@ -12,7 +12,9 @@ CC := gcc
 LD := ld
 NASM := nasm
 CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
-GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation
+ICON_HEADER := $(BUILD)/lion_icons.h
+ICON_SOURCES := Icons/Terminal-icon.png Icons/Browser-icon.png Icons/Desktop-icon.png Icons/DocumentsFolder-icon.png Icons/Tools-icon.png
+GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation -I$(BUILD)
 GUI_DESKTOP_CFLAGS := $(CFLAGS)
 USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
@@ -39,7 +41,10 @@ $(BUILD):
 $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
 	$(NASM) -f elf32 $< -o $@
 
-$(BUILD)/gui_lion.o: src/gui_lion.c | $(BUILD)
+$(ICON_HEADER): scripts/png_to_icons.py $(ICON_SOURCES) | $(BUILD)
+	python3 scripts/png_to_icons.py $(ICON_HEADER)
+
+$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) | $(BUILD)
 	$(CC) $(GUI_CFLAGS) -c $< -o $@
 
 $(BUILD)/kernel_runtime.o: src/kernel_runtime.c | $(BUILD)
