@@ -17,6 +17,9 @@ ICONS = {
     "desktop": "Icons/Desktop-icon.png",
     "documents": "Icons/DocumentsFolder-icon.png",
     "tools": "Icons/Tools-icon.png",
+    "computer": "Icons/OldComputer-icon.png",
+    "home": "Icons/Home-icon.png",
+    "trash": "Icons/Trash-icon.png",
 }
 
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
