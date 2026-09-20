@@ -203,7 +203,9 @@ static void draw_settings(const struct ui_window*w){
     text_line("Ultra-wide target: 19:6",w->x+24u,w->y+218u,COL_DIM,COL_PANEL);
 }
 
-static uint32_t label_width(const char*label);\n\nstatic void draw_icon(uint32_t x,uint32_t y,const char*name,const uint32_t*icon){
+static uint32_t label_width(const char*label);
+
+static void draw_icon(uint32_t x,uint32_t y,const char*name,const uint32_t*icon){
     fill(x,y,66u,66u,COL_PANEL2);
     border(x,y,66u,66u,COL_GOLD_DIM);
     framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+9u,y+9u,48u);
