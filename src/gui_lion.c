@@ -278,22 +278,25 @@ static void draw_wallpaper(void){
 static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
 
 static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label,const uint32_t*icon){
-    fill(x,y,w,34u,c);border(x,y,w,34u,COL_GOLD_DIM);
-    framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+7u,y+7u,20u);
-    text_line(label,x+34u,y+8u,COL_TEXT,c);
+    fill(x,y,w,36u,c);
+    framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+7u,y+7u,22u);
+    if(label&&label[0]) text_line(label,x+35u,y+9u,COL_TEXT,c);
 }
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
-    fill(0u,y,w,TASKBAR_H,COL_PANEL);fill(0u,y,w,2u,COL_GOLD_DIM);
-    draw_task_button(12u,y+9u,104u,COL_PANEL2,"LIONOS",lion_icon_lionos);
-    draw_task_button(124u,y+9u,112u,terminal_focus?COL_PANEL2:COL_PANEL,"TERMINAL",lion_icon_terminal);
-    draw_task_button(244u,y+9u,86u,COL_PANEL,"FILES",lion_icon_documents);
-    draw_task_button(338u,y+9u,82u,COL_PANEL,"ABOUT",lion_icon_desktop);
-    draw_task_button(428u,y+9u,98u,COL_PANEL,"SETTINGS",lion_icon_tools);
-    draw_task_button(534u,y+9u,104u,browser_is_active()?COL_PANEL2:COL_PANEL,"BROWSER",lion_icon_browser);
+    fill(0u,y,w,TASKBAR_H,0x050B13u); fill(0u,y,w,2u,COL_GOLD_DIM);
+    draw_task_button(16u,y+8u,164u,COL_PANEL,"LionOS",lion_icon_lionos);
+    fill(194u,y+7u,2u,38u,COL_GOLD);
+    draw_task_button(218u,y+8u,42u,COL_PANEL,"",lion_icon_documents);
+    draw_task_button(270u,y+8u,42u,COL_PANEL,"",lion_icon_terminal);
+    draw_task_button(322u,y+8u,42u,COL_PANEL,"",lion_icon_browser);
+    draw_task_button(374u,y+8u,42u,COL_PANEL,"",lion_icon_tools);
+    draw_task_button(426u,y+8u,42u,COL_PANEL,"",lion_icon_desktop);
     if(w>760u){
-        text_line("ONLINE",w-340u,y+18u,COL_OK,COL_PANEL);
-        text_line("19:6",w-112u,y+18u,COL_TEXT,COL_PANEL);
+        text_line("WiFi",w-170u,y+9u,COL_TEXT,COL_PANEL);
+        text_line("VOL",w-116u,y+9u,COL_TEXT,COL_PANEL);
+        text_line("10:24 AM",w-86u,y+8u,COL_TEXT,COL_PANEL);
+        text_line("May 25, 2025",w-128u,y+27u,COL_DIM,COL_PANEL);
     }
 }
 
@@ -324,12 +327,14 @@ static void draw_cursor(uint32_t x,uint32_t y){
 }
 static void draw_desktop_background(void){draw_wallpaper();}
 static void draw_desktop_icons(void){
-    uint32_t base_y=20u;
-    draw_icon(18u,base_y,"Terminal",lion_icon_terminal);
-    draw_icon(18u,base_y+108u,"Files",lion_icon_documents);
-    draw_icon(18u,base_y+216u,"About",lion_icon_desktop);
-    draw_icon(18u,base_y+324u,"Settings",lion_icon_tools);
-    draw_icon(18u,base_y+432u,"Browser",lion_icon_browser);
+    uint32_t base_y=12u;
+    draw_icon(16u,base_y,"This PC",lion_icon_computer);
+    draw_icon(16u,base_y+96u,"Home",lion_icon_home);
+    draw_icon(16u,base_y+192u,"Terminal",lion_icon_terminal);
+    draw_icon(16u,base_y+288u,"Browser",lion_icon_browser);
+    draw_icon(16u,base_y+384u,"Settings",lion_icon_tools);
+    draw_icon(16u,base_y+480u,"About",lion_icon_desktop);
+    draw_icon(16u,base_y+576u,"Trash",lion_icon_trash);
 }
 
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
@@ -384,11 +389,13 @@ static void handle_click(void){
         struct ui_window*w=&windows[i];
         if(w->visible&&!w->minimized&&x>=w->x&&x<w->x+w->w&&y>=w->y&&y<w->y+w->h){handle_window_click(w);return;}
     }
-    if(x>=18u&&x<84u&&y>=20u&&y<86u){show(WIN_TERMINAL);terminal_init();return;}
-    if(x>=18u&&x<84u&&y>=128u&&y<194u){show(WIN_FILES);return;}
-    if(x>=18u&&x<84u&&y>=236u&&y<302u){show(WIN_ABOUT);return;}
-    if(x>=18u&&x<84u&&y>=344u&&y<410u){show(WIN_SETTINGS);return;}
-    if(x>=18u&&x<84u&&y>=452u&&y<518u){browser_start();return;}
+    if(x>=16u&&x<86u&&y>=12u&&y<82u){show(WIN_FILES);return;}
+    if(x>=16u&&x<86u&&y>=108u&&y<178u){show(WIN_FILES);return;}
+    if(x>=16u&&x<86u&&y>=204u&&y<274u){show(WIN_TERMINAL);terminal_init();return;}
+    if(x>=16u&&x<86u&&y>=300u&&y<370u){browser_start();return;}
+    if(x>=16u&&x<86u&&y>=396u&&y<466u){show(WIN_SETTINGS);return;}
+    if(x>=16u&&x<86u&&y>=492u&&y<562u){show(WIN_ABOUT);return;}
+    if(x>=16u&&x<86u&&y>=588u&&y<658u){return;}
 }
 
 static void handle_move(void){
