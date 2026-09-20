@@ -15,7 +15,7 @@ detect_resolution() {
         RES="$(xrandr --current 2>/dev/null | awk '
             / connected( primary)? / {
                 for (i = 1; i <= NF; ++i) {
-                    if ($i ~ /^[0-9]+x[0-9]+\\+/) {
+                    if ($i ~ /^[0-9]+x[0-9]+\+/) {
                         sub(/\\+.*/, "", $i)
                         print $i
                         exit
@@ -61,7 +61,7 @@ rm -rf "$BUILD/qemu-iso"
 mkdir -p "$BUILD/qemu-iso/boot/grub"
 cp "$KERNEL" "$BUILD/qemu-iso/boot/lionos.bin"
 
-sed "s/^set gfxmode=.*/set gfxmode=$RES""x32/" boot/grub.cfg \
+sed "s/^set gfxmode=.*/set gfxmode=${RES}x32/" boot/grub.cfg \
     > "$BUILD/qemu-iso/boot/grub/grub.cfg"
 
 grub-mkrescue -o "$ISO" "$BUILD/qemu-iso" >/dev/null
