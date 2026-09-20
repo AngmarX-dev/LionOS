@@ -441,7 +441,6 @@ int32_t net_http_get(uint32_t target_ip,const char *path,void *out,uint32_t capa
     uint32_t ack=0;
     if(send_tcp(target_ip,mac,local_port,remote_port,seq,0,TCP_SYN,0,0)!=0)return -1;
     uint8_t frame[1600];uint32_t synseq=0,synack=0,plen=0;uint8_t flags=0;uint8_t *payload=0;
-    int got=0;
     for(uint32_t wait=0;wait<500000u;++wait){
         uint32_t n=rtl_poll(frame,sizeof(frame));
         if(!tcp_packet(target_ip,local_port,remote_port,frame,n,&synseq,&synack,&flags,&payload,&plen))continue;

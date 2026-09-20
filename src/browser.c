@@ -33,7 +33,9 @@ static int digit(char c){return c>='0'&&c<='9';}
 static int parse_ipv4(const char*s,uint32_t*out){uint32_t a[4]={0,0,0,0};uint32_t n=0,v=0;int have=0;for(uint32_t i=0;;i++){char c=s[i];if(digit(c)){v=v*10u+(uint32_t)(c-'0');if(v>255u)return -1;have=1;continue;}if(c=='.'&&have&&n<3u){a[n++]=v;v=0;have=0;continue;}if(c==0&&have&&n==3u){a[3]=v;*out=(a[0]<<24)|(a[1]<<16)|(a[2]<<8)|a[3];return 0;}return -1;}}
 static const char*host_start(void){const char*p=url;if(p[0]=='h'&&p[1]=='t'&&p[2]=='t'&&p[3]=='p'&&p[4]==':'&&p[5]=='/'&&p[6]=='/')p+=7;return p;}
 static void load_page(void){
-    if(loading)return;loading=1u;set_status("Loading HTTP page...");
+    if(loading)return;
+    loading=1u;
+    set_status("Loading HTTP page...");
     const char*p=host_start();char host[32];uint32_t i=0;while(p[i]&&p[i]!='/'&&i<31u){host[i]=p[i];i++;}host[i]=0;
     uint32_t ip=0;if(parse_ipv4(host,&ip)!=0){set_status("Only numeric IPv4 HTTP URLs are supported");loading=0u;return;}
     const char*path=p+i;if(!*path)path="/";
