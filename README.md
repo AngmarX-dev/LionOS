@@ -152,7 +152,7 @@ The UI includes:
 - categorized `help` output
 - colored success, status, and error messages
 - a cleaner `about`, `ls`, `run`, and file-command presentation
-- framebuffer desktop rendering at 1920×1080 when available
+- framebuffer desktop rendering at the native mode reported by Multiboot2
 - mouse cursor and pixel-coordinate input
 - desktop backbuffer/present path driven by the LAPIC wake-up clock
 - graphical desktop windows, taskbar, launcher, and shell handoff
@@ -183,21 +183,17 @@ make run
 
 `make run` starts QEMU with two virtual CPUs for the current SMP bring-up configuration.
 
-`make run` automatically detects the active host display resolution on Linux (using `xrandr`, then `xdpyinfo`), rebuilds the QEMU boot image with that framebuffer mode, and opens QEMU fullscreen with scaling enabled. This makes the LionOS guest framebuffer match the host display mode instead of keeping a hard-coded 1920x1080 mode for QEMU.
+`make run` now uses the framebuffer mode selected natively by GRUB (`gfxmode=auto`). LionOS reads the exact width and height supplied by the Multiboot2 framebuffer tag, so the GUI is laid out from the real guest framebuffer size rather than forcing 1920x1080.
 
-To override automatic detection:
+QEMU fullscreen controls the display window and scaling; it does not force LionOS to pretend its framebuffer is 1920x1080.
 
-```bash
-LIONOS_QEMU_RESOLUTION=1920x1080 make run
-```
-
-To keep the host-sized framebuffer but open QEMU in a normal window:
+To open QEMU in a normal window:
 
 ```bash
 LIONOS_QEMU_FULLSCREEN=0 make run
 ```
 
-The normal `make iso` and live-USB image remain on the stable 1920x1080 boot target; only the QEMU development launcher uses the host-resolution path.
+The normal ISO and live-USB image use the same native framebuffer path. There is no 1920x1080 boot-mode constant.
 
 `make userland` builds every userspace ELF. `make` embeds the userland programs into RAMFS as part of the kernel image.
 
@@ -271,7 +267,7 @@ LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up an
 
 ## Display target
 
-LionOS boots the graphical desktop at 1920x1080x32 when the firmware/virtual display exposes that mode; the desktop timer is configured for 60 Hz.
+LionOS boots the graphical desktop at the framebuffer mode selected by GRUB/firmware/QEMU. The kernel reports the actual width and height received from Multiboot2; the desktop timer remains 60 Hz.
 
 
 ## 💾 Live USB Boot
