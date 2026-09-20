@@ -66,6 +66,11 @@ sed "s/^set gfxmode=.*/set gfxmode=$RES""x32/" boot/grub.cfg \
 
 grub-mkrescue -o "$ISO" "$BUILD/qemu-iso" >/dev/null
 
+if [ "${LIONOS_QEMU_DRY_RUN:-0}" = "1" ]; then
+    echo "LionOS QEMU image prepared: $ISO"
+    exit 0
+fi
+
 DISPLAY_ARGS="-display"
 DISPLAY_VALUE="gtk,fullscreen=on,zoom-to-fit=on"
 if [ "${LIONOS_QEMU_FULLSCREEN:-1}" = "0" ]; then
