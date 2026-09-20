@@ -205,6 +205,38 @@ void framebuffer_present(void) {
     }
 }
 
+void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t height, uint32_t x, uint32_t y, uint32_t size) {
+    if (!enabled || !desktop_mode || !desktop_buffer || !pixels || !width || !height || !size) return;
+    for (uint32_t dy = 0; dy < size; ++dy) {
+        uint32_t sy = (dy * height) / size;
+        if (y + dy >= fb_height_value) break;
+        for (uint32_t dx = 0; dx < size; ++dx) {
+            if (x + dx >= fb_width_value) break;
+            uint32_t sx = (dx * width) / size;
+            uint32_t src = pixels[sy * width + sx];
+            uint32_t alpha = src >> 24;
+            if (alpha == 0u) continue;
+            uint32_t rgb = src & 0x00FFFFFFu;
+            if (alpha >= 255u) {
+                desktop_buffer[(y + dy) * fb_width_value + (x + dx)] = pack_rgb(rgb);
+                continue;
+            }
+            uint32_t dst = desktop_buffer[(y + dy) * fb_width_value + (x + dx)];
+            uint32_t sr = (rgb >> 16) & 0xFFu, sg = (rgb >> 8) & 0xFFu, sb = rgb & 0xFFu;
+            uint32_t dr = (dst >> red_pos) & ((1u << red_size) - 1u);
+            uint32_t dg = (dst >> green_pos) & ((1u << green_size) - 1u);
+            uint32_t db = (dst >> blue_pos) & ((1u << blue_size) - 1u);
+            dr = (dr * 255u) / ((1u << red_size) - 1u);
+            dg = (dg * 255u) / ((1u << green_size) - 1u);
+            db = (db * 255u) / ((1u << blue_size) - 1u);
+            uint32_t rr = (sr * alpha + dr * (255u - alpha)) / 255u;
+            uint32_t rg = (sg * alpha + dg * (255u - alpha)) / 255u;
+            uint32_t rb = (sb * alpha + db * (255u - alpha)) / 255u;
+            desktop_buffer[(y + dy) * fb_width_value + (x + dx)] = pack_rgb((rr << 16) | (rg << 8) | rb);
+        }
+    }
+}
+
 void framebuffer_clear(uint32_t color) {
     framebuffer_fill_rect(0u, 0u, fb_width_value, fb_height_value, color);
 }
