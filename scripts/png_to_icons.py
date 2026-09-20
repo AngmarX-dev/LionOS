@@ -146,6 +146,7 @@ def main():
         "",
     ]
     for name, path in ICONS.items():
+        print(f"Converting {name}: {path}")
         values = resize_rgba(*read_png(path))
         chunks.append(emit_array(name, values))
         chunks.append("")
