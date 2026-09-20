@@ -208,6 +208,8 @@ static void draw_icon(uint32_t x,uint32_t y,const char*name,char symbol,uint32_t
 }
 
 static void draw_sun(uint32_t cx,uint32_t cy,uint32_t r){for(int dy=-(int)r;dy<=(int)r;++dy){uint32_t ady=(uint32_t)(dy<0?-dy:dy);uint32_t rem=ady>r?0u:r-ady;uint32_t half=(rem*rem)/(r?r:1u);uint32_t dx=0u;while((dx+1u)*(dx+1u)<=half)++dx;fill(cx>=dx?cx-dx:0u,cy+(uint32_t)dy,dx*2u+1u,1u,COL_SUN);}}
+static uint32_t label_width(const char*label);
+
 static void draw_lion_logo(uint32_t cx,uint32_t cy,uint32_t s){
     uint32_t m=s*2u+1u;
     fill(cx-m*3u,cy-m*3u,m*2u,m,COL_GOLD);
