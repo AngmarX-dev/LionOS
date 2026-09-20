@@ -7,6 +7,7 @@
 #include "memory.h"
 #include "vfs.h"
 #include "lapic.h"
+#include "browser.h"
 
 #define FONT_W 5u
 #define FONT_H 7u
@@ -228,6 +229,7 @@ static void draw_taskbar(void){
     draw_task_button(232u,y+10u,86u,COL_PANEL,"FILES");
     draw_task_button(326u,y+10u,82u,COL_PANEL,"ABOUT");
     draw_task_button(416u,y+10u,98u,COL_PANEL,"SETTINGS");
+    draw_task_button(524u,y+10u,104u,browser_is_active()?COL_PANEL2:COL_PANEL,"BROWSER");
     text_line("WIFI",w>240u?w-214u:12u,y+8u,COL_DIM,COL_PANEL);
     text_line("VOL",w>186u?w-160u:66u,y+8u,COL_DIM,COL_PANEL);
     text_line("19:6",w>118u?w-92u:112u,y+8u,COL_TEXT,COL_PANEL);
@@ -245,6 +247,7 @@ static void draw_start_menu(void){
     fill(x+18u,y+142u,mw-36u,38u,COL_PANEL2);border(x+18u,y+142u,mw-36u,38u,COL_GOLD_DIM);text_line("FILES",x+18u+(mw-36u-label_width("FILES"))/2u,y+152u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+188u,mw-36u,38u,COL_PANEL2);border(x+18u,y+188u,mw-36u,38u,COL_GOLD_DIM);text_line("ABOUT",x+18u+(mw-36u-label_width("ABOUT"))/2u,y+198u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+234u,mw-36u,38u,COL_PANEL2);border(x+18u,y+234u,mw-36u,38u,COL_GOLD_DIM);text_line("SETTINGS",x+18u+(mw-36u-label_width("SETTINGS"))/2u,y+244u,COL_TEXT,COL_PANEL2);
+    fill(x+18u,y+280u,mw-36u,38u,COL_PANEL2);border(x+18u,y+280u,mw-36u,38u,COL_GOLD_DIM);text_line("BROWSER",x+18u+(mw-36u-label_width("BROWSER"))/2u,y+290u,COL_TEXT,COL_PANEL2);
     if(mh>330u){fill(x+18u,y+mh-52u,140u,34u,COL_DANGER);border(x+18u,y+mh-52u,140u,34u,COL_GOLD_DIM);text_line("POWER",x+32u,y+mh-44u,COL_TEXT,COL_DANGER);}
 }
 
@@ -258,11 +261,11 @@ static void draw_cursor(uint32_t x,uint32_t y){
     fill(x+5u,y+16u,5u,2u,COL_GROUND);
 }
 static void draw_desktop_background(void){draw_wallpaper();}
-static void draw_desktop_icons(void){uint32_t base_y=18u;draw_icon(18u,base_y,"Terminal",'>',COL_GOLD);draw_icon(18u,base_y+88u,"Files",'#',COL_OK);draw_icon(18u,base_y+176u,"About",'i',COL_GOLD);draw_icon(18u,base_y+264u,"Settings",'+',COL_GOLD);}
+static void draw_desktop_icons(void){uint32_t base_y=18u;draw_icon(18u,base_y,"Terminal",'>',COL_GOLD);draw_icon(18u,base_y+88u,"Files",'#',COL_OK);draw_icon(18u,base_y+176u,"About",'i',COL_GOLD);draw_icon(18u,base_y+264u,"Settings",'+',COL_GOLD);draw_icon(18u,base_y+352u,"Browser",'@',COL_GOLD);}
 
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
-static void render_all(void){draw_desktop_background();draw_desktop_icons();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);framebuffer_present();}
+static void render_all(void){if(browser_is_active()){browser_render();framebuffer_present();return;}draw_desktop_background();draw_desktop_icons();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);framebuffer_present();}
 
 static void init_windows(void){
     uint32_t sw=framebuffer_width(),sh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();
@@ -287,12 +290,14 @@ static void handle_window_click(struct ui_window*w){
 
 static void handle_click(void){
     uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height();
+    if(browser_is_active()){browser_mouse_click(x,y);return;}
     if(y>=h-TASKBAR_H){
         if(x>=12u&&x<104u){start_open=!start_open;return;}
         if(x>=112u&&x<224u){show(WIN_TERMINAL);terminal_init();return;}
         if(x>=232u&&x<318u){show(WIN_FILES);return;}
         if(x>=326u&&x<408u){show(WIN_ABOUT);return;}
         if(x>=416u&&x<514u){show(WIN_SETTINGS);return;}
+        if(x>=524u&&x<628u){browser_start();return;}
     }
     if(start_open){
         uint32_t mw=framebuffer_width()>520u?420u:300u;
@@ -302,6 +307,7 @@ static void handle_click(void){
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+142u&&y<sy+180u){show(WIN_FILES);return;}
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+188u&&y<sy+226u){show(WIN_ABOUT);return;}
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+234u&&y<sy+272u){show(WIN_SETTINGS);return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+280u&&y<sy+318u){browser_start();return;}
         if(mh>330u&&x>=sx+18u&&x<sx+158u&&y>=sy+mh-52u&&y<sy+mh-18u){close_gui();return;}
         start_open=0u;
     }
@@ -313,6 +319,7 @@ static void handle_click(void){
     if(x>=18u&&x<90u&&y>=106u&&y<150u){show(WIN_FILES);return;}
     if(x>=18u&&x<90u&&y>=194u&&y<238u){show(WIN_ABOUT);return;}
     if(x>=18u&&x<90u&&y>=282u&&y<326u){show(WIN_SETTINGS);return;}
+    if(x>=18u&&x<90u&&y>=370u&&y<414u){browser_start();return;}
 }
 
 static void handle_move(void){
@@ -329,6 +336,7 @@ static void handle_move(void){
 }
 
 static void handle_key(int key){
+    if(browser_is_active()){browser_key(key);return;}
     if(key==27){
         if(terminal_focus&&window_by_id(WIN_TERMINAL)&&window_by_id(WIN_TERMINAL)->visible){hide(WIN_TERMINAL);return;}
         for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].focused){hide(windows[i].id);return;}
@@ -361,6 +369,7 @@ void gui_step(void){
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
     if(!(buttons&1u)&&(previous_buttons&1u))drag_active=0u;
     handle_move();
+    if(browser_is_active()){browser_step();previous_buttons=buttons;render_all();return;}
     while(keyboard_available())handle_key(keyboard_getchar());
     previous_buttons=buttons;render_all();
 }
