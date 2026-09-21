@@ -58,6 +58,7 @@ static uint8_t drag_active;
 static uint8_t drag_id;
 static int drag_dx, drag_dy;
 static uint32_t mouse_px_x, mouse_px_y, previous_buttons;
+static uint8_t scene_dirty;
 
 struct display_mode { uint32_t width; uint32_t height; };
 static const struct display_mode display_modes[] = {
@@ -315,7 +316,12 @@ static void draw_desktop_icons(void){
 
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
-static void render_all(void){if(browser_is_active()){browser_render();framebuffer_present();return;}draw_desktop_background();draw_desktop_icons();draw_system_widget();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);framebuffer_present();}
+static void render_all(void){
+    if(browser_is_active()){browser_render();framebuffer_present();return;}
+    if(!scene_dirty)return;
+    draw_desktop_background();draw_desktop_icons();draw_system_widget();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);
+    framebuffer_present();scene_dirty=0u;
+}
 
 static void init_windows(void){
     uint32_t sw=framebuffer_width(),sh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();
@@ -323,13 +329,13 @@ static void init_windows(void){
     windows[1]=(struct ui_window){WIN_FILES,0u,0u,0u,0u,(sw*25u)/100u,(sh*17u)/100u,(sw*50u)/100u,(sh*58u)/100u,0u,0u,0u,0u};
     windows[2]=(struct ui_window){WIN_ABOUT,0u,0u,0u,0u,(sw*34u)/100u,(sh*20u)/100u,(sw*36u)/100u,(sh*48u)/100u,0u,0u,0u,0u};
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
-    terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;
+    terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;scene_dirty=1u;
     selected_display_mode=0u;
     for(uint32_t i=0u;i<sizeof(display_modes)/sizeof(display_modes[0]);++i)
         if(display_modes[i].width==framebuffer_width()&&display_modes[i].height==framebuffer_height()){selected_display_mode=i;break;}
     set_display_status("Select a resolution");
 }
-static void close_gui(void){gui_active=0u;debug_write("LIONOS:GUI-EXIT\\n");}
+static void close_gui(void){gui_active=0u;scene_dirty=1u;debug_write("LIONOS:GUI-EXIT\\n");}
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
@@ -354,6 +360,7 @@ static void handle_window_click(struct ui_window*w){
 }
 
 static void handle_click(void){
+    scene_dirty=1u;
     uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height();
     if(browser_is_active()){browser_mouse_click(x,y);return;}
     if(y>=h-TASKBAR_H){
@@ -390,6 +397,7 @@ static void handle_click(void){
 }
 
 static void handle_move(void){
+    scene_dirty=1u;
     if(!drag_active)return;
     struct ui_window*w=window_by_id(drag_id);
     if(!w||!w->visible){drag_active=0u;return;}
@@ -431,14 +439,18 @@ void gui_start(void){
 }
 void gui_step(void){
     if(!gui_active)return;
-    keyboard_poll();mouse_poll();mouse_px_x=px();mouse_px_y=py();
+    keyboard_poll();mouse_poll();
+    uint32_t old_x=mouse_px_x,old_y=mouse_px_y;
+    mouse_px_x=px();mouse_px_y=py();
     uint32_t buttons=mouse_buttons();
+    if(mouse_px_x!=old_x||mouse_px_y!=old_y||buttons!=previous_buttons)scene_dirty=1u;
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
-    if(!(buttons&1u)&&(previous_buttons&1u))drag_active=0u;
+    if(!(buttons&1u)&&(previous_buttons&1u)){drag_active=0u;scene_dirty=1u;}
     handle_move();
-    if(browser_is_active()){browser_step();previous_buttons=buttons;render_all();return;}
-    while(keyboard_available())handle_key(keyboard_getchar());
-    previous_buttons=buttons;render_all();
+    if(browser_is_active()){browser_step();previous_buttons=buttons;scene_dirty=1u;render_all();return;}
+    while(keyboard_available()){scene_dirty=1u;handle_key(keyboard_getchar());}
+    previous_buttons=buttons;
+    render_all();
 }
 int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){

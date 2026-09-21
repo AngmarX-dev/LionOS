@@ -4,7 +4,7 @@ import struct,sys,zlib
 from pathlib import Path
 SRC=Path("LionOS-Wallpaper.png")
 OUT=Path(sys.argv[1]) if len(sys.argv)>1 else Path("build/lion_wallpaper.h")
-W,H=320,180
+W,H=960,540
 SIG=b"\x89PNG\r\n\x1a\n"
 def paeth(a,b,c):
     p=a+b-c; pa=abs(p-a);pb=abs(p-b);pc=abs(p-c)
