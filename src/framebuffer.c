@@ -187,6 +187,26 @@ static void draw_char_at(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t b
                                       UI_FONT_SCALE, UI_FONT_SCALE, fg);
 }
 
+int framebuffer_prepare(uint32_t multiboot_info) {
+    saved_fb_valid = 0u;
+    uint8_t *cursor = (uint8_t *)(uintptr_t)(multiboot_info + 8u);
+    for (;;) {
+        struct mb2_tag *tag = (struct mb2_tag *)(uintptr_t)cursor;
+        if (tag->type == MB2_TAG_END) break;
+        if (tag->type == MB2_TAG_FRAMEBUFFER && tag->size >= sizeof(struct mb2_fb_tag)) {
+            struct mb2_fb_tag *fb_tag = (struct mb2_fb_tag *)cursor;
+            if (fb_tag->framebuffer_type != 1u ||
+                (fb_tag->framebuffer_bpp != 24u && fb_tag->framebuffer_bpp != 32u))
+                return -1;
+            saved_fb_tag = *fb_tag;
+            saved_fb_valid = 1u;
+            return 0;
+        }
+        cursor += (tag->size + 7u) & ~7u;
+    }
+    return -1;
+}
+
 int framebuffer_init(uint32_t multiboot_info) {
     enabled = 0u;
     if (saved_fb_valid) {
