@@ -14,7 +14,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
+          sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-common xorriso mtools syslinux-utils qemu-system-x86
 
       - name: Run Phase 23 stability suite
         run: make test
@@ -26,31 +26,18 @@ jobs:
         run: |
           make disk
           LIONOS_QEMU_DRY_RUN=1 sh scripts/qemu_fullscreen.sh
-          grep -q '^set gfxmode=auto
-
-      - name: Verify USB image is bootable as a disk
-        run: |
-          timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
-
-      - name: Upload ISO
-        uses: actions/upload-artifact@v4
-        with:
-          name: lionos-iso
-          path: |
-            build/lionos.iso
-            build/lionos-usb.img
- build/qemu-iso/boot/grub/grub.cfg
-          ! grep -q '1920x1080' build/qemu-iso/boot/grub/grub.cfg
+          grep -q '^set gfxmode=auto$' boot/grub.cfg
+          ! grep -q '1920x1080' boot/grub.cfg
           ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
 
       - name: Verify USB image is bootable as a disk
         run: |
           timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
 
-      - name: Upload ISO
+      - name: Upload images
         uses: actions/upload-artifact@v4
         with:
-          name: lionos-iso
+          name: lionos-images
           path: |
             build/lionos.iso
             build/lionos-usb.img
