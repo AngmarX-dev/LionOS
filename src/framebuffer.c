@@ -231,7 +231,6 @@ int framebuffer_set_mode(uint32_t width, uint32_t height) {
     uint64_t bytes = (uint64_t)new_pitch * height;
     uint32_t mapped = (uint32_t)((bytes + PAGE_SIZE - 1u) & ~(uint64_t)(PAGE_SIZE - 1u));
     if (!mapped || mapped > FB_MAX_MAPPED_SIZE) return -1;
-    uint32_t offset = fb_phys & (PAGE_SIZE - 1u);
     uint32_t aligned = fb_phys & ~(PAGE_SIZE - 1u);
     for (uint32_t off = 0; off < mapped; off += PAGE_SIZE)
         if (paging_map_kernel_page(FB_VIRTUAL_BASE + off, aligned + off, 0x3u) != 0) return -1;
