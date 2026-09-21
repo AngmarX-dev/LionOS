@@ -9,12 +9,13 @@
 #include "lapic.h"
 #include "browser.h"
 #include "lion_icons.h"
+#include "lion_font.h"
 
-#define FONT_W 5u
-#define FONT_H 7u
-#define FONT_SCALE 2u
+#define FONT_W LION_FONT_W
+#define FONT_H LION_FONT_H
+#define FONT_SCALE 1u
 #define CHAR_W 12u
-#define CHAR_H 18u
+#define CHAR_H 16u
 #define TASKBAR_H 54u
 #define TITLE_H 30u
 #define WIN_TERMINAL 1u
@@ -71,61 +72,20 @@ static uint32_t term_len;
 static char term_lines[22][121];
 static uint32_t term_line_count;
 
-static const uint8_t letters[26][7] = {
-{0x0E,0x11,0x11,0x1F,0x11,0x11,0x11},{0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E},
-{0x0F,0x10,0x10,0x10,0x10,0x10,0x0F},{0x1E,0x11,0x11,0x11,0x11,0x11,0x1E},
-{0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F},{0x1F,0x10,0x10,0x1E,0x10,0x10,0x10},
-{0x0F,0x10,0x10,0x17,0x11,0x11,0x0F},{0x11,0x11,0x11,0x1F,0x11,0x11,0x11},
-{0x1F,0x04,0x04,0x04,0x04,0x04,0x1F},{0x1F,0x02,0x02,0x02,0x12,0x12,0x0C},
-{0x11,0x12,0x14,0x18,0x14,0x12,0x11},{0x10,0x10,0x10,0x10,0x10,0x10,0x1F},
-{0x11,0x1B,0x15,0x15,0x11,0x11,0x11},{0x11,0x19,0x15,0x13,0x11,0x11,0x11},
-{0x0E,0x11,0x11,0x11,0x11,0x11,0x0E},{0x1E,0x11,0x11,0x1E,0x10,0x10,0x10},
-{0x0E,0x11,0x11,0x11,0x15,0x12,0x0D},{0x1E,0x11,0x11,0x1E,0x14,0x12,0x11},
-{0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E},{0x1F,0x04,0x04,0x04,0x04,0x04,0x04},
-{0x11,0x11,0x11,0x11,0x11,0x11,0x0E},{0x11,0x11,0x11,0x11,0x0A,0x0A,0x04},
-{0x11,0x11,0x11,0x15,0x15,0x1B,0x11},{0x11,0x11,0x0A,0x04,0x0A,0x11,0x11},
-{0x11,0x11,0x0A,0x04,0x04,0x04,0x04},{0x1F,0x01,0x02,0x04,0x08,0x10,0x1F}
-};
-
-static void glyph(char c, uint8_t rows[FONT_H]) {
-    for (uint32_t i = 0; i < FONT_H; ++i) rows[i] = 0u;
-    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
-    if (c >= 'A' && c <= 'Z') {
-        for (uint32_t i = 0; i < FONT_H; ++i) rows[i] = letters[(uint32_t)(c - 'A')][i];
-        return;
-    }
-    switch (c) {
-        case '0': rows[0]=0x0E;rows[1]=0x11;rows[2]=0x13;rows[3]=0x15;rows[4]=0x19;rows[5]=0x11;rows[6]=0x0E; break;
-        case '1': rows[0]=0x04;rows[1]=0x0C;rows[2]=0x04;rows[3]=0x04;rows[4]=0x04;rows[5]=0x04;rows[6]=0x0E; break;
-        case '2': rows[0]=0x0E;rows[1]=0x11;rows[2]=0x01;rows[3]=0x02;rows[4]=0x04;rows[5]=0x08;rows[6]=0x1F; break;
-        case '3': rows[0]=0x1E;rows[1]=0x01;rows[2]=0x01;rows[3]=0x0E;rows[4]=0x01;rows[5]=0x01;rows[6]=0x1E; break;
-        case '4': rows[0]=0x02;rows[1]=0x06;rows[2]=0x0A;rows[3]=0x12;rows[4]=0x1F;rows[5]=0x02;rows[6]=0x02; break;
-        case '5': rows[0]=0x1F;rows[1]=0x10;rows[2]=0x10;rows[3]=0x1E;rows[4]=0x01;rows[5]=0x01;rows[6]=0x1E; break;
-        case '6': rows[0]=0x0E;rows[1]=0x10;rows[2]=0x10;rows[3]=0x1E;rows[4]=0x11;rows[5]=0x11;rows[6]=0x0E; break;
-        case '7': rows[0]=0x1F;rows[1]=0x01;rows[2]=0x02;rows[3]=0x04;rows[4]=0x08;rows[5]=0x08;rows[6]=0x08; break;
-        case '8': rows[0]=0x0E;rows[1]=0x11;rows[2]=0x11;rows[3]=0x0E;rows[4]=0x11;rows[5]=0x11;rows[6]=0x0E; break;
-        case '9': rows[0]=0x0E;rows[1]=0x11;rows[2]=0x11;rows[3]=0x0F;rows[4]=0x01;rows[5]=0x01;rows[6]=0x0E; break;
-        case ':': rows[2]=0x04;rows[4]=0x04; break;
-        case '.': rows[6]=0x04; break;
-        case ',': rows[5]=0x04;rows[6]=0x08; break;
-        case '-': rows[3]=0x1F; break;
-        case '_': rows[6]=0x1F; break;
-        case '+': rows[2]=0x04;rows[3]=0x1F;rows[4]=0x04; break;
-        case '>': rows[1]=0x10;rows[2]=0x08;rows[3]=0x04;rows[4]=0x08;rows[5]=0x10; break;
-        case '<': rows[1]=0x01;rows[2]=0x02;rows[3]=0x04;rows[4]=0x02;rows[5]=0x01; break;
-        case '/': rows[0]=0x01;rows[1]=0x02;rows[2]=0x04;rows[3]=0x08;rows[4]=0x10; break;
-        case '!': rows[0]=0x04;rows[1]=0x04;rows[2]=0x04;rows[3]=0x04;rows[5]=0x04; break;
-        case '?': rows[0]=0x0E;rows[1]=0x11;rows[2]=0x01;rows[3]=0x02;rows[4]=0x04;rows[6]=0x04; break;
-        case '=': rows[2]=0x1F;rows[4]=0x1F; break;
-        case '|': rows[0]=0x04;rows[1]=0x04;rows[2]=0x04;rows[3]=0x04;rows[4]=0x04;rows[5]=0x04;rows[6]=0x04; break;
-        case ' ': break;
-        default: rows[0]=0x1F;rows[2]=0x15;rows[4]=0x15;rows[6]=0x1F; break;
-    }
+static void glyph(char c, uint16_t rows[FONT_H]) {
+    for (uint32_t i=0u;i< FONT_H;++i) rows[i]=0u;
+    uint32_t code=(uint8_t)c;
+    if(code<LION_FONT_FIRST||code>=LION_FONT_FIRST+LION_FONT_COUNT) code=(uint32_t)'?';
+    for(uint32_t i=0u;i<FONT_H;++i) rows[i]=lion_font[code-LION_FONT_FIRST][i];
 }
 
 static void fill(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){framebuffer_fill_rect(x,y,w,h,c);}
 static void border(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){if(w<2u||h<2u)return;fill(x,y,w,1u,c);fill(x,y+h-1u,w,1u,c);fill(x,y,1u,h,c);fill(x+w-1u,y,1u,h,c);}
-static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){uint8_t rows[FONT_H];glyph(c,rows);fill(x,y,CHAR_W,CHAR_H,bg);for(uint32_t gy=0;gy<FONT_H;++gy)for(uint32_t gx=0;gx<FONT_W;++gx)if(rows[gy]&(1u<<(FONT_W-1u-gx)))fill(x+gx*FONT_SCALE,y+gy*FONT_SCALE+2u,FONT_SCALE,FONT_SCALE,fg);}
+static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    uint16_t rows[FONT_H];glyph(c,rows);fill(x,y,CHAR_W,CHAR_H,bg);
+    for(uint32_t gy=0u;gy<FONT_H;++gy)for(uint32_t gx=0u;gx<FONT_W;++gx)
+        if(rows[gy]&(1u<<(FONT_W-1u-gx)))fill(x+gx,y+gy+2u,1u,1u,fg);
+}
 static void text_line(const char*s,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){while(*s&&x+CHAR_W<framebuffer_width()){text(*s,x,y,fg,bg);x+=CHAR_W;++s;}}
 static uint32_t px(void){return mouse_x();}
 static uint32_t py(void){return mouse_y();}
@@ -319,6 +279,25 @@ static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const c
     framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+7u,y+7u,22u);
     if(label&&label[0]) text_line(label,x+35u,y+9u,COL_TEXT,c);
 }
+static void draw_system_widget(void){
+    uint32_t w=framebuffer_width(),h=framebuffer_height();
+    if(w<760u||h<520u)return;
+    uint32_t ww=250u,wh=154u,x=w-ww-22u,y=22u;
+    fill(x+4u,y+4u,ww,wh,0x03070Cu);
+    fill(x,y,ww,wh,COL_PANEL);
+    border(x,y,ww,wh,COL_GOLD_DIM);
+    fill(x,y,ww,3u,COL_GOLD);
+    text_line("LIONOS SYSTEM",x+16u,y+16u,COL_GOLD,COL_PANEL);
+    text_line("DISPLAY",x+16u,y+48u,COL_DIM,COL_PANEL);
+    text_line("ONLINE",x+126u,y+48u,COL_OK,COL_PANEL);
+    text_line("RESOLUTION",x+16u,y+74u,COL_DIM,COL_PANEL);
+    draw_resolution(framebuffer_width(),framebuffer_height(),x+126u,y+74u,COL_TEXT,COL_PANEL);
+    text_line("NETWORK",x+16u,y+100u,COL_DIM,COL_PANEL);
+    text_line("READY",x+126u,y+100u,COL_OK,COL_PANEL);
+    fill(x+16u,y+128u,ww-32u,2u,COL_GOLD_DIM);
+    text_line("Small - Fast - Powerful",x+16u,y+134u,COL_TEXT,COL_PANEL);
+}
+
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
     fill(0u,y,w,TASKBAR_H,0x050B13u); fill(0u,y,w,2u,COL_GOLD_DIM);
@@ -343,9 +322,13 @@ static void draw_start_menu(void){
     uint32_t mw=w>520u?420u:300u;
     uint32_t mh=h>520u?390u:h>360u?300u:240u;
     uint32_t x=12u,y=h-TASKBAR_H-mh-8u;
+    fill(x+5u,y+5u,mw,mh,0x03070Cu);
     fill(x,y,mw,mh,COL_PANEL);border(x,y,mw,mh,COL_GOLD_DIM);fill(x,y,mw,54u,COL_PANEL2);
-    text_line("LIONOS",x+18u,y+18u,COL_GOLD,COL_PANEL2);text_line("Pinned applications",x+18u,y+72u,COL_DIM,COL_PANEL);
-    fill(x+18u,y+96u,mw-36u,38u,COL_PANEL2);border(x+18u,y+96u,mw-36u,38u,COL_GOLD_DIM);text_line("TERMINAL",x+18u+(mw-36u-label_width("TERMINAL"))/2u,y+106u,COL_TEXT,COL_PANEL2);
+    text_line("LIONOS",x+18u,y+18u,COL_GOLD,COL_PANEL2);
+    fill(x+18u,y+62u,mw-36u,32u,COL_INPUT);border(x+18u,y+62u,mw-36u,32u,COL_GOLD_DIM);
+    text_line("Search applications...",x+30u,y+71u,COL_DIM,COL_INPUT);
+    text_line("PINNED APPLICATIONS",x+18u,y+108u,COL_DIM,COL_PANEL);
+    fill(x+18u,y+122u,mw-36u,38u,COL_PANEL2);border(x+18u,y+122u,mw-36u,38u,COL_GOLD_DIM);text_line("TERMINAL",x+18u+(mw-36u-label_width("TERMINAL"))/2u,y+132u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+142u,mw-36u,38u,COL_PANEL2);border(x+18u,y+142u,mw-36u,38u,COL_GOLD_DIM);text_line("FILES",x+18u+(mw-36u-label_width("FILES"))/2u,y+152u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+188u,mw-36u,38u,COL_PANEL2);border(x+18u,y+188u,mw-36u,38u,COL_GOLD_DIM);text_line("ABOUT",x+18u+(mw-36u-label_width("ABOUT"))/2u,y+198u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+234u,mw-36u,38u,COL_PANEL2);border(x+18u,y+234u,mw-36u,38u,COL_GOLD_DIM);text_line("SETTINGS",x+18u+(mw-36u-label_width("SETTINGS"))/2u,y+244u,COL_TEXT,COL_PANEL2);
@@ -376,7 +359,7 @@ static void draw_desktop_icons(void){
 
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
-static void render_all(void){if(browser_is_active()){browser_render();framebuffer_present();return;}draw_desktop_background();draw_desktop_icons();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);framebuffer_present();}
+static void render_all(void){if(browser_is_active()){browser_render();framebuffer_present();return;}draw_desktop_background();draw_desktop_icons();draw_system_widget();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);framebuffer_present();}
 
 static void init_windows(void){
     uint32_t sw=framebuffer_width(),sh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();
@@ -429,11 +412,11 @@ static void handle_click(void){
         uint32_t mw=framebuffer_width()>520u?420u:300u;
         uint32_t mh=framebuffer_height()>520u?390u:framebuffer_height()>360u?300u:240u;
         uint32_t sx=12u,sy=h-TASKBAR_H-mh-8u;
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+96u&&y<sy+134u){show(WIN_TERMINAL);terminal_init();return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+142u&&y<sy+180u){show(WIN_FILES);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+188u&&y<sy+226u){show(WIN_ABOUT);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+234u&&y<sy+272u){show(WIN_SETTINGS);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+280u&&y<sy+318u){browser_start();return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+122u&&y<sy+160u){show(WIN_TERMINAL);terminal_init();return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+168u&&y<sy+206u){show(WIN_FILES);return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+214u&&y<sy+252u){show(WIN_ABOUT);return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+260u&&y<sy+298u){show(WIN_SETTINGS);return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+306u&&y<sy+344u){browser_start();return;}
         if(mh>330u&&x>=sx+18u&&x<sx+158u&&y>=sy+mh-52u&&y<sy+mh-18u){close_gui();return;}
         start_open=0u;
     }
