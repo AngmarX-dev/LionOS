@@ -45,7 +45,10 @@ $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
 $(ICON_HEADER): scripts/png_to_icons.py $(ICON_SOURCES) | $(BUILD)
 	python3 scripts/png_to_icons.py $(ICON_HEADER)
 
-$(WALLPAPER_HEADER): scripts/png_to_wallpaper.py LionOS-Wallpaper.png | $(BUILD)\n\tpython3 scripts/png_to_wallpaper.py $(WALLPAPER_HEADER)\n\n$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) $(WALLPAPER_HEADER) | $(BUILD)
+$(WALLPAPER_HEADER): scripts/png_to_wallpaper.py LionOS-Wallpaper.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py $(WALLPAPER_HEADER)
+
+$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) $(WALLPAPER_HEADER) | $(BUILD)
 	$(CC) $(GUI_CFLAGS) -I$(BUILD) -c $< -o $@
 
 $(BUILD)/kernel_runtime.o: src/kernel_runtime.c | $(BUILD)
