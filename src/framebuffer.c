@@ -52,6 +52,8 @@ static uint8_t green_size;
 static uint8_t blue_pos;
 static uint8_t blue_size;
 static uint32_t enabled;
+static struct mb2_fb_tag saved_fb_tag;
+static uint32_t saved_fb_valid;
 static uint32_t *desktop_buffer;
 static uint32_t *wallpaper_cache;
 static uint32_t wallpaper_cache_width;
@@ -185,8 +187,40 @@ static void draw_char_at(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t b
                                       UI_FONT_SCALE, UI_FONT_SCALE, fg);
 }
 
+int framebuffer_prepare(uint32_t multiboot_info) {
+    saved_fb_valid = 0u;
+    uint8_t *cursor = (uint8_t *)(uintptr_t)(multiboot_info + 8u);
+    for (;;) {
+        struct mb2_tag *tag = (struct mb2_tag *)(uintptr_t)cursor;
+        if (tag->type == MB2_TAG_END) break;
+        if (tag->type == MB2_TAG_FRAMEBUFFER && tag->size >= sizeof(struct mb2_fb_tag)) {
+            struct mb2_fb_tag *fb_tag = (struct mb2_fb_tag *)cursor;
+            if (fb_tag->framebuffer_type != 1u ||
+                (fb_tag->framebuffer_bpp != 24u && fb_tag->framebuffer_bpp != 32u))
+                return -1;
+            saved_fb_tag = *fb_tag;
+            saved_fb_valid = 1u;
+            return 0;
+        }
+        cursor += (tag->size + 7u) & ~7u;
+    }
+    return -1;
+}
+
 int framebuffer_init(uint32_t multiboot_info) {
     enabled = 0u;
+    if (saved_fb_valid) {
+        fb_phys = saved_fb_tag.framebuffer_addr;
+        fb_pitch = saved_fb_tag.framebuffer_pitch;
+        fb_width_value = saved_fb_tag.framebuffer_width;
+        fb_height_value = saved_fb_tag.framebuffer_height;
+        fb_bpp = saved_fb_tag.framebuffer_bpp;
+        red_pos = saved_fb_tag.red_field_position; red_size = saved_fb_tag.red_mask_size;
+        green_pos = saved_fb_tag.green_field_position; green_size = saved_fb_tag.green_mask_size;
+        blue_pos = saved_fb_tag.blue_field_position; blue_size = saved_fb_tag.blue_mask_size;
+        if (!fb_width_value || !fb_height_value || !fb_pitch) return -1;
+        goto map_framebuffer;
+    }
     uint8_t *cursor = (uint8_t *)(uintptr_t)(multiboot_info + 8u);
     for (;;) {
         struct mb2_tag *tag = (struct mb2_tag *)(uintptr_t)cursor;
@@ -202,6 +236,7 @@ int framebuffer_init(uint32_t multiboot_info) {
             red_pos = fb_tag->red_field_position; red_size = fb_tag->red_mask_size;
             green_pos = fb_tag->green_field_position; green_size = fb_tag->green_mask_size;
             blue_pos = fb_tag->blue_field_position; blue_size = fb_tag->blue_mask_size;
+map_framebuffer:
             if (!fb_width_value || !fb_height_value || !fb_pitch) return -1;
             uint32_t offset = (uint32_t)(fb_phys & (PAGE_SIZE - 1u));
             uint64_t aligned = fb_phys & ~(uint64_t)(PAGE_SIZE - 1u);
