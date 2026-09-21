@@ -202,7 +202,7 @@ static void draw_settings(const struct ui_window*w){
     text_line(display_status,w->x+24u,w->y+w->h-34u,COL_DIM,COL_PANEL);
 }
 
-static uint32_t label_width(const char*label);
+static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
 
 static void draw_icon(uint32_t x,uint32_t y,const char*name,const uint32_t*icon){
     fill(x,y,66u,66u,COL_PANEL2);
