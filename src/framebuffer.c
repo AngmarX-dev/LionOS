@@ -180,7 +180,7 @@ static void draw_char_at(char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t b
     framebuffer_fill_rect(x, y, UI_CELL_W, UI_CELL_H, bg);
     for (uint32_t gy = 0; gy < UI_FONT_H; ++gy)
         for (uint32_t gx = 0; gx < UI_FONT_W; ++gx)
-            if (rows[gy] & (1u << gx))
+            if (rows[gy] & (1u << (UI_FONT_W - 1u - gx)))
                 framebuffer_fill_rect(x + gx * UI_FONT_SCALE, y + gy * UI_FONT_SCALE,
                                       UI_FONT_SCALE, UI_FONT_SCALE, fg);
 }
