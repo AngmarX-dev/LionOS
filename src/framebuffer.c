@@ -44,6 +44,7 @@ static uint32_t fb_phys;
 static uint32_t fb_pitch;
 static uint32_t fb_width_value;
 static uint32_t fb_height_value;
+static uint8_t fb_bpp;
 static uint8_t red_pos;
 static uint8_t red_size;
 static uint8_t green_pos;
@@ -91,6 +92,12 @@ static uint32_t channel(uint8_t value, uint8_t size, uint8_t position) {
     return scaled << position;
 }
 
+static void write_packed_pixel(volatile uint8_t *dst, uint32_t packed) {
+    if (fb_bpp == 32u) { *(volatile uint32_t *)dst = packed; return; }
+    if (fb_bpp == 24u) { dst[0]=(uint8_t)(packed&0xFFu); dst[1]=(uint8_t)((packed>>8)&0xFFu); dst[2]=(uint8_t)((packed>>16)&0xFFu); return; }
+    if (fb_bpp == 16u) { *(volatile uint16_t *)dst=(uint16_t)packed; return; }
+}
+
 static uint32_t pack_rgb(uint32_t rgb) {
     uint8_t r = (uint8_t)(rgb >> 16);
     uint8_t g = (uint8_t)(rgb >> 8);
@@ -102,7 +109,8 @@ static uint32_t pack_rgb(uint32_t rgb) {
 
 static void put_pixel(uint32_t x, uint32_t y, uint32_t color) {
     if (!enabled || x >= fb_width_value || y >= fb_height_value) return;
-    ((volatile uint32_t *)(fb + y * fb_pitch))[x] = pack_rgb(color);
+    uint32_t bytes=(fb_bpp+7u)/8u;
+    write_packed_pixel(fb + y*fb_pitch + x*bytes, pack_rgb(color));
 }
 
 static void glyph(char c, uint8_t rows[UI_FONT_H]) {
@@ -185,12 +193,13 @@ int framebuffer_init(uint32_t multiboot_info) {
         if (tag->type == MB2_TAG_END) break;
         if (tag->type == MB2_TAG_FRAMEBUFFER && tag->size >= sizeof(struct mb2_fb_tag)) {
             struct mb2_fb_tag *fb_tag = (struct mb2_fb_tag *)cursor;
-            if (fb_tag->framebuffer_type != 1u || fb_tag->framebuffer_bpp != 32u) return -1;
+            if (fb_tag->framebuffer_type != 1u || (fb_tag->framebuffer_bpp != 24u && fb_tag->framebuffer_bpp != 32u)) return -1;
             if (fb_tag->framebuffer_addr >> 32) return -1;
             fb_phys = (uint32_t)fb_tag->framebuffer_addr;
             fb_pitch = fb_tag->framebuffer_pitch;
             fb_width_value = fb_tag->framebuffer_width;
             fb_height_value = fb_tag->framebuffer_height;
+            fb_bpp = fb_tag->framebuffer_bpp;
             red_pos = fb_tag->red_field_position; red_size = fb_tag->red_mask_size;
             green_pos = fb_tag->green_field_position; green_size = fb_tag->green_mask_size;
             blue_pos = fb_tag->blue_field_position; blue_size = fb_tag->blue_mask_size;
@@ -268,10 +277,16 @@ int framebuffer_begin_desktop(void) {
 
 void framebuffer_present(void) {
     if (!enabled || !desktop_mode || !desktop_buffer) return;
-    for (uint32_t y = 0; y < fb_height_value; ++y) {
-        uint32_t *dst = (uint32_t *)(fb + y * fb_pitch);
-        const uint32_t *src = desktop_buffer + y * fb_width_value;
-        for (uint32_t x = 0; x < fb_width_value; ++x) dst[x] = src[x];
+    uint32_t bytes=(fb_bpp+7u)/8u;
+    for (uint32_t y=0u;y<fb_height_value;++y){
+        volatile uint8_t *dst=fb+y*fb_pitch;
+        const uint32_t *src=desktop_buffer+y*fb_width_value;
+        if(fb_bpp==32u){
+            volatile uint32_t *d32=(volatile uint32_t *)dst;
+            for(uint32_t x=0u;x<fb_width_value;++x)d32[x]=src[x];
+        }else{
+            for(uint32_t x=0u;x<fb_width_value;++x)write_packed_pixel(dst+x*bytes,src[x]);
+        }
     }
 }
 
@@ -353,8 +368,14 @@ void framebuffer_fill_rect(uint32_t x, uint32_t y, uint32_t width, uint32_t heig
     if (height > fb_height_value - y) height = fb_height_value - y;
     uint32_t packed = pack_rgb(color);
     for (uint32_t yy = y; yy < y + height; ++yy) {
-        volatile uint32_t *line = desktop_mode ? (volatile uint32_t *)(desktop_buffer + yy * fb_width_value + x) : (volatile uint32_t *)(fb + yy * fb_pitch + x * 4u);
-        for (uint32_t xx = 0; xx < width; ++xx) line[xx] = packed;
+        if(desktop_mode){
+            uint32_t *line=desktop_buffer+yy*fb_width_value+x;
+            for(uint32_t xx=0u;xx<width;++xx)line[xx]=packed;
+        }else{
+            uint32_t bytes=(fb_bpp+7u)/8u;
+            volatile uint8_t *line=fb+yy*fb_pitch+x*bytes;
+            for(uint32_t xx=0u;xx<width;++xx)write_packed_pixel(line+xx*bytes,packed);
+        }
     }
 }
 
