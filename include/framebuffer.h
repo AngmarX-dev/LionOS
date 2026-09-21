@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+int framebuffer_prepare(uint32_t multiboot_info);
 int framebuffer_init(uint32_t multiboot_info);
 void framebuffer_boot_splash(uint32_t progress, const char *status);
 int framebuffer_available(void);
