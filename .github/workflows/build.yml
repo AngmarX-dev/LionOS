@@ -22,11 +22,16 @@ jobs:
       - name: Build live USB image
         run: make usb
 
+      - name: Verify BIOS and UEFI boot entries
+        run: |
+          xorriso -indev build/lionos.iso -report_el_torito as_mkisofs 2>&1 | tee build/eltorito.txt
+          grep -qi 'EFI' build/eltorito.txt
+
       - name: Verify native-resolution QEMU launcher
         run: |
           make disk
           LIONOS_QEMU_DRY_RUN=1 sh scripts/qemu_fullscreen.sh
-          grep -q '^set gfxmode=auto$' boot/grub.cfg
+          grep -q '^set gfxmode=auto,' boot/grub.cfg
           ! grep -q '1920x1080' boot/grub.cfg
           ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
 
