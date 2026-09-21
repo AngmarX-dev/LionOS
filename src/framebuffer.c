@@ -40,7 +40,7 @@ struct mb2_fb_tag {
 } __attribute__((packed));
 
 static volatile uint8_t *fb;
-static uint32_t fb_phys;
+static uint64_t fb_phys;
 static uint32_t fb_pitch;
 static uint32_t fb_width_value;
 static uint32_t fb_height_value;
@@ -194,8 +194,7 @@ int framebuffer_init(uint32_t multiboot_info) {
         if (tag->type == MB2_TAG_FRAMEBUFFER && tag->size >= sizeof(struct mb2_fb_tag)) {
             struct mb2_fb_tag *fb_tag = (struct mb2_fb_tag *)cursor;
             if (fb_tag->framebuffer_type != 1u || (fb_tag->framebuffer_bpp != 24u && fb_tag->framebuffer_bpp != 32u)) return -1;
-            if (fb_tag->framebuffer_addr >> 32) return -1;
-            fb_phys = (uint32_t)fb_tag->framebuffer_addr;
+            fb_phys = fb_tag->framebuffer_addr;
             fb_pitch = fb_tag->framebuffer_pitch;
             fb_width_value = fb_tag->framebuffer_width;
             fb_height_value = fb_tag->framebuffer_height;
@@ -204,8 +203,8 @@ int framebuffer_init(uint32_t multiboot_info) {
             green_pos = fb_tag->green_field_position; green_size = fb_tag->green_mask_size;
             blue_pos = fb_tag->blue_field_position; blue_size = fb_tag->blue_mask_size;
             if (!fb_width_value || !fb_height_value || !fb_pitch) return -1;
-            uint32_t offset = fb_phys & (PAGE_SIZE - 1u);
-            uint32_t aligned = fb_phys & ~(PAGE_SIZE - 1u);
+            uint32_t offset = (uint32_t)(fb_phys & (PAGE_SIZE - 1u));
+            uint64_t aligned = fb_phys & ~(uint64_t)(PAGE_SIZE - 1u);
             uint64_t bytes = (uint64_t)fb_pitch * fb_height_value + offset;
             uint32_t mapped = (uint32_t)((bytes + PAGE_SIZE - 1u) & ~(uint64_t)(PAGE_SIZE - 1u));
             if (!mapped || mapped > FB_MAX_MAPPED_SIZE) return -1;
@@ -244,7 +243,7 @@ int framebuffer_set_mode(uint32_t width, uint32_t height) {
     uint64_t bytes = (uint64_t)new_pitch * height;
     uint32_t mapped = (uint32_t)((bytes + PAGE_SIZE - 1u) & ~(uint64_t)(PAGE_SIZE - 1u));
     if (!mapped || mapped > FB_MAX_MAPPED_SIZE) return -1;
-    uint32_t aligned = fb_phys & ~(PAGE_SIZE - 1u);
+    uint64_t aligned = fb_phys & ~(uint64_t)(PAGE_SIZE - 1u);
     for (uint32_t off = 0; off < mapped; off += PAGE_SIZE)
         if (paging_map_kernel_page(FB_VIRTUAL_BASE + off, aligned + off, 0x3u) != 0) return -1;
 
