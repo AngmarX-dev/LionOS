@@ -31,7 +31,22 @@ jobs:
         run: |
           make disk
           LIONOS_QEMU_DRY_RUN=1 sh scripts/qemu_fullscreen.sh
-          grep -q '^set gfxmode=auto,' boot/grub.cfg
+          grep -q '^set gfxmode=1024x768x32,800x600x32,640x480x32
+          ! grep -q '1920x1080' boot/grub.cfg
+          ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
+
+      - name: Verify USB image is bootable as a disk
+        run: |
+          timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
+
+      - name: Upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: lionos-images
+          path: |
+            build/lionos.iso
+            build/lionos-usb.img
+ boot/grub.cfg
           ! grep -q '1920x1080' boot/grub.cfg
           ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
 
