@@ -52,6 +52,10 @@ static uint8_t blue_pos;
 static uint8_t blue_size;
 static uint32_t enabled;
 static uint32_t *desktop_buffer;
+static uint32_t *wallpaper_cache;
+static uint32_t wallpaper_cache_width;
+static uint32_t wallpaper_cache_height;
+static uint32_t wallpaper_cache_ready;
 static uint32_t desktop_mode;
 
 /* QEMU/Bochs VBE DISPI interface. The driver is probed by writing a mode and
@@ -252,6 +256,10 @@ int framebuffer_begin_desktop(void) {
     if (pixels > 0xFFFFFFFFu / sizeof(uint32_t)) return -1;
     desktop_buffer = (uint32_t *)kmalloc((size_t)pixels * sizeof(uint32_t));
     if (!desktop_buffer) return -1;
+    wallpaper_cache = 0;
+    wallpaper_cache_width = fb_width_value;
+    wallpaper_cache_height = fb_height_value;
+    wallpaper_cache_ready = 0u;
     desktop_mode = 1u;
     return 0;
 }
@@ -259,7 +267,7 @@ int framebuffer_begin_desktop(void) {
 void framebuffer_present(void) {
     if (!enabled || !desktop_mode || !desktop_buffer) return;
     for (uint32_t y = 0; y < fb_height_value; ++y) {
-        volatile uint32_t *dst = (volatile uint32_t *)(fb + y * fb_pitch);
+        uint32_t *dst = (uint32_t *)(fb + y * fb_pitch);
         const uint32_t *src = desktop_buffer + y * fb_width_value;
         for (uint32_t x = 0; x < fb_width_value; ++x) dst[x] = src[x];
     }
@@ -299,21 +307,37 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
 
 void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint32_t height) {
     if (!enabled || !desktop_mode || !desktop_buffer || !pixels || !width || !height) return;
-    uint32_t sw=fb_width_value, sh=fb_height_value;
-    uint32_t lhs=sw*height, rhs=sh*width;
-    uint32_t out_w,out_h,ox,oy;
-    if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;ox=0u;oy=(sh-out_h)/2u;}
-    else{out_h=sh;out_w=(sh*width)/height;ox=(sw-out_w)/2u;oy=0u;}
-    for(uint32_t y=0u;y<out_h;++y){
-        uint32_t sy=(y*height)/out_h;
-        uint32_t *dst=desktop_buffer+(oy+y)*sw+ox;
-        for(uint32_t x=0u;x<out_w;++x){
-            uint32_t sx=(x*width)/out_w;
-            uint16_t p=pixels[sy*width+sx];
-            uint32_t r=((p>>11)&31u)*255u/31u, g=((p>>5)&63u)*255u/63u, b=(p&31u)*255u/31u;
-            dst[x]=pack_rgb((r<<16)|(g<<8)|b);
-        }
+    if (!wallpaper_cache || wallpaper_cache_width != fb_width_value || wallpaper_cache_height != fb_height_value) {
+        uint64_t pixels_count=(uint64_t)fb_width_value*fb_height_value;
+        if (pixels_count > 0xFFFFFFFFu/sizeof(uint32_t)) return;
+        if (wallpaper_cache) kfree(wallpaper_cache);
+        wallpaper_cache=(uint32_t*)kmalloc((size_t)pixels_count*sizeof(uint32_t));
+        if (!wallpaper_cache) { wallpaper_cache_ready=0u; return; }
+        wallpaper_cache_width=fb_width_value; wallpaper_cache_height=fb_height_value; wallpaper_cache_ready=0u;
     }
+    uint32_t sw=fb_width_value, sh=fb_height_value;
+    if (!wallpaper_cache_ready) {
+        uint32_t lhs=sw*height, rhs=sh*width, out_w,out_h,ox,oy;
+        if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;ox=0u;oy=(sh-out_h)/2u;}
+        else{out_h=sh;out_w=(sh*width)/height;ox=(sw-out_w)/2u;oy=0u;}
+        for(uint32_t y=0u;y<out_h;++y){
+            uint32_t sy=(y*height)/out_h;
+            uint32_t *dst=wallpaper_cache+(oy+y)*sw+ox;
+            for(uint32_t x=0u;x<out_w;++x){
+                uint32_t sx=(x*width)/out_w;
+                uint16_t p=pixels[sy*width+sx];
+                uint32_t r=((p>>11)&31u)*255u/31u, g=((p>>5)&63u)*255u/63u, b=(p&31u)*255u/31u;
+                dst[x]=pack_rgb((r<<16)|(g<<8)|b);
+            }
+        }
+        wallpaper_cache_ready=1u;
+    }
+    framebuffer_restore_wallpaper();
+}
+void framebuffer_restore_wallpaper(void) {
+    if (!enabled || !desktop_mode || !desktop_buffer || !wallpaper_cache || !wallpaper_cache_ready) return;
+    uint32_t count=fb_width_value*fb_height_value;
+    for(uint32_t i=0u;i<count;++i) desktop_buffer[i]=wallpaper_cache[i];
 }
 
 void framebuffer_clear(uint32_t color) {
