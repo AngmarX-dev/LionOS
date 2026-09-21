@@ -439,14 +439,18 @@ void gui_start(void){
 }
 void gui_step(void){
     if(!gui_active)return;
-    keyboard_poll();mouse_poll();mouse_px_x=px();mouse_px_y=py();
+    keyboard_poll();mouse_poll();
+    uint32_t old_x=mouse_px_x,old_y=mouse_px_y;
+    mouse_px_x=px();mouse_px_y=py();
     uint32_t buttons=mouse_buttons();
+    if(mouse_px_x!=old_x||mouse_px_y!=old_y||buttons!=previous_buttons)scene_dirty=1u;
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
-    if(!(buttons&1u)&&(previous_buttons&1u))drag_active=0u;
+    if(!(buttons&1u)&&(previous_buttons&1u)){drag_active=0u;scene_dirty=1u;}
     handle_move();
-    if(browser_is_active()){browser_step();previous_buttons=buttons;render_all();return;}
-    while(keyboard_available())handle_key(keyboard_getchar());
-    previous_buttons=buttons;render_all();
+    if(browser_is_active()){browser_step();previous_buttons=buttons;scene_dirty=1u;render_all();return;}
+    while(keyboard_available()){scene_dirty=1u;handle_key(keyboard_getchar());}
+    previous_buttons=buttons;
+    render_all();
 }
 int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){
