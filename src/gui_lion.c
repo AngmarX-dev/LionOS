@@ -64,6 +64,7 @@ static const struct display_mode display_modes[] = {
 };
 static uint32_t selected_display_mode;
 static char display_status[64];
+static uint32_t label_width(const char*label);
 
 static char term_input[121];
 static uint32_t term_len;
