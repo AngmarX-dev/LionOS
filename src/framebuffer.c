@@ -240,6 +240,8 @@ int framebuffer_set_mode(uint32_t width, uint32_t height) {
         if (paging_map_kernel_page(FB_VIRTUAL_BASE + off, aligned + off, 0x3u) != 0) return -1;
 
     if (desktop_buffer) { kfree(desktop_buffer); desktop_buffer = 0; }
+    if (wallpaper_cache) { kfree(wallpaper_cache); wallpaper_cache = 0; }
+    wallpaper_cache_ready = 0u;
     fb_pitch = new_pitch;
     fb_width_value = width;
     fb_height_value = height;
