@@ -57,6 +57,15 @@ static uint8_t drag_id;
 static int drag_dx, drag_dy;
 static uint32_t mouse_px_x, mouse_px_y, previous_buttons;
 
+struct display_mode { uint32_t width; uint32_t height; };
+static const struct display_mode display_modes[] = {
+    {640u,480u},{800u,600u},{1024u,768u},{1280u,720u},
+    {1366u,768u},{1600u,900u},{1920u,1080u}
+};
+static uint32_t selected_display_mode;
+static char display_status[64];
+static uint32_t label_width(const char*label);
+
 static char term_input[121];
 static uint32_t term_len;
 static char term_lines[22][121];
@@ -192,15 +201,43 @@ static void draw_about(const struct ui_window*w){
     fill(w->x+24u,w->y+258u,190u,34u,COL_PANEL2);border(w->x+24u,w->y+258u,190u,34u,COL_GOLD_DIM);text_line("GUI ONLINE",w->x+40u,w->y+266u,COL_OK,COL_PANEL2);
 }
 
+static void draw_uint(uint32_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    char b[11];uint32_t n=0u;
+    if(value==0u){text_line("0",x,y,fg,bg);return;}
+    while(value&&n<10u){b[n++]=(char)('0'+value%10u);value/=10u;}
+    while(n){char s[2]={b[--n],0};text_line(s,x,y,fg,bg);x+=CHAR_W;}
+}
+static void draw_resolution(uint32_t width,uint32_t height,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    draw_uint(width,x,y,fg,bg);x+=label_width("1920");text_line("x",x,y,fg,bg);x+=CHAR_W;draw_uint(height,x,y,fg,bg);
+}
+static void set_display_status(const char*s){
+    uint32_t i=0u;while(s[i]&&i<63u){display_status[i]=s[i];++i;}display_status[i]=0;
+}
+static void resize_windows_to_display(void){
+    uint32_t sw=framebuffer_width(),sh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();
+    windows[0].x=(sw*18u)/100u;windows[0].y=(sh*13u)/100u;windows[0].w=(sw*62u)/100u;windows[0].h=(sh*68u)/100u;
+    windows[1].x=(sw*25u)/100u;windows[1].y=(sh*17u)/100u;windows[1].w=(sw*50u)/100u;windows[1].h=(sh*58u)/100u;
+    windows[2].x=(sw*34u)/100u;windows[2].y=(sh*20u)/100u;windows[2].w=(sw*36u)/100u;windows[2].h=(sh*48u)/100u;
+    windows[3].x=(sw*41u)/100u;windows[3].y=(sh*18u)/100u;windows[3].w=(sw*34u)/100u;windows[3].h=(sh*52u)/100u;
+    for(uint32_t i=0u;i<WIN_MAX;++i)if(windows[i].maximized){windows[i].x=0u;windows[i].y=0u;windows[i].w=sw;windows[i].h=sh;}
+    mouse_set_bounds(sw,framebuffer_height());
+}
 static void draw_settings(const struct ui_window*w){
     window_chrome(w,"Settings");
-    text_line("Appearance",w->x+24u,w->y+62u,COL_TEXT,COL_PANEL);
-    text_line("Accent",w->x+24u,w->y+96u,COL_DIM,COL_PANEL);
-    fill(w->x+24u,w->y+124u,34u,34u,COL_GOLD);border(w->x+24u,w->y+124u,34u,34u,COL_TEXT);
-    fill(w->x+70u,w->y+124u,34u,34u,COL_DANGER);border(w->x+70u,w->y+124u,34u,34u,COL_GOLD_DIM);
-    fill(w->x+116u,w->y+124u,34u,34u,COL_OK);border(w->x+116u,w->y+124u,34u,34u,COL_GOLD_DIM);
-    text_line("Sunset desktop",w->x+24u,w->y+184u,COL_GOLD,COL_PANEL);
-    text_line("Ultra-wide target: 19:6",w->x+24u,w->y+218u,COL_DIM,COL_PANEL);
+    text_line("Display",w->x+24u,w->y+62u,COL_TEXT,COL_PANEL);
+    text_line("Current resolution",w->x+24u,w->y+90u,COL_DIM,COL_PANEL);
+    draw_resolution(framebuffer_width(),framebuffer_height(),w->x+190u,w->y+90u,COL_GOLD,COL_PANEL);
+    text_line("Choose a display mode",w->x+24u,w->y+122u,COL_DIM,COL_PANEL);
+    uint32_t row_y=w->y+148u;
+    for(uint32_t i=0u;i<sizeof(display_modes)/sizeof(display_modes[0]);++i){
+        uint32_t selected=(i==selected_display_mode);
+        uint32_t bg=selected?COL_PANEL2:COL_PANEL;
+        fill(w->x+20u,row_y+i*42u,w->w-40u,34u,bg);
+        border(w->x+20u,row_y+i*42u,w->w-40u,34u,selected?COL_GOLD:COL_GOLD_DIM);
+        draw_resolution(display_modes[i].width,display_modes[i].height,w->x+34u,row_y+8u+i*42u,COL_TEXT,bg);
+        if(selected)text_line("ACTIVE",w->x+w->w-90u,row_y+8u+i*42u,COL_OK,bg);
+    }
+    text_line(display_status,w->x+24u,w->y+w->h-34u,COL_DIM,COL_PANEL);
 }
 
 static uint32_t label_width(const char*label);
@@ -348,12 +385,27 @@ static void init_windows(void){
     windows[2]=(struct ui_window){WIN_ABOUT,0u,0u,0u,0u,(sw*34u)/100u,(sh*20u)/100u,(sw*36u)/100u,(sh*48u)/100u,0u,0u,0u,0u};
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
     terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;
+    selected_display_mode=0u;
+    for(uint32_t i=0u;i<sizeof(display_modes)/sizeof(display_modes[0]);++i)
+        if(display_modes[i].width==framebuffer_width()&&display_modes[i].height==framebuffer_height()){selected_display_mode=i;break;}
+    set_display_status("Select a resolution");
 }
 static void close_gui(void){gui_active=0u;debug_write("LIONOS:GUI-EXIT\\n");}
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
     focus(w->id);
+    if(w->id==WIN_SETTINGS && y>=w->y+148u && y<w->y+148u+42u*(sizeof(display_modes)/sizeof(display_modes[0])) && x>=w->x+20u && x<w->x+w->w-20u){
+        uint32_t idx=(y-(w->y+148u))/42u;
+        if(idx<sizeof(display_modes)/sizeof(display_modes[0])){
+            selected_display_mode=idx;
+            if(framebuffer_set_mode(display_modes[idx].width,display_modes[idx].height)==0){
+                resize_windows_to_display();
+                set_display_status("Resolution applied");
+            }else set_display_status("Mode unavailable");
+        }
+        return;
+    }
     if(y<w->y+TITLE_H&&x>=w->x&&x<w->x+w->w){
         if(x>=w->x+w->w-28u){hide(w->id);return;}
         if(x>=w->x+w->w-52u){toggle_max(w->id);return;}

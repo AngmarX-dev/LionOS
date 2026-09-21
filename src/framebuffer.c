@@ -2,6 +2,7 @@
 #include "framebuffer.h"
 #include "paging.h"
 #include "heap.h"
+#include "io.h"
 
 #define FB_VIRTUAL_BASE 0xF0000000u
 #define FB_MAX_MAPPED_SIZE 0x01000000u
@@ -52,6 +53,32 @@ static uint8_t blue_size;
 static uint32_t enabled;
 static uint32_t *desktop_buffer;
 static uint32_t desktop_mode;
+
+/* QEMU/Bochs VBE DISPI interface. The driver is probed by writing a mode and
+ * reading it back, so real hardware that does not expose this interface is
+ * left untouched. */
+#define VBE_INDEX_PORT 0x01CEu
+#define VBE_DATA_PORT  0x01CFu
+#define VBE_XRES 1u
+#define VBE_YRES 2u
+#define VBE_BPP 3u
+#define VBE_ENABLE 4u
+#define VBE_ENABLED 0x01u
+#define VBE_LFB_ENABLED 0x40u
+
+static void vbe_write(uint16_t index, uint16_t value) { outw(VBE_INDEX_PORT, index); outw(VBE_DATA_PORT, value); }
+static uint16_t vbe_read(uint16_t index) { outw(VBE_INDEX_PORT, index); return inw(VBE_DATA_PORT); }
+
+static int vbe_set_mode(uint32_t width, uint32_t height) {
+    if (width < 640u || height < 480u || width > 4096u || height > 2160u) return -1;
+    vbe_write(VBE_ENABLE, 0u);
+    vbe_write(VBE_XRES, (uint16_t)width);
+    vbe_write(VBE_YRES, (uint16_t)height);
+    vbe_write(VBE_BPP, 32u);
+    vbe_write(VBE_ENABLE, VBE_ENABLED | VBE_LFB_ENABLED);
+    if (vbe_read(VBE_XRES) != (uint16_t)width || vbe_read(VBE_YRES) != (uint16_t)height) return -1;
+    return 0;
+}
 
 static uint32_t channel(uint8_t value, uint8_t size, uint8_t position) {
     if (!size) return 0u;
@@ -184,6 +211,39 @@ int framebuffer_init(uint32_t multiboot_info) {
 int framebuffer_available(void) { return enabled != 0u; }
 uint32_t framebuffer_width(void) { return fb_width_value; }
 uint32_t framebuffer_height(void) { return fb_height_value; }
+
+
+int framebuffer_mode_supported(uint32_t width, uint32_t height) {
+    if (!enabled || fb_phys == 0u) return 0;
+    if (width < 640u || height < 480u || width > 4096u || height > 2160u) return 0;
+    /* Probe the virtual display without changing the current mode. */
+    uint16_t old_x = vbe_read(VBE_XRES), old_y = vbe_read(VBE_YRES);
+    if (old_x == 0u || old_y == 0u) return 0;
+    return (width <= 4096u && height <= 2160u) ? 1 : 0;
+}
+
+int framebuffer_set_mode(uint32_t width, uint32_t height) {
+    if (!enabled || width < 640u || height < 480u || width > 4096u || height > 2160u) return -1;
+    if (width == fb_width_value && height == fb_height_value) return 0;
+    if (vbe_set_mode(width, height) != 0) return -1;
+
+    uint32_t new_pitch = width * 4u;
+    uint64_t bytes = (uint64_t)new_pitch * height;
+    uint32_t mapped = (uint32_t)((bytes + PAGE_SIZE - 1u) & ~(uint64_t)(PAGE_SIZE - 1u));
+    if (!mapped || mapped > FB_MAX_MAPPED_SIZE) return -1;
+    uint32_t aligned = fb_phys & ~(PAGE_SIZE - 1u);
+    for (uint32_t off = 0; off < mapped; off += PAGE_SIZE)
+        if (paging_map_kernel_page(FB_VIRTUAL_BASE + off, aligned + off, 0x3u) != 0) return -1;
+
+    if (desktop_buffer) { kfree(desktop_buffer); desktop_buffer = 0; }
+    fb_pitch = new_pitch;
+    fb_width_value = width;
+    fb_height_value = height;
+    desktop_mode = 0u;
+    if (framebuffer_begin_desktop() != 0) return -1;
+    framebuffer_clear(0x07111Fu);
+    return 0;
+}
 
 int framebuffer_begin_desktop(void) {
     if (!enabled) return -1;
