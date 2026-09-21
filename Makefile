@@ -131,6 +131,8 @@ $(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(USER_EMBEDS) $(BUILD)/kernel_runtime.o 
 	grub-file --is-x86-multiboot2 $@
 
 iso: $(KERNEL)
+	@command -v grub-mkrescue >/dev/null 2>&1 || (echo 'ERROR: install grub-pc-bin grub-efi-amd64-bin xorriso'; exit 1)
+	@grub-mkstandalone --version >/dev/null 2>&1 || (echo 'ERROR: EFI GRUB tools missing; install grub-efi-amd64-bin'; exit 1)
 	mkdir -p $(BUILD)/iso/boot/grub
 	cp $(KERNEL) $(BUILD)/iso/boot/lionos.bin
 	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
