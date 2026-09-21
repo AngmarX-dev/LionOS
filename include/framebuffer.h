@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 int framebuffer_init(uint32_t multiboot_info);
+void framebuffer_boot_splash(uint32_t progress, const char *status);
 int framebuffer_available(void);
 uint32_t framebuffer_width(void);
 uint32_t framebuffer_height(void);

@@ -220,6 +220,76 @@ int framebuffer_init(uint32_t multiboot_info) {
     return -1;
 }
 
+
+static uint32_t boot_animation_frame;
+
+static uint32_t boot_text_width(const char *s) {
+    uint32_t n = 0u;
+    if (!s) return 0u;
+    while (s[n]) ++n;
+    return n * UI_CELL_W;
+}
+
+static void boot_text_center(const char *s, uint32_t y, uint32_t fg, uint32_t bg) {
+    uint32_t w = framebuffer_width();
+    uint32_t tw = boot_text_width(s);
+    uint32_t x = tw < w ? (w - tw) / 2u : 8u;
+    while (s && *s && x + UI_CELL_W <= w) {
+        draw_char_at(*s++, x, y, fg, bg);
+        x += UI_CELL_W;
+    }
+}
+
+void framebuffer_boot_splash(uint32_t progress, const char *status) {
+    if (!enabled) return;
+    if (progress > 100u) progress = 100u;
+    uint32_t w = framebuffer_width(), h = framebuffer_height();
+    if (!w || !h) return;
+
+    ++boot_animation_frame;
+    framebuffer_fill_rect(0u, 0u, w, h, 0x050A12u);
+    framebuffer_fill_rect(0u, 0u, w, 4u, 0xF2C94Cu);
+
+    uint32_t cx = w / 2u;
+    uint32_t logo_y = h > 560u ? h / 2u - 150u : h / 2u - 120u;
+    if (logo_y < 40u) logo_y = 40u;
+
+    /* Compact gold LionOS mark built from the same geometry as the desktop theme. */
+    uint32_t s = h > 560u ? 10u : 8u;
+    uint32_t m = s * 2u + 1u;
+    framebuffer_fill_rect(cx - m * 3u, logo_y, m * 2u, m, 0xF2C94Cu);
+    framebuffer_fill_rect(cx + m, logo_y, m * 2u, m, 0xF2C94Cu);
+    framebuffer_fill_rect(cx - m * 4u, logo_y + m, m * 8u, m * 5u, 0xF2C94Cu);
+    framebuffer_fill_rect(cx - m * 3u, logo_y + m * 2u, m * 6u, m * 4u, 0x0B1422u);
+    framebuffer_fill_rect(cx - m * 2u, logo_y + m * 2u, m, m, 0xF2C94Cu);
+    framebuffer_fill_rect(cx + m, logo_y + m * 2u, m, m, 0xF2C94Cu);
+    framebuffer_fill_rect(cx - m * 2u, logo_y + m * 5u, m * 4u, m * 2u, 0xF2C94Cu);
+    framebuffer_fill_rect(cx - m, logo_y + m * 7u, m * 2u, m, 0xF2C94Cu);
+
+    boot_text_center("LIONOS", logo_y + m * 9u, 0xF2C94Cu, 0x050A12u);
+    boot_text_center("EXPERIMENTAL OPERATING SYSTEM", logo_y + m * 11u, 0x91A4BCu, 0x050A12u);
+
+    uint32_t bar_w = w > 720u ? 560u : (w > 480u ? w - 120u : w - 64u);
+    uint32_t bar_h = 10u;
+    uint32_t bar_x = (w - bar_w) / 2u;
+    uint32_t bar_y = h > 560u ? h - 120u : h - 90u;
+    framebuffer_fill_rect(bar_x, bar_y, bar_w, bar_h, 0x13233Au);
+    uint32_t fill_w = (bar_w * progress) / 100u;
+    if (fill_w) framebuffer_fill_rect(bar_x, bar_y, fill_w, bar_h, 0xF2C94Cu);
+
+    /* Moving highlight gives the loader a subtle animation without a backbuffer. */
+    uint32_t marker = (boot_animation_frame * 6u) % (bar_w ? bar_w : 1u);
+    if (marker + 12u < bar_w) framebuffer_fill_rect(bar_x + marker, bar_y, 12u, bar_h, 0xFFF1A8u);
+
+    char percent[4] = {'0','0','0',0};
+    uint32_t p = progress;
+    percent[2] = (char)('0' + (p % 10u)); p /= 10u;
+    percent[1] = (char)('0' + (p % 10u)); p /= 10u;
+    percent[0] = (char)('0' + (p % 10u));
+    boot_text_center(percent, bar_y + 20u, 0x91A4BCu, 0x050A12u);
+    boot_text_center(status ? status : "Starting LionOS", bar_y + 42u, 0xF2F5FAu, 0x050A12u);
+}
+
 int framebuffer_available(void) { return enabled != 0u; }
 uint32_t framebuffer_width(void) { return fb_width_value; }
 uint32_t framebuffer_height(void) { return fb_height_value; }

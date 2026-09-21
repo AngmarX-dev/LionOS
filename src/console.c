@@ -74,7 +74,8 @@ uint8_t console_color(void) { return color; }
 void console_use_framebuffer(void) {
     if (!framebuffer_available()) return;
     graphics = 1u;
-    console_clear();
+    row = 0u;
+    col = 0u;
 }
 
 void console_putc(char c) {
