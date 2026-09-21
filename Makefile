@@ -137,7 +137,6 @@ iso: $(KERNEL)
 	grub-mkrescue -o $(ISO) $(BUILD)/iso
 
 usb: iso
-	if command -v isohybrid >/dev/null 2>&1; then isohybrid --uefi $(ISO); fi
 	cp $(ISO) $(BUILD)/lionos-usb.img
 
 disk: | $(BUILD)
