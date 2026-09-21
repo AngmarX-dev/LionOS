@@ -22,6 +22,11 @@ jobs:
       - name: Build live USB image
         run: make usb
 
+      - name: Verify BIOS and UEFI boot entries
+        run: |
+          xorriso -indev build/lionos.iso -report_el_torito as_mkisofs 2>&1 | tee build/eltorito.txt
+          grep -qi 'EFI' build/eltorito.txt
+
       - name: Verify native-resolution QEMU launcher
         run: |
           make disk
