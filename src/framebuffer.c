@@ -300,15 +300,15 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
 void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint32_t height) {
     if (!enabled || !desktop_mode || !desktop_buffer || !pixels || !width || !height) return;
     uint32_t sw=fb_width_value, sh=fb_height_value;
-    uint64_t lhs=(uint64_t)sw*height, rhs=(uint64_t)sh*width;
+    uint32_t lhs=sw*height, rhs=sh*width;
     uint32_t out_w,out_h,ox,oy;
-    if(lhs>=rhs){out_w=sw;out_h=(uint32_t)(((uint64_t)sw*height)/width);ox=0u;oy=(sh-out_h)/2u;}
-    else{out_h=sh;out_w=(uint32_t)(((uint64_t)sh*width)/height);ox=(sw-out_w)/2u;oy=0u;}
+    if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;ox=0u;oy=(sh-out_h)/2u;}
+    else{out_h=sh;out_w=(sh*width)/height;ox=(sw-out_w)/2u;oy=0u;}
     for(uint32_t y=0u;y<out_h;++y){
-        uint32_t sy=(uint32_t)(((uint64_t)y*height)/out_h);
+        uint32_t sy=(y*height)/out_h;
         uint32_t *dst=desktop_buffer+(oy+y)*sw+ox;
         for(uint32_t x=0u;x<out_w;++x){
-            uint32_t sx=(uint32_t)(((uint64_t)x*width)/out_w);
+            uint32_t sx=(x*width)/out_w;
             uint16_t p=pixels[sy*width+sx];
             uint32_t r=((p>>11)&31u)*255u/31u, g=((p>>5)&63u)*255u/63u, b=(p&31u)*255u/31u;
             dst[x]=pack_rgb((r<<16)|(g<<8)|b);
