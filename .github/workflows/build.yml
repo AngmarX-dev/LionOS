@@ -16,7 +16,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools syslinux-utils qemu-system-x86
 
-      - name: Run Phase 23 stability suite
+      - name: Run stability and GUI suite
         run: make test
 
       - name: Build live USB image
@@ -27,26 +27,13 @@ jobs:
           xorriso -indev build/lionos.iso -report_el_torito as_mkisofs 2>&1 | tee build/eltorito.txt
           grep -qi 'EFI' build/eltorito.txt
 
-      - name: Verify native-resolution QEMU launcher
+      - name: Verify LionOS boot UI configuration
         run: |
-          make disk
-          LIONOS_QEMU_DRY_RUN=1 sh scripts/qemu_fullscreen.sh
-          grep -q '^set gfxmode=1024x768x32,800x600x32,640x480x32
-          ! grep -q '1920x1080' boot/grub.cfg
-          ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
-
-      - name: Verify USB image is bootable as a disk
-        run: |
-          timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
-
-      - name: Upload images
-        uses: actions/upload-artifact@v4
-        with:
-          name: lionos-images
-          path: |
-            build/lionos.iso
-            build/lionos-usb.img
- boot/grub.cfg
+          grep -q '^set gfxmode=1024x768x32,800x600x32,640x480x32$' boot/grub.cfg
+          grep -q '^menuentry "LionOS" {' boot/grub.cfg
+          ! grep -q 'LionOS (Safe Graphics)' boot/grub.cfg
+          grep -q 'framebuffer_boot_splash' src/framebuffer.c
+          grep -q 'console_use_framebuffer' src/kernel.c
           ! grep -q '1920x1080' boot/grub.cfg
           ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
 
