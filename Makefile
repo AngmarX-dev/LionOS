@@ -13,6 +13,7 @@ LD := ld
 NASM := nasm
 CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
 ICON_HEADER := $(BUILD)/lion_icons.h
+WALLPAPER_HEADER := $(BUILD)/lion_wallpaper.h
 ICON_SOURCES := Icons/lionos-icon.png Icons/Terminal-icon.png Icons/Browser-icon.png Icons/Desktop-icon.png Icons/DocumentsFolder-icon.png Icons/Tools-icon.png Icons/OldComputer-icon.png Icons/Home-icon.png Icons/Trash-icon.png
 GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation -I$(BUILD)
 GUI_DESKTOP_CFLAGS := $(CFLAGS)
@@ -44,8 +45,11 @@ $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
 $(ICON_HEADER): scripts/png_to_icons.py $(ICON_SOURCES) | $(BUILD)
 	python3 scripts/png_to_icons.py $(ICON_HEADER)
 
-$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) | $(BUILD)
-	$(CC) $(GUI_CFLAGS) -c $< -o $@
+$(WALLPAPER_HEADER): scripts/png_to_wallpaper.py LionOS-Wallpaper.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py $(WALLPAPER_HEADER)
+
+$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) $(WALLPAPER_HEADER) | $(BUILD)
+	$(CC) $(GUI_CFLAGS) -I$(BUILD) -c $< -o $@
 
 $(BUILD)/kernel_runtime.o: src/kernel_runtime.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
