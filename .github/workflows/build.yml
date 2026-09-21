@@ -31,7 +31,7 @@ jobs:
         run: |
           make disk
           LIONOS_QEMU_DRY_RUN=1 sh scripts/qemu_fullscreen.sh
-          grep -q '^set gfxmode=auto$' boot/grub.cfg
+          grep -q '^set gfxmode=auto,' boot/grub.cfg
           ! grep -q '1920x1080' boot/grub.cfg
           ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
 
