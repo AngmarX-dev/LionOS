@@ -1,5 +1,5 @@
-#ifndef LION_FONT_H
-#define LION_FONT_H
+#ifndef LION_FONT_BITMAP_H
+#define LION_FONT_BITMAP_H
 #include <stdint.h>
 #define LION_FONT_FIRST 32u
 #define LION_FONT_COUNT 95u
