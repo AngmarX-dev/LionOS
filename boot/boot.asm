@@ -50,6 +50,9 @@ smp_protected_entry:
     mov fs, ax
     mov gs, ax
     mov esp, [smp_trampoline_stack]
+    mov eax, cr4
+    or eax, 0x20
+    mov cr4, eax
     mov eax, [smp_trampoline_cr3]
     mov cr3, eax
     mov eax, cr0
