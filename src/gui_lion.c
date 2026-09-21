@@ -10,6 +10,7 @@
 #include "browser.h"
 #include "lion_icons.h"
 #include "lion_font.h"
+#include "lion_wallpaper.h"
 
 #define FONT_W LION_FONT_W
 #define FONT_H LION_FONT_H
@@ -82,7 +83,8 @@ static void glyph(char c, uint16_t rows[FONT_H]) {
 static void fill(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){framebuffer_fill_rect(x,y,w,h,c);}
 static void border(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){if(w<2u||h<2u)return;fill(x,y,w,1u,c);fill(x,y+h-1u,w,1u,c);fill(x,y,1u,h,c);fill(x+w-1u,y,1u,h,c);}
 static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
-    uint16_t rows[FONT_H];glyph(c,rows);fill(x,y,CHAR_W,CHAR_H,bg);
+    (void)bg;
+    uint16_t rows[FONT_H];glyph(c,rows);
     for(uint32_t gy=0u;gy<FONT_H;++gy)for(uint32_t gx=0u;gx<FONT_W;++gx)
         if(rows[gy]&(1u<<(FONT_W-1u-gx)))fill(x+gx,y+gy+2u,1u,1u,fg);
 }
@@ -226,54 +228,8 @@ static void draw_lion_logo(uint32_t cx,uint32_t cy,uint32_t s){
     fill(cx+m*2u,cy+m*4u,m,m,COL_GOLD);
 }
 static void draw_wallpaper(void){
-    uint32_t w=framebuffer_width(),h=framebuffer_height();
-    uint32_t sky_h=(h*68u)/100u;
-    const uint32_t sky[8]={0x07111Fu,0x09182Au,0x0B2037u,0x0E2944u,0x12345Au,0x163D68u,0x1A4671u,0x1E4D78u};
-    for(uint32_t i=0;i<8u;++i){
-        uint32_t y0=(sky_h*i)/8u,y1=(sky_h*(i+1u))/8u;
-        fill(0u,y0,w,y1-y0,sky[i]);
-    }
-    fill(0u,sky_h,w,h-sky_h,COL_GROUND);
-    for(uint32_t i=0;i<72u;++i){
-        uint32_t x=(i*97u+31u)%w;
-        uint32_t y=(i*53u+19u)%(sky_h>30u?sky_h-20u:10u);
-        if((i%5u)!=0u) fill(x,y,2u,2u,COL_TEXT);
-    }
-    draw_sun((w*78u)/100u,(h*22u)/100u,(h>200u?h/24u:10u));
-    uint32_t horizon=(h*62u)/100u;
-    fill(0u,horizon,w,h-horizon,COL_GROUND);
-    for(uint32_t i=0;i<18u;++i){
-        uint32_t x=(i*w)/18u;
-        uint32_t peak=70u+(i%6u)*18u;
-        uint32_t width=(w/12u)+(i%3u)*28u;
-        for(uint32_t r=0u;r<peak;r+=6u){
-            uint32_t inset=(r*width)/(peak?peak:1u);
-            uint32_t yy=horizon-peak+r;
-            if(yy<horizon) fill(x+inset,yy,width>inset*2u?width-inset*2u:2u,6u,0x0A1727u);
-        }
-    }
-    for(uint32_t i=0;i<12u;++i){
-        uint32_t x=(i*w)/12u;
-        uint32_t peak=42u+(i%4u)*14u;
-        for(uint32_t r=0u;r<peak;r+=5u){
-            uint32_t inset=(r*70u)/(peak?peak:1u);
-            uint32_t yy=horizon-peak+r;
-            if(yy<horizon) fill(x+inset,yy,70u>inset*2u?70u-inset*2u:2u,5u,0x10263Bu);
-        }
-    }
-    uint32_t logo_s=h>700u?4u:3u;
-    draw_lion_logo(w/2u,(h*31u)/100u,logo_s);
-    {
-        const char title[]="LionOS";
-        uint32_t tw=label_width(title);
-        text_line(title,w>tw?(w-tw)/2u:8u,(h*42u)/100u,COL_TEXT,COL_GROUND);
-        const char sub[]="Small - Fast - Powerful";
-        uint32_t sw=label_width(sub);
-        text_line(sub,w>sw?(w-sw)/2u:8u,(h*46u)/100u,COL_GOLD,COL_GROUND);
-    }
+    framebuffer_blit_rgb565_cover(lion_wallpaper_rgb565,LION_WALLPAPER_W,LION_WALLPAPER_H);
 }
-static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
-
 static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label,const uint32_t*icon){
     fill(x,y,w,36u,c);
     framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+7u,y+7u,22u);
