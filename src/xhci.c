@@ -69,6 +69,7 @@
 #define TRB_TC 2u
 #define TRB_CHAIN 0x10u
 #define TRB_IOC 0x20u
+#define TRB_IDT 0x40u
 #define TRB_DIR_IN 0x10000u
 #define CC_SUCCESS 1u
 
@@ -333,7 +334,7 @@ static void fill_ep0(void *ctx,uint32_t mps,uint64_t dequeue){
 }
 
 static int address_device(void){
-    zero_mem(in_ctx,PAGE_SIZE);dcbaa[slot_id]=(uint64_t)(uintptr_t)out_ctx;*(uint32_t*)in_ctx=3u;
+    zero_mem(in_ctx,PAGE_SIZE);dcbaa[slot_id]=(uint64_t)(uintptr_t)out_ctx;((uint32_t*)in_ctx)[1]=3u;
     fill_slot(in_ctx,1u);fill_ep0(in_ctx,ep0_default_mps(),(uint64_t)(uintptr_t)ep0_ring);
     submit_cmd(TRB_ADDRESS_DEVICE,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
     return wait_cmd(slot_id);
@@ -342,7 +343,7 @@ static int address_device(void){
 static int update_ep0_mps(uint32_t mps){
     uint8_t *out_ep=ctx_ep(out_ctx,1u);
     uint64_t dequeue=qget(out_ep,2u);
-    zero_mem(in_ctx,PAGE_SIZE);*(uint32_t*)in_ctx=(1u<<1);fill_ep0(in_ctx,mps,dequeue&~1ull);
+    zero_mem(in_ctx,PAGE_SIZE);((uint32_t*)in_ctx)[1]=(1u<<1);fill_ep0(in_ctx,mps,dequeue&~1ull);
     submit_cmd(TRB_EVAL_CONTEXT,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
     return wait_cmd(slot_id);
 }
@@ -358,7 +359,7 @@ static void advance_ep0(void){
 static int control_xfer(uint8_t bm,uint8_t req,uint16_t value,uint16_t index,void *data,uint16_t length,int in){
     uint64_t setup=(uint64_t)bm|((uint64_t)req<<8)|((uint64_t)value<<16)|((uint64_t)index<<32)|((uint64_t)length<<48);
     uint32_t trt=length?(in?(3u<<16):(2u<<16)):0u;
-    write_trb(&ep0_ring[ep0_index],setup,8u,TRB_SETUP,TRB_CHAIN|trt,ep0_cycle);advance_ep0();
+    write_trb(&ep0_ring[ep0_index],setup,8u,TRB_SETUP,TRB_IDT|TRB_CHAIN|trt,ep0_cycle);advance_ep0();
     if(length){write_trb(&ep0_ring[ep0_index],(uint64_t)(uintptr_t)data,length&0x1FFFFu,TRB_DATA,TRB_CHAIN|(in?TRB_DIR_IN:0u),ep0_cycle);advance_ep0();}
     write_trb(&ep0_ring[ep0_index],0,0,TRB_STATUS,TRB_IOC|(in?0u:TRB_DIR_IN),ep0_cycle);advance_ep0();
     *(volatile uint32_t *)(uintptr_t)(db_base+slot_id*4u)=1u;
@@ -421,7 +422,7 @@ static int configure_mouse(hid_candidate_t *c){
     uint32_t n=c->endpoint_address&0x0Fu;if(!n||(c->endpoint_address&0x80u)==0)return -1;
     endpoint_id=n*2u+1u;if(endpoint_id>=32u)return -1;
     endpoint_packet=c->packet_size;if(endpoint_packet>1024u)endpoint_packet=1024u;endpoint_interval=interval_value(c->interval);
-    zero_mem(in_ctx,PAGE_SIZE);*(uint32_t*)in_ctx=1u|(1u<<endpoint_id);fill_slot(in_ctx,endpoint_id);fill_intr_ep(in_ctx);
+    zero_mem(in_ctx,PAGE_SIZE);((uint32_t*)in_ctx)[1]=1u|(1u<<endpoint_id);fill_slot(in_ctx,endpoint_id);fill_intr_ep(in_ctx);
     submit_cmd(TRB_CONFIGURE_EP,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);return wait_cmd(slot_id);
 }
 
