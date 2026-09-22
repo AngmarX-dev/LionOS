@@ -301,3 +301,6 @@ The graphical desktop now includes a built-in experimental browser application. 
 Current networking scope is intentionally small: the browser supports **HTTP over IPv4 using numeric addresses** (for example `http://10.0.2.2/`). DNS, HTTPS/TLS, JavaScript, CSS layout, images, cookies, and persistent browser storage are not implemented yet.
 
 Open it from the desktop **Browser** icon, the taskbar, or the LionOS launcher. Press **Esc** to close it.
+
+
+<!-- CI verification branch: USB HID mouse changes are tested by the existing full LionOS build workflow. -->
