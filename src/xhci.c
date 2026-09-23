@@ -482,7 +482,7 @@ static int submit_report(void){
 int xhci_mouse_init(void){
     if(ready)return 0;
     pci_xhci_t d;if(find_xhci(&d))return usb_fail("PCI");
-    console_write("[ USB ] xHCI controller ");console_write_hex(d.vendor);console_putc(':');console_write_hex(d.device);console_putc('\\n');
+    console_write("[ USB ] xHCI controller ");console_write_hex(d.vendor);console_putc(':');console_write_hex(d.device);console_putc('\n');
     uint32_t pcicmd=pci_r32(d.bus,d.slot,d.function,PCI_COMMAND);pcicmd|=0x6u;pci_w32(d.bus,d.slot,d.function,PCI_COMMAND,pcicmd);
     if(map_mmio(d.bar0))return usb_fail("MMIO");
     cap_len=r32(CAPLENGTH)&0xFFu;if(cap_len<0x20u)return usb_fail("CAP");
