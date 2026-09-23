@@ -208,7 +208,7 @@ static int map_mmio(uint64_t phys){
     uint32_t offset=(uint32_t)(phys&(PAGE_SIZE-1u));
     uint32_t bytes=(XHCI_MAP_SIZE+offset+PAGE_SIZE-1u)&~(PAGE_SIZE-1u);
     for(uint32_t off=0;off<bytes;off+=PAGE_SIZE)
-        if(paging_map_kernel_page(XHCI_VIRT+off,aligned+off,0x3u)!=0)return -1;
+        if(paging_map_kernel_page(XHCI_VIRT+off,aligned+off,0x13u)!=0)return -1;
     return 0;
 }
 
@@ -306,6 +306,7 @@ static void submit_cmd(uint32_t type,uint64_t param,uint32_t control){
     t->lo=(uint32_t)param;t->hi=(uint32_t)(param>>32);t->status=0;t->control=(type<<10)|control|(cmd_cycle?TRB_CYCLE:0u);
     ++cmd_index;
     if(cmd_index>=RING_TRBS-1u){link_trb(cmd_ring,cmd_cycle);cmd_index=0;cmd_cycle^=1u;}
+    __asm__ volatile("mfence" ::: "memory");
     *(volatile uint32_t *)(uintptr_t)db_base=0u;
 }
 
