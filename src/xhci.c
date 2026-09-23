@@ -488,7 +488,9 @@ static int submit_report(void){
     if(report_length<3u)report_length=3u;
     if(report_length>PAGE_SIZE)report_length=PAGE_SIZE;
     write_trb(&intr_ring[intr_index],(uint64_t)(uintptr_t)report_buf,report_length&0x1FFFFu,TRB_NORMAL,TRB_IOC,intr_cycle);advance_intr();
-    *(volatile uint32_t *)(uintptr_t)(db_base+slot_id*4u)=endpoint_id;report_pending=1u;return 0;
+    __asm__ volatile("mfence" ::: "memory");
+    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
+    report_pending=1u;return 0;
 }
 
 int xhci_mouse_init(void){
