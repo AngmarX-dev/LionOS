@@ -307,7 +307,7 @@ static void submit_cmd(uint32_t type,uint64_t param,uint32_t control){
     ++cmd_index;
     if(cmd_index>=RING_TRBS-1u){link_trb(cmd_ring,cmd_cycle);cmd_index=0;cmd_cycle^=1u;}
     __asm__ volatile("mfence" ::: "memory");
-    *(volatile uint32_t *)(uintptr_t)db_base=0u;
+    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base)=0u;
 }
 
 static int next_event(trb_t *out){
@@ -406,7 +406,8 @@ static int control_xfer(uint8_t bm,uint8_t req,uint16_t value,uint16_t index,voi
     write_trb(&ep0_ring[ep0_index],setup,8u,TRB_SETUP,TRB_IDT|TRB_CHAIN|trt,ep0_cycle);advance_ep0();
     if(length){write_trb(&ep0_ring[ep0_index],(uint64_t)(uintptr_t)data,length&0x1FFFFu,TRB_DATA,TRB_CHAIN|(in?TRB_DIR_IN:0u),ep0_cycle);advance_ep0();}
     write_trb(&ep0_ring[ep0_index],0,0,TRB_STATUS,TRB_IOC|(in?0u:TRB_DIR_IN),ep0_cycle);advance_ep0();
-    *(volatile uint32_t *)(uintptr_t)(db_base+slot_id*4u)=1u;
+    __asm__ volatile("mfence" ::: "memory");
+    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=1u;
     for(uint32_t n=0;n<5000000u;++n){
         trb_t e;if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVENT)continue;
