@@ -31,6 +31,8 @@ run_qemu() {
     rm -f "$log_file"
     timeout "${TIMEOUT_SECONDS}s" qemu-system-i386 \
         -smp 2 \
+        -device nec-usb-xhci,id=xhci \
+        -device usb-mouse,bus=xhci.0 \
         -cdrom build/lionos.iso \
         -drive file=build/lionos-disk.img,format=raw,if=ide \
         -m "$QEMU_MEMORY" \
@@ -57,6 +59,8 @@ run_gui_smoke() {
 
     qemu-system-i386 \
         -smp 2 \
+        -device nec-usb-xhci,id=xhci \
+        -device usb-mouse,bus=xhci.0 \
         -cdrom build/lionos.iso \
         -drive file=build/lionos-disk.img,format=raw,if=ide \
         -m "$QEMU_MEMORY" \
