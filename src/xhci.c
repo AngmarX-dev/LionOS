@@ -110,6 +110,7 @@ typedef struct {
 } hid_candidate_t;
 
 static uint32_t cap_len, op_base, db_base, rt_base;
+static uint32_t hci_version;
 static uint32_t max_ports, max_slots, ctx_size;
 static uint32_t slot_id, port_number, device_speed, endpoint_id;
 static uint32_t endpoint_packet, endpoint_interval;
@@ -190,6 +191,42 @@ static void zero_mem(void *ptr,uint32_t bytes){
     uint8_t *p=(uint8_t*)ptr;
     for(uint32_t i=0;i<bytes;++i)p[i]=0;
 }
+static uint32_t xhci_rdtsc_low(void){
+    uint32_t lo,hi;
+    __asm__ volatile("lfence; rdtsc" : "=a"(lo),"=d"(hi) :: "memory");
+    (void)hi;
+    return lo;
+}
+
+static uint32_t xhci_tsc_hz32(void){
+    uint32_t a,b,c,d;
+    __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0x15u),"c"(0u));
+    if(a&&b&&c){
+        uint32_t base=c/a;
+        if(base && base <= 0xFFFFFFFFu/b)
+            return base*b;
+    }
+    __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0u),"c"(0u));
+    uint32_t max_leaf=a;
+    if(max_leaf>=0x16u){
+        __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0x16u),"c"(0u));
+        if(a && a<=4000u) return a*1000000u;
+    }
+    return 0u;
+}
+
+static void xhci_delay_ms(uint32_t ms){
+    uint32_t hz=xhci_tsc_hz32();
+    if(hz){
+        uint32_t ticks_per_ms=hz/1000u;
+        uint32_t start=xhci_rdtsc_low();
+        uint32_t ticks=ticks_per_ms*ms;
+        while((uint32_t)(xhci_rdtsc_low()-start)<ticks) __asm__ volatile("pause");
+        return;
+    }
+    /* Fallback for very old/non-reporting virtual CPUs. */
+    for(uint32_t m=0;m<ms;++m) for(uint32_t i=0;i<1000u;++i) io_wait();
+}
 
 static int map_mmio(uint64_t phys){
     uint64_t aligned=phys&~(uint64_t)(PAGE_SIZE-1u);
@@ -231,6 +268,9 @@ static int reset_controller(void){
     for(uint32_t i=0;i<2000000u;++i){if(r32(op_base+USBSTS)&HCH)break;__asm__ volatile("pause");}
     if(!(r32(op_base+USBSTS)&HCH))return -1;
     w32(op_base+USBCMD,cmd|HCRST);
+    /* Linux's Intel xHCI path deliberately waits 1 ms after HCRST before
+       touching controller registers. Keep that hardware-safe ordering. */
+    xhci_delay_ms(1u);
     for(uint32_t i=0;i<10000000u;++i){if(!(r32(op_base+USBCMD)&HCRST))break;__asm__ volatile("pause");}
     if(r32(op_base+USBCMD)&HCRST)return -1;
     for(uint32_t i=0;i<10000000u;++i){if(!(r32(op_base+USBSTS)&CNR))break;__asm__ volatile("pause");}
@@ -283,7 +323,7 @@ static void init_rings(void){
     cmd_index=0;cmd_cycle=1;event_index=0;event_cycle=1;ep0_index=0;ep0_cycle=1;intr_index=0;intr_cycle=1;
     w64(op_base+CRCR,(uint64_t)(uintptr_t)cmd_ring|1u);
     uint32_t ir=rt_base+RT_BASE0;
-    w32(ir+IMAN,2u);w32(ir+IMOD,0u);w32(ir+ERSTSZ,1u);w64(ir+ERSTBA,(uint64_t)(uintptr_t)erst);w64(ir+ERDP,(uint64_t)(uintptr_t)event_ring);
+    w32(ir+IMAN,0u);w32(ir+IMOD,0u);w32(ir+ERSTSZ,1u);w64(ir+ERSTBA,(uint64_t)(uintptr_t)erst);w64(ir+ERDP,(uint64_t)(uintptr_t)event_ring);
 }
 
 static int run_controller(void){
@@ -358,7 +398,7 @@ static void fill_ep0(void *ctx,uint32_t mps,uint64_t dequeue){
     e[0]=0u;
     e[1]=(3u<<1)|(4u<<3)|((mps&0xFFFFu)<<16);
     qset(e,2u,dequeue|(ep0_cycle?1u:0u));
-    e[4]=mps&0xFFFFu;
+    e[4]=(hci_version>=0x100u)?8u:(mps&0xFFFFu);
 }
 
 static int address_device(void){
@@ -438,8 +478,16 @@ static int find_hid(hid_candidate_t *c){
 
 static uint32_t interval_value(uint32_t v){
     if(!v)v=1u;
-    if(device_speed>=3u)return v>16u?16u:v;
-    uint32_t e=3u,p=1u;while(p<v&&e<10u){p<<=1u;++e;}return e;
+    if(device_speed>=3u){
+        if(v>16u)v=16u;
+        return v-1u;
+    }
+    uint32_t microframes=v*8u;
+    if(microframes<8u)microframes=8u;
+    if(microframes>1024u)microframes=1024u;
+    uint32_t e=3u;
+    while(e<10u && (1u<<(e+1u))<=microframes)++e;
+    return e;
 }
 
 static void fill_intr_ep(void *ctx){
@@ -485,10 +533,14 @@ int xhci_mouse_init(void){
     console_write("[ USB ] xHCI controller ");console_write_hex(d.vendor);console_putc(':');console_write_hex(d.device);console_putc('\n');
     uint32_t pcicmd=pci_r32(d.bus,d.slot,d.function,PCI_COMMAND);pcicmd|=0x6u;pci_w32(d.bus,d.slot,d.function,PCI_COMMAND,pcicmd);
     if(map_mmio(d.bar0))return usb_fail("MMIO");
-    cap_len=r32(CAPLENGTH)&0xFFu;if(cap_len<0x20u)return usb_fail("CAP");
+    cap_len=r32(CAPLENGTH)&0xFFu;hci_version=(r32(CAPLENGTH)>>16)&0xFFFFu;
+    if(cap_len<0x20u)return usb_fail("CAP");
     op_base=cap_len;db_base=r32(DBOFF)&~3u;rt_base=r32(RTSOFF)&~0x1Fu;
     uint32_t hcs1=r32(HCSPARAMS1);max_slots=hcs1&0xFFu;max_ports=(hcs1>>24)&0xFFu;ctx_size=(r32(HCCPARAMS1)&4u)?64u:32u;
     if(!max_slots||!max_ports||(r32(op_base+PAGESIZE)&1u)==0)return usb_fail("PARAMS");
+    console_write("[ USB ] xHCI version ");console_write_hex(hci_version);
+    console_write(" / context ");console_write_dec(ctx_size);
+    console_write(" / ports ");console_write_dec(max_ports);console_write("\\n");
     if(legacy_handoff())return usb_fail("LEGACY");
     if(reset_controller())return usb_fail("RESET");
     if(alloc_memory())return usb_fail("ALLOC");
@@ -499,10 +551,15 @@ int xhci_mouse_init(void){
         uint32_t po=op_base+PORT_BASE+(p-1u)*PORT_STRIDE,ps=r32(po);if(!(ps&PORT_CCS))continue;
         saw_connected=1u;
         w32(po,(ps&~PORT_CHANGE)|PORT_PP|PORT_PR);
-        int reset=0;for(uint32_t n=0;n<10000000u;++n){uint32_t q=r32(po);if((q&PORT_PRC)||(!(q&PORT_PR)&&(q&PORT_PED))){reset=1;break;}__asm__ volatile("pause");}
+        /* USB hub reset recovery: give the device at least 10 ms before
+           interpreting PORTSC and starting enumeration. */
+        xhci_delay_ms(10u);
+        int reset=0;for(uint32_t n=0;n<10000000u;++n){uint32_t q=r32(po);if(!(q&PORT_PR)&&(q&PORT_CCS)){reset=1;break;}__asm__ volatile("pause");}
         if(!reset){saw_reset_timeout=1u;continue;}
         ps=r32(po);
-        if(!(ps&PORT_CCS)) continue;
+        if(!(ps&PORT_CCS)||!(ps&PORT_PED)) continue;
+        w32(po,(ps&~PORT_CHANGE)|PORT_PP);
+        ps=r32(po);
         port_number=p;device_speed=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
         if(!device_speed){console_write("[ USB ] xHCI fail: SPEED\\n");debug_write("LIONOS:USB-FAIL-SPEED\\n");continue;}
         if(enable_slot()){console_write("[ USB ] xHCI fail: ENABLE-SLOT\\n");debug_write("LIONOS:USB-FAIL-ENABLE-SLOT\\n");continue;}
