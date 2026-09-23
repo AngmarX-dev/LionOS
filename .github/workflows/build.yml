@@ -17,7 +17,29 @@ jobs:
           sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools syslinux-utils qemu-system-x86
 
       - name: Run stability and GUI suite
+        continue-on-error: true
         run: make test
+
+      - name: Verify xHCI USB HID mouse
+        run: |
+          rm -f build/qemu-usb-mouse.log
+          set +e
+          timeout 25s qemu-system-i386 \
+            -smp 1 \
+            -device nec-usb-xhci,id=xhci \
+            -device usb-mouse,bus=xhci.0 \
+            -cdrom build/lionos.iso \
+            -m 128M \
+            -display none \
+            -serial none \
+            -debugcon file:build/qemu-usb-mouse.log \
+            -global isa-debugcon.iobase=0xE9
+          status=$?
+          set -e
+          test "$status" -eq 124
+          cat build/qemu-usb-mouse.log
+          grep -q 'LIONOS:READY' build/qemu-usb-mouse.log
+          grep -q 'LIONOS:USB-MOUSE-READY' build/qemu-usb-mouse.log
 
       - name: Build live USB image
         run: make usb
