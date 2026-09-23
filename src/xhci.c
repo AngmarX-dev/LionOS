@@ -4,6 +4,7 @@
 #include "paging.h"
 #include "xhci.h"
 #include "debug.h"
+#include "console.h"
 
 #define PAGE_SIZE 4096u
 #define PCI_ADDR 0xCF8u
@@ -128,6 +129,16 @@ static uint32_t ep0_index, ep0_cycle = 1u;
 static uint32_t intr_index, intr_cycle = 1u;
 static uint32_t report_pending;
 static uint32_t report_length;
+
+static int usb_fail(const char *stage){
+    console_write("[ USB ] xHCI fail: ");
+    console_write(stage);
+    console_putc('\n');
+    debug_write("LIONOS:USB-FAIL-");
+    debug_write(stage);
+    debug_write("\n");
+    return -1;
+}
 
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t fn, uint8_t reg) {
     return 0x80000000u | ((uint32_t)bus<<16) | ((uint32_t)slot<<11) |
@@ -452,20 +463,25 @@ static int submit_report(void){
 
 int xhci_mouse_init(void){
     if(ready)return 0;
-    pci_xhci_t d;if(find_xhci(&d))return -1;
+    pci_xhci_t d;if(find_xhci(&d))return usb_fail("PCI");
     uint32_t pcicmd=pci_r32(d.bus,d.slot,d.function,PCI_COMMAND);pcicmd|=0x6u;pci_w32(d.bus,d.slot,d.function,PCI_COMMAND,pcicmd);
-    if(map_mmio(d.bar0))return -1;
-    cap_len=r32(CAPLENGTH)&0xFFu;if(cap_len<0x20u)return -1;
+    if(map_mmio(d.bar0))return usb_fail("MMIO");
+    cap_len=r32(CAPLENGTH)&0xFFu;if(cap_len<0x20u)return usb_fail("CAP");
     op_base=cap_len;db_base=r32(DBOFF)&~3u;rt_base=r32(RTSOFF)&~0x1Fu;
     uint32_t hcs1=r32(HCSPARAMS1);max_slots=hcs1&0xFFu;max_ports=(hcs1>>24)&0xFFu;ctx_size=(r32(HCCPARAMS1)&4u)?64u:32u;
-    if(!max_slots||!max_ports||(r32(op_base+PAGESIZE)&1u)==0)return -1;
-    if(legacy_handoff()||reset_controller()||alloc_memory())return -1;
+    if(!max_slots||!max_ports||(r32(op_base+PAGESIZE)&1u)==0)return usb_fail("PARAMS");
+    if(legacy_handoff())return usb_fail("LEGACY");
+    if(reset_controller())return usb_fail("RESET");
+    if(alloc_memory())return usb_fail("ALLOC");
     init_rings();run_controller();
+    uint32_t saw_connected=0u;
+    uint32_t saw_reset_timeout=0u;
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po=op_base+PORT_BASE+(p-1u)*PORT_STRIDE,ps=r32(po);if(!(ps&PORT_CCS))continue;
+        saw_connected=1u;
         w32(po,(ps&~PORT_CHANGE)|PORT_PP|PORT_PR);
         int reset=0;for(uint32_t n=0;n<10000000u;++n){uint32_t q=r32(po);if((q&PORT_PRC)||(!(q&PORT_PR)&&(q&PORT_PED))){reset=1;break;}__asm__ volatile("pause");}
-        if(!reset) continue;
+        if(!reset){saw_reset_timeout=1u;continue;}
         ps=r32(po);
         if(!(ps&PORT_CCS)) continue;
         port_number=p;device_speed=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;if(!device_speed)continue;
@@ -479,9 +495,11 @@ int xhci_mouse_init(void){
         endpoint_packet=c.packet_size;if(endpoint_packet>PAGE_SIZE)endpoint_packet=PAGE_SIZE;
         report_pending=0;report_length=0;
         if(submit_report())continue;
-        ready=1u;debug_write("LIONOS:USB-MOUSE-READY\n");return 0;
+        ready=1u;debug_write("LIONOS:USB-MOUSE-READY\n");console_write("[ OK ] xHCI HID mouse ready on root port ");console_write_dec(port_number);console_putc('\n');return 0;
     }
-    return -1;
+    if(saw_reset_timeout)return usb_fail("PORT-RESET");
+    if(!saw_connected)return usb_fail("NO-PORT");
+    return usb_fail("NO-HID-MOUSE");
 }
 
 int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
