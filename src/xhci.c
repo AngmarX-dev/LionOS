@@ -3,6 +3,7 @@
 #include "memory.h"
 #include "paging.h"
 #include "xhci.h"
+#include "debug.h"
 
 #define PAGE_SIZE 4096u
 #define PCI_ADDR 0xCF8u
@@ -478,7 +479,7 @@ int xhci_mouse_init(void){
         endpoint_packet=c.packet_size;if(endpoint_packet>PAGE_SIZE)endpoint_packet=PAGE_SIZE;
         report_pending=0;report_length=0;
         if(submit_report())continue;
-        ready=1u;return 0;
+        ready=1u;debug_write("LIONOS:USB-MOUSE-READY\n");return 0;
     }
     return -1;
 }
