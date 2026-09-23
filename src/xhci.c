@@ -274,15 +274,16 @@ static void init_rings(void){
     cmd_index=0;cmd_cycle=1;event_index=0;event_cycle=1;ep0_index=0;ep0_cycle=1;intr_index=0;intr_cycle=1;
     w64(op_base+CRCR,(uint64_t)(uintptr_t)cmd_ring|1u);
     uint32_t ir=rt_base+RT_BASE0;
-    w32(ir+IMAN,0u);w32(ir+IMOD,0u);w32(ir+ERSTSZ,1u);w64(ir+ERSTBA,(uint64_t)(uintptr_t)erst);w64(ir+ERDP,(uint64_t)(uintptr_t)event_ring);
+    w32(ir+IMAN,2u);w32(ir+IMOD,0u);w32(ir+ERSTSZ,1u);w64(ir+ERSTBA,(uint64_t)(uintptr_t)erst);w64(ir+ERDP,(uint64_t)(uintptr_t)event_ring);
 }
 
-static void run_controller(void){
+static int run_controller(void){
     uint32_t slots=max_slots; if(slots>255u)slots=255u;if(!slots)slots=1u;
     w32(op_base+CONFIG,slots);
     w64(op_base+DCBAAP,(uint64_t)(uintptr_t)dcbaa);
     w32(op_base+USBCMD,r32(op_base+USBCMD)|RUN_STOP);
-    for(uint32_t i=0;i<2000000u;++i){if(!(r32(op_base+USBSTS)&HCH))break;__asm__ volatile("pause");}
+    for(uint32_t i=0;i<2000000u;++i){if(!(r32(op_base+USBSTS)&HCH))return 0;__asm__ volatile("pause");}
+    return -1;
 }
 
 static void submit_cmd(uint32_t type,uint64_t param,uint32_t control){
@@ -473,7 +474,7 @@ int xhci_mouse_init(void){
     if(legacy_handoff())return usb_fail("LEGACY");
     if(reset_controller())return usb_fail("RESET");
     if(alloc_memory())return usb_fail("ALLOC");
-    init_rings();run_controller();
+    init_rings();if(run_controller())return usb_fail("RUN");
     uint32_t saw_connected=0u;
     uint32_t saw_reset_timeout=0u;
     for(uint32_t p=1;p<=max_ports;++p){
