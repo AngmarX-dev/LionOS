@@ -25,6 +25,7 @@ jobs:
         run: |
           make clean
           make
+          make iso
           grub-file --is-x86-multiboot2 build/lionos.bin
 
       - name: Boot with xHCI USB mouse and verify HID enumeration
