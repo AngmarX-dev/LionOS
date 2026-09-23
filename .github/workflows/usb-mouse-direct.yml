@@ -1,0 +1,40 @@
+name: LionOS USB Mouse Direct Verification
+
+on:
+  push:
+    branches:
+      - usb-mouse-qemu-direct-test
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  usb-mouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86
+
+      - name: Build LionOS
+        run: |
+          make clean
+          make
+          grub-file --is-x86-multiboot2 build/lionos.bin
+
+      - name: Boot with xHCI USB mouse and verify HID enumeration
+        run: |
+          rm -f build/qemu-usb-mouse.log
+          set +e
+          timeout 25s qemu-system-i386             -smp 1             -device nec-usb-xhci,id=xhci             -device usb-mouse,bus=xhci.0             -cdrom build/lionos.iso             -m 128M             -display none             -serial none             -debugcon file:build/qemu-usb-mouse.log             -global isa-debugcon.iobase=0xE9
+          status=$?
+          set -e
+          test "$status" -eq 124
+          cat build/qemu-usb-mouse.log
+          grep -q 'LIONOS:READY' build/qemu-usb-mouse.log
+          grep -q 'LIONOS:USB-MOUSE-READY' build/qemu-usb-mouse.log
