@@ -330,7 +330,10 @@ static void fill_slot(void *ctx,uint32_t entries){
 
 static void fill_ep0(void *ctx,uint32_t mps,uint64_t dequeue){
     uint32_t *e=(uint32_t*)ctx_ep(ctx,1u);zero_mem(e,ctx_size);
-    e[0]=(3u<<1);e[1]=(4u<<3)|((mps&0xFFFFu)<<16);qset(e,2u,dequeue|(ep0_cycle?1u:0u));e[4]=mps&0xFFFFu;
+    e[0]=0u;
+    e[1]=(3u<<1)|(4u<<3)|((mps&0xFFFFu)<<16);
+    qset(e,2u,dequeue|(ep0_cycle?1u:0u));
+    e[4]=mps&0xFFFFu;
 }
 
 static int address_device(void){
@@ -413,9 +416,10 @@ static uint32_t interval_value(uint32_t v){
 
 static void fill_intr_ep(void *ctx){
     uint32_t *e=(uint32_t*)ctx_ep(ctx,endpoint_id);zero_mem(e,ctx_size);
-    e[0]=(3u<<1)|((endpoint_interval&0xFFu)<<16);
-    e[1]=(7u<<3)|((endpoint_packet&0xFFFFu)<<16);
-    qset(e,2u,(uint64_t)(uintptr_t)intr_ring|(intr_cycle?1u:0u));e[4]=endpoint_packet&0xFFFFu;
+    e[0]=(endpoint_interval&0xFFu)<<16;
+    e[1]=(3u<<1)|(7u<<3)|((endpoint_packet&0xFFFFu)<<16);
+    qset(e,2u,(uint64_t)(uintptr_t)intr_ring|(intr_cycle?1u:0u));
+    e[4]=endpoint_packet&0xFFFFu;
 }
 
 static int configure_mouse(hid_candidate_t *c){
