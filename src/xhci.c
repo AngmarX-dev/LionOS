@@ -140,21 +140,6 @@ static int usb_fail(const char *stage){
     return -1;
 }
 
-static void usb_debug_hex(const char *tag,uint32_t value){
-    static const char hex[]="0123456789ABCDEF";
-    char b[11];
-    b[0]='0';b[1]='x';
-    for(int i=0;i<8;++i)b[2+i]=hex[(value>>((7-i)*4))&15u];
-    b[10]=0;
-    debug_write(tag);debug_write(b);debug_write("\n");
-}
-static void usb_debug_event(uint32_t index){
-    if(index>=8u)return;
-    usb_debug_hex("LIONOS:USB-EV-LO=",event_ring[index].lo);
-    usb_debug_hex("LIONOS:USB-EV-ST=",event_ring[index].status);
-    usb_debug_hex("LIONOS:USB-EV-CT=",event_ring[index].control);
-}
-
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t fn, uint8_t reg) {
     return 0x80000000u | ((uint32_t)bus<<16) | ((uint32_t)slot<<11) |
            ((uint32_t)fn<<8) | (reg & 0xFCu);
@@ -338,21 +323,11 @@ static int enable_slot(void){
     for(uint32_t n=0;n<5000000u;++n){
         trb_t e;if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
         uint32_t type=(e.control>>10)&0x3Fu;if(type==TRB_PORT_EVENT)continue;if(type!=TRB_COMMAND_EVENT)continue;
-        uint32_t cc=((e.status>>24)&0xFFu);
-        if(cc!=CC_SUCCESS){usb_debug_hex("LIONOS:USB-ENABLE-CC=",cc);return -1;}
+        uint32_t cc=(e.status>>24)&0xFFu;
+        if(cc!=CC_SUCCESS)return -1;
         slot_id=(e.control>>24)&0xFFu;
-        if(!slot_id){debug_write("LIONOS:USB-ENABLE-NO-SLOT\n");return -1;}
-        return 0;
+        return slot_id?0:-1;
     }
-    usb_debug_hex("LIONOS:USB-ENABLE-TIMEOUT-STS=",r32(op_base+USBSTS));
-    usb_debug_hex("LIONOS:USB-ENABLE-TIMEOUT-CMD=",r32(op_base+USBCMD));
-    usb_debug_hex("LIONOS:USB-CRCR-LO=",r32(op_base+CRCR));
-    usb_debug_hex("LIONOS:USB-CRCR-HI=",r32(op_base+CRCR+4u));
-    usb_debug_hex("LIONOS:USB-DB0=",r32(db_base));
-    usb_debug_hex("LIONOS:USB-CMD-LO=",cmd_ring[0].lo);
-    usb_debug_hex("LIONOS:USB-CMD-ST=",cmd_ring[0].status);
-    usb_debug_hex("LIONOS:USB-CMD-CT=",cmd_ring[0].control);
-    for(uint32_t i=0;i<4u;++i)usb_debug_event(i);
     return -1;
 }
 
