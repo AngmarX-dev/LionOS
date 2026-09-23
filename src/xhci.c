@@ -484,17 +484,18 @@ int xhci_mouse_init(void){
         if(!reset){saw_reset_timeout=1u;continue;}
         ps=r32(po);
         if(!(ps&PORT_CCS)) continue;
-        port_number=p;device_speed=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;if(!device_speed)continue;
-        if(enable_slot())continue;
-        if(address_device())continue;
-        if(get_device())continue;
-        hid_candidate_t c;if(find_hid(&c)||!c.config_value)continue;
-        if(configure_mouse(&c))continue;
-        if(control_xfer(0,9u,c.config_value,0,0,0,0))continue;
-        if(set_protocol(c.interface_number))continue;
+        port_number=p;device_speed=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
+        if(!device_speed){console_write("[ USB ] xHCI fail: SPEED\\n");debug_write("LIONOS:USB-FAIL-SPEED\\n");continue;}
+        if(enable_slot()){console_write("[ USB ] xHCI fail: ENABLE-SLOT\\n");debug_write("LIONOS:USB-FAIL-ENABLE-SLOT\\n");continue;}
+        if(address_device()){console_write("[ USB ] xHCI fail: ADDRESS\\n");debug_write("LIONOS:USB-FAIL-ADDRESS\\n");continue;}
+        if(get_device()){console_write("[ USB ] xHCI fail: DESCRIPTOR\\n");debug_write("LIONOS:USB-FAIL-DESCRIPTOR\\n");continue;}
+        hid_candidate_t c;if(find_hid(&c)||!c.config_value){console_write("[ USB ] xHCI fail: HID\\n");debug_write("LIONOS:USB-FAIL-HID\\n");continue;}
+        if(configure_mouse(&c)){console_write("[ USB ] xHCI fail: CONFIGURE-EP\\n");debug_write("LIONOS:USB-FAIL-CONFIGURE-EP\\n");continue;}
+        if(control_xfer(0,9u,c.config_value,0,0,0,0)){console_write("[ USB ] xHCI fail: SET-CONFIG\\n");debug_write("LIONOS:USB-FAIL-SET-CONFIG\\n");continue;}
+        if(set_protocol(c.interface_number)){console_write("[ USB ] xHCI fail: SET-PROTOCOL\\n");debug_write("LIONOS:USB-FAIL-SET-PROTOCOL\\n");continue;}
         endpoint_packet=c.packet_size;if(endpoint_packet>PAGE_SIZE)endpoint_packet=PAGE_SIZE;
         report_pending=0;report_length=0;
-        if(submit_report())continue;
+        if(submit_report()){console_write("[ USB ] xHCI fail: REPORT\\n");debug_write("LIONOS:USB-FAIL-REPORT\\n");continue;}
         ready=1u;debug_write("LIONOS:USB-MOUSE-READY\n");console_write("[ OK ] xHCI HID mouse ready on root port ");console_write_dec(port_number);console_putc('\n');return 0;
     }
     if(saw_reset_timeout)return usb_fail("PORT-RESET");
