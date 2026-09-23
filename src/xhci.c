@@ -97,6 +97,7 @@ typedef struct {
 
 typedef struct {
     uint8_t bus, slot, function;
+    uint16_t vendor, device;
     uint64_t bar0;
 } pci_xhci_t;
 
@@ -169,7 +170,9 @@ static int find_xhci(pci_xhci_t *out) {
             uint64_t bar=(uint64_t)(lo&0xFFFFFFF0u);
             if(((lo>>1)&3u)==2u) bar|=(uint64_t)pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0+4u)<<32;
             if(!bar) continue;
-            out->bus=(uint8_t)b; out->slot=(uint8_t)s; out->function=(uint8_t)f; out->bar0=bar;
+            out->bus=(uint8_t)b; out->slot=(uint8_t)s; out->function=(uint8_t)f;
+            out->vendor=(uint16_t)(id&0xFFFFu); out->device=(uint16_t)(id>>16);
+            out->bar0=bar;
             return 0;
         }
     }
@@ -199,15 +202,21 @@ static int map_mmio(uint64_t phys){
 
 static int legacy_handoff(void){
     uint32_t ext=((r32(HCCPARAMS1)>>16)&0xFFFFu)*4u;
-    for(uint32_t n=0;ext&&n<256u;++n){
+    for(uint32_t n=0;ext&&n<1024u;++n){
+        if(ext >= XHCI_MAP_SIZE) return -1;
         uint32_t v=r32(ext);
         uint32_t next=((v>>8)&0xFFu)*4u;
         if((v&0xFFu)==LEGACY_ID){
+            /* Request ownership from firmware before resetting the HC. */
+            w32(ext,v|OS_OWNED);
             if(v&BIOS_OWNED){
-                w32(ext,v|OS_OWNED);
-                for(uint32_t i=0;i<2000000u;++i){if(!(r32(ext)&BIOS_OWNED))break;__asm__ volatile("pause");}
+                for(uint32_t i=0;i<10000000u;++i){
+                    if(!(r32(ext)&BIOS_OWNED))break;
+                    __asm__ volatile("pause");
+                }
                 if(r32(ext)&BIOS_OWNED)return -1;
-            }else w32(ext,v|OS_OWNED);
+            }
+            /* Disable legacy SMI generation once the OS owns the controller. */
             w32(ext+4u,0u);
             return 0;
         }
@@ -414,8 +423,10 @@ static int find_hid(hid_candidate_t *c){
     uint32_t i=0;int selected=0;
     while(i+2u<=total){uint8_t len=config_buf[i],type=config_buf[i+1u];if(len<2u||i+len>total)return -1;
         if(type==4u&&len>=9u){
+            uint8_t alt=config_buf[i+3u];
             uint8_t cls=config_buf[i+5u],sub=config_buf[i+6u],proto=config_buf[i+7u];
-            selected=(cls==3u&&sub==1u&&proto==2u);if(selected)c->interface_number=config_buf[i+2u];
+            selected=(alt==0u&&cls==3u&&sub==1u&&proto==2u);
+            if(selected)c->interface_number=config_buf[i+2u];
         }else if(type==5u&&len>=7u&&selected){
             uint8_t addr=config_buf[i+2u],attr=config_buf[i+3u];uint16_t mps=(uint16_t)config_buf[i+4u]|((uint16_t)config_buf[i+5u]<<8);
             if((addr&0x80u)&&(attr&3u)==3u&&(mps&0x7FFu)){c->endpoint_address=addr;c->packet_size=mps&0x7FFu;c->interval=config_buf[i+6u]?config_buf[i+6u]:1u;return 0;}
@@ -471,6 +482,7 @@ static int submit_report(void){
 int xhci_mouse_init(void){
     if(ready)return 0;
     pci_xhci_t d;if(find_xhci(&d))return usb_fail("PCI");
+    console_write("[ USB ] xHCI controller ");console_write_hex(d.vendor);console_putc(':');console_write_hex(d.device);console_putc('\n');
     uint32_t pcicmd=pci_r32(d.bus,d.slot,d.function,PCI_COMMAND);pcicmd|=0x6u;pci_w32(d.bus,d.slot,d.function,PCI_COMMAND,pcicmd);
     if(map_mmio(d.bar0))return usb_fail("MMIO");
     cap_len=r32(CAPLENGTH)&0xFFu;if(cap_len<0x20u)return usb_fail("CAP");
@@ -497,10 +509,15 @@ int xhci_mouse_init(void){
         if(address_device()){console_write("[ USB ] xHCI fail: ADDRESS\\n");debug_write("LIONOS:USB-FAIL-ADDRESS\\n");continue;}
         if(get_device()){console_write("[ USB ] xHCI fail: DESCRIPTOR\\n");debug_write("LIONOS:USB-FAIL-DESCRIPTOR\\n");continue;}
         hid_candidate_t c;if(find_hid(&c)||!c.config_value){console_write("[ USB ] xHCI fail: HID\\n");debug_write("LIONOS:USB-FAIL-HID\\n");continue;}
-        if(configure_mouse(&c)){console_write("[ USB ] xHCI fail: CONFIGURE-EP\\n");debug_write("LIONOS:USB-FAIL-CONFIGURE-EP\\n");continue;}
+        /* USB devices transition to Configured state before non-EP0 endpoints are enabled. */
         if(control_xfer(0,9u,c.config_value,0,0,0,0)){console_write("[ USB ] xHCI fail: SET-CONFIG\\n");debug_write("LIONOS:USB-FAIL-SET-CONFIG\\n");continue;}
+        if(configure_mouse(&c)){console_write("[ USB ] xHCI fail: CONFIGURE-EP\\n");debug_write("LIONOS:USB-FAIL-CONFIGURE-EP\\n");continue;}
         if(set_protocol(c.interface_number)){console_write("[ USB ] xHCI fail: SET-PROTOCOL\\n");debug_write("LIONOS:USB-FAIL-SET-PROTOCOL\\n");continue;}
         endpoint_packet=c.packet_size;if(endpoint_packet>PAGE_SIZE)endpoint_packet=PAGE_SIZE;
+        console_write("[ USB ] HID mouse interface ");console_write_dec(c.interface_number);
+        console_write(" endpoint ");console_write_hex(c.endpoint_address);
+        console_write(" packet ");console_write_dec(endpoint_packet);
+        console_write(" interval ");console_write_dec(c.interval);console_write("\\n");
         report_pending=0;report_length=0;
         if(submit_report()){console_write("[ USB ] xHCI fail: REPORT\\n");debug_write("LIONOS:USB-FAIL-REPORT\\n");continue;}
         ready=1u;debug_write("LIONOS:USB-MOUSE-READY\n");console_write("[ OK ] xHCI HID mouse ready on root port ");console_write_dec(port_number);console_putc('\n');return 0;

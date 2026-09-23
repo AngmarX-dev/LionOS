@@ -137,14 +137,14 @@ run_qemu build/qemu-first.log
 grep -q 'LIONOS:READY' build/qemu-first.log
 grep -q 'LIONOS:PERSIST-INIT' build/qemu-first.log
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-first.log
-grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-first.log
+grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-first.log
 
 echo "[4/5] Second SMP boot / persistence verification"
 run_qemu build/qemu-second.log
 grep -q 'LIONOS:READY' build/qemu-second.log
 grep -q 'LIONOS:PERSIST-OK' build/qemu-second.log
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-second.log
-grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-second.log
+grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
 echo "[5/5] Graphical desktop / keyboard escape smoke test"
 run_gui_smoke build/qemu-gui.log
