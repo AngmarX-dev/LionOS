@@ -191,34 +191,37 @@ static void zero_mem(void *ptr,uint32_t bytes){
     uint8_t *p=(uint8_t*)ptr;
     for(uint32_t i=0;i<bytes;++i)p[i]=0;
 }
-static uint64_t xhci_rdtsc(void){
+static uint32_t xhci_rdtsc_low(void){
     uint32_t lo,hi;
     __asm__ volatile("lfence; rdtsc" : "=a"(lo),"=d"(hi) :: "memory");
-    return ((uint64_t)hi<<32)|lo;
+    (void)hi;
+    return lo;
 }
 
-static uint64_t xhci_tsc_hz(void){
+static uint32_t xhci_tsc_hz32(void){
     uint32_t a,b,c,d;
-    uint64_t hz=0;
     __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0x15u),"c"(0u));
-    if(a&&b&&c) hz=((uint64_t)c*(uint64_t)b)/(uint64_t)a;
-    if(!hz){
-        __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0u),"c"(0u));
-        uint32_t max_leaf=a;
-        if(max_leaf>=0x16u){
-            __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0x16u),"c"(0u));
-            if(a) hz=(uint64_t)a*1000000ULL;
-        }
+    if(a&&b&&c){
+        uint32_t base=c/a;
+        if(base && base <= 0xFFFFFFFFu/b)
+            return base*b;
     }
-    return hz;
+    __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0u),"c"(0u));
+    uint32_t max_leaf=a;
+    if(max_leaf>=0x16u){
+        __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0x16u),"c"(0u));
+        if(a && a<=4000u) return a*1000000u;
+    }
+    return 0u;
 }
 
 static void xhci_delay_ms(uint32_t ms){
-    uint64_t hz=xhci_tsc_hz();
+    uint32_t hz=xhci_tsc_hz32();
     if(hz){
-        uint64_t start=xhci_rdtsc();
-        uint64_t ticks=(hz/1000ULL)*(uint64_t)ms;
-        while((xhci_rdtsc()-start)<ticks) __asm__ volatile("pause");
+        uint32_t ticks_per_ms=hz/1000u;
+        uint32_t start=xhci_rdtsc_low();
+        uint32_t ticks=ticks_per_ms*ms;
+        while((uint32_t)(xhci_rdtsc_low()-start)<ticks) __asm__ volatile("pause");
         return;
     }
     /* Fallback for very old/non-reporting virtual CPUs. */
