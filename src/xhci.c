@@ -328,7 +328,7 @@ static int wait_cmd(uint32_t want_slot){
         if(type==TRB_PORT_EVENT)continue;
         if(type!=TRB_COMMAND_EVENT)continue;
         if(want_slot&&((e.control>>24)&0xFFu)!=want_slot)continue;
-        return (e.status&0xFFu)==CC_SUCCESS?0:-1;
+        return (((e.status>>24)&0xFFu))==CC_SUCCESS?0:-1;
     }
     return -1;
 }
@@ -338,7 +338,7 @@ static int enable_slot(void){
     for(uint32_t n=0;n<5000000u;++n){
         trb_t e;if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
         uint32_t type=(e.control>>10)&0x3Fu;if(type==TRB_PORT_EVENT)continue;if(type!=TRB_COMMAND_EVENT)continue;
-        uint32_t cc=e.status&0xFFu;
+        uint32_t cc=((e.status>>24)&0xFFu);
         if(cc!=CC_SUCCESS){usb_debug_hex("LIONOS:USB-ENABLE-CC=",cc);return -1;}
         slot_id=(e.control>>24)&0xFFu;
         if(!slot_id){debug_write("LIONOS:USB-ENABLE-NO-SLOT\n");return -1;}
@@ -412,7 +412,7 @@ static int control_xfer(uint8_t bm,uint8_t req,uint16_t value,uint16_t index,voi
         trb_t e;if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVENT)continue;
         if(((e.control>>24)&0xFFu)!=slot_id||((e.control>>16)&0x1Fu)!=1u)continue;
-        return (e.status&0xFFu)==CC_SUCCESS?0:-1;
+        return (((e.status>>24)&0xFFu))==CC_SUCCESS?0:-1;
     }
     return -1;
 }
@@ -543,7 +543,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVENT)continue;
         if(((e.control>>24)&0xFFu)!=slot_id||((e.control>>16)&0x1Fu)!=endpoint_id)continue;
         report_pending=0;
-        uint32_t cc=e.status&0xFFu;
+        uint32_t cc=((e.status>>24)&0xFFu);
         if(cc==CC_SUCCESS||cc==13u){
             if(report_length>=3u){
                 if(buttons)*buttons=report_buf[0]&7u;
