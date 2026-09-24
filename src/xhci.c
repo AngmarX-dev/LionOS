@@ -46,7 +46,14 @@
 #define PORT_PRC (1u<<21)
 #define PORT_PLC (1u<<22)
 #define PORT_CEC (1u<<23)
+#define PORT_OCA (1u<<3)
+#define PORT_DR (1u<<30)
+#define PORT_LINK_STATE (0xFu<<5)
+#define PORT_WAKE_BITS ((1u<<25)|(1u<<26)|(1u<<27))
+#define PORT_RO (PORT_CCS|PORT_OCA|PORT_SPEED_MASK|PORT_DR)
+#define PORT_RWS (PORT_LINK_STATE|PORT_PP|(3u<<14)|PORT_WAKE_BITS)
 #define PORT_CHANGE (PORT_CSC|PORT_PEC|PORT_WRC|PORT_OCC|PORT_PRC|PORT_PLC|PORT_CEC)
+#define PORT_NEUTRAL (PORT_RO|PORT_RWS)
 
 #define RT_BASE0 0x20u
 #define IMAN 0x00u
@@ -131,6 +138,7 @@ static uint32_t ep0_index, ep0_cycle = 1u;
 static uint32_t intr_index, intr_cycle = 1u;
 static uint32_t report_pending;
 static uint32_t report_length;
+static uint32_t report_seen;
 
 static int usb_fail(const char *stage){
     console_write("[ USB ] xHCI fail: ");
@@ -550,7 +558,10 @@ int xhci_mouse_init(void){
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po=op_base+PORT_BASE+(p-1u)*PORT_STRIDE,ps=r32(po);if(!(ps&PORT_CCS))continue;
         saw_connected=1u;
-        w32(po,(ps&~PORT_CHANGE)|PORT_PP|PORT_PR);
+        /* Match Linux xHCI port_state_to_neutral(): do not replay RW1C or
+           reserved bits from a raw PORTSC read when requesting reset. */
+        w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_PR);
+        (void)r32(po);
         /* USB hub reset recovery: give the device at least 10 ms before
            interpreting PORTSC and starting enumeration. */
         xhci_delay_ms(10u);
@@ -558,7 +569,8 @@ int xhci_mouse_init(void){
         if(!reset){saw_reset_timeout=1u;continue;}
         ps=r32(po);
         if(!(ps&PORT_CCS)||!(ps&PORT_PED)) continue;
-        w32(po,(ps&~PORT_CHANGE)|PORT_PP);
+        /* Clear change bits with the required write-one-to-clear semantics. */
+        w32(po,(ps&PORT_NEUTRAL)|PORT_CHANGE);
         ps=r32(po);
         port_number=p;device_speed=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
         if(!device_speed){console_write("[ USB ] xHCI fail: SPEED\\n");debug_write("LIONOS:USB-FAIL-SPEED\\n");continue;}
@@ -575,7 +587,7 @@ int xhci_mouse_init(void){
         console_write(" endpoint ");console_write_hex(c.endpoint_address);
         console_write(" packet ");console_write_dec(endpoint_packet);
         console_write(" interval ");console_write_dec(c.interval);console_write("\\n");
-        report_pending=0;report_length=0;
+        report_pending=0;report_length=0;report_seen=0u;
         if(submit_report()){console_write("[ USB ] xHCI fail: REPORT\\n");debug_write("LIONOS:USB-FAIL-REPORT\\n");continue;}
         ready=1u;debug_write("LIONOS:USB-MOUSE-READY\n");console_write("[ OK ] xHCI HID mouse ready on root port ");console_write_dec(port_number);console_putc('\n');return 0;
     }
@@ -597,6 +609,11 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         uint32_t cc=((e.status>>24)&0xFFu);
         if(cc==CC_SUCCESS||cc==13u){
             if(report_length>=3u){
+                if(!report_seen){
+                    report_seen=1u;
+                    console_write("[ OK ] HID mouse reports active\n");
+                    debug_write("LIONOS:USB-MOUSE-REPORT-OK\n");
+                }
                 if(buttons)*buttons=report_buf[0]&7u;
                 if(dx)*dx=(int32_t)(int8_t)report_buf[1];
                 if(dy)*dy=-(int32_t)(int8_t)report_buf[2];
