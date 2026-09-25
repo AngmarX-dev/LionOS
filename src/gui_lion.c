@@ -237,6 +237,31 @@ static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const c
     framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+7u,y+7u,22u);
     if(label&&label[0]) text_line(label,x+35u,y+9u,COL_TEXT,c);
 }
+static void draw_usb_test_panel(void){
+    uint32_t w=framebuffer_width(),h=framebuffer_height();
+    if(w<760u||h<520u)return;
+    xhci_mouse_debug_info_t d;if(xhci_mouse_debug_get(&d)!=0)return;
+    uint32_t x=18u,y=18u,pw=430u,ph=242u;
+    fill(x+4u,y+4u,pw,ph,0x03070Cu);fill(x,y,pw,ph,COL_PANEL);border(x,y,pw,ph,COL_GOLD_DIM);fill(x,y,pw,3u,COL_GOLD);
+    text_line("REAL USB MOUSE TEST",x+14u,y+12u,COL_GOLD,COL_PANEL);
+    text_line("STAGE",x+14u,y+38u,COL_DIM,COL_PANEL);text_line(d.stage?d.stage:"UNKNOWN",x+96u,y+38u,d.reports?COL_OK:COL_TEXT,COL_PANEL);
+    text_line("CONTROLLER",x+14u,y+62u,COL_DIM,COL_PANEL);text_line(d.controller_found?"FOUND":"NOT FOUND",x+96u,y+62u,d.controller_found?COL_OK:COL_DANGER,COL_PANEL);
+    text_line("PORT",x+14u,y+86u,COL_DIM,COL_PANEL);draw_uint(d.port,x+96u,y+86u,COL_TEXT,COL_PANEL);
+    text_line("SPEED",x+178u,y+86u,COL_DIM,COL_PANEL);draw_uint(d.speed,x+238u,y+86u,COL_TEXT,COL_PANEL);
+    text_line("EP",x+300u,y+86u,COL_DIM,COL_PANEL);draw_uint(d.endpoint_address,x+352u,y+86u,COL_TEXT,COL_PANEL);
+    text_line("PKT",x+14u,y+110u,COL_DIM,COL_PANEL);draw_uint(d.packet_size,x+96u,y+110u,COL_TEXT,COL_PANEL);
+    text_line("SUB",x+178u,y+110u,COL_DIM,COL_PANEL);draw_uint(d.submitted,x+238u,y+110u,COL_TEXT,COL_PANEL);
+    text_line("EVENT",x+300u,y+110u,COL_DIM,COL_PANEL);draw_uint(d.events,x+352u,y+110u,COL_TEXT,COL_PANEL);
+    text_line("REPORTS",x+14u,y+134u,COL_DIM,COL_PANEL);draw_uint(d.reports,x+96u,y+134u,d.reports?COL_OK:COL_TEXT,COL_PANEL);
+    text_line("LAST CC",x+178u,y+134u,COL_DIM,COL_PANEL);draw_uint(d.last_completion,x+238u,y+134u,COL_TEXT,COL_PANEL);
+    text_line("ERR",x+300u,y+134u,COL_DIM,COL_PANEL);draw_uint(d.errors,x+352u,y+134u,d.errors?COL_DANGER:COL_TEXT,COL_PANEL);
+    text_line("RAW",x+14u,y+158u,COL_DIM,COL_PANEL);
+    for(uint32_t i=0u;i<d.report_len&&i<8u;++i){char hx[3];static const char dg[]="0123456789ABCDEF";hx[0]=dg[(d.report[i]>>4)&15u];hx[1]=dg[d.report[i]&15u];hx[2]=0;text_line(hx,x+96u+i*28u,y+158u,COL_GOLD,COL_PANEL);}
+    text_line("PORTSC",x+14u,y+182u,COL_DIM,COL_PANEL);draw_uint(d.portsc,x+96u,y+182u,COL_TEXT,COL_PANEL);
+    text_line("SUCC",x+178u,y+182u,COL_DIM,COL_PANEL);draw_uint(d.successes,x+238u,y+182u,COL_OK,COL_PANEL);
+    text_line("Move the physical USB mouse.",x+14u,y+208u,COL_TEXT,COL_PANEL);
+}
+
 static void draw_system_widget(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height();
     if(w<760u||h<520u)return;
@@ -323,7 +348,7 @@ static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visi
 static void render_all(void){
     if(browser_is_active()){browser_render();framebuffer_present();return;}
     if(!scene_dirty)return;
-    draw_desktop_background();draw_desktop_icons();draw_system_widget();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);
+    draw_desktop_background();draw_desktop_icons();draw_usb_test_panel();draw_system_widget();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);
     framebuffer_present();scene_dirty=0u;
 }
 
