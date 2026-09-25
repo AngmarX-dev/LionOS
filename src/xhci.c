@@ -199,41 +199,16 @@ static void zero_mem(void *ptr,uint32_t bytes){
     uint8_t *p=(uint8_t*)ptr;
     for(uint32_t i=0;i<bytes;++i)p[i]=0;
 }
-static uint32_t xhci_rdtsc_low(void){
-    uint32_t lo,hi;
-    __asm__ volatile("lfence; rdtsc" : "=a"(lo),"=d"(hi) :: "memory");
-    (void)hi;
-    return lo;
-}
-
-static uint32_t xhci_tsc_hz32(void){
-    uint32_t a,b,c,d;
-    __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0x15u),"c"(0u));
-    if(a&&b&&c){
-        uint32_t base=c/a;
-        if(base && base <= 0xFFFFFFFFu/b)
-            return base*b;
-    }
-    __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0u),"c"(0u));
-    uint32_t max_leaf=a;
-    if(max_leaf>=0x16u){
-        __asm__ volatile("cpuid" : "=a"(a),"=b"(b),"=c"(c),"=d"(d) : "a"(0x16u),"c"(0u));
-        if(a && a<=4000u) return a*1000000u;
-    }
-    return 0u;
-}
-
 static void xhci_delay_ms(uint32_t ms){
-    uint32_t hz=xhci_tsc_hz32();
-    if(hz){
-        uint32_t ticks_per_ms=hz/1000u;
-        uint32_t start=xhci_rdtsc_low();
-        uint32_t ticks=ticks_per_ms*ms;
-        while((uint32_t)(xhci_rdtsc_low()-start)<ticks) __asm__ volatile("pause");
-        return;
-    }
-    /* Fallback for very old/non-reporting virtual CPUs. */
-    for(uint32_t m=0;m<ms;++m) for(uint32_t i=0;i<1000u;++i) io_wait();
+    /*
+     * Keep the delay freestanding: the kernel is linked without libgcc, so
+     * do not use 64-bit arithmetic/division here.  Port 0x80 I/O is also
+     * available before the PIT/LAPIC timers are configured and is sufficient
+     * for the short xHCI reset/recovery delays required during enumeration.
+     */
+    for(uint32_t m=0;m<ms;++m)
+        for(uint32_t i=0;i<1000u;++i)
+            io_wait();
 }
 
 static int map_mmio(uint64_t phys){
