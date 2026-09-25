@@ -537,13 +537,31 @@ int xhci_mouse_init(void){
            reserved bits from a raw PORTSC read when requesting reset. */
         w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_PR);
         (void)r32(po);
-        /* USB hub reset recovery: give the device at least 10 ms before
-           interpreting PORTSC and starting enumeration. */
-        xhci_delay_ms(10u);
-        int reset=0;for(uint32_t n=0;n<10000000u;++n){uint32_t q=r32(po);if(!(q&PORT_PR)&&(q&PORT_CCS)){reset=1;break;}__asm__ volatile("pause");}
+        /*
+         * Give real devices more recovery time than the USB minimum.  Some
+         * laptop xHCI implementations leave PED clear briefly after PR
+         * drops, even though the device is still connected.
+         */
+        xhci_delay_ms(50u);
+        int reset=0;
+        for(uint32_t n=0;n<10000000u;++n){
+            uint32_t q=r32(po);
+            if(!(q&PORT_PR)&&(q&PORT_CCS)){reset=1;break;}
+            __asm__ volatile("pause");
+        }
         if(!reset){saw_reset_timeout=1u;continue;}
+
         ps=r32(po);
-        if(!(ps&PORT_CCS)||!(ps&PORT_PED)) continue;
+        if(!(ps&PORT_CCS)) continue;
+        if(!(ps&PORT_PED)){
+            xhci_delay_ms(20u);
+            ps=r32(po);
+            if(!(ps&PORT_CCS)||!(ps&PORT_PED)){
+                console_write("[ USB ] xHCI port connected but not enabled\\n");
+                debug_write("LIONOS:USB-PORT-NOT-ENABLED\\n");
+                continue;
+            }
+        }
         /* Clear change bits with the required write-one-to-clear semantics. */
         w32(po,(ps&PORT_NEUTRAL)|PORT_CHANGE);
         ps=r32(po);
