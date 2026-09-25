@@ -18,6 +18,9 @@
 
 static uint32_t ps2_initialized;
 static uint32_t usb_initialized;
+static uint32_t usb_status;
+static uint32_t usb_retry_frames;
+static uint32_t usb_retry_attempts;
 static uint32_t cursor_x_pos=512u,cursor_y_pos=384u;
 static uint32_t cursor_width=1024u,cursor_height=768u;
 static uint8_t packet[MOUSE_PACKET_SIZE];
@@ -75,6 +78,9 @@ static void handle_ps2_packet(void){
 int mouse_init(void){
     ps2_initialized=0u;
     usb_initialized=0u;
+    usb_status=0u;
+    usb_retry_frames=0u;
+    usb_retry_attempts=0u;
     packet_index=0u;
     current_buttons=0u;
     cursor_x_pos=cursor_width/2u;
@@ -99,9 +105,21 @@ int mouse_init(void){
 
 int mouse_usb_init(void){
     if(usb_initialized)return 0;
-    if(xhci_mouse_init()!=0)return -1;
+    usb_status=3u; /* RETRYING */
+    if(xhci_mouse_init()!=0){
+        usb_status=0u; /* UNAVAILABLE */
+        return -1;
+    }
     usb_initialized=1u;
+    usb_status=1u; /* READY */
     return 0;
+}
+
+const char *mouse_usb_status_text(void){
+    if(usb_status==2u)return "ACTIVE";
+    if(usb_status==1u)return "READY";
+    if(usb_status==3u)return "RETRYING";
+    return "UNAVAILABLE";
 }
 
 void mouse_poll(void){
@@ -123,8 +141,16 @@ void mouse_poll(void){
         uint8_t buttons=0;
         int result=xhci_mouse_poll(&dx,&dy,&buttons);
         if(result==1){
+            usb_status=2u; /* ACTIVE: at least one HID report arrived */
             current_buttons=buttons;
             cursor_move(dx*2,dy*2);
+        }
+    }else if(usb_retry_attempts<6u){
+        usb_status=3u; /* RETRYING */
+        if(++usb_retry_frames>=300u){
+            usb_retry_frames=0u;
+            ++usb_retry_attempts;
+            (void)mouse_usb_init();
         }
     }
 }
