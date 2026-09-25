@@ -5,6 +5,7 @@
 
 int mouse_init(void);
 int mouse_usb_init(void);
+const char *mouse_usb_status_text(void);
 void mouse_poll(void);
 void mouse_set_bounds(uint32_t width, uint32_t height);
 uint32_t mouse_x(void);
