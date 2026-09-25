@@ -4,6 +4,7 @@
 #include "framebuffer.h"
 #include "keyboard.h"
 #include "mouse.h"
+#include "xhci.h"
 #include "memory.h"
 #include "vfs.h"
 #include "lapic.h"
