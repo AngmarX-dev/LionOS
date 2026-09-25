@@ -59,6 +59,7 @@ static uint8_t drag_id;
 static int drag_dx, drag_dy;
 static uint32_t mouse_px_x, mouse_px_y, previous_buttons;
 static uint8_t scene_dirty;
+static const char *last_usb_status;
 
 struct display_mode { uint32_t width; uint32_t height; };
 static const struct display_mode display_modes[] = {
@@ -249,10 +250,13 @@ static void draw_system_widget(void){
     text_line("ONLINE",x+126u,y+48u,COL_OK,COL_PANEL);
     text_line("RESOLUTION",x+16u,y+74u,COL_DIM,COL_PANEL);
     draw_resolution(framebuffer_width(),framebuffer_height(),x+126u,y+74u,COL_TEXT,COL_PANEL);
-    text_line("NETWORK",x+16u,y+100u,COL_DIM,COL_PANEL);
-    text_line("READY",x+126u,y+100u,COL_OK,COL_PANEL);
-    fill(x+16u,y+128u,ww-32u,2u,COL_GOLD_DIM);
-    text_line("Small - Fast - Powerful",x+16u,y+134u,COL_TEXT,COL_PANEL);
+    text_line("USB MOUSE",x+16u,y+100u,COL_DIM,COL_PANEL);
+    text_line(mouse_usb_status_text(),x+126u,y+100u,
+              mouse_usb_status_text()[0]=='A'?COL_OK:COL_GOLD,COL_PANEL);
+    text_line("NETWORK",x+16u,y+128u,COL_DIM,COL_PANEL);
+    text_line("READY",x+126u,y+128u,COL_OK,COL_PANEL);
+    fill(x+16u,y+146u,ww-32u,2u,COL_GOLD_DIM);
+    text_line("Small - Fast - Powerful",x+16u,y+152u,COL_TEXT,COL_PANEL);
 }
 
 static void draw_taskbar(void){
@@ -440,6 +444,11 @@ void gui_start(void){
 void gui_step(void){
     if(!gui_active)return;
     keyboard_poll();mouse_poll();
+    const char *usb_status=mouse_usb_status_text();
+    if(usb_status!=last_usb_status){
+        last_usb_status=usb_status;
+        scene_dirty=1u;
+    }
     uint32_t old_x=mouse_px_x,old_y=mouse_px_y;
     mouse_px_x=px();mouse_px_y=py();
     uint32_t buttons=mouse_buttons();
