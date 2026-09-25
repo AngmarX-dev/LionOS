@@ -139,8 +139,14 @@ static uint32_t intr_index, intr_cycle = 1u;
 static uint32_t report_pending;
 static uint32_t report_length;
 static uint32_t report_seen;
+static const char *diag_stage="NOT STARTED";
+static uint32_t diag_controller_found,diag_init_ok;
+static uint32_t diag_transfer_submitted,diag_event_count,diag_success_count,diag_error_count,diag_report_count;
+static uint32_t diag_last_cc,diag_last_portsc,diag_last_report_len;
+static uint8_t diag_last_report[8];
 
 static int usb_fail(const char *stage){
+    diag_stage=stage;diag_init_ok=0u;
     console_write("[ USB ] xHCI fail: ");
     console_write(stage);
     console_putc('\n');
@@ -507,14 +513,20 @@ static int submit_report(void){
     write_trb(&intr_ring[intr_index],(uint64_t)(uintptr_t)report_buf,report_length&0x1FFFFu,TRB_NORMAL,TRB_IOC,intr_cycle);advance_intr();
     __asm__ volatile("mfence" ::: "memory");
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
-    report_pending=1u;return 0;
+    report_pending=1u;++diag_transfer_submitted;return 0;
 }
 
 int xhci_mouse_init(void){
     if(ready)return 0;
+    diag_stage="SCANNING PCI";
+    diag_controller_found=0u;diag_init_ok=0u;
+    diag_transfer_submitted=0u;diag_event_count=0u;diag_success_count=0u;diag_error_count=0u;diag_report_count=0u;
+    diag_last_cc=0u;diag_last_portsc=0u;diag_last_report_len=0u;
     pci_xhci_t d;if(find_xhci(&d))return usb_fail("PCI");
+    diag_controller_found=1u;diag_stage="xHCI FOUND";
     console_write("[ USB ] xHCI controller ");console_write_hex(d.vendor);console_putc(':');console_write_hex(d.device);console_putc('\n');
     uint32_t pcicmd=pci_r32(d.bus,d.slot,d.function,PCI_COMMAND);pcicmd|=0x6u;pci_w32(d.bus,d.slot,d.function,PCI_COMMAND,pcicmd);
+    diag_stage="MAPPING MMIO";
     if(map_mmio(d.bar0))return usb_fail("MMIO");
     cap_len=r32(CAPLENGTH)&0xFFu;hci_version=(r32(CAPLENGTH)>>16)&0xFFFFu;
     if(cap_len<0x20u)return usb_fail("CAP");
@@ -524,15 +536,20 @@ int xhci_mouse_init(void){
     console_write("[ USB ] xHCI version ");console_write_hex(hci_version);
     console_write(" / context ");console_write_dec(ctx_size);
     console_write(" / ports ");console_write_dec(max_ports);console_write("\\n");
+    diag_stage="FIRMWARE HANDOFF";
     if(legacy_handoff())return usb_fail("LEGACY");
+    diag_stage="RESETTING xHCI";
     if(reset_controller())return usb_fail("RESET");
+    diag_stage="ALLOCATING DMA";
     if(alloc_memory())return usb_fail("ALLOC");
-    init_rings();if(run_controller())return usb_fail("RUN");
+    init_rings();diag_stage="STARTING xHCI";if(run_controller())return usb_fail("RUN");
     uint32_t saw_connected=0u;
     uint32_t saw_reset_timeout=0u;
     for(uint32_t p=1;p<=max_ports;++p){
-        uint32_t po=op_base+PORT_BASE+(p-1u)*PORT_STRIDE,ps=r32(po);if(!(ps&PORT_CCS))continue;
-        saw_connected=1u;
+        uint32_t po=op_base+PORT_BASE+(p-1u)*PORT_STRIDE,ps=r32(po);
+        diag_last_portsc=ps;
+        if(!(ps&PORT_CCS))continue;
+        saw_connected=1u;diag_stage="USB PORT CONNECTED";
         /* Match Linux xHCI port_state_to_neutral(): do not replay RW1C or
            reserved bits from a raw PORTSC read when requesting reset. */
         w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_PR);
@@ -565,6 +582,7 @@ int xhci_mouse_init(void){
         /* Clear change bits with the required write-one-to-clear semantics. */
         w32(po,(ps&PORT_NEUTRAL)|PORT_CHANGE);
         ps=r32(po);
+        diag_last_portsc=ps;diag_stage="USB DEVICE ENUMERATION";
         port_number=p;device_speed=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
         if(!device_speed){console_write("[ USB ] xHCI fail: SPEED\\n");debug_write("LIONOS:USB-FAIL-SPEED\\n");continue;}
         if(enable_slot()){console_write("[ USB ] xHCI fail: ENABLE-SLOT\\n");debug_write("LIONOS:USB-FAIL-ENABLE-SLOT\\n");continue;}
@@ -582,7 +600,7 @@ int xhci_mouse_init(void){
         console_write(" interval ");console_write_dec(c.interval);console_write("\\n");
         report_pending=0;report_length=0;report_seen=0u;
         if(submit_report()){console_write("[ USB ] xHCI fail: REPORT\\n");debug_write("LIONOS:USB-FAIL-REPORT\\n");continue;}
-        ready=1u;debug_write("LIONOS:USB-MOUSE-READY\n");console_write("[ OK ] xHCI HID mouse ready on root port ");console_write_dec(port_number);console_putc('\n');return 0;
+        diag_stage="HID REPORT WAIT";ready=1u;diag_init_ok=1u;debug_write("LIONOS:USB-MOUSE-READY\n");console_write("[ OK ] xHCI HID mouse ready on root port ");console_write_dec(port_number);console_putc('\n');return 0;
     }
     if(saw_reset_timeout)return usb_fail("PORT-RESET");
     if(!saw_connected)return usb_fail("NO-PORT");
@@ -598,10 +616,13 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     while(next_event(&e)==0){
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVENT)continue;
         if(((e.control>>24)&0xFFu)!=slot_id||((e.control>>16)&0x1Fu)!=endpoint_id)continue;
-        report_pending=0;
-        uint32_t cc=((e.status>>24)&0xFFu);
+        report_pending=0;++diag_event_count;
+        uint32_t cc=((e.status>>24)&0xFFu);diag_last_cc=cc;
         if(cc==CC_SUCCESS||cc==13u){
             if(report_length>=3u){
+                diag_last_report_len=report_length>8u?8u:report_length;
+                for(uint32_t i=0u;i<8u;++i)diag_last_report[i]=(i<diag_last_report_len)?report_buf[i]:0u;
+                ++diag_report_count;++diag_success_count;
                 if(!report_seen){
                     report_seen=1u;
                     console_write("[ OK ] HID mouse reports active\n");
@@ -614,8 +635,23 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
             (void)submit_report();
             return 1;
         }
-        (void)submit_report();
+        ++diag_error_count;(void)submit_report();
         return -1;
     }
+    return 0;
+}
+
+int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
+    if(!out)return -1;
+    out->controller_found=diag_controller_found;out->initialized=diag_init_ok;out->ready=ready;
+    out->port=port_number;out->speed=device_speed;out->slot=slot_id;out->endpoint_id=endpoint_id;
+    out->endpoint_address=endpoint_id?(((endpoint_id-1u)/2u)|0x80u):0u;
+    out->packet_size=endpoint_packet;out->interval=endpoint_interval;
+    out->submitted=diag_transfer_submitted;out->events=diag_event_count;out->successes=diag_success_count;
+    out->errors=diag_error_count;out->reports=diag_report_count;out->last_completion=diag_last_cc;
+    out->portsc=diag_last_portsc;out->stage=diag_stage;out->report_len=diag_last_report_len;
+    for(uint32_t i=0u;i<8u;++i)out->report[i]=diag_last_report[i];
+    if(diag_controller_found){out->usb_status=r32(op_base+USBSTS);out->usb_command=r32(op_base+USBCMD);}
+    else{out->usb_status=0u;out->usb_command=0u;}
     return 0;
 }
