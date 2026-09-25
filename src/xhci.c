@@ -620,7 +620,10 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         uint32_t cc=((e.status>>24)&0xFFu);diag_last_cc=cc;
         if(cc==CC_SUCCESS||cc==13u){
             if(report_length>=3u){
-                diag_last_report_len=report_length>8u?8u:report_length;
+                uint32_t residual=e.status&0xFFFFFFu;
+                uint32_t actual=report_length>residual?report_length-residual:0u;
+                if(actual>PAGE_SIZE)actual=PAGE_SIZE;
+                diag_last_report_len=actual>8u?8u:actual;
                 for(uint32_t i=0u;i<8u;++i)diag_last_report[i]=(i<diag_last_report_len)?report_buf[i]:0u;
                 ++diag_report_count;++diag_success_count;
                 if(!report_seen){
