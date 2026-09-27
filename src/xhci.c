@@ -71,6 +71,8 @@
 #define TRB_ADDRESS_DEVICE 11u
 #define TRB_CONFIGURE_EP 12u
 #define TRB_EVAL_CONTEXT 13u
+#define TRB_RESET_ENDPOINT 14u
+#define TRB_SET_TR_DEQ 16u
 #define TRB_TRANSFER_EVENT 32u
 #define TRB_COMMAND_EVENT 33u
 #define TRB_PORT_EVENT 34u
@@ -420,6 +422,17 @@ static void advance_ep0(void){
     ++ep0_index;if(ep0_index>=RING_TRBS-1u){link_trb(ep0_ring,ep0_cycle);ep0_index=0;ep0_cycle^=1u;}
 }
 
+static int reset_ep0_ring(void){
+    uint32_t ctl=(1u<<16)|(slot_id<<24);
+    submit_cmd(TRB_RESET_ENDPOINT,0u,ctl);
+    if(wait_cmd(slot_id))return -1;
+
+    uint64_t deq=(uint64_t)(uintptr_t)&ep0_ring[ep0_index];
+    deq|=(ep0_cycle?1ull:0ull);
+    submit_cmd(TRB_SET_TR_DEQ,deq,ctl);
+    return wait_cmd(slot_id);
+}
+
 static int control_xfer(uint8_t bm,uint8_t req,uint16_t value,uint16_t index,void *data,uint16_t length,int in){
     uint64_t setup=(uint64_t)bm|((uint64_t)req<<8)|((uint64_t)value<<16)|((uint64_t)index<<32)|((uint64_t)length<<48);
     uint32_t trt=length?(in?(3u<<16):(2u<<16)):0u;
@@ -432,7 +445,18 @@ static int control_xfer(uint8_t bm,uint8_t req,uint16_t value,uint16_t index,voi
         trb_t e;if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVENT)continue;
         if(((e.control>>24)&0xFFu)!=slot_id||((e.control>>16)&0x1Fu)!=1u)continue;
-        return (((e.status>>24)&0xFFu))==CC_SUCCESS?0:-1;
+        uint32_t cc=(e.status>>24)&0xFFu;
+        diag_last_cc=cc;
+        if(cc==CC_SUCCESS)return 0;
+
+        /*
+         * A physical device can leave EP0 halted after a malformed or
+         * firmware-sensitive control transfer. Reset EP0 and move the
+         * controller dequeue pointer to our next producer TRB so the caller
+         * can retry the request without rebuilding the whole xHCI controller.
+         */
+        if(reset_ep0_ring()==0u)return -2;
+        return -1;
     }
     return -1;
 }
@@ -539,10 +563,27 @@ static void dump_usb_descriptors(uint16_t total){
 
 static int find_hid(hid_candidate_t *c){
     zero_mem(config_buf,PAGE_SIZE);
-    if(control_xfer(0x80u,6u,0x0200u,0,config_buf,9u,1))return -1;
+    int rc=control_xfer(0x80u,6u,0x0200u,0,config_buf,9u,1);
+    if(rc==-2){
+        /*
+         * EP0 recovered from a controller-visible halt; retry the exact
+         * standard request once, with a short hardware settling delay.
+         */
+        xhci_delay_ms(2u);
+        zero_mem(config_buf,PAGE_SIZE);
+        rc=control_xfer(0x80u,6u,0x0200u,0,config_buf,9u,1);
+    }
+    if(rc)return -1;
     if(config_buf[1]!=2u||config_buf[0]<9u)return -1;
     uint16_t total=(uint16_t)config_buf[2]|((uint16_t)config_buf[3]<<8);if(total<9u||total>CONFIG_MAX)return -1;
-    zero_mem(config_buf,PAGE_SIZE);if(control_xfer(0x80u,6u,0x0200u,0,config_buf,total,1))return -1;
+    zero_mem(config_buf,PAGE_SIZE);
+    rc=control_xfer(0x80u,6u,0x0200u,0,config_buf,total,1);
+    if(rc==-2){
+        xhci_delay_ms(2u);
+        zero_mem(config_buf,PAGE_SIZE);
+        rc=control_xfer(0x80u,6u,0x0200u,0,config_buf,total,1);
+    }
+    if(rc)return -1;
     dump_usb_descriptors(total);
     zero_mem(c,sizeof(*c));c->config_value=config_buf[5];
     uint32_t i=0;int selected=0;
