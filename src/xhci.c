@@ -81,6 +81,7 @@
 #define TRB_CHAIN 0x10u
 #define TRB_IOC 0x20u
 #define TRB_IDT 0x40u
+#define TRB_ADDRESS_BSR 0x200u
 #define TRB_DIR_IN 0x10000u
 #define CC_SUCCESS 1u
 
@@ -399,10 +400,19 @@ static void fill_ep0(void *ctx,uint32_t mps,uint64_t dequeue){
     e[4]=(hci_version>=0x100u)?8u:(mps&0xFFFFu);
 }
 
-static int address_device(void){
-    zero_mem(in_ctx,PAGE_SIZE);dcbaa[slot_id]=(uint64_t)(uintptr_t)out_ctx;((uint32_t*)in_ctx)[1]=3u;
-    fill_slot(in_ctx,1u);fill_ep0(in_ctx,ep0_default_mps(),(uint64_t)(uintptr_t)ep0_ring);
-    submit_cmd(TRB_ADDRESS_DEVICE,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
+static int address_device(int block_set_address){
+    zero_mem(in_ctx,PAGE_SIZE);
+    dcbaa[slot_id]=(uint64_t)(uintptr_t)out_ctx;
+    ((uint32_t*)in_ctx)[1]=3u;
+    fill_slot(in_ctx,1u);
+
+    uint64_t dequeue=(uint64_t)(uintptr_t)ep0_ring;
+    if(!block_set_address)dequeue=qget(out_ctx,ctx_size+2u)&~1ull;
+    fill_ep0(in_ctx,ep0_default_mps(),dequeue);
+
+    uint32_t ctl=slot_id<<24;
+    if(block_set_address)ctl|=TRB_ADDRESS_BSR;
+    submit_cmd(TRB_ADDRESS_DEVICE,(uint64_t)(uintptr_t)in_ctx,ctl);
     return wait_cmd(slot_id);
 }
 
@@ -465,8 +475,13 @@ static int get_device(void){
     zero_mem(control_buf,PAGE_SIZE);
     if(control_xfer(0x80u,6u,0x0100u,0,control_buf,8u,1))return -1;
     if(control_buf[0]<8u||control_buf[1]!=1u)return -1;
-    uint32_t mps=control_buf[7];if(device_speed>=4u)mps=512u;
+    uint32_t mps=control_buf[7];
+    if(device_speed>=4u)mps=512u;
     if(mps!=ep0_default_mps()&&update_ep0_mps(mps))return -1;
+
+    /* Complete the real USB address phase after EP0 MPS is known. */
+    if(address_device(0))return -1;
+
     ep0_index=3u;ep0_cycle=1u;
     zero_mem(control_buf,PAGE_SIZE);
     if(control_xfer(0x80u,6u,0x0100u,0,control_buf,18u,1))return -1;
@@ -726,7 +741,9 @@ int xhci_mouse_init(void){
         port_number=p;device_speed=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
         if(!device_speed){console_write("[ USB ] xHCI fail: SPEED\\n");debug_write("LIONOS:USB-FAIL-SPEED\\n");continue;}
         if(enable_slot()){console_write("[ USB ] xHCI fail: ENABLE-SLOT\\n");debug_write("LIONOS:USB-FAIL-ENABLE-SLOT\\n");continue;}
-        if(address_device()){console_write("[ USB ] xHCI fail: ADDRESS\\n");debug_write("LIONOS:USB-FAIL-ADDRESS\\n");continue;}
+        /* xHCI BSR=1 keeps the device at address 0 for the first descriptor read.
+           get_device() then performs the real address phase. */
+        if(address_device(1)){console_write("[ USB ] xHCI fail: ADDRESS-BSR\\n");debug_write("LIONOS:USB-FAIL-ADDRESS-BSR\\n");continue;}
         if(get_device()){console_write("[ USB ] xHCI fail: DESCRIPTOR\\n");debug_write("LIONOS:USB-FAIL-DESCRIPTOR\\n");continue;}
         hid_candidate_t c;if(find_hid(&c)||!c.config_value){console_write("[ USB ] xHCI fail: HID\\n");debug_write("LIONOS:USB-FAIL-HID\\n");continue;}
         /* USB devices transition to Configured state before non-EP0 endpoints are enabled. */
