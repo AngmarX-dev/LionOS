@@ -9,6 +9,13 @@ typedef struct {
     const char *stage;
     uint32_t report_len;
     uint8_t report[8];
+    uint16_t vid,pid;
+    uint8_t device_class,device_subclass,device_protocol;
+    uint8_t hid_iface,hid_subclass,hid_protocol;
+    uint8_t hid_endpoint,hid_ep_type;
+    uint16_t hid_packet;
+    uint8_t hid_interval;
+    uint32_t interfaces,endpoints,hid_interfaces;
 } xhci_mouse_debug_info_t;
 int xhci_mouse_init(void);
 int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons);
