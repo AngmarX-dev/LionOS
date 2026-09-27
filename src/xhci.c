@@ -144,6 +144,13 @@ static uint32_t diag_controller_found,diag_init_ok;
 static uint32_t diag_transfer_submitted,diag_event_count,diag_success_count,diag_error_count,diag_report_count;
 static uint32_t diag_last_cc,diag_last_portsc,diag_last_report_len;
 static uint8_t diag_last_report[8];
+static uint16_t diag_vid,diag_pid;
+static uint8_t diag_device_class,diag_device_subclass,diag_device_protocol;
+static uint8_t diag_hid_iface,diag_hid_subclass,diag_hid_protocol;
+static uint8_t diag_hid_endpoint,diag_hid_ep_type;
+static uint16_t diag_hid_packet;
+static uint8_t diag_hid_interval;
+static uint32_t diag_interface_count,diag_endpoint_count,diag_hid_count;
 
 static int usb_fail(const char *stage){
     diag_stage=stage;diag_init_ok=0u;
@@ -439,7 +446,95 @@ static int get_device(void){
     ep0_index=3u;ep0_cycle=1u;
     zero_mem(control_buf,PAGE_SIZE);
     if(control_xfer(0x80u,6u,0x0100u,0,control_buf,18u,1))return -1;
-    return (control_buf[0]>=18u&&control_buf[1]==1u)?0:-1;
+    if(control_buf[0]<18u||control_buf[1]!=1u)return -1;
+    diag_vid=(uint16_t)control_buf[8]|((uint16_t)control_buf[9]<<8);
+    diag_pid=(uint16_t)control_buf[10]|((uint16_t)control_buf[11]<<8);
+    diag_device_class=control_buf[4];
+    diag_device_subclass=control_buf[5];
+    diag_device_protocol=control_buf[6];
+    return 0;
+}
+
+static void dump_usb_descriptors(uint16_t total){
+    console_write("\n[ USB DEBUG ] DEVICE\n");
+    console_write(" VID=0x");console_write_hex(diag_vid);
+    console_write(" PID=0x");console_write_hex(diag_pid);
+    console_write(" CLASS=0x");console_write_hex(diag_device_class);
+    console_write(" SUB=0x");console_write_hex(diag_device_subclass);
+    console_write(" PROTO=0x");console_write_hex(diag_device_protocol);
+    console_write("\n[ USB DEBUG ] CONFIG\n");
+
+    diag_interface_count=0u;
+    diag_endpoint_count=0u;
+    diag_hid_count=0u;
+    diag_hid_iface=0xFFu;
+    diag_hid_subclass=0u;
+    diag_hid_protocol=0u;
+    diag_hid_endpoint=0u;
+    diag_hid_ep_type=0u;
+    diag_hid_packet=0u;
+    diag_hid_interval=0u;
+
+    uint32_t i=0u;
+    uint8_t current_iface=0xFFu;
+    uint8_t current_is_hid=0u;
+
+    while(i+2u<=total){
+        uint8_t len=config_buf[i],type=config_buf[i+1u];
+        if(len<2u||i+len>total)break;
+
+        if(type==4u&&len>=9u){
+            current_iface=config_buf[i+2u];
+            uint8_t alt=config_buf[i+3u];
+            uint8_t cls=config_buf[i+5u];
+            uint8_t sub=config_buf[i+6u];
+            uint8_t proto=config_buf[i+7u];
+            current_is_hid=(alt==0u&&cls==3u)?1u:0u;
+            ++diag_interface_count;
+
+            console_write(" IF=");console_write_dec(current_iface);
+            console_write(" ALT=");console_write_dec(alt);
+            console_write(" CLASS=0x");console_write_hex(cls);
+            console_write(" SUB=0x");console_write_hex(sub);
+            console_write(" PROTO=0x");console_write_hex(proto);
+            console_write("\n");
+
+            if(current_is_hid){
+                ++diag_hid_count;
+                if(diag_hid_iface==0xFFu){
+                    diag_hid_iface=current_iface;
+                    diag_hid_subclass=sub;
+                    diag_hid_protocol=proto;
+                }
+            }
+        }else if(type==5u&&len>=7u){
+            uint8_t addr=config_buf[i+2u];
+            uint8_t attr=config_buf[i+3u];
+            uint16_t mps=(uint16_t)config_buf[i+4u]|((uint16_t)config_buf[i+5u]<<8);
+            ++diag_endpoint_count;
+
+            console_write("  EP=0x");console_write_hex(addr);
+            console_write(" IF=");console_write_dec(current_iface);
+            console_write(" TYPE=");console_write_dec(attr&3u);
+            console_write(" MPS=");console_write_dec(mps&0x7FFu);
+            console_write(" INT=");console_write_dec(config_buf[i+6u]);
+            console_write("\n");
+
+            if(current_is_hid && !diag_hid_endpoint && (addr&0x80u) && (attr&3u)==3u){
+                diag_hid_endpoint=addr;
+                diag_hid_ep_type=attr&3u;
+                diag_hid_packet=mps&0x7FFu;
+                diag_hid_interval=config_buf[i+6u];
+            }
+        }
+
+        i+=len;
+    }
+
+    console_write(" SUMMARY IF=");console_write_dec(diag_interface_count);
+    console_write(" EP=");console_write_dec(diag_endpoint_count);
+    console_write(" HID=");console_write_dec(diag_hid_count);
+    console_write("\n");
 }
 
 static int find_hid(hid_candidate_t *c){
@@ -448,6 +543,7 @@ static int find_hid(hid_candidate_t *c){
     if(config_buf[1]!=2u||config_buf[0]<9u)return -1;
     uint16_t total=(uint16_t)config_buf[2]|((uint16_t)config_buf[3]<<8);if(total<9u||total>CONFIG_MAX)return -1;
     zero_mem(config_buf,PAGE_SIZE);if(control_xfer(0x80u,6u,0x0200u,0,config_buf,total,1))return -1;
+    dump_usb_descriptors(total);
     zero_mem(c,sizeof(*c));c->config_value=config_buf[5];
     uint32_t i=0;int selected=0;
     while(i+2u<=total){uint8_t len=config_buf[i],type=config_buf[i+1u];if(len<2u||i+len>total)return -1;
@@ -522,6 +618,9 @@ int xhci_mouse_init(void){
     diag_controller_found=0u;diag_init_ok=0u;
     diag_transfer_submitted=0u;diag_event_count=0u;diag_success_count=0u;diag_error_count=0u;diag_report_count=0u;
     diag_last_cc=0u;diag_last_portsc=0u;diag_last_report_len=0u;
+    diag_vid=0u;diag_pid=0u;diag_device_class=0u;diag_device_subclass=0u;diag_device_protocol=0u;
+    diag_hid_iface=0xFFu;diag_hid_subclass=0u;diag_hid_protocol=0u;diag_hid_endpoint=0u;diag_hid_ep_type=0u;diag_hid_packet=0u;diag_hid_interval=0u;
+    diag_interface_count=0u;diag_endpoint_count=0u;diag_hid_count=0u;
     pci_xhci_t d;if(find_xhci(&d))return usb_fail("PCI");
     diag_controller_found=1u;diag_stage="xHCI FOUND";
     console_write("[ USB ] xHCI controller ");console_write_hex(d.vendor);console_putc(':');console_write_hex(d.device);console_putc('\n');
@@ -650,6 +749,11 @@ int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
     out->port=port_number;out->speed=device_speed;out->slot=slot_id;out->endpoint_id=endpoint_id;
     out->endpoint_address=endpoint_id?(((endpoint_id-1u)/2u)|0x80u):0u;
     out->packet_size=endpoint_packet;out->interval=endpoint_interval;
+    out->vid=diag_vid;out->pid=diag_pid;
+    out->device_class=diag_device_class;out->device_subclass=diag_device_subclass;out->device_protocol=diag_device_protocol;
+    out->hid_iface=diag_hid_iface;out->hid_subclass=diag_hid_subclass;out->hid_protocol=diag_hid_protocol;
+    out->hid_endpoint=diag_hid_endpoint;out->hid_ep_type=diag_hid_ep_type;out->hid_packet=diag_hid_packet;out->hid_interval=diag_hid_interval;
+    out->interfaces=diag_interface_count;out->endpoints=diag_endpoint_count;out->hid_interfaces=diag_hid_count;
     out->submitted=diag_transfer_submitted;out->events=diag_event_count;out->successes=diag_success_count;
     out->errors=diag_error_count;out->reports=diag_report_count;out->last_completion=diag_last_cc;
     out->portsc=diag_last_portsc;out->stage=diag_stage;out->report_len=diag_last_report_len;
