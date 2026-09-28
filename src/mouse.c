@@ -2,165 +2,146 @@
 #include "io.h"
 #include "mouse.h"
 #include "xhci.h"
+#include "console.h"
+#include "debug.h"
 
-#define PS2_STATUS 0x64u
-#define PS2_COMMAND 0x64u
-#define PS2_DATA 0x60u
-#define PS2_AUX_DISABLE 0xA7u
-#define PS2_AUX_ENABLE 0xA8u
-#define PS2_READ_CONFIG 0x20u
-#define PS2_WRITE_CONFIG 0x60u
-#define PS2_WRITE_AUX 0xD4u
-#define MOUSE_SET_DEFAULTS 0xF6u
-#define MOUSE_ENABLE_STREAMING 0xF4u
-#define MOUSE_ACK 0xFAu
-#define MOUSE_PACKET_SIZE 3u
+/* ---------------- PS/2 state ---------------- */
+static volatile int32_t  ps2_x = 400, ps2_y = 300;
+static volatile uint8_t  ps2_buttons = 0;
+static volatile uint8_t  ps2_cycle = 0;
+static volatile int      ps2_dx = 0, ps2_dy = 0;
+static volatile int      ps2_initialized = 0;
+static volatile int      ps2_cursor_visible = 1;
 
-static uint32_t ps2_initialized;
-static uint32_t usb_initialized;
-static uint32_t usb_status;
-static uint32_t usb_retry_frames;
-static uint32_t usb_retry_attempts;
-static uint32_t cursor_x_pos=512u,cursor_y_pos=384u;
-static uint32_t cursor_width=1024u,cursor_height=768u;
-static uint8_t packet[MOUSE_PACKET_SIZE];
-static uint32_t packet_index;
-static uint8_t current_buttons;
+/* ---------------- USB state ---------------- */
+static volatile int      usb_initialized = 0;
+static volatile uint32_t usb_status = 0;   /* 0=off 1=ready 3=retrying */
+static volatile uint32_t usb_retry_attempts = 0;
+static volatile uint32_t usb_retry_frames = 0;
+static volatile int32_t  usb_x = 400, usb_y = 300;
+static volatile uint8_t  usb_buttons = 0;
 
-static int wait_input_clear(void){
-    for(uint32_t i=0;i<100000u;++i){
-        if((inb(PS2_STATUS)&2u)==0u)return 0;
-        __asm__ volatile("pause");
+/* ---- PS/2 helpers (skip these if you already have them) ---- */
+static void ps2_wait_write(void){
+    for(int i=0;i<100000;++i) if(!(inb(0x64) & 2)) return;
+}
+static void ps2_wait_read(void){
+    for(int i=0;i<100000;++i) if(inb(0x64) & 1) return;
+}
+static void ps2_cmd(uint8_t v){
+    ps2_wait_write(); outb(0x64, 0xD4);
+    ps2_wait_write(); outb(0x60, v);
+}
+static uint8_t ps2_read(void){
+    ps2_wait_read(); return inb(0x60);
+}
+
+/* IRQ12 handler (register this with your IDT / PIC if you haven't). */
+void mouse_irq_handler(void){
+    uint8_t st = inb(0x64);
+    if(!(st & 0x20)) return;            /* not from mouse */
+    uint8_t data = inb(0x60);
+
+    switch(ps2_cycle){
+        case 0: if(data & 0x08){ ps2_dx = data & 0x10 ? (int)(data | 0xFFFFFF00) : data; ps2_cycle = 1; } break;
+        case 1: ps2_dy = data & 0x20 ? (int)(data | 0xFFFFFF00) : data; ps2_cycle = 2; break;
+        case 2:
+            ps2_buttons = data & 0x07;
+            ps2_x += ps2_dx;
+            ps2_y -= ps2_dy;
+            if(ps2_x < 0) ps2_x = 0;
+            if(ps2_y < 0) ps2_y = 0;
+            if(ps2_x > 1023) ps2_x = 1023;
+            if(ps2_y > 767)  ps2_y = 767;
+            ps2_cycle = 0;
+            break;
     }
-    return -1;
-}
-static int wait_output(void){
-    for(uint32_t i=0;i<100000u;++i){
-        if(inb(PS2_STATUS)&1u)return 0;
-        __asm__ volatile("pause");
-    }
-    return -1;
-}
-static void flush_output(void){
-    for(uint32_t i=0;i<32u&&(inb(PS2_STATUS)&1u);++i)(void)inb(PS2_DATA);
-}
-static int controller_command(uint8_t command){
-    if(wait_input_clear()<0)return -1;
-    outb(PS2_COMMAND,command);
-    return 0;
-}
-static int mouse_command(uint8_t command){
-    flush_output();
-    if(controller_command(PS2_WRITE_AUX)<0)return -1;
-    if(wait_input_clear()<0)return -1;
-    outb(PS2_DATA,command);
-    if(wait_output()<0)return -1;
-    if(inb(PS2_DATA)!=MOUSE_ACK){flush_output();return -1;}
-    flush_output();
-    return 0;
-}
-static void cursor_move(int32_t dx,int32_t dy){
-    int32_t nx=(int32_t)cursor_x_pos+dx,ny=(int32_t)cursor_y_pos+dy;
-    if(nx<0)nx=0;
-    if(ny<0)ny=0;
-    if(nx>=(int32_t)cursor_width)nx=(int32_t)cursor_width-1;
-    if(ny>=(int32_t)cursor_height)ny=(int32_t)cursor_height-1;
-    cursor_x_pos=(uint32_t)nx;cursor_y_pos=(uint32_t)ny;
-}
-static void handle_ps2_packet(void){
-    uint8_t status=packet[0];
-    if(!(status&8u))return;
-    current_buttons=status&7u;
-    if(status&0xC0u)return;
-    cursor_move((int32_t)(int8_t)packet[1]*2,-(int32_t)(int8_t)packet[2]*2);
 }
 
-int mouse_init(void){
-    ps2_initialized=0u;
-    usb_initialized=0u;
-    usb_status=0u;
-    usb_retry_frames=0u;
-    usb_retry_attempts=0u;
-    packet_index=0u;
-    current_buttons=0u;
-    cursor_x_pos=cursor_width/2u;
-    cursor_y_pos=cursor_height/2u;
+void mouse_init(void){
+    if(ps2_initialized) return;
 
-    (void)controller_command(PS2_AUX_DISABLE);
-    flush_output();
-    if(controller_command(PS2_READ_CONFIG)<0)return -1;
-    if(wait_output()<0)return -1;
-    uint8_t config=inb(PS2_DATA);
-    config&=(uint8_t)~2u;
-    if(controller_command(PS2_WRITE_CONFIG)<0)return -1;
-    if(wait_input_clear()<0)return -1;
-    outb(PS2_DATA,config);
-    if(controller_command(PS2_AUX_ENABLE)<0)return -1;
-    flush_output();
-    if(mouse_command(MOUSE_SET_DEFAULTS)<0)return -1;
-    if(mouse_command(MOUSE_ENABLE_STREAMING)<0)return -1;
-    ps2_initialized=1u;
-    return 0;
+    /* Enable aux device */
+    ps2_wait_write(); outb(0x64, 0xA8);
+
+    /* Enable IRQ12 in the PS/2 controller */
+    ps2_wait_write(); outb(0x64, 0x20);
+    ps2_wait_read();  uint8_t cfg = inb(0x60);
+    cfg |= 0x02;                          /* IRQ12 enable */
+    cfg &= ~0x20;                         /* clear mouse clock disable */
+    ps2_wait_write(); outb(0x64, 0x60);
+    ps2_wait_write(); outb(0x60, cfg);
+
+    /* Mouse defaults */
+    ps2_cmd(0xF6); (void)ps2_read();      /* set defaults */
+    ps2_cmd(0xF4); (void)ps2_read();      /* enable data reporting */
+
+    ps2_initialized = 1;
+    console_write("[ OK ] PS/2 mouse initialized\n");
+    debug_write("LIONOS:MOUSE-PS2-OK\n");
 }
 
+/* ---- USB integration ---- */
 int mouse_usb_init(void){
-    if(usb_initialized)return 0;
-    usb_status=3u; /* RETRYING */
-    if(xhci_mouse_init()!=0){
-        usb_status=0u; /* UNAVAILABLE */
+    if(usb_initialized) return 0;
+    usb_status = 3;                        /* retrying */
+    if(xhci_mouse_init() != 0){
+        usb_status = 0;                    /* unavailable */
         return -1;
     }
-    usb_initialized=1u;
-    usb_status=1u; /* READY */
+    usb_initialized = 1;
+    usb_status = 1;                        /* ready */
     return 0;
 }
 
-const char *mouse_usb_status_text(void){
-    if(usb_status==2u)return "ACTIVE";
-    if(usb_status==1u)return "READY";
-    if(usb_status==3u)return "RETRYING";
-    return "UNAVAILABLE";
+void mouse_usb_retry(void){
+    usb_retry_attempts = 0;
+    usb_retry_frames = 0;
+    usb_initialized = 0;
+    usb_status = 3;
+    (void)mouse_usb_init();
 }
 
 void mouse_poll(void){
+    /* Always poll the PS/2 handler buffer if IRQs are on */
     if(ps2_initialized){
-        while(inb(PS2_STATUS)&1u){
-            uint8_t status=inb(PS2_STATUS);
-            if(!(status&0x20u))break;
-            uint8_t value=inb(PS2_DATA);
-            if(packet_index==0u&&(value&8u)==0u)continue;
-            packet[packet_index++]=value;
-            if(packet_index==MOUSE_PACKET_SIZE){
-                packet_index=0u;
-                handle_ps2_packet();
-            }
-        }
+        /* nothing to do here — IRQ updates ps2_x/ps2_y */
     }
+
+    /* USB polling */
     if(usb_initialized){
-        int32_t dx=0,dy=0;
-        uint8_t buttons=0;
-        int result=xhci_mouse_poll(&dx,&dy,&buttons);
-        if(result==1){
-            usb_status=2u; /* ACTIVE: at least one HID report arrived */
-            current_buttons=buttons;
-            cursor_move(dx*2,dy*2);
+        int32_t dx = 0, dy = 0;
+        uint8_t btn = 0;
+        int r = xhci_mouse_poll(&dx, &dy, &btn);
+        if(r == 1){
+            usb_x += dx;
+            usb_y += dy;
+            if(usb_x < 0) usb_x = 0;
+            if(usb_y < 0) usb_y = 0;
+            if(usb_x > 1023) usb_x = 1023;
+            if(usb_y > 767)  usb_y = 767;
+            usb_buttons = btn;
         }
-    }else if(usb_retry_attempts<6u){
-        usb_status=3u; /* RETRYING */
-        if(++usb_retry_frames>=300u){
-            usb_retry_frames=0u;
+    }else if(usb_retry_attempts < 3u){
+        /* Retry every ~30 frames (~0.5 s at 60 Hz) */
+        usb_status = 3;
+        if(++usb_retry_frames >= 30u){
+            usb_retry_frames = 0;
             ++usb_retry_attempts;
             (void)mouse_usb_init();
         }
     }
 }
 
-void mouse_set_bounds(uint32_t width,uint32_t height){
-    if(width)cursor_width=width;
-    if(height)cursor_height=height;
-    cursor_x_pos=cursor_width/2u;
-    cursor_y_pos=cursor_height/2u;
+/* ---- Public accessors ---- */
+int32_t mouse_x(void){ return usb_initialized ? usb_x : ps2_x; }
+int32_t mouse_y(void){ return usb_initialized ? usb_y : ps2_y; }
+uint8_t mouse_buttons(void){ return usb_initialized ? usb_buttons : ps2_buttons; }
+
+void mouse_set_cursor_visible(int visible){ ps2_cursor_visible = visible; }
+
+uint32_t mouse_usb_status(void){ return usb_status; }
+
+int mouse_debug_get(xhci_mouse_debug_info_t *out){
+    return xhci_mouse_debug_get(out);
 }
-uint32_t mouse_x(void){return cursor_x_pos;}
-uint32_t mouse_y(void){return cursor_y_pos;}
-uint8_t mouse_buttons(void){return current_buttons;}
