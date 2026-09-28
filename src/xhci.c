@@ -1,20 +1,9 @@
 /*
  * xhci.c — xHCI host controller driver with HID mouse support
- *
  * LionOS — experimental operating system
  *
- * Supports USB 1.x / 2.0 / 3.x / 3.1 / 3.2 on Intel / AMD / Renesas
- * controllers. Tested against Intel 8086:7AE0 (Raptor Lake-P).
- *
- * Layout reference:
- *   Input Context  = ICC(32) | Slot | EP0 | EP1 | ...
- *   Device Context = Slot      | EP0 | EP1 | ...
- *
- * Endpoint Context:
- *   Dword 0 (ep_info)  : bits 23:16 = Interval
- *   Dword 1 (ep_info2) : bits 5:3  = EP type, bits 31:16 = MPS
- *   Dword 2-3          : TR Dequeue Pointer (with DCS in bit 0)
- *   Dword 4            : bits 15:0 = Average TRB Length
+ * Supports USB 1.x / 2.0 / 3.x / 3.1 / 3.2 on Intel / AMD / Renesas.
+ * Tested against Intel 8086:7AE0 (Raptor Lake-P).
  */
 
 #include <stdint.h>
@@ -63,8 +52,6 @@
 #define PS_PR 0x10u
 #define PS_PLS_MASK (0xFu << 5)
 #define PS_PLS_U0 (0u << 5)
-#define PS_PLS_POLL (7u << 5)
-#define PS_PLS_COMP (10u << 5)
 #define PS_PP 0x200u
 #define PS_SPEED_MASK 0x3C00u
 #define PS_SPEED_SHIFT 10u
@@ -96,7 +83,6 @@
 #define TRB_CONFIGURE_EP 12u
 #define TRB_EVAL_CONTEXT 13u
 #define TRB_RESET_EP 14u
-#define TRB_STOP_EP 15u
 #define TRB_SET_DEQ 16u
 #define TRB_NOOP_CMD 23u
 #define TRB_TRANSFER_EVT 32u
@@ -124,12 +110,13 @@
 #define PROTO_USB2 1u
 #define PROTO_USB3 2u
 
+/* xHCI PORTSC speed values — do NOT reorder these */
 #define SPEED_UNDEF 0u
-#define SPEED_LOW 1u
-#define SPEED_FULL 2u
-#define SPEED_HIGH 3u
-#define SPEED_SUPER 4u
-#define SPEED_SUPER_PLUS 5u
+#define SPEED_FULL 1u           /* 12 Mb/s   */
+#define SPEED_LOW 2u            /* 1.5 Mb/s  */
+#define SPEED_HIGH 3u           /* 480 Mb/s  */
+#define SPEED_SUPER 4u          /* 5 Gb/s    */
+#define SPEED_SUPER_PLUS 5u     /* 10 Gb/s   */
 
 #define RING_TRBS 256u
 #define EVENT_TRBS 256u
@@ -220,7 +207,6 @@ static int usb_fail(const char *stage){
     diag_stage = stage;
     diag_init_ok = 0;
     usb_log("[ USB ] xHCI fail: "); usb_log(stage); usb_log_nl();
-    debug_write("LIONOS:USB-FAIL-"); debug_write(stage); debug_write("\n");
     return -1;
 }
 
@@ -237,54 +223,48 @@ static void xhci_delay_ms(uint32_t ms){
 
 #define dma_wmb() __asm__ volatile("mfence" ::: "memory")
 
-static uint32_t pci_key(uint8_t b, uint8_t s, uint8_t f, uint8_t r){
-    return 0x80000000u | ((uint32_t)b<<16) | ((uint32_t)s<<11)
-           | ((uint32_t)f<<8) | (r & 0xFCu);
+/* ---- PCI ---- */
+static uint32_t pci_key(uint8_t b,uint8_t s,uint8_t f,uint8_t r){
+    return 0x80000000u|((uint32_t)b<<16)|((uint32_t)s<<11)|((uint32_t)f<<8)|(r&0xFCu);
 }
-static uint32_t pci_r32(uint8_t b, uint8_t s, uint8_t f, uint8_t r){
-    outl(PCI_ADDR, pci_key(b,s,f,r));
-    return inl(PCI_DATA);
+static uint32_t pci_r32(uint8_t b,uint8_t s,uint8_t f,uint8_t r){
+    outl(PCI_ADDR, pci_key(b,s,f,r)); return inl(PCI_DATA);
 }
-static void pci_w32(uint8_t b, uint8_t s, uint8_t f, uint8_t r, uint32_t v){
-    outl(PCI_ADDR, pci_key(b,s,f,r));
-    outl(PCI_DATA, v);
+static void pci_w32(uint8_t b,uint8_t s,uint8_t f,uint8_t r,uint32_t v){
+    outl(PCI_ADDR, pci_key(b,s,f,r)); outl(PCI_DATA, v);
 }
-
 static int pci_find_xhci(pci_dev_t *out){
-    for(uint32_t b=0;b<256u;++b){
-        for(uint32_t s=0;s<32u;++s){
-            uint32_t id = pci_r32((uint8_t)b,(uint8_t)s,0,0);
-            if((id & 0xFFFFu)==0xFFFFu) continue;
-            uint32_t hdr = pci_r32((uint8_t)b,(uint8_t)s,0,0x0Cu);
-            uint32_t funcs = (hdr & 0x00800000u) ? 8u : 1u;
-            for(uint32_t f=0;f<funcs;++f){
-                uint32_t c = pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_CLASS);
-                if((c>>24)!=0x0Cu || ((c>>16)&0xFFu)!=0x03u || ((c>>8)&0xFFu)!=0x30u)
-                    continue;
-                uint32_t lo = pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0);
-                if(lo & 1u) continue;
-                uint64_t bar = (uint64_t)(lo & 0xFFFFFFF0u);
-                if(((lo>>1)&3u)==2u)
-                    bar |= (uint64_t)pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0+4u)<<32;
-                if(!bar) continue;
-                out->bus=(uint8_t)b; out->slot=(uint8_t)s; out->function=(uint8_t)f;
-                out->vendor=(uint16_t)(id&0xFFFFu);
-                out->device=(uint16_t)(id>>16);
-                out->bar0=bar;
-                return 0;
-            }
+    for(uint32_t b=0;b<256u;++b) for(uint32_t s=0;s<32u;++s){
+        uint32_t id = pci_r32((uint8_t)b,(uint8_t)s,0,0);
+        if((id & 0xFFFFu)==0xFFFFu) continue;
+        uint32_t hdr = pci_r32((uint8_t)b,(uint8_t)s,0,0x0Cu);
+        uint32_t funcs = (hdr & 0x00800000u) ? 8u : 1u;
+        for(uint32_t f=0;f<funcs;++f){
+            uint32_t c = pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_CLASS);
+            if((c>>24)!=0x0Cu || ((c>>16)&0xFFu)!=0x03u || ((c>>8)&0xFFu)!=0x30u) continue;
+            uint32_t lo = pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0);
+            if(lo & 1u) continue;
+            uint64_t bar = (uint64_t)(lo & 0xFFFFFFF0u);
+            if(((lo>>1)&3u)==2u)
+                bar |= (uint64_t)pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0+4u)<<32;
+            if(!bar) continue;
+            out->bus=(uint8_t)b; out->slot=(uint8_t)s; out->function=(uint8_t)f;
+            out->vendor=(uint16_t)(id&0xFFFFu);
+            out->device=(uint16_t)(id>>16);
+            out->bar0=bar;
+            return 0;
         }
     }
     return -1;
 }
 
+/* ---- MMIO ---- */
 static uint32_t r32(uint32_t off){ return *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off); }
 static void w32(uint32_t off,uint32_t v){ *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off)=v; }
 static void w64(uint32_t off,uint64_t v){
     volatile uint32_t *p=(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off);
     p[0]=(uint32_t)v; p[1]=(uint32_t)(v>>32);
 }
-
 static int map_mmio(uint64_t phys){
     uint64_t aligned = phys & ~(uint64_t)(PAGE_SIZE-1u);
     uint32_t offset = (uint32_t)(phys & (PAGE_SIZE-1u));
@@ -294,6 +274,10 @@ static int map_mmio(uint64_t phys){
     return 0;
 }
 
+/* ---- Extended capabilities ----
+ * IMPORTANT: port_offset is DWORD2 bits 7:0, port_count is bits 15:8.
+ * Previous code read port_offset from bits 23:16, which is wrong.
+ */
 static void parse_usb_protocols(void){
     protocol_count = 0;
     uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
@@ -301,26 +285,27 @@ static void parse_usb_protocols(void){
 
     for(uint32_t iter = 0; iter < 64u; ++iter){
         if(xecp_off == 0u || xecp_off >= XHCI_MAP_SIZE) break;
-        uint32_t cap = r32(xecp_off);
-        uint32_t id = cap & 0xFFu;
+        uint32_t cap  = r32(xecp_off);
+        uint32_t id   = cap & 0xFFu;
         uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
 
         if(id == 2u){
             uint32_t dw2 = r32(xecp_off + 8u);
             uint8_t major = (uint8_t)((cap >> 24) & 0xFFu);
             uint8_t minor = (uint8_t)((cap >> 16) & 0xFFu);
-            uint8_t port_count = (uint8_t)((dw2 >> 8) & 0xFFu);
-            uint8_t port_offset = (uint8_t)((dw2 >> 16) & 0xFFu);
-            uint8_t slot_type = (uint8_t)((dw2 >> 28) & 0xFu);
+            /* CORRECT bit fields: */
+            uint8_t port_offset = (uint8_t)(dw2 & 0xFFu);         /* bits 7:0  */
+            uint8_t port_count  = (uint8_t)((dw2 >> 8) & 0xFFu);  /* bits 15:8 */
+            uint8_t slot_type   = (uint8_t)((dw2 >> 16) & 0xFu);  /* bits 19:16 */
             uint8_t proto = (major >= 3u) ? PROTO_USB3 : PROTO_USB2;
 
             if(protocol_count < MAX_PROTOCOLS){
-                protocols[protocol_count].major = major;
-                protocols[protocol_count].minor = minor;
-                protocols[protocol_count].protocol = proto;
-                protocols[protocol_count].port_count = port_count;
+                protocols[protocol_count].major       = major;
+                protocols[protocol_count].minor       = minor;
+                protocols[protocol_count].protocol    = proto;
+                protocols[protocol_count].port_count  = port_count;
                 protocols[protocol_count].port_offset = port_offset;
-                protocols[protocol_count].slot_type = slot_type;
+                protocols[protocol_count].slot_type   = slot_type;
                 ++protocol_count;
             }
         }
@@ -332,13 +317,11 @@ static void parse_usb_protocols(void){
 
 static int legacy_handoff(void){
     uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
-
-    for(uint32_t iter = 0; iter < 64u; ++iter){
+    for(uint32_t iter=0; iter<64u; ++iter){
         if(xecp_off == 0u || xecp_off >= XHCI_MAP_SIZE) break;
-        uint32_t cap = r32(xecp_off);
-        uint32_t id = cap & 0xFFu;
+        uint32_t cap  = r32(xecp_off);
+        uint32_t id   = cap & 0xFFu;
         uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
-
         if(id == EXT_USBLEGSUP_ID){
             w32(xecp_off, cap | USBLEGSUP_OS_OWNED);
             if(cap & USBLEGSUP_BIOS_OWNED){
@@ -351,22 +334,23 @@ static int legacy_handoff(void){
             w32(xecp_off + 4u, 0u);
             return 0;
         }
-
         if(next == 0u) break;
         xecp_off += next;
     }
     return 0;
 }
 
+/* port_protocol(): port_offset is 0-based per spec. */
 static uint8_t port_protocol(uint32_t p){
     for(uint32_t i=0;i<protocol_count;++i){
         uint32_t start = (uint32_t)protocols[i].port_offset + 1u;
-        uint32_t end = start + (uint32_t)protocols[i].port_count;
+        uint32_t end   = start + (uint32_t)protocols[i].port_count;
         if(p >= start && p < end) return protocols[i].protocol;
     }
     return 0;
 }
 
+/* ---- Controller reset ---- */
 static int hc_reset(void){
     uint32_t cmd = r32(op_base + OP_USBCMD) & ~CMD_RUN;
     w32(op_base + OP_USBCMD, cmd);
@@ -391,6 +375,7 @@ static int hc_reset(void){
     return (r32(op_base + OP_USBSTS) & STS_CNR) ? -1 : 0;
 }
 
+/* ---- DMA pages ---- */
 static int dma_page(void **out){
     void *p = page_alloc();
     if(!p) return -1;
@@ -398,21 +383,17 @@ static int dma_page(void **out){
     if(out) *out = p;
     return 0;
 }
-
 static uint32_t read_scratchpads(void){
     uint32_t hcs2 = r32(CAP_HCSPARAMS2);
     return ((hcs2 >> 21) & 0x1Fu) | (((hcs2 >> 27) & 0x1Fu) << 5);
 }
-
 static int alloc_memory(void){
     if(dma_page((void**)&dcbaa) || dma_page((void**)&cmd_ring) ||
        dma_page((void**)&event_ring) || dma_page((void**)&erst) ||
        dma_page((void**)&ep0_ring) || dma_page((void**)&intr_ring) ||
        dma_page(&out_ctx) || dma_page(&in_ctx) ||
        dma_page((void**)&control_buf) || dma_page((void**)&config_buf) ||
-       dma_page((void**)&report_buf))
-        return -1;
-
+       dma_page((void**)&report_buf)) return -1;
     scratch_count = read_scratchpads();
     if(scratch_count > MAX_SCRATCH) return -1;
     if(scratch_count){
@@ -430,6 +411,7 @@ static int alloc_memory(void){
     return 0;
 }
 
+/* ---- Rings ---- */
 static void link_trb(trb_t *ring, uint32_t cycle){
     trb_t *t = &ring[RING_TRBS-1u];
     uint64_t addr = (uint64_t)(uintptr_t)ring;
@@ -438,35 +420,23 @@ static void link_trb(trb_t *ring, uint32_t cycle){
     t->status = 0;
     t->control = (TRB_LINK << 10) | TRB_TC | TRB_CHAIN | (cycle ? TRB_CYCLE : 0u);
 }
-
 static int setup_rings(void){
-    cmd_index = 0; cmd_cycle = 1;
-    event_index = 0; event_cycle = 1;
-    ep0_index = 0; ep0_cycle = 1;
-    intr_index = 0; intr_cycle = 1;
-
-    link_trb(cmd_ring, 1u);
-    link_trb(ep0_ring, 1u);
-    link_trb(intr_ring, 1u);
-
+    cmd_index=0; cmd_cycle=1;
+    event_index=0; event_cycle=1;
+    ep0_index=0; ep0_cycle=1;
+    intr_index=0; intr_cycle=1;
+    link_trb(cmd_ring,1u); link_trb(ep0_ring,1u); link_trb(intr_ring,1u);
     erst[0].base = (uint64_t)(uintptr_t)event_ring;
     erst[0].size = EVENT_TRBS;
-
     w64(op_base + OP_CRCR, (uint64_t)(uintptr_t)cmd_ring | 1u);
-
     uint32_t ir = rt_base + RT_IR0;
-    w32(ir + IR_IMAN, 0u);
-    w32(ir + IR_IMOD, 0u);
-    w32(ir + IR_ERSTSZ, 1u);
-    w64(ir + IR_ERSTBA, (uint64_t)(uintptr_t)erst);
-    w64(ir + IR_ERDP, (uint64_t)(uintptr_t)event_ring);
+    w32(ir+IR_IMAN,0u); w32(ir+IR_IMOD,0u); w32(ir+IR_ERSTSZ,1u);
+    w64(ir+IR_ERSTBA,(uint64_t)(uintptr_t)erst);
+    w64(ir+IR_ERDP,(uint64_t)(uintptr_t)event_ring);
     return 0;
 }
-
 static int start_controller(void){
-    uint32_t slots = max_slots;
-    if(slots > 255u) slots = 255u;
-    if(!slots) slots = 1u;
+    uint32_t slots = max_slots; if(slots>255u) slots=255u; if(!slots) slots=1u;
     w32(op_base + OP_CONFIG, slots);
     w64(op_base + OP_DCBAAP, (uint64_t)(uintptr_t)dcbaa);
     w32(op_base + OP_USBCMD, r32(op_base + OP_USBCMD) | CMD_RUN);
@@ -477,34 +447,29 @@ static int start_controller(void){
     return -1;
 }
 
+/* ---- Command ring ---- */
 static void cmd_submit(uint32_t type, uint64_t param, uint32_t ctl){
     trb_t *t = &cmd_ring[cmd_index];
-    t->lo = (uint32_t)param;
-    t->hi = (uint32_t)(param >> 32);
-    t->status = 0;
-    t->control = (type << 10) | ctl | (cmd_cycle ? TRB_CYCLE : 0u);
+    t->lo=(uint32_t)param; t->hi=(uint32_t)(param>>32); t->status=0;
+    t->control=(type<<10)|ctl|(cmd_cycle?TRB_CYCLE:0u);
     ++cmd_index;
     if(cmd_index >= RING_TRBS-1u){
-        link_trb(cmd_ring, cmd_cycle);
-        cmd_index = 0;
-        cmd_cycle ^= 1u;
+        link_trb(cmd_ring, cmd_cycle); cmd_index=0; cmd_cycle^=1u;
     }
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT + db_base) = 0u;
 }
-
 static int next_event(trb_t *out){
     trb_t *t = &event_ring[event_index];
     if((t->control & TRB_CYCLE) != (event_cycle ? TRB_CYCLE : 0u)) return -1;
     if(out) *out = *t;
     t->control = 0;
     ++event_index;
-    if(event_index >= EVENT_TRBS){ event_index = 0; event_cycle ^= 1u; }
+    if(event_index >= EVENT_TRBS){ event_index=0; event_cycle^=1u; }
     w64(rt_base + RT_IR0 + IR_ERDP,
         (uint64_t)(uintptr_t)&event_ring[event_index] | 8u);
     return 0;
 }
-
 static int cmd_abort(void){
     uint32_t cmd = r32(op_base + OP_USBCMD);
     w32(op_base + OP_USBCMD, cmd | CMD_INTE);
@@ -515,38 +480,31 @@ static int cmd_abort(void){
     for(uint32_t n=0;n<5000000u;++n){
         trb_t e;
         if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
-        uint32_t type = (e.control >> 10) & 0x3Fu;
-        if(type != TRB_CMD_EVT) continue;
-        if(((e.status >> 24) & 0xFFu) == CC_CMD_STOPPED) return 0;
+        uint32_t type=(e.control>>10)&0x3Fu;
+        if(type!=TRB_CMD_EVT) continue;
+        if(((e.status>>24)&0xFFu)==CC_CMD_STOPPED) return 0;
     }
     return -1;
 }
-
 static int cmd_recover(void){
     if(cmd_abort()) return -1;
-    cmd_cycle ^= 1u;
-    cmd_index = 0;
+    cmd_cycle ^= 1u; cmd_index = 0;
     link_trb(cmd_ring, cmd_cycle);
-    w64(op_base + OP_CRCR,
-        (uint64_t)(uintptr_t)cmd_ring | (cmd_cycle ? 1u : 0u));
+    w64(op_base + OP_CRCR, (uint64_t)(uintptr_t)cmd_ring | (cmd_cycle?1u:0u));
     return 0;
 }
-
 static int cmd_wait(uint32_t want_slot){
     for(uint32_t n=0;n<8000000u;++n){
         trb_t e;
         if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
-        uint32_t type = (e.control >> 10) & 0x3Fu;
-        if(type == TRB_PORT_EVT) continue;
-        if(type == TRB_BW_EVT) continue;
-        if(type != TRB_CMD_EVT) continue;
-        if(want_slot && ((e.control >> 24) & 0xFFu) != want_slot) continue;
-        uint32_t cc = (e.status >> 24) & 0xFFu;
+        uint32_t type=(e.control>>10)&0x3Fu;
+        if(type==TRB_PORT_EVT) continue;
+        if(type==TRB_BW_EVT) continue;
+        if(type!=TRB_CMD_EVT) continue;
+        if(want_slot && ((e.control>>24)&0xFFu) != want_slot) continue;
+        uint32_t cc=(e.status>>24)&0xFFu;
         if(cc == CC_SUCCESS) return 0;
-        if(cc == CC_RING_FULL){
-            usb_log("[ USB ] event ring full\n");
-            continue;
-        }
+        if(cc == CC_RING_FULL){ usb_log("[ USB ] ring full\n"); continue; }
         cmd_recover();
         return -1;
     }
@@ -554,55 +512,45 @@ static int cmd_wait(uint32_t want_slot){
     return -1;
 }
 
+/* ---- Contexts ---- */
 #define ICC_SIZE 32u
 static uint8_t *in_slot(void){ return (uint8_t*)in_ctx + ICC_SIZE; }
 static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx + ICC_SIZE + ctx_size*dci; }
 static uint8_t *dev_ep(uint32_t dci){ return (uint8_t*)out_ctx + ctx_size*dci; }
-
-static void ctx_set64(void *ctx, uint32_t dw, uint64_t v){
-    uint32_t *p = (uint32_t*)ctx;
-    p[dw]   = (uint32_t)v;
-    p[dw+1] = (uint32_t)(v >> 32);
+static void ctx_set64(void *ctx,uint32_t dw,uint64_t v){
+    uint32_t *p=(uint32_t*)ctx; p[dw]=(uint32_t)v; p[dw+1]=(uint32_t)(v>>32);
 }
-
 static uint32_t ep0_default_mps(void){
-    /* Low / Full speed default 8, High speed 64, Super speed 512.
-     * For Low speed we stay at 8 (spec-mandated). */
     if(device_speed == SPEED_HIGH) return 64u;
     if(device_speed >= SPEED_SUPER) return 512u;
     return 8u;
 }
-
 static void fill_slot_context(void *slot, uint32_t entries){
-    uint32_t *s = (uint32_t*)slot;
-    zero_mem(s, ctx_size);
-    s[0] = ((device_speed & 0xFu) << 20) | ((entries & 0x1Fu) << 27);
-    s[1] = (port_number & 0xFFu) << 16;
+    uint32_t *s=(uint32_t*)slot; zero_mem(s, ctx_size);
+    s[0] = ((device_speed & 0xFu)<<20) | ((entries & 0x1Fu)<<27);
+    s[1] = (port_number & 0xFFu)<<16;
 }
-
 static void fill_ep_context(void *ep, uint32_t ep_type, uint32_t mps,
-                            uint32_t interval, uint64_t dequeue,
-                            uint32_t avg_len)
-{
-    uint32_t *e = (uint32_t*)ep;
-    zero_mem(e, ctx_size);
-    e[0] = (interval & 0xFFu) << 16;
-    e[1] = ((ep_type & 0x7u) << 3) | ((mps & 0xFFFFu) << 16);
+                            uint32_t interval, uint64_t dequeue, uint32_t avg_len){
+    uint32_t *e=(uint32_t*)ep; zero_mem(e, ctx_size);
+    e[0] = (interval & 0xFFu)<<16;
+    e[1] = ((ep_type & 0x7u)<<3) | ((mps & 0xFFFFu)<<16);
     ctx_set64(ep, 2u, dequeue);
     e[4] = avg_len & 0xFFFFu;
 }
 
+/* ---- Slot / EP commands ---- */
 static int cmd_enable_slot(void){
     cmd_submit(TRB_ENABLE_SLOT, 0, 0);
     for(uint32_t n=0;n<8000000u;++n){
         trb_t e;
         if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
-        uint32_t type = (e.control >> 10) & 0x3Fu;
-        if(type == TRB_PORT_EVT) continue;
-        if(type != TRB_CMD_EVT) continue;
-        uint32_t cc = (e.status >> 24) & 0xFFu;
+        uint32_t type=(e.control>>10)&0x3Fu;
+        if(type==TRB_PORT_EVT) continue;
+        if(type!=TRB_CMD_EVT) continue;
+        uint32_t cc=(e.status>>24)&0xFFu;
         if(cc != CC_SUCCESS){ cmd_recover(); return -1; }
-        slot_id = (e.control >> 24) & 0xFFu;
+        slot_id = (e.control>>24)&0xFFu;
         return slot_id ? 0 : -1;
     }
     cmd_recover();
@@ -614,35 +562,30 @@ static int cmd_address_device(uint32_t bsr){
     dcbaa[slot_id] = (uint64_t)(uintptr_t)out_ctx;
     ((uint32_t*)in_ctx)[1] = 3u;
     fill_slot_context(in_slot(), 1u);
-
     uint64_t deq = (uint64_t)(uintptr_t)&ep0_ring[ep0_index];
-    deq |= (ep0_cycle ? 1ull : 0ull);
+    deq |= (ep0_cycle?1ull:0ull);
     fill_ep_context(in_ep(1u), 4u, ep0_mps, 0u, deq, 8u);
-
-    uint32_t ctl = slot_id << 24;
+    uint32_t ctl = slot_id<<24;
     if(bsr) ctl |= TRB_BSR;
     cmd_submit(TRB_ADDRESS_DEVICE, (uint64_t)(uintptr_t)in_ctx, ctl);
     return cmd_wait(slot_id);
 }
 
 static int cmd_evaluate_context(void){
-    cmd_submit(TRB_EVAL_CONTEXT, (uint64_t)(uintptr_t)in_ctx, slot_id << 24);
+    cmd_submit(TRB_EVAL_CONTEXT, (uint64_t)(uintptr_t)in_ctx, slot_id<<24);
     return cmd_wait(slot_id);
 }
 
 static int update_ep0_mps(uint32_t mps){
     if(mps == ep0_mps) return 0;
-
     uint8_t *dst = in_ep(1u);
     uint8_t *src = dev_ep(1u);
-
     zero_mem(in_ctx, PAGE_SIZE);
-    ((uint32_t*)in_ctx)[1] = 1u | (1u << 1);
+    ((uint32_t*)in_ctx)[1] = 1u | (1u<<1);
     fill_slot_context(in_slot(), 1u);
-    for(uint32_t i=0;i<ctx_size;++i) dst[i] = src[i];
+    for(uint32_t i=0;i<ctx_size;++i) dst[i]=src[i];
     uint32_t *dw = (uint32_t*)dst;
-    dw[1] = (dw[1] & 0x0000FFFFu) | ((mps & 0xFFFFu) << 16);
-
+    dw[1] = (dw[1] & 0x0000FFFFu) | ((mps & 0xFFFFu)<<16);
     if(cmd_evaluate_context() != 0){
         usb_log("[ USB ] Evaluate Context failed\n");
         return -1;
@@ -652,80 +595,68 @@ static int update_ep0_mps(uint32_t mps){
 }
 
 static int cmd_reset_ep0(void){
-    uint32_t ctl = (1u << 16) | (slot_id << 24);
+    uint32_t ctl = (1u<<16) | (slot_id<<24);
     cmd_submit(TRB_RESET_EP, 0, ctl);
     if(cmd_wait(slot_id)) return -1;
-
     uint64_t deq = (uint64_t)(uintptr_t)&ep0_ring[ep0_index];
-    deq |= (ep0_cycle ? 1ull : 0ull);
+    deq |= (ep0_cycle?1ull:0ull);
     cmd_submit(TRB_SET_DEQ, deq, ctl);
     return cmd_wait(slot_id);
 }
 
+/* ---- EP0 transfers ---- */
 static int ep0_xfer(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
-                    void *data, uint16_t len, int in)
-{
-    uint64_t setup = (uint64_t)bm | ((uint64_t)req << 8) | ((uint64_t)val << 16)
-                   | ((uint64_t)idx << 32) | ((uint64_t)len << 48);
-    uint32_t trt = len ? (in ? (3u << 16) : (2u << 16)) : 0u;
-
+                    void *data, uint16_t len, int in){
+    uint64_t setup = (uint64_t)bm | ((uint64_t)req<<8) | ((uint64_t)val<<16)
+                   | ((uint64_t)idx<<32) | ((uint64_t)len<<48);
+    uint32_t trt = len ? (in ? (3u<<16) : (2u<<16)) : 0u;
     trb_t *t = &ep0_ring[ep0_index];
-    t->lo = (uint32_t)setup;
-    t->hi = (uint32_t)(setup >> 32);
-    t->status = 8u;
-    t->control = (TRB_SETUP << 10) | TRB_IDT | TRB_CHAIN | trt
-                 | (ep0_cycle ? TRB_CYCLE : 0u);
+    t->lo=(uint32_t)setup; t->hi=(uint32_t)(setup>>32); t->status=8u;
+    t->control=(TRB_SETUP<<10)|TRB_IDT|TRB_CHAIN|trt|(ep0_cycle?TRB_CYCLE:0u);
     ++ep0_index;
-    if(ep0_index >= RING_TRBS-1u){ link_trb(ep0_ring, ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
-
+    if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
     if(len){
         t = &ep0_ring[ep0_index];
-        t->lo = (uint32_t)(uintptr_t)data;
-        t->hi = (uint32_t)((uint64_t)(uintptr_t)data >> 32);
-        t->status = len & 0x1FFFFu;
-        t->control = (TRB_DATA << 10) | TRB_CHAIN | (in ? TRB_DIR_IN : 0u)
-                     | (ep0_cycle ? TRB_CYCLE : 0u);
+        t->lo=(uint32_t)(uintptr_t)data;
+        t->hi=(uint32_t)((uint64_t)(uintptr_t)data>>32);
+        t->status=len&0x1FFFFu;
+        t->control=(TRB_DATA<<10)|TRB_CHAIN|(in?TRB_DIR_IN:0u)|(ep0_cycle?TRB_CYCLE:0u);
         ++ep0_index;
-        if(ep0_index >= RING_TRBS-1u){ link_trb(ep0_ring, ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+        if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
     }
-
     t = &ep0_ring[ep0_index];
-    t->lo = 0; t->hi = 0; t->status = 0;
-    t->control = (TRB_STATUS << 10) | TRB_IOC | (in ? 0u : TRB_DIR_IN)
-                 | (ep0_cycle ? TRB_CYCLE : 0u);
+    t->lo=0; t->hi=0; t->status=0;
+    t->control=(TRB_STATUS<<10)|TRB_IOC|(in?0u:TRB_DIR_IN)|(ep0_cycle?TRB_CYCLE:0u);
     ++ep0_index;
-    if(ep0_index >= RING_TRBS-1u){ link_trb(ep0_ring, ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
-
+    if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT + db_base + slot_id*4u) = 1u;
-
     for(uint32_t n=0;n<8000000u;++n){
         trb_t e;
         if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
-        if(((e.control >> 10) & 0x3Fu) != TRB_TRANSFER_EVT) continue;
-        if(((e.control >> 24) & 0xFFu) != slot_id) continue;
-        if(((e.control >> 16) & 0x1Fu) != 1u) continue;
-        uint32_t cc = (e.status >> 24) & 0xFFu;
-        diag_last_cc = cc;
-        if(cc == CC_SUCCESS || cc == CC_SHORT_PKT) return 0;
-        if(cmd_reset_ep0() == 0) return -2;
+        if(((e.control>>10)&0x3Fu) != TRB_TRANSFER_EVT) continue;
+        if(((e.control>>24)&0xFFu) != slot_id) continue;
+        if(((e.control>>16)&0x1Fu) != 1u) continue;
+        uint32_t cc=(e.status>>24)&0xFFu;
+        diag_last_cc=cc;
+        if(cc==CC_SUCCESS || cc==CC_SHORT_PKT) return 0;
+        if(cmd_reset_ep0()==0u) return -2;
         return -1;
     }
     return -1;
 }
 
 static int ctrl(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
-                void *data, uint16_t len, int in, uint32_t retries)
-{
+                void *data, uint16_t len, int in, uint32_t retries){
     for(uint32_t i=0;i<=retries;++i){
         int rc = ep0_xfer(bm, req, val, idx, data, len, in);
         if(rc == 0) return 0;
         if(i < retries){
-            xhci_delay_ms(20u);
+            xhci_delay_ms(50u);
             if(rc == -2){
                 ep0_index = 0; ep0_cycle = 1;
                 cmd_reset_ep0();
-                xhci_delay_ms(10u);
+                xhci_delay_ms(20u);
             }
         } else {
             return rc;
@@ -734,13 +665,14 @@ static int ctrl(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
     return -1;
 }
 
+/* ---- Device descriptor ---- */
 static int read_device_descriptor(void){
-    /* First attempt at reading the 8-byte header. Retries are longer here
-     * because Low Speed / Full Speed devices can be slow to answer their
-     * very first control transfer after port enable. */
+    /* First attempt: 8 bytes at address 0 (BSR=1 already done by caller) */
     zero_mem(control_buf, PAGE_SIZE);
-    if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 8u, 1, 2) != 0){
-        xhci_delay_ms(200u);
+    int rc = ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 8u, 1, 2);
+    if(rc != 0){
+        /* Full Speed / Low Speed devices can be very slow after reset. */
+        xhci_delay_ms(250u);
         ep0_index = 0; ep0_cycle = 1;
         (void)cmd_reset_ep0();
         xhci_delay_ms(50u);
@@ -754,17 +686,33 @@ static int read_device_descriptor(void){
     else if(mps != 8u && mps != 16u && mps != 32u && mps != 64u)
         mps = (device_speed >= SPEED_SUPER) ? 512u : 8u;
     ep0_mps = mps;
-
     usb_log("[ USB ] ep0_mps(first)="); usb_log_dec(ep0_mps); usb_log_nl();
 
+    /* Real address phase */
     if(cmd_address_device(0)) return -1;
-    xhci_delay_ms(50u);
+
+    /* Give FS/LS devices time to settle at their new address. */
+    xhci_delay_ms(200u);
     ep0_index = 0; ep0_cycle = 1;
     cmd_reset_ep0();
-    xhci_delay_ms(20u);
+    xhci_delay_ms(50u);
 
+    /* Read the 18-byte device descriptor. */
     zero_mem(control_buf, PAGE_SIZE);
-    if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 18u, 1, 3)) return -1;
+    rc = ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 18u, 1, 3);
+    if(rc != 0){
+        /* Try once more with MPS = 8 in case the device lied about its MPS. */
+        usb_log("[ USB ] retry 18-byte with MPS=8\n");
+        if(update_ep0_mps(8u) == 0){
+            xhci_delay_ms(50u);
+            ep0_index = 0; ep0_cycle = 1;
+            (void)cmd_reset_ep0();
+            xhci_delay_ms(50u);
+            zero_mem(control_buf, PAGE_SIZE);
+            rc = ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 18u, 1, 3);
+        }
+        if(rc) return -1;
+    }
     if(control_buf[0] < 18u || control_buf[1] != 1u) return -1;
 
     console_write("[ USB ] dev desc:");
@@ -774,15 +722,11 @@ static int read_device_descriptor(void){
     uint32_t mps2 = control_buf[7];
     if(mps2 == 9u) mps2 = 512u;
     else if(mps2 != 8u && mps2 != 16u && mps2 != 32u && mps2 != 64u) mps2 = ep0_mps;
-
     usb_log("[ USB ] ep0_mps(second)="); usb_log_dec(mps2); usb_log_nl();
     if(mps2 != ep0_mps){
-        usb_log("[ USB ] MPS mismatch -> "); usb_log_dec(mps2); usb_log_nl();
         if(update_ep0_mps(mps2) == 0){
             usb_log("[ USB ] EP0 MPS updated\n");
-            xhci_delay_ms(20u);
-        } else {
-            usb_log("[ USB ] EP0 MPS update failed\n");
+            xhci_delay_ms(50u);
         }
     }
 
@@ -803,8 +747,7 @@ static int read_config_descriptor(void){
             if(total >= 9u && total <= 4096u){
                 xhci_delay_ms(20u);
                 rc = ctrl(0x80u, 6u, 0x0200u, 0, config_buf, total, 1, 2);
-                if(rc == 0 && config_buf[1] == 2u && config_buf[0] >= 9u)
-                    return 0;
+                if(rc == 0 && config_buf[1] == 2u && config_buf[0] >= 9u) return 0;
             }
         }
         usb_log("[ USB ] cfg retry "); usb_log_dec(attempt);
@@ -828,26 +771,15 @@ static void dump_config(void){
     usb_log(" SUB=0x"); usb_log_hex(diag_device_subclass);
     usb_log(" PROTO=0x"); usb_log_hex(diag_device_protocol);
     usb_log("\n[ USB DEBUG ] CONFIG\n");
-
-    diag_interface_count = 0;
-    diag_endpoint_count = 0;
-    diag_hid_count = 0;
-    diag_hid_iface = 0xFFu;
-    diag_hid_subclass = diag_hid_protocol = 0;
-    diag_hid_endpoint = diag_hid_ep_type = 0;
-    diag_hid_packet = 0;
-    diag_hid_interval = 0;
-
-    uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3] << 8);
+    diag_interface_count=diag_endpoint_count=diag_hid_count=0;
+    diag_hid_iface=0xFFu; diag_hid_subclass=diag_hid_protocol=0;
+    diag_hid_endpoint=diag_hid_ep_type=0; diag_hid_packet=0; diag_hid_interval=0;
+    uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3]<<8);
     if(total > 4096u) total = 4096u;
-    uint32_t i = 0;
-    uint8_t cur_iface = 0xFFu;
-    uint8_t cur_is_hid = 0;
-
-    while(i + 2u <= total){
+    uint32_t i=0; uint8_t cur_iface=0xFFu; uint8_t cur_is_hid=0;
+    while(i+2u <= total){
         uint8_t len = config_buf[i], type = config_buf[i+1u];
-        if(len < 2u || i + len > total) break;
-
+        if(len < 2u || i+len > total) break;
         if(type == 4u && len >= 9u){
             cur_iface = config_buf[i+2u];
             uint8_t alt = config_buf[i+3u];
@@ -856,14 +788,12 @@ static void dump_config(void){
             uint8_t proto = config_buf[i+7u];
             cur_is_hid = (alt == 0u && cls == 3u) ? 1u : 0u;
             ++diag_interface_count;
-
             usb_log(" IF="); usb_log_dec(cur_iface);
             usb_log(" ALT="); usb_log_dec(alt);
             usb_log(" CLASS=0x"); usb_log_hex(cls);
             usb_log(" SUB=0x"); usb_log_hex(sub);
             usb_log(" PROTO=0x"); usb_log_hex(proto);
             usb_log_nl();
-
             if(cur_is_hid){
                 ++diag_hid_count;
                 if(diag_hid_iface == 0xFFu){
@@ -875,17 +805,15 @@ static void dump_config(void){
         } else if(type == 5u && len >= 7u){
             uint8_t addr = config_buf[i+2u];
             uint8_t attr = config_buf[i+3u];
-            uint16_t mps = (uint16_t)config_buf[i+4u] | ((uint16_t)config_buf[i+5u] << 8);
+            uint16_t mps = (uint16_t)config_buf[i+4u] | ((uint16_t)config_buf[i+5u]<<8);
             ++diag_endpoint_count;
-
             usb_log("  EP=0x"); usb_log_hex(addr);
             usb_log(" IF="); usb_log_dec(cur_iface);
             usb_log(" TYPE="); usb_log_dec(attr & 3u);
             usb_log(" MPS="); usb_log_dec(mps & 0x7FFu);
             usb_log(" INT="); usb_log_dec(config_buf[i+6u]);
             usb_log_nl();
-
-            if(cur_is_hid && !diag_hid_endpoint && (addr & 0x80u) && (attr & 3u) == 3u){
+            if(cur_is_hid && !diag_hid_endpoint && (addr&0x80u) && (attr&3u)==3u){
                 diag_hid_endpoint = addr;
                 diag_hid_ep_type = attr & 3u;
                 diag_hid_packet = mps & 0x7FFu;
@@ -902,34 +830,31 @@ static void dump_config(void){
 
 static int find_hid(hid_candidate_t *c){
     if(read_config_descriptor()) return -1;
-    uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3] << 8);
+    uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3]<<8);
     if(total < 9u) return -1;
     if(total > 4096u) total = 4096u;
-
     dump_config();
     zero_mem(c, sizeof(*c));
     c->config_value = config_buf[5];
-
     for(uint32_t pass=0; pass<2; ++pass){
-        uint32_t i = 0;
-        int sel = 0;
-        while(i + 2u <= total){
+        uint32_t i=0; int sel=0;
+        while(i+2u <= total){
             uint8_t len = config_buf[i], type = config_buf[i+1u];
-            if(len < 2u || i + len > total) break;
+            if(len < 2u || i+len > total) break;
             if(type == 4u && len >= 9u){
                 uint8_t alt = config_buf[i+3u];
                 uint8_t cls = config_buf[i+5u];
                 uint8_t sub = config_buf[i+6u];
                 uint8_t proto = config_buf[i+7u];
                 sel = (pass == 0)
-                    ? (alt == 0u && cls == 3u && sub == 1u && proto == 2u)
-                    : (alt == 0u && cls == 3u);
+                    ? (alt==0u && cls==3u && sub==1u && proto==2u)
+                    : (alt==0u && cls==3u);
                 if(sel) c->interface_number = config_buf[i+2u];
             } else if(type == 5u && len >= 7u && sel){
                 uint8_t addr = config_buf[i+2u];
                 uint8_t attr = config_buf[i+3u];
-                uint16_t mps = (uint16_t)config_buf[i+4u] | ((uint16_t)config_buf[i+5u] << 8);
-                if((addr & 0x80u) && (attr & 3u) == 3u && (mps & 0x7FFu)){
+                uint16_t mps = (uint16_t)config_buf[i+4u] | ((uint16_t)config_buf[i+5u]<<8);
+                if((addr&0x80u) && (attr&3u)==3u && (mps&0x7FFu)){
                     c->endpoint_address = addr;
                     c->packet_size = mps & 0x7FFu;
                     c->interval = config_buf[i+6u] ? config_buf[i+6u] : 1u;
@@ -952,30 +877,25 @@ static uint32_t interval_encode(uint32_t v){
     if(uf < 8u) uf = 8u;
     if(uf > 1024u) uf = 1024u;
     uint32_t e = 3u;
-    while(e < 10u && (1u << (e + 1u)) <= uf) ++e;
+    while(e < 10u && (1u << (e+1u)) <= uf) ++e;
     return e;
 }
 
 static int cmd_configure_hid(hid_candidate_t *c){
     uint32_t n = c->endpoint_address & 0x0Fu;
     if(!n || !(c->endpoint_address & 0x80u)) return -1;
-
-    endpoint_id = n * 2u + 1u;
+    endpoint_id = n*2u + 1u;
     if(endpoint_id >= 32u) return -1;
-
     endpoint_packet = c->packet_size;
     if(endpoint_packet > 1024u) endpoint_packet = 1024u;
     endpoint_interval = interval_encode(c->interval);
-
     zero_mem(in_ctx, PAGE_SIZE);
-    ((uint32_t*)in_ctx)[1] = 1u | (1u << endpoint_id);
+    ((uint32_t*)in_ctx)[1] = 1u | (1u<<endpoint_id);
     fill_slot_context(in_slot(), endpoint_id);
-
-    uint64_t deq = (uint64_t)(uintptr_t)intr_ring | (intr_cycle ? 1ull : 0ull);
+    uint64_t deq = (uint64_t)(uintptr_t)intr_ring | (intr_cycle?1ull:0ull);
     fill_ep_context(in_ep(endpoint_id), 7u, endpoint_packet,
                     endpoint_interval, deq, endpoint_packet);
-
-    cmd_submit(TRB_CONFIGURE_EP, (uint64_t)(uintptr_t)in_ctx, slot_id << 24);
+    cmd_submit(TRB_CONFIGURE_EP, (uint64_t)(uintptr_t)in_ctx, slot_id<<24);
     return cmd_wait(slot_id);
 }
 
@@ -984,16 +904,13 @@ static int submit_report(void){
     report_length = endpoint_packet;
     if(report_length < 3u) report_length = 3u;
     if(report_length > PAGE_SIZE) report_length = PAGE_SIZE;
-
     trb_t *t = &intr_ring[intr_index];
     t->lo = (uint32_t)(uintptr_t)report_buf;
-    t->hi = (uint32_t)((uint64_t)(uintptr_t)report_buf >> 32);
+    t->hi = (uint32_t)((uint64_t)(uintptr_t)report_buf>>32);
     t->status = report_length & 0x1FFFFu;
-    t->control = (TRB_NORMAL << 10) | TRB_IOC | (intr_cycle ? TRB_CYCLE : 0u);
-
+    t->control = (TRB_NORMAL<<10)|TRB_IOC|(intr_cycle?TRB_CYCLE:0u);
     ++intr_index;
-    if(intr_index >= RING_TRBS-1u){ link_trb(intr_ring, intr_cycle); intr_index=0; intr_cycle^=1u; }
-
+    if(intr_index >= RING_TRBS-1u){ link_trb(intr_ring,intr_cycle); intr_index=0; intr_cycle^=1u; }
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT + db_base + slot_id*4u) = endpoint_id;
     report_pending = 1u;
@@ -1001,26 +918,16 @@ static int submit_report(void){
     return 0;
 }
 
+/* ---- Port power / reset ---- */
 static void wake_all_ports(void){
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
         uint32_t ps = r32(po);
-
         uint32_t chg = ps & PS_CHANGE_BITS;
         if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
-
         ps = r32(po);
         if(!(ps & PS_PP)){
-            w32(po, (ps & ~(PS_CHANGE_BITS | PS_PP)) | PS_PP | (ps & PS_CHANGE_BITS));
-        }
-
-        ps = r32(po);
-        if(ps & PS_CCS){
-            uint32_t pls = ps & PS_PLS_MASK;
-            if(pls != PS_PLS_U0){
-                w32(po, (ps & ~(PS_PLS_MASK | PS_CHANGE_BITS | PS_WPR | PS_PR))
-                       | PS_PLS_U0 | PS_LWS | (ps & PS_CHANGE_BITS));
-            }
+            w32(po, (ps & ~(PS_CHANGE_BITS|PS_PP)) | PS_PP | (ps & PS_CHANGE_BITS));
         }
     }
     xhci_delay_ms(50u);
@@ -1032,8 +939,7 @@ static void dump_ports(void){
         uint32_t ps = r32(po);
         uint32_t sp = (ps & PS_SPEED_MASK) >> PS_SPEED_SHIFT;
         uint32_t pls = (ps >> 5) & 0xFu;
-        usb_log("[ USB ] port ");
-        usb_log_dec(p);
+        usb_log("[ USB ] port "); usb_log_dec(p);
         usb_log(" PORTSC=0x"); usb_log_hex(ps);
         usb_log(" spd="); usb_log_dec(sp);
         usb_log(" pls="); usb_log_dec(pls);
@@ -1045,16 +951,9 @@ static void dump_ports(void){
 }
 
 /*
- * Port reset.
- *
- * For USB 2 protocol ports the reset is "done" when PR clears AND
- * PED (Port Enabled) sets AND CCS is still high. The original code
- * only checked PR + CCS, which let the driver proceed before the
- * port was actually enabled — that produced Transaction Errors
- * (CC = 4) on the first control transfer.
- *
- * For USB 3 protocol ports the reset is "done" when WPR clears and
- * Port Link State reaches U0 while CCS is high.
+ * port_reset() — USB2 waits for CCS+PED+!PR, USB3 for WPR clear+PLS=U0.
+ * Also gives USB2 ports a much longer timeout since Low/Full Speed
+ * devices on some Intel laptops take >200 ms to reach PED.
  */
 static int port_reset(uint32_t p){
     uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
@@ -1068,6 +967,7 @@ static int port_reset(uint32_t p){
         is_usb3 = (sp >= SPEED_SUPER);
     }
 
+    /* Clear stale change bits first. */
     uint32_t chg = ps & PS_CHANGE_BITS;
     if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
 
@@ -1078,22 +978,20 @@ static int port_reset(uint32_t p){
         w32(po, (ps & ~(PS_PLS_MASK|PS_CHANGE_BITS|PS_WPR|PS_LWS)) | PS_PP | PS_PR);
     }
     (void)r32(po);
-    xhci_delay_ms(is_usb3 ? 100u : 50u);
+    xhci_delay_ms(is_usb3 ? 100u : 100u);
 
-    for(uint32_t n=0;n<10000000u;++n){
+    for(uint32_t n=0;n<20000000u;++n){
         uint32_t q = r32(po);
         if(is_usb3){
-            uint32_t pls = q & PS_PLS_MASK;
-            if(!(q & PS_WPR) && pls == PS_PLS_U0 && (q & PS_CCS)) return 0;
+            if(!(q & PS_WPR) && (q & PS_PLS_MASK) == PS_PLS_U0 && (q & PS_CCS)) return 0;
         } else {
-            /* Require CCS + PED + PR clear for USB 2. */
             if((q & PS_CCS) && (q & PS_PED) && !(q & PS_PR)) return 0;
         }
         __asm__ volatile("pause");
     }
 
-    /* Second-chance: wait longer, then retry once. */
-    xhci_delay_ms(200u);
+    /* Second chance with longer wait, then restrobe once. */
+    xhci_delay_ms(300u);
     uint32_t q = r32(po);
     if(is_usb3){
         if(!(q & PS_WPR) && (q & PS_PLS_MASK) == PS_PLS_U0) return 0;
@@ -1101,15 +999,14 @@ static int port_reset(uint32_t p){
         if((q & PS_CCS) && (q & PS_PED) && !(q & PS_PR)) return 0;
     }
 
-    /* Last resort: re-strobe the reset once more, then give it plenty of time. */
     q = r32(po);
     if(is_usb3){
         w32(po, (q & ~(PS_PLS_MASK|PS_CHANGE_BITS)) | PS_PP | PS_WPR | PS_LWS);
     } else {
-        w32(po, (q & ~(PS_CHANGE_BITS)) | PS_PP | PS_PR);
+        w32(po, (q & ~PS_CHANGE_BITS) | PS_PP | PS_PR);
     }
-    xhci_delay_ms(200u);
-    for(uint32_t n=0;n<5000000u;++n){
+    xhci_delay_ms(300u);
+    for(uint32_t n=0;n<10000000u;++n){
         q = r32(po);
         if(is_usb3){
             if(!(q & PS_WPR) && (q & PS_PLS_MASK) == PS_PLS_U0) return 0;
@@ -1151,17 +1048,14 @@ static int enumerate_port(uint32_t p){
     if(!device_speed) return -1;
 
     usb_log("[ USB ] speed="); usb_log_dec(device_speed); usb_log_nl();
-
     ep0_mps = ep0_default_mps();
 
     if(cmd_enable_slot()) return -1;
     xhci_delay_ms(20u);
 
-    if(cmd_address_device(1)) return -1;
-
-    /* Low Speed and Full Speed devices can take 50-100 ms after port
-     * enable before they answer the first control transfer. */
-    xhci_delay_ms(100u);
+    if(cmd_address_device(1)) return -1;   /* BSR=1 */
+    /* Device at address 0 needs time to be ready for its first transfer. */
+    xhci_delay_ms(150u);
 
     if(read_device_descriptor()) return -1;
 
@@ -1192,24 +1086,19 @@ static int enumerate_port(uint32_t p){
     usb_log(" int="); usb_log_dec(c.interval);
     usb_log_nl();
 
-    report_pending = 0;
-    report_length = 0;
-    report_seen = 0;
-
+    report_pending = 0; report_length = 0; report_seen = 0;
     if(submit_report()) return -1;
 
     diag_stage = "HID REPORT WAIT";
     ready = 1;
     diag_init_ok = 1;
     usb_log("[ OK ] xHCI HID mouse ready on port ");
-    usb_log_dec(port_number);
-    usb_log_nl();
+    usb_log_dec(port_number); usb_log_nl();
     return 0;
 }
 
 int xhci_mouse_init(void){
     if(ready) return 0;
-
     diag_stage = "SCANNING PCI";
     diag_controller_found = 0;
     diag_init_ok = 0;
@@ -1230,7 +1119,6 @@ int xhci_mouse_init(void){
     if(pci_find_xhci(&d)) return usb_fail("PCI");
     diag_controller_found = 1;
     diag_stage = "xHCI FOUND";
-
     usb_log("[ USB ] xHCI controller ");
     console_write_hex(d.vendor); console_putc(':');
     console_write_hex(d.device); console_putc('\n');
@@ -1257,10 +1145,8 @@ int xhci_mouse_init(void){
     ctx_size = (hcc1 & 4u) ? 64u : 32u;
     ppc_enabled = (hcc1 & 8u) ? 1u : 0u;
 
-    if(!max_slots || !max_ports || max_ports > MAX_PORTS)
-        return usb_fail("PARAMS");
-    if((r32(op_base + OP_PAGESIZE) & 1u) == 0u)
-        return usb_fail("PAGESIZE");
+    if(!max_slots || !max_ports || max_ports > MAX_PORTS) return usb_fail("PARAMS");
+    if((r32(op_base + OP_PAGESIZE) & 1u) == 0u) return usb_fail("PAGESIZE");
 
     usb_log("[ USB ] xHCI ver "); console_write_hex(hci_version);
     usb_log(" / ctx "); console_write_dec(ctx_size);
@@ -1313,19 +1199,17 @@ int xhci_mouse_init(void){
             if(!(ps & PS_CCS)) continue;
             saw_ccs = 1;
             diag_stage = "USB PORT CONNECTED";
-
             usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
             usb_log(" ---\n");
-
             if(enumerate_port(p) == 0) return 0;
             usb_log("[ USB ] port "); usb_log_dec(p);
             usb_log(" failed, moving on\n");
         }
         if(saw_ccs) break;
         if(pass == 0u){
-            usb_log("[ USB ] no devices found, retrying after wake\n");
+            usb_log("[ USB ] no devices, retrying after wake\n");
             wake_all_ports();
-            xhci_delay_ms(200u);
+            xhci_delay_ms(300u);
         } else {
             return usb_fail("NO-PORT");
         }
@@ -1334,22 +1218,17 @@ int xhci_mouse_init(void){
 }
 
 int xhci_mouse_poll(int32_t *dx, int32_t *dy, uint8_t *buttons){
-    if(dx) *dx = 0;
-    if(dy) *dy = 0;
-    if(buttons) *buttons = 0;
+    if(dx) *dx=0; if(dy) *dy=0; if(buttons) *buttons=0;
     if(!ready) return 0;
-
     trb_t e;
-    while(next_event(&e) == 0){
-        if(((e.control >> 10) & 0x3Fu) != TRB_TRANSFER_EVT) continue;
-        if(((e.control >> 24) & 0xFFu) != slot_id) continue;
-        if(((e.control >> 16) & 0x1Fu) != endpoint_id) continue;
-
+    while(next_event(&e)==0){
+        if(((e.control>>10)&0x3Fu) != TRB_TRANSFER_EVT) continue;
+        if(((e.control>>24)&0xFFu) != slot_id) continue;
+        if(((e.control>>16)&0x1Fu) != endpoint_id) continue;
         report_pending = 0;
         ++diag_event_count;
-        uint32_t cc = (e.status >> 24) & 0xFFu;
+        uint32_t cc = (e.status>>24)&0xFFu;
         diag_last_cc = cc;
-
         if(cc == CC_SUCCESS || cc == CC_SHORT_PKT){
             if(report_length >= 3u){
                 uint32_t residual = e.status & 0xFFFFFFu;
@@ -1358,12 +1237,8 @@ int xhci_mouse_poll(int32_t *dx, int32_t *dy, uint8_t *buttons){
                 diag_last_report_len = actual > 8u ? 8u : actual;
                 for(uint32_t i=0;i<8;++i)
                     diag_last_report[i] = (i < diag_last_report_len) ? report_buf[i] : 0u;
-                ++diag_report_count;
-                ++diag_success_count;
-                if(!report_seen){
-                    report_seen = 1;
-                    usb_log("[ OK ] HID mouse reports active\n");
-                }
+                ++diag_report_count; ++diag_success_count;
+                if(!report_seen){ report_seen = 1; usb_log("[ OK ] HID mouse reports active\n"); }
                 if(buttons) *buttons = report_buf[0] & 7u;
                 if(dx) *dx = (int32_t)(int8_t)report_buf[1];
                 if(dy) *dy = -(int32_t)(int8_t)report_buf[2];
@@ -1387,11 +1262,10 @@ int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
     out->speed = device_speed;
     out->slot = slot_id;
     out->endpoint_id = endpoint_id;
-    out->endpoint_address = endpoint_id ? (((endpoint_id - 1u) / 2u) | 0x80u) : 0u;
+    out->endpoint_address = endpoint_id ? (((endpoint_id-1u)/2u) | 0x80u) : 0u;
     out->packet_size = endpoint_packet;
     out->interval = endpoint_interval;
-    out->vid = diag_vid;
-    out->pid = diag_pid;
+    out->vid = diag_vid; out->pid = diag_pid;
     out->device_class = diag_device_class;
     out->device_subclass = diag_device_subclass;
     out->device_protocol = diag_device_protocol;
@@ -1415,13 +1289,9 @@ int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
     out->stage = diag_stage;
     out->report_len = diag_last_report_len;
     for(uint32_t i=0;i<8;++i) out->report[i] = diag_last_report[i];
-
     if(diag_controller_found && op_base){
         out->usb_status = r32(op_base + OP_USBSTS);
         out->usb_command = r32(op_base + OP_USBCMD);
-    } else {
-        out->usb_status = 0;
-        out->usb_command = 0;
-    }
+    } else { out->usb_status = 0; out->usb_command = 0; }
     return 0;
 }
