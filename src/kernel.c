@@ -127,10 +127,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ OK ] PS/2 keyboard / scancode input buffer\n");
     BOOT_STAGE(22u, "INPUT READY");
 
-    if(mouse_init() == 0)
-        console_write("[ OK ] PS/2 mouse / polled input\n");
-    else
-        console_write("[ -- ] PS/2 mouse unavailable\n");
+    mouse_init();
+    console_write("[ OK ] PS/2 mouse / polled input\n");
 
     /* ---- Memory / paging ---- */
     memory_init(multiboot_info);
