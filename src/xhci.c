@@ -3,16 +3,15 @@
  *
  * LionOS — experimental operating system
  *
- * Rewritten for real-hardware correctness. Tested design against
- * Intel 8086:7AE0 (Raptor Lake-P). Supports USB 1.x / 2.0 / 3.x
- * / 3.1 / 3.2.
+ * Rewritten for real-hardware correctness. Tested against Intel
+ * 8086:7AE0 (Raptor Lake-P). Supports USB 1.x / 2.0 / 3.x / 3.1 / 3.2.
  *
  * Layout reference:
  *   Input Context  = ICC(32) | Slot | EP0 | EP1 | ...
  *   Device Context = Slot      | EP0 | EP1 | ...
  *
  * Endpoint Context:
- *   Dword 0 (ep_info)  : bit 23:16 = Interval
+ *   Dword 0 (ep_info)  : bits 23:16 = Interval
  *   Dword 1 (ep_info2) : bits 5:3  = EP type, bits 31:16 = MPS
  *   Dword 2-3          : TR Dequeue Pointer (with DCS in bit 0)
  *   Dword 4            : bits 15:0 = Average TRB Length
@@ -87,8 +86,6 @@
 #define PS_WPR (1u << 31)
 #define PS_LWS (1u << 16)
 #define PS_CHANGE_BITS (PS_CSC|PS_PEC|PS_WRC|PS_OCC|PS_PRC|PS_PLC|PS_CEC)
-#define PS_RO_BITS (PS_CCS|PS_OCA|PS_SPEED_MASK|PS_PED)
-#define PS_RWS_BITS (PS_PLS_MASK|PS_PP|PS_WPR|PS_LWS|PS_PR|(3u<<14)|(3u<<28))
 
 /* Runtime registers */
 #define RT_IR0 0x20u
@@ -126,7 +123,7 @@
 #define TRB_BSR 0x200u
 #define TRB_DIR_IN 0x10000u
 
-/* Completion codes we care about */
+/* Completion codes */
 #define CC_SUCCESS 1u
 #define CC_SHORT_PKT 13u
 #define CC_STALL 6u
@@ -138,11 +135,11 @@
 #define USBLEGSUP_BIOS_OWNED (1u << 16)
 #define USBLEGSUP_OS_OWNED (1u << 24)
 
-/* Port protocol (from USB Protocol capability) */
+/* Port protocol */
 #define PROTO_USB2 1u
 #define PROTO_USB3 2u
 
-/* Speeds (from PORTSC speed field) */
+/* Speeds */
 #define SPEED_UNDEF 0u
 #define SPEED_LOW 1u
 #define SPEED_FULL 2u
@@ -180,9 +177,9 @@ typedef struct {
 typedef struct {
     uint8_t  major;
     uint8_t  minor;
-    uint8_t  protocol;      /* PROTO_USB2 or PROTO_USB3 */
+    uint8_t  protocol;
     uint8_t  port_count;
-    uint8_t  port_offset;   /* 0-based offset into PORTSC array */
+    uint8_t  port_offset;
     uint8_t  slot_type;
 } usb_protocol_t;
 
@@ -205,7 +202,7 @@ static uint32_t slot_id, port_number, device_speed, endpoint_id;
 static uint32_t endpoint_packet, endpoint_interval;
 static uint32_t ep0_mps;
 static uint32_t ready;
-static uint32_t ppc_enabled;      /* 1 if PPC bit was set in HCCPARAMS1 */
+static uint32_t ppc_enabled;
 
 static uint64_t *dcbaa;
 static erst_t *erst;
@@ -222,11 +219,9 @@ static uint32_t ep0_index, ep0_cycle;
 static uint32_t intr_index, intr_cycle;
 static uint32_t report_pending, report_length, report_seen;
 
-/* Protocol table parsed from extended capabilities */
 static usb_protocol_t protocols[MAX_PROTOCOLS];
 static uint32_t protocol_count;
 
-/* Diagnostics */
 static const char *diag_stage = "NOT STARTED";
 static uint32_t diag_controller_found, diag_init_ok;
 static uint32_t diag_transfer_submitted, diag_event_count, diag_success_count;
@@ -249,11 +244,6 @@ static void usb_log(const char *s) { console_write(s); debug_write(s); }
 static void usb_log_hex(uint32_t v) { console_write_hex(v); }
 static void usb_log_dec(uint32_t v) { console_write_dec(v); }
 static void usb_log_nl(void) { console_putc('\n'); debug_write("\n"); }
-static void usb_log_kv(const char *k, uint32_t v, int as_hex){
-    usb_log(k);
-    if(as_hex) usb_log_hex(v); else usb_log_dec(v);
-    usb_log_nl();
-}
 
 static int usb_fail(const char *stage){
     diag_stage = stage;
@@ -278,7 +268,6 @@ static void xhci_delay_ms(uint32_t ms){
             io_wait();
 }
 
-/* x86 DMA is cache-coherent; mfence orders our stores */
 #define dma_wmb() __asm__ volatile("mfence" ::: "memory")
 
 /* ------------------------------------------------------------------ */
@@ -347,29 +336,33 @@ static int map_mmio(uint64_t phys){
 }
 
 /* ------------------------------------------------------------------ */
-/*  Extended capability parsing                                        */
+/*  Extended capability parsing — FIXED (no more infinite loop)        */
 /* ------------------------------------------------------------------ */
 
-/* Find USB Protocol capability and record which port range is USB2/USB3. */
+/*
+ * Walk the xHCI extended capability chain.
+ * The xHCI spec says NEXT=0 means "end of the capability list".
+ * Every loop is capped at 64 iterations as a hard safety net.
+ */
 static void parse_usb_protocols(void){
     protocol_count = 0;
     uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
     if(xecp_off == 0) return;
 
-    while(xecp_off && xecp_off < XHCI_MAP_SIZE){
+    for(uint32_t iter = 0; iter < 64u; ++iter){
+        if(xecp_off == 0u || xecp_off >= XHCI_MAP_SIZE) break;
         uint32_t cap = r32(xecp_off);
         uint32_t id = cap & 0xFFu;
         uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
 
         if(id == 2u){   /* USB Protocol capability */
             uint32_t dw2 = r32(xecp_off + 8u);
-            uint32_t dw0 = cap;
-            uint8_t  major = (uint8_t)((dw0 >> 24) & 0xFFu);
-            uint8_t  minor = (uint8_t)((dw0 >> 16) & 0xFFu);
-            uint8_t  port_count = (uint8_t)((dw2 >> 8) & 0xFFu);
-            uint8_t  port_offset = (uint8_t)((dw2 >> 16) & 0xFFu);
-            uint8_t  slot_type = (uint8_t)((dw2 >> 28) & 0xFu);
-            uint8_t  proto = (major == 3u) ? PROTO_USB3 : PROTO_USB2;
+            uint8_t major = (uint8_t)((cap >> 24) & 0xFFu);
+            uint8_t minor = (uint8_t)((cap >> 16) & 0xFFu);
+            uint8_t port_count = (uint8_t)((dw2 >> 8) & 0xFFu);
+            uint8_t port_offset = (uint8_t)((dw2 >> 16) & 0xFFu);
+            uint8_t slot_type = (uint8_t)((dw2 >> 28) & 0xFu);
+            uint8_t proto = (major >= 3u) ? PROTO_USB3 : PROTO_USB2;
 
             if(protocol_count < MAX_PROTOCOLS){
                 protocols[protocol_count].major = major;
@@ -381,30 +374,22 @@ static void parse_usb_protocols(void){
                 ++protocol_count;
             }
         }
+
+        if(next == 0u) break;   /* <-- end of capability list */
         xecp_off += next;
     }
 }
 
-/* Return PROTO_USB2 / PROTO_USB3 for a 1-based port number, or 0 if unknown. */
-static uint8_t port_protocol(uint32_t p){
-    for(uint32_t i=0;i<protocol_count;++i){
-        uint32_t start = protocols[i].port_offset + 1u;
-        uint32_t end = start + protocols[i].port_count;
-        if(p >= start && p < end) return protocols[i].protocol;
-    }
-    return 0;
-}
-
-/* ------------------------------------------------------------------ */
-/*  BIOS/OS handoff                                                    */
-/* ------------------------------------------------------------------ */
-
+/* USB legacy handoff — same chain-walk rules. */
 static int legacy_handoff(void){
     uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
-    while(xecp_off && xecp_off < XHCI_MAP_SIZE){
+
+    for(uint32_t iter = 0; iter < 64u; ++iter){
+        if(xecp_off == 0u || xecp_off >= XHCI_MAP_SIZE) break;
         uint32_t cap = r32(xecp_off);
         uint32_t id = cap & 0xFFu;
         uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
+
         if(id == EXT_USBLEGSUP_ID){
             w32(xecp_off, cap | USBLEGSUP_OS_OWNED);
             if(cap & USBLEGSUP_BIOS_OWNED){
@@ -417,7 +402,19 @@ static int legacy_handoff(void){
             w32(xecp_off + 4u, 0u);
             return 0;
         }
+
+        if(next == 0u) break;   /* <-- end of capability list */
         xecp_off += next;
+    }
+    return 0;
+}
+
+/* Return PROTO_USB2 / PROTO_USB3 for a 1-based port number, or 0 if unknown. */
+static uint8_t port_protocol(uint32_t p){
+    for(uint32_t i=0;i<protocol_count;++i){
+        uint32_t start = (uint32_t)protocols[i].port_offset + 1u;
+        uint32_t end = start + (uint32_t)protocols[i].port_count;
+        if(p >= start && p < end) return protocols[i].protocol;
     }
     return 0;
 }
@@ -503,7 +500,6 @@ static void link_trb(trb_t *ring, uint32_t cycle){
     t->lo = (uint32_t)addr;
     t->hi = (uint32_t)(addr >> 32);
     t->status = 0;
-    /* Chain bit required by AMD/Renesas/early Intel */
     t->control = (TRB_LINK << 10) | TRB_TC | TRB_CHAIN | (cycle ? TRB_CYCLE : 0u);
 }
 
@@ -630,18 +626,11 @@ static int cmd_wait(uint32_t want_slot){
 /*  Context helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-/* Input Context: ICC is 32 bytes, then Slot, then Endpoints at ctx_size*dci */
 #define ICC_SIZE 32u
 static uint8_t *in_slot(void){ return (uint8_t*)in_ctx + ICC_SIZE; }
 static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx + ICC_SIZE + ctx_size*dci; }
-/* Device Context: Slot at 0, EP0 (dci=1) at ctx_size*1 */
-static uint8_t *dev_slot(void){ return (uint8_t*)out_ctx; }
 static uint8_t *dev_ep(uint32_t dci){ return (uint8_t*)out_ctx + ctx_size*dci; }
 
-static uint64_t ctx_get64(void *ctx, uint32_t dw){
-    uint32_t *p = (uint32_t*)ctx;
-    return (uint64_t)p[dw] | ((uint64_t)p[dw+1] << 32);
-}
 static void ctx_set64(void *ctx, uint32_t dw, uint64_t v){
     uint32_t *p = (uint32_t*)ctx;
     p[dw]   = (uint32_t)v;
@@ -657,33 +646,19 @@ static uint32_t ep0_default_mps(void){
 static void fill_slot_context(void *slot, uint32_t entries){
     uint32_t *s = (uint32_t*)slot;
     zero_mem(s, ctx_size);
-    /* Dword 0: bits 23:20 speed, bits 31:27 context entries */
     s[0] = ((device_speed & 0xFu) << 20) | ((entries & 0x1Fu) << 27);
-    /* Dword 1: bits 23:16 root hub port number */
     s[1] = (port_number & 0xFFu) << 16;
 }
 
-/*
- * Fill an Endpoint Context.
- *   ep_type:  4 = Control Bidirectional, 7 = Interrupt IN
- *   mps:      Max Packet Size
- *   interval: Endpoint interval (only used for interrupt/isochronous)
- *   dequeue:  TR Dequeue Pointer (bit 0 = DCS)
- *   avg_len:  Average TRB length
- */
 static void fill_ep_context(void *ep, uint32_t ep_type, uint32_t mps,
                             uint32_t interval, uint64_t dequeue,
                             uint32_t avg_len)
 {
     uint32_t *e = (uint32_t*)ep;
     zero_mem(e, ctx_size);
-    /* Dword 0 (ep_info): interval in bits 23:16 */
-    e[0] = (interval & 0xFFu) << 16;
-    /* Dword 1 (ep_info2): EP type in bits 5:3, MPS in bits 31:16 */
-    e[1] = ((ep_type & 0x7u) << 3) | ((mps & 0xFFFFu) << 16);
-    /* Dword 2-3: TR Dequeue Pointer */
+    e[0] = (interval & 0xFFu) << 16;                          /* ep_info  */
+    e[1] = ((ep_type & 0x7u) << 3) | ((mps & 0xFFFFu) << 16); /* ep_info2 */
     ctx_set64(ep, 2u, dequeue);
-    /* Dword 4: Average TRB Length (and Max ESIT Payload for periodic) */
     e[4] = avg_len & 0xFFFFu;
 }
 
@@ -711,7 +686,7 @@ static int cmd_enable_slot(void){
 static int cmd_address_device(uint32_t bsr){
     zero_mem(in_ctx, PAGE_SIZE);
     dcbaa[slot_id] = (uint64_t)(uintptr_t)out_ctx;
-    ((uint32_t*)in_ctx)[1] = 3u;   /* Add flags: Slot (A0) | EP0 (A1) */
+    ((uint32_t*)in_ctx)[1] = 3u;
     fill_slot_context(in_slot(), 1u);
 
     uint64_t deq = (uint64_t)(uintptr_t)&ep0_ring[ep0_index];
@@ -729,19 +704,16 @@ static int cmd_evaluate_context(void){
     return cmd_wait(slot_id);
 }
 
-/* Reprogram EP0 MPS in place, no endpoint reset. */
 static int update_ep0_mps(uint32_t mps){
     if(mps == ep0_mps) return 0;
 
-    /* Copy EP0 from the device context (which the HC updated) */
     uint8_t *dst = in_ep(1u);
     uint8_t *src = dev_ep(1u);
 
     zero_mem(in_ctx, PAGE_SIZE);
-    ((uint32_t*)in_ctx)[1] = 1u | (1u << 1);   /* Add: Slot | EP0 */
+    ((uint32_t*)in_ctx)[1] = 1u | (1u << 1);
     fill_slot_context(in_slot(), 1u);
     for(uint32_t i=0;i<ctx_size;++i) dst[i] = src[i];
-    /* Override MPS (dword 1 bits 31:16), keep EP type */
     uint32_t *dw = (uint32_t*)dst;
     dw[1] = (dw[1] & 0x0000FFFFu) | ((mps & 0xFFFFu) << 16);
 
@@ -754,7 +726,7 @@ static int update_ep0_mps(uint32_t mps){
 }
 
 static int cmd_reset_ep0(void){
-    uint32_t ctl = (1u << 16) | (slot_id << 24);   /* Target = DCI 1 */
+    uint32_t ctl = (1u << 16) | (slot_id << 24);
     cmd_submit(TRB_RESET_EP, 0, ctl);
     if(cmd_wait(slot_id)) return -1;
 
@@ -820,7 +792,6 @@ static int ep0_xfer(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
     return -1;
 }
 
-/* Retry wrapper — QEMU-level robustness on real hardware. */
 static int ctrl(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
                 void *data, uint16_t len, int in, uint32_t retries)
 {
@@ -846,27 +817,24 @@ static int ctrl(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
 /* ------------------------------------------------------------------ */
 
 static int read_device_descriptor(void){
-    /* First 8 bytes to learn MPS */
     zero_mem(control_buf, PAGE_SIZE);
     if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 8u, 1, 3)) return -1;
     if(control_buf[0] < 8u || control_buf[1] != 1u) return -1;
 
     uint32_t mps = control_buf[7];
-    if(mps == 9u) mps = 512u;                     /* USB 3.x encoding */
+    if(mps == 9u) mps = 512u;
     else if(mps != 8u && mps != 16u && mps != 32u && mps != 64u)
         mps = (device_speed >= SPEED_SUPER) ? 512u : 8u;
     ep0_mps = mps;
 
     usb_log("[ USB ] ep0_mps(first)="); usb_log_dec(ep0_mps); usb_log_nl();
 
-    /* Real address phase */
     if(cmd_address_device(0)) return -1;
     xhci_delay_ms(20u);
     ep0_index = 0; ep0_cycle = 1;
     cmd_reset_ep0();
     xhci_delay_ms(10u);
 
-    /* Full 18 bytes */
     zero_mem(control_buf, PAGE_SIZE);
     if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 18u, 1, 3)) return -1;
     if(control_buf[0] < 18u || control_buf[1] != 1u) return -1;
@@ -875,7 +843,6 @@ static int read_device_descriptor(void){
     for(int i=0;i<18;++i){ console_putc(' '); console_write_hex(control_buf[i]); }
     console_putc('\n');
 
-    /* Cross-check MPS — resolve inconsistency */
     uint32_t mps2 = control_buf[7];
     if(mps2 == 9u) mps2 = 512u;
     else if(mps2 != 8u && mps2 != 16u && mps2 != 32u && mps2 != 64u) mps2 = ep0_mps;
@@ -899,16 +866,13 @@ static int read_device_descriptor(void){
     return 0;
 }
 
-/* Two-stage config read (Linux behaviour). */
 static int read_config_descriptor(void){
     for(uint32_t attempt=0; attempt<3; ++attempt){
-        /* Stage 1: read 9-byte header */
         zero_mem(config_buf, PAGE_SIZE);
         int rc = ctrl(0x80u, 6u, 0x0200u, 0, config_buf, 9u, 1, 1);
         if(rc == 0 && config_buf[1] == 2u && config_buf[0] >= 9u){
             uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3] << 8);
             if(total >= 9u && total <= 4096u){
-                /* Stage 2: read the full config in one shot */
                 xhci_delay_ms(10u);
                 rc = ctrl(0x80u, 6u, 0x0200u, 0, config_buf, total, 1, 2);
                 if(rc == 0 && config_buf[1] == 2u && config_buf[0] >= 9u)
@@ -1057,11 +1021,9 @@ static int find_hid(hid_candidate_t *c){
 static uint32_t interval_encode(uint32_t v){
     if(!v) v = 1;
     if(device_speed >= SPEED_HIGH){
-        /* High/Super speed: exponent from bInterval directly */
         if(v > 16u) v = 16u;
         return v - 1u;
     }
-    /* Full/Low speed: 8 microframes per frame, encode as exponent */
     uint32_t uf = v * 8u;
     if(uf < 8u) uf = 8u;
     if(uf > 1024u) uf = 1024u;
@@ -1074,7 +1036,7 @@ static int cmd_configure_hid(hid_candidate_t *c){
     uint32_t n = c->endpoint_address & 0x0Fu;
     if(!n || !(c->endpoint_address & 0x80u)) return -1;
 
-    endpoint_id = n * 2u + 1u;      /* IN endpoints are odd DCIs */
+    endpoint_id = n * 2u + 1u;
     if(endpoint_id >= 32u) return -1;
 
     endpoint_packet = c->packet_size;
@@ -1125,7 +1087,6 @@ static void port_enable_power(void){
         uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
         uint32_t ps = r32(po);
         if(!(ps & PS_PP)){
-            /* Clear stale change bits, then set PP */
             uint32_t chg = ps & PS_CHANGE_BITS;
             if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
             ps = r32(po);
@@ -1135,7 +1096,6 @@ static void port_enable_power(void){
     xhci_delay_ms(20u);
 }
 
-/* Reset port. Returns 0 on success, -1 on failure. */
 static int port_reset(uint32_t p){
     uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
     uint32_t ps = r32(po);
@@ -1143,17 +1103,14 @@ static int port_reset(uint32_t p){
 
     uint8_t proto = port_protocol(p);
     int is_usb3 = (proto == PROTO_USB3);
-    /* Fallback if no protocol info: use current speed */
     if(proto == 0){
         uint32_t sp = (ps & PS_SPEED_MASK) >> PS_SPEED_SHIFT;
         is_usb3 = (sp >= SPEED_SUPER);
     }
 
-    /* Clear stale change bits */
     uint32_t chg = ps & PS_CHANGE_BITS;
     if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
 
-    /* Request reset */
     ps = r32(po);
     if(is_usb3){
         w32(po, (ps & ~(PS_PLS_MASK|PS_CHANGE_BITS|PS_PR)) | PS_PP | PS_WPR | PS_LWS);
@@ -1174,7 +1131,6 @@ static int port_reset(uint32_t p){
         __asm__ volatile("pause");
     }
 
-    /* Compliance / Polling recovery */
     ps = r32(po);
     if(is_usb3 && (ps & PS_PLS_MASK) != PS_PLS_U0){
         w32(po, (ps & ~(PS_PLS_MASK|PS_CHANGE_BITS)) | PS_PP | PS_WPR | PS_LWS);
@@ -1228,7 +1184,7 @@ static int enumerate_port(uint32_t p){
     if(cmd_enable_slot()) return -1;
     xhci_delay_ms(5u);
 
-    if(cmd_address_device(1)) return -1;    /* BSR=1 */
+    if(cmd_address_device(1)) return -1;
     xhci_delay_ms(10u);
 
     if(read_device_descriptor()) return -1;
@@ -1236,7 +1192,6 @@ static int enumerate_port(uint32_t p){
     hid_candidate_t c;
     if(find_hid(&c) || !c.config_value) return -1;
 
-    /* SET_CONFIGURATION */
     int rc = -1;
     for(uint32_t i=0;i<3;++i){
         rc = ctrl(0u, 9u, c.config_value, 0, 0, 0, 0, 1);
@@ -1249,7 +1204,6 @@ static int enumerate_port(uint32_t p){
 
     if(cmd_configure_hid(&c)) return -1;
 
-    /* SET_PROTOCOL(boot) and SET_IDLE — ignore failures */
     (void)ctrl(0x21u, 0x0Bu, 0u, c.interface_number, 0, 0, 0, 1);
     (void)ctrl(0x21u, 0x0Au, 0u, c.interface_number, 0, 0, 0, 1);
 
@@ -1284,7 +1238,6 @@ static int enumerate_port(uint32_t p){
 int xhci_mouse_init(void){
     if(ready) return 0;
 
-    /* Reset diagnostics only at first call */
     diag_stage = "SCANNING PCI";
     diag_controller_found = 0;
     diag_init_ok = 0;
@@ -1311,7 +1264,7 @@ int xhci_mouse_init(void){
     console_write_hex(d.device); console_putc('\n');
 
     uint32_t pcicmd = pci_r32(d.bus, d.slot, d.function, PCI_COMMAND);
-    pcicmd |= 0x6u;   /* Memory space + bus master */
+    pcicmd |= 0x6u;
     pci_w32(d.bus, d.slot, d.function, PCI_COMMAND, pcicmd);
 
     diag_stage = "MAPPING MMIO";
@@ -1330,7 +1283,7 @@ int xhci_mouse_init(void){
     max_ports = (hcs1 >> 24) & 0xFFu;
     uint32_t hcc1 = r32(CAP_HCCPARAMS1);
     ctx_size = (hcc1 & 4u) ? 64u : 32u;
-    ppc_enabled = (hcc1 & 8u) ? 1u : 0u;    /* PPC bit */
+    ppc_enabled = (hcc1 & 8u) ? 1u : 0u;
 
     if(!max_slots || !max_ports || max_ports > MAX_PORTS)
         return usb_fail("PARAMS");
@@ -1368,16 +1321,13 @@ int xhci_mouse_init(void){
     diag_stage = "STARTING xHCI";
     if(start_controller()) return usb_fail("RUN");
 
-    /* No-Op command verifies the command ring is live */
     diag_stage = "NOOP VERIFY";
     cmd_submit(TRB_NOOP_CMD, 0, 0);
     if(cmd_wait(0)) return usb_fail("NOOP-CMD");
 
-    /* Enable port power if firmware didn't */
     diag_stage = "PORT POWER";
     port_enable_power();
 
-    /* Scan every port */
     uint32_t saw_ccs = 0;
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
@@ -1449,7 +1399,7 @@ int xhci_mouse_poll(int32_t *dx, int32_t *dy, uint8_t *buttons){
 }
 
 /* ------------------------------------------------------------------ */
-/*  Public API — status (read-only, safe to call any time)             */
+/*  Public API — status                                                */
 /* ------------------------------------------------------------------ */
 
 int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
@@ -1490,7 +1440,6 @@ int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
     out->report_len = diag_last_report_len;
     for(uint32_t i=0;i<8;++i) out->report[i] = diag_last_report[i];
 
-    /* Only read USBSTS/USBCMD if MMIO was successfully mapped */
     if(diag_controller_found && op_base){
         out->usb_status = r32(op_base + OP_USBSTS);
         out->usb_command = r32(op_base + OP_USBCMD);
