@@ -113,13 +113,12 @@
 #define PROTO_USB2 1u
 #define PROTO_USB3 2u
 
-/* PORTSC speed field values — xHCI spec Table 5-27 */
 #define SPEED_UNDEF 0u
-#define SPEED_FULL 1u        /* 12 Mb/s   */
-#define SPEED_LOW 2u         /* 1.5 Mb/s  */
-#define SPEED_HIGH 3u        /* 480 Mb/s  */
-#define SPEED_SUPER 4u       /* 5 Gb/s    */
-#define SPEED_SUPER_PLUS 5u  /* 10 Gb/s   */
+#define SPEED_FULL 1u
+#define SPEED_LOW 2u
+#define SPEED_HIGH 3u
+#define SPEED_SUPER 4u
+#define SPEED_SUPER_PLUS 5u
 
 #define RING_TRBS 256u
 #define EVENT_TRBS 256u
@@ -352,8 +351,11 @@ static int hc_reset(void){
 
 /* ---- DMA ---- */
 static int dma_page(void **out){
-    void *p=page_alloc(); if(!p) return -1; zero_mem(p,PAGE_SIZE);
-    if(out)*out=p; return 0;
+    void *p=page_alloc();
+    if(!p) return -1;
+    zero_mem(p,PAGE_SIZE);
+    if(out) *out = p;
+    return 0;
 }
 static uint32_t read_scratchpads(void){
     uint32_t h=r32(CAP_HCSPARAMS2);
@@ -367,10 +369,12 @@ static int alloc_memory(void){
     scratch_count=read_scratchpads();
     if(scratch_count>MAX_SCRATCH) return -1;
     if(scratch_count){
-        scratch_array=(uint64_t*)page_alloc(); if(!scratch_array) return -1;
+        scratch_array=(uint64_t*)page_alloc();
+        if(!scratch_array) return -1;
         zero_mem(scratch_array,PAGE_SIZE);
         for(uint32_t i=0;i<scratch_count;++i){
-            scratch_pages[i]=page_alloc(); if(!scratch_pages[i]) return -1;
+            scratch_pages[i]=page_alloc();
+            if(!scratch_pages[i]) return -1;
             zero_mem(scratch_pages[i],PAGE_SIZE);
             scratch_array[i]=(uint64_t)(uintptr_t)scratch_pages[i];
         }
@@ -444,7 +448,8 @@ static int cmd_recover(void){
 }
 static int cmd_wait(uint32_t want_slot){
     for(uint32_t n=0;n<8000000u;++n){
-        trb_t e; if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
+        trb_t e;
+        if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
         uint32_t type=(e.control>>10)&0x3Fu;
         if(type==TRB_PORT_EVT) continue;
         if(type==TRB_BW_EVT) continue;
@@ -469,7 +474,7 @@ static void ctx_set64(void *c,uint32_t dw,uint64_t v){
 static uint32_t ep0_default_mps(void){
     if(device_speed==SPEED_HIGH) return 64u;
     if(device_speed>=SPEED_SUPER) return 512u;
-    return 8u;   /* Full / Low speed default */
+    return 8u;
 }
 static void fill_slot_context(void *slot,uint32_t entries){
     uint32_t *s=(uint32_t*)slot; zero_mem(s,ctx_size);
@@ -489,7 +494,8 @@ static void fill_ep_context(void *ep,uint32_t ep_type,uint32_t mps,
 static int cmd_enable_slot(void){
     cmd_submit(TRB_ENABLE_SLOT,0,0);
     for(uint32_t n=0;n<8000000u;++n){
-        trb_t e; if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
+        trb_t e;
+        if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
         uint32_t type=(e.control>>10)&0x3Fu;
         if(type==TRB_PORT_EVT) continue;
         if(type!=TRB_CMD_EVT) continue;
@@ -592,11 +598,6 @@ static int ctrl(uint8_t bm,uint8_t req,uint16_t val,uint16_t idx,
     return -1;
 }
 
-/*
- * read_device_descriptor()
- *   already_addressed = 1  → USB 2 path (BSR=0 was used; address already set)
- *   already_addressed = 0  → USB 3 path (BSR=1 done; real address needed after read)
- */
 static int read_device_descriptor(int already_addressed){
     zero_mem(control_buf,PAGE_SIZE);
     int rc=ctrl(0x80u,6u,0x0100u,0,control_buf,8u,1,2);
@@ -616,7 +617,6 @@ static int read_device_descriptor(int already_addressed){
     usb_log("[ USB ] ep0_mps(first)="); usb_log_dec(ep0_mps); usb_log_nl();
 
     if(!already_addressed){
-        /* USB 3 flow: now assign the real address. */
         if(cmd_address_device(0)) return -1;
         xhci_delay_ms(200u);
         ep0_index=0; ep0_cycle=1; cmd_reset_ep0(); xhci_delay_ms(50u);
@@ -894,12 +894,10 @@ static void clear_change_bits(uint32_t p,uint32_t ps){
     if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
 }
 
-/* ============================================================
- *  Port enumeration
- *
- *  USB 3 (SuperSpeed+)   : BSR=1 → read device desc → BSR=0 → read again
- *  USB 2 (Full/Low/High) : BSR=0 directly → read device desc
- * ============================================================ */
+/* ---- Port enumeration ----
+ * USB 3 (SuperSpeed+): BSR=1, read desc, BSR=0, read again.
+ * USB 2 (Full/Low/High): BSR=0 directly, read desc.
+ */
 static int enumerate_port(uint32_t p){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t ps=r32(po);
@@ -927,19 +925,16 @@ static int enumerate_port(uint32_t p){
     if(cmd_enable_slot()) return -1;
     xhci_delay_ms(20u);
 
-    int is_usb3 = (device_speed >= SPEED_SUPER);
-    int already_addressed = 0;
+    int is_usb3=(device_speed>=SPEED_SUPER);
+    int already_addressed=0;
 
     if(is_usb3){
-        /* USB 3 only: BSR=1 first */
         if(cmd_address_device(1)) return -1;
         xhci_delay_ms(150u);
     } else {
-        /* USB 2: skip BSR, do real Address Device directly */
         if(cmd_address_device(0)) return -1;
         xhci_delay_ms(100u);
-        already_addressed = 1;
-        /* After the real address phase, force EP0 ring reset to sync */
+        already_addressed=1;
         ep0_index=0; ep0_cycle=1;
         (void)cmd_reset_ep0();
         xhci_delay_ms(50u);
@@ -1003,7 +998,8 @@ int xhci_mouse_init(void){
     console_write_hex(d.device); console_putc('\n');
 
     uint32_t pcicmd=pci_r32(d.bus,d.slot,d.function,PCI_COMMAND);
-    pcicmd|=0x6u; pci_w32(d.bus,d.slot,d.function,PCI_COMMAND,pcicmd);
+    pcicmd|=0x6u;
+    pci_w32(d.bus,d.slot,d.function,PCI_COMMAND,pcicmd);
 
     diag_stage="MAPPING MMIO";
     if(map_mmio(d.bar0)) return usb_fail("MMIO");
@@ -1094,7 +1090,9 @@ int xhci_mouse_init(void){
 }
 
 int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
-    if(dx)*dx=0; if(dy)*dy=0; if(buttons)*buttons=0;
+    if(dx) *dx = 0;
+    if(dy) *dy = 0;
+    if(buttons) *buttons = 0;
     if(!ready) return 0;
     trb_t e;
     while(next_event(&e)==0){
@@ -1122,7 +1120,8 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
             submit_report();
             return 1;
         }
-        ++diag_error_count; submit_report();
+        ++diag_error_count;
+        submit_report();
         return -1;
     }
     return 0;
@@ -1167,6 +1166,9 @@ int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
     if(diag_controller_found&&op_base){
         out->usb_status=r32(op_base+OP_USBSTS);
         out->usb_command=r32(op_base+OP_USBCMD);
-    } else { out->usb_status=0; out->usb_command=0; }
+    } else {
+        out->usb_status=0;
+        out->usb_command=0;
+    }
     return 0;
 }
