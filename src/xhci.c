@@ -3,8 +3,8 @@
  *
  * LionOS — experimental operating system
  *
- * Rewritten for real-hardware correctness. Tested against Intel
- * 8086:7AE0 (Raptor Lake-P). Supports USB 1.x / 2.0 / 3.x / 3.1 / 3.2.
+ * Supports USB 1.x / 2.0 / 3.x / 3.1 / 3.2 on Intel / AMD / Renesas
+ * controllers. Tested against Intel 8086:7AE0 (Raptor Lake-P).
  *
  * Layout reference:
  *   Input Context  = ICC(32) | Slot | EP0 | EP1 | ...
@@ -25,10 +25,6 @@
 #include "debug.h"
 #include "console.h"
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                          */
-/* ------------------------------------------------------------------ */
-
 #define PAGE_SIZE 4096u
 #define PCI_ADDR 0xCF8u
 #define PCI_DATA 0xCFCu
@@ -39,7 +35,6 @@
 #define XHCI_VIRT 0xF1000000u
 #define XHCI_MAP_SIZE 0x00100000u
 
-/* Capability registers */
 #define CAP_CAPLENGTH 0x00u
 #define CAP_HCSPARAMS1 0x04u
 #define CAP_HCSPARAMS2 0x08u
@@ -47,7 +42,6 @@
 #define CAP_DBOFF 0x14u
 #define CAP_RTSOFF 0x18u
 
-/* Operational registers */
 #define OP_USBCMD 0x00u
 #define OP_USBSTS 0x04u
 #define OP_PAGESIZE 0x08u
@@ -57,14 +51,12 @@
 #define OP_PORT_BASE 0x400u
 #define OP_PORT_STRIDE 0x10u
 
-/* USBCMD / USBSTS bits */
 #define CMD_RUN 0x1u
 #define CMD_HCRST 0x2u
 #define CMD_INTE 0x4u
 #define STS_HCH 0x1u
 #define STS_CNR 0x800u
 
-/* PORTSC bits */
 #define PS_CCS 0x1u
 #define PS_PED 0x2u
 #define PS_OCA 0x8u
@@ -87,7 +79,6 @@
 #define PS_LWS (1u << 16)
 #define PS_CHANGE_BITS (PS_CSC|PS_PEC|PS_WRC|PS_OCC|PS_PRC|PS_PLC|PS_CEC)
 
-/* Runtime registers */
 #define RT_IR0 0x20u
 #define IR_IMAN 0x00u
 #define IR_IMOD 0x04u
@@ -95,7 +86,6 @@
 #define IR_ERSTBA 0x10u
 #define IR_ERDP 0x18u
 
-/* TRB types */
 #define TRB_NORMAL 1u
 #define TRB_SETUP 2u
 #define TRB_DATA 3u
@@ -114,7 +104,6 @@
 #define TRB_PORT_EVT 34u
 #define TRB_BW_EVT 35u
 
-/* TRB control bits */
 #define TRB_CYCLE 0x1u
 #define TRB_TC 0x2u
 #define TRB_CHAIN 0x10u
@@ -123,23 +112,18 @@
 #define TRB_BSR 0x200u
 #define TRB_DIR_IN 0x10000u
 
-/* Completion codes */
 #define CC_SUCCESS 1u
 #define CC_SHORT_PKT 13u
-#define CC_STALL 6u
 #define CC_RING_FULL 21u
 #define CC_CMD_STOPPED 24u
 
-/* PCI extended capability for USB legacy handoff */
 #define EXT_USBLEGSUP_ID 1u
 #define USBLEGSUP_BIOS_OWNED (1u << 16)
 #define USBLEGSUP_OS_OWNED (1u << 24)
 
-/* Port protocol */
 #define PROTO_USB2 1u
 #define PROTO_USB3 2u
 
-/* Speeds */
 #define SPEED_UNDEF 0u
 #define SPEED_LOW 1u
 #define SPEED_FULL 2u
@@ -147,16 +131,11 @@
 #define SPEED_SUPER 4u
 #define SPEED_SUPER_PLUS 5u
 
-/* Sizes */
 #define RING_TRBS 256u
 #define EVENT_TRBS 256u
 #define MAX_SCRATCH 1024u
 #define MAX_PORTS 256u
 #define MAX_PROTOCOLS 8u
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
 
 typedef struct {
     uint32_t lo, hi, status, control;
@@ -175,25 +154,21 @@ typedef struct {
 } pci_dev_t;
 
 typedef struct {
-    uint8_t  major;
-    uint8_t  minor;
-    uint8_t  protocol;
-    uint8_t  port_count;
-    uint8_t  port_offset;
-    uint8_t  slot_type;
+    uint8_t major;
+    uint8_t minor;
+    uint8_t protocol;
+    uint8_t port_count;
+    uint8_t port_offset;
+    uint8_t slot_type;
 } usb_protocol_t;
 
 typedef struct {
-    uint8_t  interface_number;
-    uint8_t  endpoint_address;
+    uint8_t interface_number;
+    uint8_t endpoint_address;
     uint16_t packet_size;
-    uint8_t  interval;
-    uint8_t  config_value;
+    uint8_t interval;
+    uint8_t config_value;
 } hid_candidate_t;
-
-/* ------------------------------------------------------------------ */
-/*  Module state                                                       */
-/* ------------------------------------------------------------------ */
 
 static uint32_t cap_len, op_base, db_base, rt_base;
 static uint32_t hci_version;
@@ -236,10 +211,6 @@ static uint16_t diag_hid_packet;
 static uint8_t  diag_hid_interval;
 static uint32_t diag_interface_count, diag_endpoint_count, diag_hid_count;
 
-/* ------------------------------------------------------------------ */
-/*  Logging                                                            */
-/* ------------------------------------------------------------------ */
-
 static void usb_log(const char *s) { console_write(s); debug_write(s); }
 static void usb_log_hex(uint32_t v) { console_write_hex(v); }
 static void usb_log_dec(uint32_t v) { console_write_dec(v); }
@@ -253,10 +224,6 @@ static int usb_fail(const char *stage){
     return -1;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Utilities                                                          */
-/* ------------------------------------------------------------------ */
-
 static void zero_mem(void *p, uint32_t n){
     uint8_t *b = (uint8_t*)p;
     for(uint32_t i=0;i<n;++i) b[i]=0;
@@ -269,10 +236,6 @@ static void xhci_delay_ms(uint32_t ms){
 }
 
 #define dma_wmb() __asm__ volatile("mfence" ::: "memory")
-
-/* ------------------------------------------------------------------ */
-/*  PCI access                                                         */
-/* ------------------------------------------------------------------ */
 
 static uint32_t pci_key(uint8_t b, uint8_t s, uint8_t f, uint8_t r){
     return 0x80000000u | ((uint32_t)b<<16) | ((uint32_t)s<<11)
@@ -315,10 +278,6 @@ static int pci_find_xhci(pci_dev_t *out){
     return -1;
 }
 
-/* ------------------------------------------------------------------ */
-/*  MMIO access                                                        */
-/* ------------------------------------------------------------------ */
-
 static uint32_t r32(uint32_t off){ return *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off); }
 static void w32(uint32_t off,uint32_t v){ *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off)=v; }
 static void w64(uint32_t off,uint64_t v){
@@ -335,15 +294,6 @@ static int map_mmio(uint64_t phys){
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Extended capability parsing — FIXED (no more infinite loop)        */
-/* ------------------------------------------------------------------ */
-
-/*
- * Walk the xHCI extended capability chain.
- * The xHCI spec says NEXT=0 means "end of the capability list".
- * Every loop is capped at 64 iterations as a hard safety net.
- */
 static void parse_usb_protocols(void){
     protocol_count = 0;
     uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
@@ -355,7 +305,7 @@ static void parse_usb_protocols(void){
         uint32_t id = cap & 0xFFu;
         uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
 
-        if(id == 2u){   /* USB Protocol capability */
+        if(id == 2u){
             uint32_t dw2 = r32(xecp_off + 8u);
             uint8_t major = (uint8_t)((cap >> 24) & 0xFFu);
             uint8_t minor = (uint8_t)((cap >> 16) & 0xFFu);
@@ -375,12 +325,11 @@ static void parse_usb_protocols(void){
             }
         }
 
-        if(next == 0u) break;   /* <-- end of capability list */
+        if(next == 0u) break;
         xecp_off += next;
     }
 }
 
-/* USB legacy handoff — same chain-walk rules. */
 static int legacy_handoff(void){
     uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
 
@@ -403,13 +352,12 @@ static int legacy_handoff(void){
             return 0;
         }
 
-        if(next == 0u) break;   /* <-- end of capability list */
+        if(next == 0u) break;
         xecp_off += next;
     }
     return 0;
 }
 
-/* Return PROTO_USB2 / PROTO_USB3 for a 1-based port number, or 0 if unknown. */
 static uint8_t port_protocol(uint32_t p){
     for(uint32_t i=0;i<protocol_count;++i){
         uint32_t start = (uint32_t)protocols[i].port_offset + 1u;
@@ -418,10 +366,6 @@ static uint8_t port_protocol(uint32_t p){
     }
     return 0;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Controller reset                                                   */
-/* ------------------------------------------------------------------ */
 
 static int hc_reset(void){
     uint32_t cmd = r32(op_base + OP_USBCMD) & ~CMD_RUN;
@@ -446,10 +390,6 @@ static int hc_reset(void){
     }
     return (r32(op_base + OP_USBSTS) & STS_CNR) ? -1 : 0;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Memory                                                             */
-/* ------------------------------------------------------------------ */
 
 static int dma_page(void **out){
     void *p = page_alloc();
@@ -489,10 +429,6 @@ static int alloc_memory(void){
     }
     return 0;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Ring setup                                                         */
-/* ------------------------------------------------------------------ */
 
 static void link_trb(trb_t *ring, uint32_t cycle){
     trb_t *t = &ring[RING_TRBS-1u];
@@ -540,10 +476,6 @@ static int start_controller(void){
     }
     return -1;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Command ring                                                       */
-/* ------------------------------------------------------------------ */
 
 static void cmd_submit(uint32_t type, uint64_t param, uint32_t ctl){
     trb_t *t = &cmd_ring[cmd_index];
@@ -622,10 +554,6 @@ static int cmd_wait(uint32_t want_slot){
     return -1;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Context helpers                                                    */
-/* ------------------------------------------------------------------ */
-
 #define ICC_SIZE 32u
 static uint8_t *in_slot(void){ return (uint8_t*)in_ctx + ICC_SIZE; }
 static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx + ICC_SIZE + ctx_size*dci; }
@@ -656,15 +584,11 @@ static void fill_ep_context(void *ep, uint32_t ep_type, uint32_t mps,
 {
     uint32_t *e = (uint32_t*)ep;
     zero_mem(e, ctx_size);
-    e[0] = (interval & 0xFFu) << 16;                          /* ep_info  */
-    e[1] = ((ep_type & 0x7u) << 3) | ((mps & 0xFFFFu) << 16); /* ep_info2 */
+    e[0] = (interval & 0xFFu) << 16;
+    e[1] = ((ep_type & 0x7u) << 3) | ((mps & 0xFFFFu) << 16);
     ctx_set64(ep, 2u, dequeue);
     e[4] = avg_len & 0xFFFFu;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Slot / device commands                                             */
-/* ------------------------------------------------------------------ */
 
 static int cmd_enable_slot(void){
     cmd_submit(TRB_ENABLE_SLOT, 0, 0);
@@ -735,10 +659,6 @@ static int cmd_reset_ep0(void){
     cmd_submit(TRB_SET_DEQ, deq, ctl);
     return cmd_wait(slot_id);
 }
-
-/* ------------------------------------------------------------------ */
-/*  Control transfers                                                  */
-/* ------------------------------------------------------------------ */
 
 static int ep0_xfer(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
                     void *data, uint16_t len, int in)
@@ -811,10 +731,6 @@ static int ctrl(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
     }
     return -1;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Descriptors                                                        */
-/* ------------------------------------------------------------------ */
 
 static int read_device_descriptor(void){
     zero_mem(control_buf, PAGE_SIZE);
@@ -1014,10 +930,6 @@ static int find_hid(hid_candidate_t *c){
     return -1;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Interrupt endpoint                                                 */
-/* ------------------------------------------------------------------ */
-
 static uint32_t interval_encode(uint32_t v){
     if(!v) v = 1;
     if(device_speed >= SPEED_HIGH){
@@ -1077,23 +989,66 @@ static int submit_report(void){
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Port power + scan                                                  */
-/* ------------------------------------------------------------------ */
-
-static void port_enable_power(void){
-    if(!ppc_enabled) return;
+/* ============================================================
+ *  Wake every port.
+ *
+ *  PPC (Port Power Control) reports whether the controller supports
+ *  software power switching. On most Intel chipsets PPC=0, meaning
+ *  ports are always powered and the PP bit has no effect. We write
+ *  it anyway because a few controllers silently accept it, and we
+ *  also strobe the Port Link State to U0 for any port that is
+ *  connected but stuck in a non-U0 state (a common power-on
+ *  condition on Intel laptop USB 2 companion ports).
+ *
+ *  Additionally we clear any latched change bits so CCS can be
+ *  freshly reported.
+ * ============================================================ */
+static void wake_all_ports(void){
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
         uint32_t ps = r32(po);
+
+        /* 1. Clear any latched change bits */
+        uint32_t chg = ps & PS_CHANGE_BITS;
+        if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
+
+        /* 2. Force PP=1 (harmless when PPC=0) */
+        ps = r32(po);
         if(!(ps & PS_PP)){
-            uint32_t chg = ps & PS_CHANGE_BITS;
-            if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
-            ps = r32(po);
-            w32(po, (ps & ~PS_CHANGE_BITS & ~PS_PP) | PS_PP | (ps & PS_CHANGE_BITS));
+            w32(po, (ps & ~(PS_CHANGE_BITS | PS_PP)) | PS_PP | (ps & PS_CHANGE_BITS));
+        }
+
+        /* 3. Strobe PLS=U0 with LWS for any port with a device
+         *    that is stuck in Polling / Compliance / Recovery / Inactive */
+        ps = r32(po);
+        if(ps & PS_CCS){
+            uint32_t pls = ps & PS_PLS_MASK;
+            if(pls != PS_PLS_U0){
+                w32(po, (ps & ~(PS_PLS_MASK | PS_CHANGE_BITS | PS_WPR | PS_PR))
+                       | PS_PLS_U0 | PS_LWS | (ps & PS_CHANGE_BITS));
+            }
         }
     }
-    xhci_delay_ms(20u);
+    xhci_delay_ms(50u);
+}
+
+/* Log every port's PORTSC once, for diagnostics. */
+static void dump_ports(void){
+    for(uint32_t p=1;p<=max_ports;++p){
+        uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
+        uint32_t ps = r32(po);
+        uint32_t sp = (ps & PS_SPEED_MASK) >> PS_SPEED_SHIFT;
+        uint32_t pls = (ps >> 5) & 0xFu;
+        usb_log("[ USB ] port ");
+        usb_log_dec(p);
+        usb_log(" PORTSC=0x"); usb_log_hex(ps);
+        usb_log(" spd="); usb_log_dec(sp);
+        usb_log(" pls="); usb_log_dec(pls);
+        if(ps & PS_CCS) usb_log(" CCS");
+        if(ps & PS_PED) usb_log(" PED");
+        if(ps & PS_PP)  usb_log(" PP");
+        usb_log_nl();
+    }
 }
 
 static int port_reset(uint32_t p){
@@ -1149,10 +1104,6 @@ static void clear_change_bits(uint32_t p, uint32_t ps){
     uint32_t chg = ps & PS_CHANGE_BITS;
     if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
 }
-
-/* ------------------------------------------------------------------ */
-/*  Enumerate one port                                                 */
-/* ------------------------------------------------------------------ */
 
 static int enumerate_port(uint32_t p){
     uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
@@ -1230,10 +1181,6 @@ static int enumerate_port(uint32_t p){
     usb_log_nl();
     return 0;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Public API — init                                                  */
-/* ------------------------------------------------------------------ */
 
 int xhci_mouse_init(void){
     if(ready) return 0;
@@ -1325,33 +1272,44 @@ int xhci_mouse_init(void){
     cmd_submit(TRB_NOOP_CMD, 0, 0);
     if(cmd_wait(0)) return usb_fail("NOOP-CMD");
 
+    /* ---- Wake all ports ---- */
     diag_stage = "PORT POWER";
-    port_enable_power();
+    wake_all_ports();
+    xhci_delay_ms(100u);
 
-    uint32_t saw_ccs = 0;
-    for(uint32_t p=1;p<=max_ports;++p){
-        uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
-        uint32_t ps = r32(po);
-        diag_last_portsc = ps;
-        if(!(ps & PS_CCS)) continue;
-        saw_ccs = 1;
-        diag_stage = "USB PORT CONNECTED";
+    /* ---- Dump every port so we can see what's plugged in ---- */
+    diag_stage = "PORT DUMP";
+    dump_ports();
 
-        usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
-        usb_log(" ---\n");
+    /* ---- Scan, twice if nothing is found the first time ---- */
+    for(uint32_t pass = 0; pass < 2u; ++pass){
+        uint32_t saw_ccs = 0;
+        for(uint32_t p=1;p<=max_ports;++p){
+            uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
+            uint32_t ps = r32(po);
+            diag_last_portsc = ps;
+            if(!(ps & PS_CCS)) continue;
+            saw_ccs = 1;
+            diag_stage = "USB PORT CONNECTED";
 
-        if(enumerate_port(p) == 0) return 0;
-        usb_log("[ USB ] port "); usb_log_dec(p);
-        usb_log(" failed, moving on\n");
+            usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
+            usb_log(" ---\n");
+
+            if(enumerate_port(p) == 0) return 0;
+            usb_log("[ USB ] port "); usb_log_dec(p);
+            usb_log(" failed, moving on\n");
+        }
+        if(saw_ccs) break;
+        if(pass == 0u){
+            usb_log("[ USB ] no devices found, retrying after wake\n");
+            wake_all_ports();
+            xhci_delay_ms(200u);
+        } else {
+            return usb_fail("NO-PORT");
+        }
     }
-
-    if(!saw_ccs) return usb_fail("NO-PORT");
     return usb_fail("NO-HID-MOUSE");
 }
-
-/* ------------------------------------------------------------------ */
-/*  Public API — poll                                                  */
-/* ------------------------------------------------------------------ */
 
 int xhci_mouse_poll(int32_t *dx, int32_t *dy, uint8_t *buttons){
     if(dx) *dx = 0;
@@ -1397,10 +1355,6 @@ int xhci_mouse_poll(int32_t *dx, int32_t *dy, uint8_t *buttons){
     }
     return 0;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Public API — status                                                */
-/* ------------------------------------------------------------------ */
 
 int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
     if(!out) return -1;
