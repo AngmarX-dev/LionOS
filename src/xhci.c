@@ -1,9 +1,6 @@
 /*
  * xhci.c — xHCI host controller driver with HID mouse support
  * LionOS — experimental operating system
- *
- * Supports USB 1.x / 2.0 / 3.x / 3.1 / 3.2 on Intel / AMD / Renesas.
- * Tested against Intel 8086:7AE0 (Raptor Lake-P).
  */
 
 #include <stdint.h>
@@ -110,13 +107,12 @@
 #define PROTO_USB2 1u
 #define PROTO_USB3 2u
 
-/* xHCI PORTSC speed values — do NOT reorder these */
 #define SPEED_UNDEF 0u
-#define SPEED_FULL 1u           /* 12 Mb/s   */
-#define SPEED_LOW 2u            /* 1.5 Mb/s  */
-#define SPEED_HIGH 3u           /* 480 Mb/s  */
-#define SPEED_SUPER 4u          /* 5 Gb/s    */
-#define SPEED_SUPER_PLUS 5u     /* 10 Gb/s   */
+#define SPEED_FULL 1u
+#define SPEED_LOW 2u
+#define SPEED_HIGH 3u
+#define SPEED_SUPER 4u
+#define SPEED_SUPER_PLUS 5u
 
 #define RING_TRBS 256u
 #define EVENT_TRBS 256u
@@ -223,7 +219,6 @@ static void xhci_delay_ms(uint32_t ms){
 
 #define dma_wmb() __asm__ volatile("mfence" ::: "memory")
 
-/* ---- PCI ---- */
 static uint32_t pci_key(uint8_t b,uint8_t s,uint8_t f,uint8_t r){
     return 0x80000000u|((uint32_t)b<<16)|((uint32_t)s<<11)|((uint32_t)f<<8)|(r&0xFCu);
 }
@@ -258,7 +253,6 @@ static int pci_find_xhci(pci_dev_t *out){
     return -1;
 }
 
-/* ---- MMIO ---- */
 static uint32_t r32(uint32_t off){ return *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off); }
 static void w32(uint32_t off,uint32_t v){ *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off)=v; }
 static void w64(uint32_t off,uint64_t v){
@@ -274,10 +268,6 @@ static int map_mmio(uint64_t phys){
     return 0;
 }
 
-/* ---- Extended capabilities ----
- * IMPORTANT: port_offset is DWORD2 bits 7:0, port_count is bits 15:8.
- * Previous code read port_offset from bits 23:16, which is wrong.
- */
 static void parse_usb_protocols(void){
     protocol_count = 0;
     uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
@@ -293,10 +283,9 @@ static void parse_usb_protocols(void){
             uint32_t dw2 = r32(xecp_off + 8u);
             uint8_t major = (uint8_t)((cap >> 24) & 0xFFu);
             uint8_t minor = (uint8_t)((cap >> 16) & 0xFFu);
-            /* CORRECT bit fields: */
-            uint8_t port_offset = (uint8_t)(dw2 & 0xFFu);         /* bits 7:0  */
-            uint8_t port_count  = (uint8_t)((dw2 >> 8) & 0xFFu);  /* bits 15:8 */
-            uint8_t slot_type   = (uint8_t)((dw2 >> 16) & 0xFu);  /* bits 19:16 */
+            uint8_t port_offset = (uint8_t)(dw2 & 0xFFu);
+            uint8_t port_count  = (uint8_t)((dw2 >> 8) & 0xFFu);
+            uint8_t slot_type   = (uint8_t)((dw2 >> 16) & 0xFu);
             uint8_t proto = (major >= 3u) ? PROTO_USB3 : PROTO_USB2;
 
             if(protocol_count < MAX_PROTOCOLS){
@@ -340,7 +329,6 @@ static int legacy_handoff(void){
     return 0;
 }
 
-/* port_protocol(): port_offset is 0-based per spec. */
 static uint8_t port_protocol(uint32_t p){
     for(uint32_t i=0;i<protocol_count;++i){
         uint32_t start = (uint32_t)protocols[i].port_offset + 1u;
@@ -350,7 +338,6 @@ static uint8_t port_protocol(uint32_t p){
     return 0;
 }
 
-/* ---- Controller reset ---- */
 static int hc_reset(void){
     uint32_t cmd = r32(op_base + OP_USBCMD) & ~CMD_RUN;
     w32(op_base + OP_USBCMD, cmd);
@@ -375,7 +362,6 @@ static int hc_reset(void){
     return (r32(op_base + OP_USBSTS) & STS_CNR) ? -1 : 0;
 }
 
-/* ---- DMA pages ---- */
 static int dma_page(void **out){
     void *p = page_alloc();
     if(!p) return -1;
@@ -411,7 +397,6 @@ static int alloc_memory(void){
     return 0;
 }
 
-/* ---- Rings ---- */
 static void link_trb(trb_t *ring, uint32_t cycle){
     trb_t *t = &ring[RING_TRBS-1u];
     uint64_t addr = (uint64_t)(uintptr_t)ring;
@@ -447,7 +432,6 @@ static int start_controller(void){
     return -1;
 }
 
-/* ---- Command ring ---- */
 static void cmd_submit(uint32_t type, uint64_t param, uint32_t ctl){
     trb_t *t = &cmd_ring[cmd_index];
     t->lo=(uint32_t)param; t->hi=(uint32_t)(param>>32); t->status=0;
@@ -512,7 +496,6 @@ static int cmd_wait(uint32_t want_slot){
     return -1;
 }
 
-/* ---- Contexts ---- */
 #define ICC_SIZE 32u
 static uint8_t *in_slot(void){ return (uint8_t*)in_ctx + ICC_SIZE; }
 static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx + ICC_SIZE + ctx_size*dci; }
@@ -539,7 +522,6 @@ static void fill_ep_context(void *ep, uint32_t ep_type, uint32_t mps,
     e[4] = avg_len & 0xFFFFu;
 }
 
-/* ---- Slot / EP commands ---- */
 static int cmd_enable_slot(void){
     cmd_submit(TRB_ENABLE_SLOT, 0, 0);
     for(uint32_t n=0;n<8000000u;++n){
@@ -604,7 +586,6 @@ static int cmd_reset_ep0(void){
     return cmd_wait(slot_id);
 }
 
-/* ---- EP0 transfers ---- */
 static int ep0_xfer(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
                     void *data, uint16_t len, int in){
     uint64_t setup = (uint64_t)bm | ((uint64_t)req<<8) | ((uint64_t)val<<16)
@@ -665,13 +646,10 @@ static int ctrl(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
     return -1;
 }
 
-/* ---- Device descriptor ---- */
 static int read_device_descriptor(void){
-    /* First attempt: 8 bytes at address 0 (BSR=1 already done by caller) */
     zero_mem(control_buf, PAGE_SIZE);
     int rc = ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 8u, 1, 2);
     if(rc != 0){
-        /* Full Speed / Low Speed devices can be very slow after reset. */
         xhci_delay_ms(250u);
         ep0_index = 0; ep0_cycle = 1;
         (void)cmd_reset_ep0();
@@ -688,20 +666,16 @@ static int read_device_descriptor(void){
     ep0_mps = mps;
     usb_log("[ USB ] ep0_mps(first)="); usb_log_dec(ep0_mps); usb_log_nl();
 
-    /* Real address phase */
     if(cmd_address_device(0)) return -1;
 
-    /* Give FS/LS devices time to settle at their new address. */
     xhci_delay_ms(200u);
     ep0_index = 0; ep0_cycle = 1;
     cmd_reset_ep0();
     xhci_delay_ms(50u);
 
-    /* Read the 18-byte device descriptor. */
     zero_mem(control_buf, PAGE_SIZE);
     rc = ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 18u, 1, 3);
     if(rc != 0){
-        /* Try once more with MPS = 8 in case the device lied about its MPS. */
         usb_log("[ USB ] retry 18-byte with MPS=8\n");
         if(update_ep0_mps(8u) == 0){
             xhci_delay_ms(50u);
@@ -918,7 +892,6 @@ static int submit_report(void){
     return 0;
 }
 
-/* ---- Port power / reset ---- */
 static void wake_all_ports(void){
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
@@ -950,11 +923,6 @@ static void dump_ports(void){
     }
 }
 
-/*
- * port_reset() — USB2 waits for CCS+PED+!PR, USB3 for WPR clear+PLS=U0.
- * Also gives USB2 ports a much longer timeout since Low/Full Speed
- * devices on some Intel laptops take >200 ms to reach PED.
- */
 static int port_reset(uint32_t p){
     uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
     uint32_t ps = r32(po);
@@ -967,7 +935,6 @@ static int port_reset(uint32_t p){
         is_usb3 = (sp >= SPEED_SUPER);
     }
 
-    /* Clear stale change bits first. */
     uint32_t chg = ps & PS_CHANGE_BITS;
     if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
 
@@ -978,7 +945,7 @@ static int port_reset(uint32_t p){
         w32(po, (ps & ~(PS_PLS_MASK|PS_CHANGE_BITS|PS_WPR|PS_LWS)) | PS_PP | PS_PR);
     }
     (void)r32(po);
-    xhci_delay_ms(is_usb3 ? 100u : 100u);
+    xhci_delay_ms(100u);
 
     for(uint32_t n=0;n<20000000u;++n){
         uint32_t q = r32(po);
@@ -990,7 +957,6 @@ static int port_reset(uint32_t p){
         __asm__ volatile("pause");
     }
 
-    /* Second chance with longer wait, then restrobe once. */
     xhci_delay_ms(300u);
     uint32_t q = r32(po);
     if(is_usb3){
@@ -1053,8 +1019,7 @@ static int enumerate_port(uint32_t p){
     if(cmd_enable_slot()) return -1;
     xhci_delay_ms(20u);
 
-    if(cmd_address_device(1)) return -1;   /* BSR=1 */
-    /* Device at address 0 needs time to be ready for its first transfer. */
+    if(cmd_address_device(1)) return -1;
     xhci_delay_ms(150u);
 
     if(read_device_descriptor()) return -1;
@@ -1218,7 +1183,9 @@ int xhci_mouse_init(void){
 }
 
 int xhci_mouse_poll(int32_t *dx, int32_t *dy, uint8_t *buttons){
-    if(dx) *dx=0; if(dy) *dy=0; if(buttons) *buttons=0;
+    if(dx) *dx = 0;
+    if(dy) *dy = 0;
+    if(buttons) *buttons = 0;
     if(!ready) return 0;
     trb_t e;
     while(next_event(&e)==0){
