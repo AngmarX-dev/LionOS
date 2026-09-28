@@ -566,6 +566,8 @@ static void ctx_set64(void *ctx, uint32_t dw, uint64_t v){
 }
 
 static uint32_t ep0_default_mps(void){
+    /* Low / Full speed default 8, High speed 64, Super speed 512.
+     * For Low speed we stay at 8 (spec-mandated). */
     if(device_speed == SPEED_HIGH) return 64u;
     if(device_speed >= SPEED_SUPER) return 512u;
     return 8u;
@@ -733,8 +735,18 @@ static int ctrl(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
 }
 
 static int read_device_descriptor(void){
+    /* First attempt at reading the 8-byte header. Retries are longer here
+     * because Low Speed / Full Speed devices can be slow to answer their
+     * very first control transfer after port enable. */
     zero_mem(control_buf, PAGE_SIZE);
-    if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 8u, 1, 3)) return -1;
+    if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 8u, 1, 2) != 0){
+        xhci_delay_ms(200u);
+        ep0_index = 0; ep0_cycle = 1;
+        (void)cmd_reset_ep0();
+        xhci_delay_ms(50u);
+        zero_mem(control_buf, PAGE_SIZE);
+        if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 8u, 1, 3)) return -1;
+    }
     if(control_buf[0] < 8u || control_buf[1] != 1u) return -1;
 
     uint32_t mps = control_buf[7];
@@ -746,10 +758,10 @@ static int read_device_descriptor(void){
     usb_log("[ USB ] ep0_mps(first)="); usb_log_dec(ep0_mps); usb_log_nl();
 
     if(cmd_address_device(0)) return -1;
-    xhci_delay_ms(20u);
+    xhci_delay_ms(50u);
     ep0_index = 0; ep0_cycle = 1;
     cmd_reset_ep0();
-    xhci_delay_ms(10u);
+    xhci_delay_ms(20u);
 
     zero_mem(control_buf, PAGE_SIZE);
     if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 18u, 1, 3)) return -1;
@@ -783,13 +795,13 @@ static int read_device_descriptor(void){
 }
 
 static int read_config_descriptor(void){
-    for(uint32_t attempt=0; attempt<3; ++attempt){
+    for(uint32_t attempt=0; attempt<4; ++attempt){
         zero_mem(config_buf, PAGE_SIZE);
         int rc = ctrl(0x80u, 6u, 0x0200u, 0, config_buf, 9u, 1, 1);
         if(rc == 0 && config_buf[1] == 2u && config_buf[0] >= 9u){
             uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3] << 8);
             if(total >= 9u && total <= 4096u){
-                xhci_delay_ms(10u);
+                xhci_delay_ms(20u);
                 rc = ctrl(0x80u, 6u, 0x0200u, 0, config_buf, total, 1, 2);
                 if(rc == 0 && config_buf[1] == 2u && config_buf[0] >= 9u)
                     return 0;
@@ -800,10 +812,10 @@ static int read_config_descriptor(void){
         usb_log(" b0="); usb_log_hex(config_buf[0]);
         usb_log(" b1="); usb_log_hex(config_buf[1]);
         usb_log_nl();
-        xhci_delay_ms(50u);
+        xhci_delay_ms(100u);
         ep0_index = 0; ep0_cycle = 1;
         cmd_reset_ep0();
-        xhci_delay_ms(20u);
+        xhci_delay_ms(50u);
     }
     return -1;
 }
@@ -989,37 +1001,19 @@ static int submit_report(void){
     return 0;
 }
 
-/* ============================================================
- *  Wake every port.
- *
- *  PPC (Port Power Control) reports whether the controller supports
- *  software power switching. On most Intel chipsets PPC=0, meaning
- *  ports are always powered and the PP bit has no effect. We write
- *  it anyway because a few controllers silently accept it, and we
- *  also strobe the Port Link State to U0 for any port that is
- *  connected but stuck in a non-U0 state (a common power-on
- *  condition on Intel laptop USB 2 companion ports).
- *
- *  Additionally we clear any latched change bits so CCS can be
- *  freshly reported.
- * ============================================================ */
 static void wake_all_ports(void){
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
         uint32_t ps = r32(po);
 
-        /* 1. Clear any latched change bits */
         uint32_t chg = ps & PS_CHANGE_BITS;
         if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
 
-        /* 2. Force PP=1 (harmless when PPC=0) */
         ps = r32(po);
         if(!(ps & PS_PP)){
             w32(po, (ps & ~(PS_CHANGE_BITS | PS_PP)) | PS_PP | (ps & PS_CHANGE_BITS));
         }
 
-        /* 3. Strobe PLS=U0 with LWS for any port with a device
-         *    that is stuck in Polling / Compliance / Recovery / Inactive */
         ps = r32(po);
         if(ps & PS_CCS){
             uint32_t pls = ps & PS_PLS_MASK;
@@ -1032,7 +1026,6 @@ static void wake_all_ports(void){
     xhci_delay_ms(50u);
 }
 
-/* Log every port's PORTSC once, for diagnostics. */
 static void dump_ports(void){
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
@@ -1051,6 +1044,18 @@ static void dump_ports(void){
     }
 }
 
+/*
+ * Port reset.
+ *
+ * For USB 2 protocol ports the reset is "done" when PR clears AND
+ * PED (Port Enabled) sets AND CCS is still high. The original code
+ * only checked PR + CCS, which let the driver proceed before the
+ * port was actually enabled — that produced Transaction Errors
+ * (CC = 4) on the first control transfer.
+ *
+ * For USB 3 protocol ports the reset is "done" when WPR clears and
+ * Port Link State reaches U0 while CCS is high.
+ */
 static int port_reset(uint32_t p){
     uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
     uint32_t ps = r32(po);
@@ -1077,24 +1082,41 @@ static int port_reset(uint32_t p){
 
     for(uint32_t n=0;n<10000000u;++n){
         uint32_t q = r32(po);
-        uint32_t pls = q & PS_PLS_MASK;
         if(is_usb3){
+            uint32_t pls = q & PS_PLS_MASK;
             if(!(q & PS_WPR) && pls == PS_PLS_U0 && (q & PS_CCS)) return 0;
         } else {
-            if(!(q & PS_PR) && (q & PS_CCS)) return 0;
+            /* Require CCS + PED + PR clear for USB 2. */
+            if((q & PS_CCS) && (q & PS_PED) && !(q & PS_PR)) return 0;
         }
         __asm__ volatile("pause");
     }
 
-    ps = r32(po);
-    if(is_usb3 && (ps & PS_PLS_MASK) != PS_PLS_U0){
-        w32(po, (ps & ~(PS_PLS_MASK|PS_CHANGE_BITS)) | PS_PP | PS_WPR | PS_LWS);
-        xhci_delay_ms(100u);
-        for(uint32_t n=0;n<5000000u;++n){
-            ps = r32(po);
-            if(!(ps & PS_WPR) && (ps & PS_PLS_MASK) == PS_PLS_U0) return 0;
-            __asm__ volatile("pause");
+    /* Second-chance: wait longer, then retry once. */
+    xhci_delay_ms(200u);
+    uint32_t q = r32(po);
+    if(is_usb3){
+        if(!(q & PS_WPR) && (q & PS_PLS_MASK) == PS_PLS_U0) return 0;
+    } else {
+        if((q & PS_CCS) && (q & PS_PED) && !(q & PS_PR)) return 0;
+    }
+
+    /* Last resort: re-strobe the reset once more, then give it plenty of time. */
+    q = r32(po);
+    if(is_usb3){
+        w32(po, (q & ~(PS_PLS_MASK|PS_CHANGE_BITS)) | PS_PP | PS_WPR | PS_LWS);
+    } else {
+        w32(po, (q & ~(PS_CHANGE_BITS)) | PS_PP | PS_PR);
+    }
+    xhci_delay_ms(200u);
+    for(uint32_t n=0;n<5000000u;++n){
+        q = r32(po);
+        if(is_usb3){
+            if(!(q & PS_WPR) && (q & PS_PLS_MASK) == PS_PLS_U0) return 0;
+        } else {
+            if((q & PS_CCS) && (q & PS_PED) && !(q & PS_PR)) return 0;
         }
+        __asm__ volatile("pause");
     }
     return -1;
 }
@@ -1133,10 +1155,13 @@ static int enumerate_port(uint32_t p){
     ep0_mps = ep0_default_mps();
 
     if(cmd_enable_slot()) return -1;
-    xhci_delay_ms(5u);
+    xhci_delay_ms(20u);
 
     if(cmd_address_device(1)) return -1;
-    xhci_delay_ms(10u);
+
+    /* Low Speed and Full Speed devices can take 50-100 ms after port
+     * enable before they answer the first control transfer. */
+    xhci_delay_ms(100u);
 
     if(read_device_descriptor()) return -1;
 
@@ -1147,7 +1172,7 @@ static int enumerate_port(uint32_t p){
     for(uint32_t i=0;i<3;++i){
         rc = ctrl(0u, 9u, c.config_value, 0, 0, 0, 0, 1);
         if(rc == 0) break;
-        xhci_delay_ms(20u);
+        xhci_delay_ms(50u);
         ep0_index = 0; ep0_cycle = 1;
         cmd_reset_ep0();
     }
@@ -1272,16 +1297,13 @@ int xhci_mouse_init(void){
     cmd_submit(TRB_NOOP_CMD, 0, 0);
     if(cmd_wait(0)) return usb_fail("NOOP-CMD");
 
-    /* ---- Wake all ports ---- */
     diag_stage = "PORT POWER";
     wake_all_ports();
     xhci_delay_ms(100u);
 
-    /* ---- Dump every port so we can see what's plugged in ---- */
     diag_stage = "PORT DUMP";
     dump_ports();
 
-    /* ---- Scan, twice if nothing is found the first time ---- */
     for(uint32_t pass = 0; pass < 2u; ++pass){
         uint32_t saw_ccs = 0;
         for(uint32_t p=1;p<=max_ports;++p){
