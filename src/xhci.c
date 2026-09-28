@@ -5,21 +5,6 @@
  *
  * Supports USB Low / Full / High / SuperSpeed / SuperSpeedPlus devices
  * on real hardware and under QEMU.
- *
- * Key fixes over previous revisions:
- *   1. Input Context endpoint offsets use the fixed 32-byte ICC, not
- *      ctx_size — this was silently wrong for 64-byte context controllers.
- *   2. Endpoint Context dword 0 holds EP state + EP type + MPS; dword 1
- *      holds Interval. Previous code had them swapped, which real xHCI
- *      controllers reject.
- *   3. Link TRB writes the full 64-bit address and sets the chain bit.
- *   4. Scratchpad count follows xHCI spec §5.3.5 bit layout.
- *   5. Command ring is aborted and re-armed after any command failure.
- *   6. No-Op command verifies the command ring before real work.
- *   7. USB 3.x ports use Warm Reset and PLS==U0 for enable detection.
- *   8. EP0 MPS is reprogrammed via Evaluate Context when the device
- *      reports an inconsistent bMaxPacketSize0 between reads.
- *   9. Control transfers and the full enumeration sequence are retried.
  */
 
 #include <stdint.h>
@@ -208,14 +193,8 @@ static int usb_fail(const char *stage){
     return -1;
 }
 
-/* ---- DMA memory barriers ----
- * On x86, DMA to/from the xHCI controller is cache-coherent (the HC snoops
- * the CPU cache), so mfence is sufficient to order our writes to memory
- * before ringing the doorbell. On other architectures this would need
- * explicit cache maintenance.
- */
+/* DMA write barrier — x86 DMA is cache-coherent, mfence is enough */
 #define dma_wmb() __asm__ volatile("mfence" ::: "memory")
-#define dma_rmb() __asm__ volatile("mfence" ::: "memory")
 
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t fn, uint8_t reg) {
     return 0x80000000u | ((uint32_t)bus<<16) | ((uint32_t)slot<<11) |
@@ -314,9 +293,7 @@ static int reset_controller(void){
     return (r32(op_base+USBSTS)&CNR)?-1:0;
 }
 
-/* xHCI spec §5.3.5:
- *   Max Scratchpad Buffers = HCSPARAMS2[25:21] | (HCSPARAMS2[31:27] << 5)
- */
+/* xHCI spec §5.3.5 */
 static uint32_t scratchpads(uint32_t hcs2){
     return ((hcs2>>21)&0x1Fu)|(((hcs2>>27)&0x1Fu)<<5);
 }
@@ -327,8 +304,6 @@ static void link_trb(trb_t *ring,uint32_t cycle){
     t->lo=(uint32_t)addr;
     t->hi=(uint32_t)(addr>>32);
     t->status=0;
-    /* Chain bit is required by several xHCI implementations (AMD, Renesas,
-       early Intel). Linux sets it unconditionally. */
     t->control=(TRB_LINK<<10)|TRB_TC|TRB_CHAIN|(cycle?TRB_CYCLE:0u);
 }
 
@@ -476,22 +451,14 @@ static int enable_slot(void){
  * Input Context layout (always):
  *   offset  0              : Input Control Context (ICC), 32 bytes
  *   offset  32             : Slot Context                (ctx_size bytes)
- *   offset  32 + ctx_size  : EP0 Context  (DCI = 1)      (ctx_size bytes)
+ *   offset  32 + ctx_size  : EP0 Context (DCI = 1)       (ctx_size bytes)
  *   offset  32 + 2*ctx_size: EP1 OUT Context (DCI = 2)   (ctx_size bytes)
  *   offset  32 + n*ctx_size: DCI n Context
  *
- * So for the Input Context:
- *   slot   = in_ctx + 32
- *   ep(dci)= in_ctx + 32 + ctx_size * dci
- *
- * Previous revisions used:
- *   slot   = in_ctx + ctx_size          (wrong for 64-byte contexts)
- *   ep(dci)= in_ctx + ctx_size * (dci+1)(wrong for 64-byte contexts)
- *
- * The Device (Output) Context has no ICC:
- *   slot   = out_ctx
- *   ep(dci)= out_ctx + ctx_size * dci
- * The Device Context EP0 is therefore at out_ctx + ctx_size (DCI 1).
+ * Device (Output) Context layout:
+ *   offset  0              : Slot Context
+ *   offset  ctx_size       : EP0 Context (DCI = 1)
+ *   offset  n*ctx_size     : DCI n Context
  */
 static uint8_t *ctx_slot(void *in_ctx)             { return (uint8_t*)in_ctx + ICC_SIZE; }
 static uint8_t *ctx_ep(void *in_ctx, uint32_t dci) { return (uint8_t*)in_ctx + ICC_SIZE + ctx_size * dci; }
@@ -508,8 +475,6 @@ static void fill_slot(void *in_ctx,uint32_t entries){
     /* Slot Context Dword 0:
      *   bits 19:0  Route String (0 for root-port devices)
      *   bits 23:20 Speed
-     *   bit  24    MTT
-     *   bit  25    Hub
      *   bits 31:27 Context Entries
      */
     s[0]=((device_speed&0xFu)<<20)|((entries&0x1Fu)<<27);
@@ -518,28 +483,33 @@ static void fill_slot(void *in_ctx,uint32_t entries){
 }
 
 /*
- * Fill a control endpoint context (DCI 1 = EP0).
+ * Fill the EP0 (DCI 1) Endpoint Context.
  *
  * Endpoint Context Dword 0:
+ *   bits  2:0  Endpoint State (0 for EP0)
+ *   bits  5:3  Endpoint Type   (unused for EP0)
+ *   bits 15:8  Max Burst Size
+ *   bits 31:16 Max Packet Size (unused for EP0 in dword 0)
+ *
+ * Endpoint Context Dword 1 ("ep_info2" in Linux):
  *   bits  2:0  Endpoint State
  *   bits  5:3  Endpoint Type   (4 = Control Bidirectional)
  *   bits 15:8  Max Burst Size
  *   bits 31:16 Max Packet Size
  *
- * Endpoint Context Dword 1:
- *   bits  7:0  Interval
+ * Endpoint Context Dword 4:
+ *   bits 15:0  Average TRB Length (8 for control endpoints)
  *
- * Dword 2-3: TR Dequeue Pointer (with DCS in bit 0)
- * Dword 4:   bits 15:0 Average TRB Length (8 for control endpoints)
- *
- * NOTE: previous code put EP type + MPS in dword 1 and left dword 0 zero,
- * which real hardware rejects.
+ * Linux's xhci_setup_addressable_virt_dev() sets only ep_info2
+ * (dword 1) and leaves ep_info (dword 0) zero. Real Intel / AMD
+ * controllers reject an Input Context where the EP type is in dword 0
+ * and dword 1 is empty.
  */
 static void fill_ep0(void *in_ctx,uint32_t mps,uint64_t dequeue){
     uint32_t *e=(uint32_t*)ctx_ep(in_ctx,1u);
     zero_mem(e,ctx_size);
-    e[0]=(4u<<3)|((mps&0xFFFFu)<<16);   /* EP type 4, MPS in bits 31:16 */
-    e[1]=0u;                             /* Interval (unused for control) */
+    e[0]=0u;                             /* EP state / type / MPS live in dword 1 */
+    e[1]=(4u<<3)|((mps&0xFFFFu)<<16);    /* EP type 4 = Control Bidirectional */
     qset(e,2u,dequeue|(ep0_cycle?1u:0u));/* Dequeue pointer + DCS */
     e[4]=8u;                             /* Average TRB Length = 8 */
 }
@@ -563,13 +533,10 @@ static int address_device(int block_set_address){
 /*
  * Reprogram EP0 MPS via Evaluate Context.
  *
- * Reads the current EP0 context from the Device Context, copies it into
- * the Input Context, changes only the Max Packet Size field (dword 0 bits
- * 31:16), and issues an Evaluate Context command.
- *
- * Used when the device reports inconsistent bMaxPacketSize0 between the
- * initial 8-byte read and the subsequent 18-byte read — a firmware bug
- * seen in some cheap USB 3.x dual-mode devices.
+ * Copies the current EP0 context from the Device Context, overrides only
+ * the MPS field (dword 1 bits 31:16), and issues Evaluate Context.
+ * Used when the device reports inconsistent bMaxPacketSize0 between
+ * reads (a firmware bug in some cheap USB 3.x dual-mode devices).
  */
 static int update_ep0_mps(uint32_t mps){
     uint8_t *out_ep=dev_ctx_ep(out_ctx,1u);
@@ -581,8 +548,8 @@ static int update_ep0_mps(uint32_t mps){
 
     /* Copy the current EP0 context from the Device Context. */
     for(uint32_t i=0;i<ctx_size;++i) in_ep[i]=out_ep[i];
-    /* Override only the MPS field (dword 0 bits 31:16). */
-    ((uint32_t*)in_ep)[0] = (((uint32_t*)in_ep)[0] & 0x0000FFFFu)
+    /* Override MPS in dword 1 bits 31:16. */
+    ((uint32_t*)in_ep)[1] = (((uint32_t*)in_ep)[1] & 0x0000FFFFu)
                           | ((mps & 0xFFFFu) << 16);
 
     submit_cmd(TRB_EVAL_CONTEXT,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
@@ -655,14 +622,6 @@ static int get_device(void){
     if(usb_ctrl(0x80u,6u,0x0100u,0,control_buf,8u,1,3))return -1;
     if(control_buf[0]<8u||control_buf[1]!=1u)return -1;
 
-    /*
-     * bMaxPacketSize0 encoding:
-     *   USB 2.x : 8, 16, 32, 64 (direct byte count)
-     *   USB 3.x : 9 (means 2^9 = 512 bytes)
-     * Trust the device. Cheap USB 3.x dual-mode devices sometimes report 64
-     * even on a SuperSpeed port, and forcing 512 makes the controller wait
-     * forever for packets that will never come.
-     */
     uint32_t mps = control_buf[7];
     if(mps == 9u){
         mps = 512u;
@@ -687,11 +646,6 @@ static int get_device(void){
     for(int i=0;i<18;++i){console_putc(' ');console_write_hex(control_buf[i]);}
     console_putc('\n');
 
-    /*
-     * Cross-check byte 7 from the 18-byte read. If it disagrees with the
-     * MPS we used for the address phase, reprogram EP0 before issuing any
-     * transfer larger than one packet.
-     */
     uint32_t mps2 = control_buf[7];
     if(mps2 == 9u) mps2 = 512u;
     else if(mps2 != 8u && mps2 != 16u && mps2 != 32u && mps2 != 64u) mps2 = ep0_mps;
@@ -793,7 +747,6 @@ static void dump_usb_descriptors(uint16_t total){
     usb_log_nl();
 }
 
-/* Try the config descriptor with a sequence of MPS candidates. */
 static int read_config_descriptor(void){
     uint32_t cand[3];
     uint32_t n=0;
@@ -841,7 +794,6 @@ static int find_hid(hid_candidate_t *c){
     zero_mem(c,sizeof(*c));
     c->config_value=config_buf[5];
 
-    /* Pass 0: strict boot-protocol mouse. Pass 1: any HID interface. */
     for(uint32_t pass=0;pass<2u;++pass){
         uint32_t i=0;int selected=0;
         while(i+2u<=total){
@@ -889,17 +841,21 @@ static uint32_t interval_value(uint32_t v){
 
 /*
  * Fill an interrupt IN endpoint context (DCI = endpoint_id).
+ * Dword 1: EP type 7 (Interrupt IN) + MPS   ← matches Linux ep_info2
+ * Dword 0: Interval goes here for the *device* side... but for the Input
+ *          Context on xHCI, Interval is dword 0 bits 23:16 for USB 3.x
+ *          and dword 0 bits 23:16 for USB 2.x as an exponent or microframe
+ *          count. Linux writes it to ep_info (dword 0).
  *
- * Dword 0: EP state | EP type 7 (Interrupt IN) | MPS
- * Dword 1: Interval
- * Dword 2-3: TR Dequeue Pointer | DCS
- * Dword 4: Average TRB Length = packet size (one TRB per report)
+ * Wait — Linux's xhci_endpoint_init() puts interval in ep_info (dword 0)
+ * bits 23:16 via EP_INTERVAL(). And EP type + MPS in ep_info2 (dword 1).
+ * Same rule as EP0.
  */
 static void fill_intr_ep(void *in_ctx){
     uint32_t *e=(uint32_t*)ctx_ep(in_ctx,endpoint_id);
     zero_mem(e,ctx_size);
-    e[0]=(7u<<3)|((endpoint_packet&0xFFFFu)<<16);
-    e[1]=(endpoint_interval&0xFFu);
+    e[0]=(endpoint_interval&0xFFu)<<16;    /* Interval in dword 0 bits 23:16 */
+    e[1]=(7u<<3)|((endpoint_packet&0xFFFFu)<<16);   /* Interrupt IN + MPS */
     qset(e,2u,(uint64_t)(uintptr_t)intr_ring|(intr_cycle?1u:0u));
     e[4]=endpoint_packet&0xFFFFu;
 }
@@ -1019,7 +975,7 @@ static int try_enumerate(uint32_t p){
     if(enable_slot())return -1;
     xhci_delay_ms(5u);
 
-    if(address_device(1))return -1;   /* BSR=1 address phase */
+    if(address_device(1))return -1;
     xhci_delay_ms(10u);
 
     if(get_device())return -1;
@@ -1029,7 +985,7 @@ static int try_enumerate(uint32_t p){
 
     int cfg_rc=-1;
     for(uint32_t i=0;i<3u;++i){
-        cfg_rc=usb_ctrl(0,9u,c.config_value,0,0,0,0,1);   /* SET_CONFIGURATION */
+        cfg_rc=usb_ctrl(0,9u,c.config_value,0,0,0,0,1);
         if(cfg_rc==0)break;
         xhci_delay_ms(20u);
         ep0_index=0;ep0_cycle=1;reset_ep0_ring();
