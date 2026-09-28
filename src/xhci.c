@@ -3,8 +3,19 @@
  *
  * LionOS — experimental operating system
  *
- * Supports USB Low / Full / High / SuperSpeed / SuperSpeedPlus devices
- * on real hardware and under QEMU.
+ * Rewritten for real-hardware correctness. Tested design against
+ * Intel 8086:7AE0 (Raptor Lake-P). Supports USB 1.x / 2.0 / 3.x
+ * / 3.1 / 3.2.
+ *
+ * Layout reference:
+ *   Input Context  = ICC(32) | Slot | EP0 | EP1 | ...
+ *   Device Context = Slot      | EP0 | EP1 | ...
+ *
+ * Endpoint Context:
+ *   Dword 0 (ep_info)  : bit 23:16 = Interval
+ *   Dword 1 (ep_info2) : bits 5:3  = EP type, bits 31:16 = MPS
+ *   Dword 2-3          : TR Dequeue Pointer (with DCS in bit 0)
+ *   Dword 4            : bits 15:0 = Average TRB Length
  */
 
 #include <stdint.h>
@@ -15,69 +26,79 @@
 #include "debug.h"
 #include "console.h"
 
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
+
 #define PAGE_SIZE 4096u
 #define PCI_ADDR 0xCF8u
 #define PCI_DATA 0xCFCu
 #define PCI_COMMAND 0x04u
 #define PCI_CLASS 0x08u
 #define PCI_BAR0 0x10u
+
 #define XHCI_VIRT 0xF1000000u
 #define XHCI_MAP_SIZE 0x00100000u
 
-#define CAPLENGTH 0x00u
-#define HCSPARAMS1 0x04u
-#define HCSPARAMS2 0x08u
-#define HCCPARAMS1 0x10u
-#define DBOFF 0x14u
-#define RTSOFF 0x18u
-#define USBCMD 0x00u
-#define USBSTS 0x04u
-#define PAGESIZE 0x08u
-#define CRCR 0x18u
-#define DCBAAP 0x30u
-#define CONFIG 0x38u
-#define PORT_BASE 0x400u
-#define PORT_STRIDE 0x10u
-#define RUN_STOP 0x1u
-#define HCRST 0x2u
-#define CMD_ABORT 0x4u
-#define HCH 0x1u
-#define CNR 0x800u
-#define PORT_CCS 0x1u
-#define PORT_PED 0x2u
-#define PORT_PR 0x10u
-#define PORT_PP 0x200u
-#define PORT_SPEED_MASK 0x3C00u
-#define PORT_SPEED_SHIFT 10u
-#define PORT_CSC (1u<<17)
-#define PORT_PEC (1u<<18)
-#define PORT_WRC (1u<<19)
-#define PORT_OCC (1u<<20)
-#define PORT_PRC (1u<<21)
-#define PORT_PLC (1u<<22)
-#define PORT_CEC (1u<<23)
-#define PORT_OCA (1u<<3)
-#define PORT_DR (1u<<30)
-#define PORT_WPR (1u<<31)
-#define PORT_LINK_STATE (0xFu<<5)
-#define PORT_LINK_STROBE (1u<<16)
-#define PORT_WAKE_BITS ((1u<<25)|(1u<<26)|(1u<<27))
-#define PORT_RO (PORT_CCS|PORT_OCA|PORT_SPEED_MASK|PORT_DR)
-#define PORT_RWS (PORT_LINK_STATE|PORT_PP|(3u<<14)|PORT_WAKE_BITS)
-#define PORT_CHANGE (PORT_CSC|PORT_PEC|PORT_WRC|PORT_OCC|PORT_PRC|PORT_PLC|PORT_CEC)
-#define PORT_NEUTRAL (PORT_RO|PORT_RWS)
+/* Capability registers */
+#define CAP_CAPLENGTH 0x00u
+#define CAP_HCSPARAMS1 0x04u
+#define CAP_HCSPARAMS2 0x08u
+#define CAP_HCCPARAMS1 0x10u
+#define CAP_DBOFF 0x14u
+#define CAP_RTSOFF 0x18u
 
-#define PLS_U0 0u
-#define PLS_POLLING 7u
-#define PLS_COMPLIANCE 10u
+/* Operational registers */
+#define OP_USBCMD 0x00u
+#define OP_USBSTS 0x04u
+#define OP_PAGESIZE 0x08u
+#define OP_CRCR 0x18u
+#define OP_DCBAAP 0x30u
+#define OP_CONFIG 0x38u
+#define OP_PORT_BASE 0x400u
+#define OP_PORT_STRIDE 0x10u
 
-#define RT_BASE0 0x20u
-#define IMAN 0x00u
-#define IMOD 0x04u
-#define ERSTSZ 0x08u
-#define ERSTBA 0x10u
-#define ERDP 0x18u
+/* USBCMD / USBSTS bits */
+#define CMD_RUN 0x1u
+#define CMD_HCRST 0x2u
+#define CMD_INTE 0x4u
+#define STS_HCH 0x1u
+#define STS_CNR 0x800u
 
+/* PORTSC bits */
+#define PS_CCS 0x1u
+#define PS_PED 0x2u
+#define PS_OCA 0x8u
+#define PS_PR 0x10u
+#define PS_PLS_MASK (0xFu << 5)
+#define PS_PLS_U0 (0u << 5)
+#define PS_PLS_POLL (7u << 5)
+#define PS_PLS_COMP (10u << 5)
+#define PS_PP 0x200u
+#define PS_SPEED_MASK 0x3C00u
+#define PS_SPEED_SHIFT 10u
+#define PS_CSC (1u << 17)
+#define PS_PEC (1u << 18)
+#define PS_WRC (1u << 19)
+#define PS_OCC (1u << 20)
+#define PS_PRC (1u << 21)
+#define PS_PLC (1u << 22)
+#define PS_CEC (1u << 23)
+#define PS_WPR (1u << 31)
+#define PS_LWS (1u << 16)
+#define PS_CHANGE_BITS (PS_CSC|PS_PEC|PS_WRC|PS_OCC|PS_PRC|PS_PLC|PS_CEC)
+#define PS_RO_BITS (PS_CCS|PS_OCA|PS_SPEED_MASK|PS_PED)
+#define PS_RWS_BITS (PS_PLS_MASK|PS_PP|PS_WPR|PS_LWS|PS_PR|(3u<<14)|(3u<<28))
+
+/* Runtime registers */
+#define RT_IR0 0x20u
+#define IR_IMAN 0x00u
+#define IR_IMOD 0x04u
+#define IR_ERSTSZ 0x08u
+#define IR_ERSTBA 0x10u
+#define IR_ERDP 0x18u
+
+/* TRB types */
 #define TRB_NORMAL 1u
 #define TRB_SETUP 2u
 #define TRB_DATA 3u
@@ -87,35 +108,58 @@
 #define TRB_ADDRESS_DEVICE 11u
 #define TRB_CONFIGURE_EP 12u
 #define TRB_EVAL_CONTEXT 13u
-#define TRB_RESET_ENDPOINT 14u
-#define TRB_SET_TR_DEQ 16u
+#define TRB_RESET_EP 14u
+#define TRB_STOP_EP 15u
+#define TRB_SET_DEQ 16u
 #define TRB_NOOP_CMD 23u
-#define TRB_TRANSFER_EVENT 32u
-#define TRB_COMMAND_EVENT 33u
-#define TRB_PORT_EVENT 34u
-#define TRB_CYCLE 1u
-#define TRB_TC 2u
+#define TRB_TRANSFER_EVT 32u
+#define TRB_CMD_EVT 33u
+#define TRB_PORT_EVT 34u
+#define TRB_BW_EVT 35u
+
+/* TRB control bits */
+#define TRB_CYCLE 0x1u
+#define TRB_TC 0x2u
 #define TRB_CHAIN 0x10u
 #define TRB_IOC 0x20u
 #define TRB_IDT 0x40u
-#define TRB_ADDRESS_BSR 0x200u
+#define TRB_BSR 0x200u
 #define TRB_DIR_IN 0x10000u
+
+/* Completion codes we care about */
 #define CC_SUCCESS 1u
+#define CC_SHORT_PKT 13u
+#define CC_STALL 6u
 #define CC_RING_FULL 21u
-#define CC_STOPPED 24u
+#define CC_CMD_STOPPED 24u
 
-#define LEGACY_ID 1u
-#define BIOS_OWNED (1u<<16)
-#define OS_OWNED (1u<<24)
+/* PCI extended capability for USB legacy handoff */
+#define EXT_USBLEGSUP_ID 1u
+#define USBLEGSUP_BIOS_OWNED (1u << 16)
+#define USBLEGSUP_OS_OWNED (1u << 24)
 
-#define MAX_SLOTS 32u
+/* Port protocol (from USB Protocol capability) */
+#define PROTO_USB2 1u
+#define PROTO_USB3 2u
+
+/* Speeds (from PORTSC speed field) */
+#define SPEED_UNDEF 0u
+#define SPEED_LOW 1u
+#define SPEED_FULL 2u
+#define SPEED_HIGH 3u
+#define SPEED_SUPER 4u
+#define SPEED_SUPER_PLUS 5u
+
+/* Sizes */
 #define RING_TRBS 256u
 #define EVENT_TRBS 256u
-#define CONFIG_MAX 4096u
 #define MAX_SCRATCH 1024u
+#define MAX_PORTS 256u
+#define MAX_PROTOCOLS 8u
 
-/* Input Control Context is always 32 bytes and precedes the Slot Context. */
-#define ICC_SIZE 32u
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
 
 typedef struct {
     uint32_t lo, hi, status, control;
@@ -131,15 +175,28 @@ typedef struct {
     uint8_t bus, slot, function;
     uint16_t vendor, device;
     uint64_t bar0;
-} pci_xhci_t;
+} pci_dev_t;
 
 typedef struct {
-    uint8_t interface_number;
-    uint8_t endpoint_address;
+    uint8_t  major;
+    uint8_t  minor;
+    uint8_t  protocol;      /* PROTO_USB2 or PROTO_USB3 */
+    uint8_t  port_count;
+    uint8_t  port_offset;   /* 0-based offset into PORTSC array */
+    uint8_t  slot_type;
+} usb_protocol_t;
+
+typedef struct {
+    uint8_t  interface_number;
+    uint8_t  endpoint_address;
     uint16_t packet_size;
-    uint8_t interval;
-    uint8_t config_value;
+    uint8_t  interval;
+    uint8_t  config_value;
 } hid_candidate_t;
+
+/* ------------------------------------------------------------------ */
+/*  Module state                                                       */
+/* ------------------------------------------------------------------ */
 
 static uint32_t cap_len, op_base, db_base, rt_base;
 static uint32_t hci_version;
@@ -148,6 +205,7 @@ static uint32_t slot_id, port_number, device_speed, endpoint_id;
 static uint32_t endpoint_packet, endpoint_interval;
 static uint32_t ep0_mps;
 static uint32_t ready;
+static uint32_t ppc_enabled;      /* 1 if PPC bit was set in HCCPARAMS1 */
 
 static uint64_t *dcbaa;
 static erst_t *erst;
@@ -158,1032 +216,1287 @@ static uint64_t *scratch_array;
 static void *scratch_pages[MAX_SCRATCH];
 static uint32_t scratch_count;
 
-static uint32_t cmd_index, cmd_cycle = 1u;
-static uint32_t event_index, event_cycle = 1u;
-static uint32_t ep0_index, ep0_cycle = 1u;
-static uint32_t intr_index, intr_cycle = 1u;
-static uint32_t report_pending;
-static uint32_t report_length;
-static uint32_t report_seen;
-static const char *diag_stage="NOT STARTED";
-static uint32_t diag_controller_found,diag_init_ok;
-static uint32_t diag_transfer_submitted,diag_event_count,diag_success_count,diag_error_count,diag_report_count;
-static uint32_t diag_last_cc,diag_last_portsc,diag_last_report_len;
-static uint8_t diag_last_report[8];
-static uint16_t diag_vid,diag_pid;
-static uint8_t diag_device_class,diag_device_subclass,diag_device_protocol;
-static uint8_t diag_hid_iface,diag_hid_subclass,diag_hid_protocol;
-static uint8_t diag_hid_endpoint,diag_hid_ep_type;
-static uint16_t diag_hid_packet;
-static uint8_t diag_hid_interval;
-static uint32_t diag_interface_count,diag_endpoint_count,diag_hid_count;
+static uint32_t cmd_index, cmd_cycle;
+static uint32_t event_index, event_cycle;
+static uint32_t ep0_index, ep0_cycle;
+static uint32_t intr_index, intr_cycle;
+static uint32_t report_pending, report_length, report_seen;
 
-/* ---- dual-output diagnostics: VGA + serial ---- */
-static void usb_log(const char *s){ console_write(s); debug_write(s); }
-static void usb_log_hex(uint32_t v){ console_write_hex(v); }
-static void usb_log_dec(uint32_t v){ console_write_dec(v); }
-static void usb_log_nl(void){ console_putc('\n'); debug_write("\n"); }
+/* Protocol table parsed from extended capabilities */
+static usb_protocol_t protocols[MAX_PROTOCOLS];
+static uint32_t protocol_count;
+
+/* Diagnostics */
+static const char *diag_stage = "NOT STARTED";
+static uint32_t diag_controller_found, diag_init_ok;
+static uint32_t diag_transfer_submitted, diag_event_count, diag_success_count;
+static uint32_t diag_error_count, diag_report_count;
+static uint32_t diag_last_cc, diag_last_portsc, diag_last_report_len;
+static uint8_t  diag_last_report[8];
+static uint16_t diag_vid, diag_pid;
+static uint8_t  diag_device_class, diag_device_subclass, diag_device_protocol;
+static uint8_t  diag_hid_iface, diag_hid_subclass, diag_hid_protocol;
+static uint8_t  diag_hid_endpoint, diag_hid_ep_type;
+static uint16_t diag_hid_packet;
+static uint8_t  diag_hid_interval;
+static uint32_t diag_interface_count, diag_endpoint_count, diag_hid_count;
+
+/* ------------------------------------------------------------------ */
+/*  Logging                                                            */
+/* ------------------------------------------------------------------ */
+
+static void usb_log(const char *s) { console_write(s); debug_write(s); }
+static void usb_log_hex(uint32_t v) { console_write_hex(v); }
+static void usb_log_dec(uint32_t v) { console_write_dec(v); }
+static void usb_log_nl(void) { console_putc('\n'); debug_write("\n"); }
+static void usb_log_kv(const char *k, uint32_t v, int as_hex){
+    usb_log(k);
+    if(as_hex) usb_log_hex(v); else usb_log_dec(v);
+    usb_log_nl();
+}
 
 static int usb_fail(const char *stage){
-    diag_stage=stage;diag_init_ok=0u;
+    diag_stage = stage;
+    diag_init_ok = 0;
     usb_log("[ USB ] xHCI fail: "); usb_log(stage); usb_log_nl();
-    debug_write("LIONOS:USB-FAIL-");
-    debug_write(stage);
-    debug_write("\n");
+    debug_write("LIONOS:USB-FAIL-"); debug_write(stage); debug_write("\n");
     return -1;
 }
 
-/* DMA write barrier — x86 DMA is cache-coherent, mfence is enough */
-#define dma_wmb() __asm__ volatile("mfence" ::: "memory")
+/* ------------------------------------------------------------------ */
+/*  Utilities                                                          */
+/* ------------------------------------------------------------------ */
 
-static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t fn, uint8_t reg) {
-    return 0x80000000u | ((uint32_t)bus<<16) | ((uint32_t)slot<<11) |
-           ((uint32_t)fn<<8) | (reg & 0xFCu);
-}
-static uint32_t pci_r32(uint8_t bus, uint8_t slot, uint8_t fn, uint8_t reg) {
-    outl(PCI_ADDR, pci_key(bus,slot,fn,reg));
-    return inl(PCI_DATA);
-}
-static void pci_w32(uint8_t bus, uint8_t slot, uint8_t fn, uint8_t reg, uint32_t v) {
-    outl(PCI_ADDR, pci_key(bus,slot,fn,reg));
-    outl(PCI_DATA, v);
+static void zero_mem(void *p, uint32_t n){
+    uint8_t *b = (uint8_t*)p;
+    for(uint32_t i=0;i<n;++i) b[i]=0;
 }
 
-static int find_xhci(pci_xhci_t *out) {
-    for (uint32_t b=0;b<256u;++b) for (uint32_t s=0;s<32u;++s) {
-        uint32_t id=pci_r32((uint8_t)b,(uint8_t)s,0,0);
-        if ((id&0xFFFFu)==0xFFFFu) continue;
-        uint32_t hdr=pci_r32((uint8_t)b,(uint8_t)s,0,0x0Cu);
-        uint32_t funcs=(hdr&0x00800000u)?8u:1u;
-        for(uint32_t f=0;f<funcs;++f){
-            uint32_t c=pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_CLASS);
-            if((c>>24)!=0x0Cu || ((c>>16)&0xFFu)!=0x03u || ((c>>8)&0xFFu)!=0x30u) continue;
-            uint32_t lo=pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0);
-            if(lo&1u) continue;
-            uint64_t bar=(uint64_t)(lo&0xFFFFFFF0u);
-            if(((lo>>1)&3u)==2u) bar|=(uint64_t)pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0+4u)<<32;
-            if(!bar) continue;
-            out->bus=(uint8_t)b; out->slot=(uint8_t)s; out->function=(uint8_t)f;
-            out->vendor=(uint16_t)(id&0xFFFFu); out->device=(uint16_t)(id>>16);
-            out->bar0=bar;
-            return 0;
-        }
-    }
-    return -1;
-}
-
-static uint32_t r32(uint32_t off) { return *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off); }
-static void w32(uint32_t off,uint32_t v) { *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off)=v; }
-static void w64(uint32_t off,uint64_t v) {
-    volatile uint32_t *p=(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off);
-    p[0]=(uint32_t)v; p[1]=(uint32_t)(v>>32);
-}
-static void zero_mem(void *ptr,uint32_t bytes){
-    uint8_t *p=(uint8_t*)ptr;
-    for(uint32_t i=0;i<bytes;++i)p[i]=0;
-}
 static void xhci_delay_ms(uint32_t ms){
     for(uint32_t m=0;m<ms;++m)
         for(uint32_t i=0;i<1000u;++i)
             io_wait();
 }
 
-static int map_mmio(uint64_t phys){
-    uint64_t aligned=phys&~(uint64_t)(PAGE_SIZE-1u);
-    uint32_t offset=(uint32_t)(phys&(PAGE_SIZE-1u));
-    uint32_t bytes=(XHCI_MAP_SIZE+offset+PAGE_SIZE-1u)&~(PAGE_SIZE-1u);
-    for(uint32_t off=0;off<bytes;off+=PAGE_SIZE)
-        if(paging_map_kernel_page(XHCI_VIRT+off,aligned+off,0x13u)!=0)return -1;
-    return 0;
+/* x86 DMA is cache-coherent; mfence orders our stores */
+#define dma_wmb() __asm__ volatile("mfence" ::: "memory")
+
+/* ------------------------------------------------------------------ */
+/*  PCI access                                                         */
+/* ------------------------------------------------------------------ */
+
+static uint32_t pci_key(uint8_t b, uint8_t s, uint8_t f, uint8_t r){
+    return 0x80000000u | ((uint32_t)b<<16) | ((uint32_t)s<<11)
+           | ((uint32_t)f<<8) | (r & 0xFCu);
+}
+static uint32_t pci_r32(uint8_t b, uint8_t s, uint8_t f, uint8_t r){
+    outl(PCI_ADDR, pci_key(b,s,f,r));
+    return inl(PCI_DATA);
+}
+static void pci_w32(uint8_t b, uint8_t s, uint8_t f, uint8_t r, uint32_t v){
+    outl(PCI_ADDR, pci_key(b,s,f,r));
+    outl(PCI_DATA, v);
 }
 
-static int legacy_handoff(void){
-    uint32_t ext=((r32(HCCPARAMS1)>>16)&0xFFFFu)*4u;
-    for(uint32_t n=0;ext&&n<1024u;++n){
-        if(ext >= XHCI_MAP_SIZE) return -1;
-        uint32_t v=r32(ext);
-        uint32_t next=((v>>8)&0xFFu)*4u;
-        if((v&0xFFu)==LEGACY_ID){
-            w32(ext,v|OS_OWNED);
-            if(v&BIOS_OWNED){
-                for(uint32_t i=0;i<10000000u;++i){
-                    if(!(r32(ext)&BIOS_OWNED))break;
-                    __asm__ volatile("pause");
-                }
-                if(r32(ext)&BIOS_OWNED)return -1;
+static int pci_find_xhci(pci_dev_t *out){
+    for(uint32_t b=0;b<256u;++b){
+        for(uint32_t s=0;s<32u;++s){
+            uint32_t id = pci_r32((uint8_t)b,(uint8_t)s,0,0);
+            if((id & 0xFFFFu)==0xFFFFu) continue;
+            uint32_t hdr = pci_r32((uint8_t)b,(uint8_t)s,0,0x0Cu);
+            uint32_t funcs = (hdr & 0x00800000u) ? 8u : 1u;
+            for(uint32_t f=0;f<funcs;++f){
+                uint32_t c = pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_CLASS);
+                if((c>>24)!=0x0Cu || ((c>>16)&0xFFu)!=0x03u || ((c>>8)&0xFFu)!=0x30u)
+                    continue;
+                uint32_t lo = pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0);
+                if(lo & 1u) continue;
+                uint64_t bar = (uint64_t)(lo & 0xFFFFFFF0u);
+                if(((lo>>1)&3u)==2u)
+                    bar |= (uint64_t)pci_r32((uint8_t)b,(uint8_t)s,(uint8_t)f,PCI_BAR0+4u)<<32;
+                if(!bar) continue;
+                out->bus=(uint8_t)b; out->slot=(uint8_t)s; out->function=(uint8_t)f;
+                out->vendor=(uint16_t)(id&0xFFFFu);
+                out->device=(uint16_t)(id>>16);
+                out->bar0=bar;
+                return 0;
             }
-            w32(ext+4u,0u);
-            return 0;
         }
-        ext=next;
     }
-    return 0;
-}
-
-static int reset_controller(void){
-    uint32_t cmd=r32(op_base+USBCMD)&~RUN_STOP;
-    w32(op_base+USBCMD,cmd);
-    for(uint32_t i=0;i<2000000u;++i){if(r32(op_base+USBSTS)&HCH)break;__asm__ volatile("pause");}
-    if(!(r32(op_base+USBSTS)&HCH))return -1;
-    w32(op_base+USBCMD,cmd|HCRST);
-    xhci_delay_ms(1u);
-    for(uint32_t i=0;i<10000000u;++i){if(!(r32(op_base+USBCMD)&HCRST))break;__asm__ volatile("pause");}
-    if(r32(op_base+USBCMD)&HCRST)return -1;
-    for(uint32_t i=0;i<10000000u;++i){if(!(r32(op_base+USBSTS)&CNR))break;__asm__ volatile("pause");}
-    return (r32(op_base+USBSTS)&CNR)?-1:0;
-}
-
-/* xHCI spec §5.3.5 */
-static uint32_t scratchpads(uint32_t hcs2){
-    return ((hcs2>>21)&0x1Fu)|(((hcs2>>27)&0x1Fu)<<5);
-}
-
-static void link_trb(trb_t *ring,uint32_t cycle){
-    trb_t *t=&ring[RING_TRBS-1u];
-    uint64_t addr=(uint64_t)(uintptr_t)ring;
-    t->lo=(uint32_t)addr;
-    t->hi=(uint32_t)(addr>>32);
-    t->status=0;
-    t->control=(TRB_LINK<<10)|TRB_TC|TRB_CHAIN|(cycle?TRB_CYCLE:0u);
-}
-
-static int dma_page(void **out){
-    void *p=page_alloc();
-    if(!p)return -1;
-    zero_mem(p,PAGE_SIZE);
-    if(out)*out=p;
-    return 0;
-}
-
-static int alloc_memory(void){
-    if(dma_page((void**)&dcbaa)||dma_page((void**)&cmd_ring)||dma_page((void**)&event_ring)||
-       dma_page((void**)&erst)||dma_page((void**)&ep0_ring)||dma_page((void**)&intr_ring)||
-       dma_page(&out_ctx)||dma_page(&in_ctx)||dma_page((void**)&control_buf)||
-       dma_page((void**)&config_buf)||dma_page((void**)&report_buf)) return -1;
-
-    scratch_count=scratchpads(r32(HCSPARAMS2));
-    if(scratch_count>MAX_SCRATCH)return -1;
-    if(scratch_count){
-        scratch_array=(uint64_t*)page_alloc();
-        if(!scratch_array)return -1;
-        zero_mem(scratch_array,PAGE_SIZE);
-        for(uint32_t i=0;i<scratch_count;++i){
-            scratch_pages[i]=page_alloc();
-            if(!scratch_pages[i])return -1;
-            zero_mem(scratch_pages[i],PAGE_SIZE);
-            scratch_array[i]=(uint64_t)(uintptr_t)scratch_pages[i];
-        }
-        dcbaa[0]=(uint64_t)(uintptr_t)scratch_array;
-    }
-    link_trb(cmd_ring,1u); link_trb(ep0_ring,1u); link_trb(intr_ring,1u);
-    erst[0].base=(uint64_t)(uintptr_t)event_ring;
-    erst[0].size=EVENT_TRBS;
-    return 0;
-}
-
-static void init_rings(void){
-    cmd_index=0;cmd_cycle=1;event_index=0;event_cycle=1;ep0_index=0;ep0_cycle=1;intr_index=0;intr_cycle=1;
-    w64(op_base+CRCR,(uint64_t)(uintptr_t)cmd_ring|1u);
-    uint32_t ir=rt_base+RT_BASE0;
-    w32(ir+IMAN,0u);w32(ir+IMOD,0u);w32(ir+ERSTSZ,1u);
-    w64(ir+ERSTBA,(uint64_t)(uintptr_t)erst);
-    w64(ir+ERDP,(uint64_t)(uintptr_t)event_ring);
-}
-
-static int run_controller(void){
-    uint32_t slots=max_slots; if(slots>255u)slots=255u;if(!slots)slots=1u;
-    w32(op_base+CONFIG,slots);
-    w64(op_base+DCBAAP,(uint64_t)(uintptr_t)dcbaa);
-    w32(op_base+USBCMD,r32(op_base+USBCMD)|RUN_STOP);
-    for(uint32_t i=0;i<2000000u;++i){if(!(r32(op_base+USBSTS)&HCH))return 0;__asm__ volatile("pause");}
     return -1;
 }
 
-static void submit_cmd(uint32_t type,uint64_t param,uint32_t control){
-    trb_t *t=&cmd_ring[cmd_index];
-    t->lo=(uint32_t)param;t->hi=(uint32_t)(param>>32);t->status=0;
-    t->control=(type<<10)|control|(cmd_cycle?TRB_CYCLE:0u);
-    ++cmd_index;
-    if(cmd_index>=RING_TRBS-1u){link_trb(cmd_ring,cmd_cycle);cmd_index=0;cmd_cycle^=1u;}
-    dma_wmb();
-    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base)=0u;
+/* ------------------------------------------------------------------ */
+/*  MMIO access                                                        */
+/* ------------------------------------------------------------------ */
+
+static uint32_t r32(uint32_t off){ return *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off); }
+static void w32(uint32_t off,uint32_t v){ *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off)=v; }
+static void w64(uint32_t off,uint64_t v){
+    volatile uint32_t *p=(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+off);
+    p[0]=(uint32_t)v; p[1]=(uint32_t)(v>>32);
 }
 
-static int next_event(trb_t *out){
-    trb_t *t=&event_ring[event_index];
-    if((t->control&TRB_CYCLE)!=(event_cycle?TRB_CYCLE:0u))return -1;
-    if(out)*out=*t;
-    t->control=0u;
-    ++event_index;
-    if(event_index>=EVENT_TRBS){event_index=0;event_cycle^=1u;}
-    w64(rt_base+RT_BASE0+ERDP,(uint64_t)(uintptr_t)&event_ring[event_index]|8u);
+static int map_mmio(uint64_t phys){
+    uint64_t aligned = phys & ~(uint64_t)(PAGE_SIZE-1u);
+    uint32_t offset = (uint32_t)(phys & (PAGE_SIZE-1u));
+    uint32_t bytes = (XHCI_MAP_SIZE + offset + PAGE_SIZE - 1u) & ~(PAGE_SIZE-1u);
+    for(uint32_t off=0;off<bytes;off+=PAGE_SIZE)
+        if(paging_map_kernel_page(XHCI_VIRT+off, aligned+off, 0x13u)!=0) return -1;
     return 0;
 }
 
-static int abort_cmd_ring(void){
-    uint32_t cmd = r32(op_base+USBCMD);
-    w32(op_base+USBCMD, cmd | CMD_ABORT);
-    for(uint32_t i=0;i<5000000u;++i){
-        if(!(r32(op_base+USBCMD) & CMD_ABORT)) break;
+/* ------------------------------------------------------------------ */
+/*  Extended capability parsing                                        */
+/* ------------------------------------------------------------------ */
+
+/* Find USB Protocol capability and record which port range is USB2/USB3. */
+static void parse_usb_protocols(void){
+    protocol_count = 0;
+    uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
+    if(xecp_off == 0) return;
+
+    while(xecp_off && xecp_off < XHCI_MAP_SIZE){
+        uint32_t cap = r32(xecp_off);
+        uint32_t id = cap & 0xFFu;
+        uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
+
+        if(id == 2u){   /* USB Protocol capability */
+            uint32_t dw2 = r32(xecp_off + 8u);
+            uint32_t dw0 = cap;
+            uint8_t  major = (uint8_t)((dw0 >> 24) & 0xFFu);
+            uint8_t  minor = (uint8_t)((dw0 >> 16) & 0xFFu);
+            uint8_t  port_count = (uint8_t)((dw2 >> 8) & 0xFFu);
+            uint8_t  port_offset = (uint8_t)((dw2 >> 16) & 0xFFu);
+            uint8_t  slot_type = (uint8_t)((dw2 >> 28) & 0xFu);
+            uint8_t  proto = (major == 3u) ? PROTO_USB3 : PROTO_USB2;
+
+            if(protocol_count < MAX_PROTOCOLS){
+                protocols[protocol_count].major = major;
+                protocols[protocol_count].minor = minor;
+                protocols[protocol_count].protocol = proto;
+                protocols[protocol_count].port_count = port_count;
+                protocols[protocol_count].port_offset = port_offset;
+                protocols[protocol_count].slot_type = slot_type;
+                ++protocol_count;
+            }
+        }
+        xecp_off += next;
+    }
+}
+
+/* Return PROTO_USB2 / PROTO_USB3 for a 1-based port number, or 0 if unknown. */
+static uint8_t port_protocol(uint32_t p){
+    for(uint32_t i=0;i<protocol_count;++i){
+        uint32_t start = protocols[i].port_offset + 1u;
+        uint32_t end = start + protocols[i].port_count;
+        if(p >= start && p < end) return protocols[i].protocol;
+    }
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  BIOS/OS handoff                                                    */
+/* ------------------------------------------------------------------ */
+
+static int legacy_handoff(void){
+    uint32_t xecp_off = ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
+    while(xecp_off && xecp_off < XHCI_MAP_SIZE){
+        uint32_t cap = r32(xecp_off);
+        uint32_t id = cap & 0xFFu;
+        uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
+        if(id == EXT_USBLEGSUP_ID){
+            w32(xecp_off, cap | USBLEGSUP_OS_OWNED);
+            if(cap & USBLEGSUP_BIOS_OWNED){
+                for(uint32_t i=0;i<10000000u;++i){
+                    if(!(r32(xecp_off) & USBLEGSUP_BIOS_OWNED)) break;
+                    __asm__ volatile("pause");
+                }
+                if(r32(xecp_off) & USBLEGSUP_BIOS_OWNED) return -1;
+            }
+            w32(xecp_off + 4u, 0u);
+            return 0;
+        }
+        xecp_off += next;
+    }
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Controller reset                                                   */
+/* ------------------------------------------------------------------ */
+
+static int hc_reset(void){
+    uint32_t cmd = r32(op_base + OP_USBCMD) & ~CMD_RUN;
+    w32(op_base + OP_USBCMD, cmd);
+    for(uint32_t i=0;i<2000000u;++i){
+        if(r32(op_base + OP_USBSTS) & STS_HCH) break;
+        __asm__ volatile("pause");
+    }
+    if(!(r32(op_base + OP_USBSTS) & STS_HCH)) return -1;
+
+    w32(op_base + OP_USBCMD, cmd | CMD_HCRST);
+    xhci_delay_ms(1u);
+    for(uint32_t i=0;i<10000000u;++i){
+        if(!(r32(op_base + OP_USBCMD) & CMD_HCRST)) break;
+        __asm__ volatile("pause");
+    }
+    if(r32(op_base + OP_USBCMD) & CMD_HCRST) return -1;
+
+    for(uint32_t i=0;i<10000000u;++i){
+        if(!(r32(op_base + OP_USBSTS) & STS_CNR)) break;
+        __asm__ volatile("pause");
+    }
+    return (r32(op_base + OP_USBSTS) & STS_CNR) ? -1 : 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Memory                                                             */
+/* ------------------------------------------------------------------ */
+
+static int dma_page(void **out){
+    void *p = page_alloc();
+    if(!p) return -1;
+    zero_mem(p, PAGE_SIZE);
+    if(out) *out = p;
+    return 0;
+}
+
+static uint32_t read_scratchpads(void){
+    uint32_t hcs2 = r32(CAP_HCSPARAMS2);
+    return ((hcs2 >> 21) & 0x1Fu) | (((hcs2 >> 27) & 0x1Fu) << 5);
+}
+
+static int alloc_memory(void){
+    if(dma_page((void**)&dcbaa) || dma_page((void**)&cmd_ring) ||
+       dma_page((void**)&event_ring) || dma_page((void**)&erst) ||
+       dma_page((void**)&ep0_ring) || dma_page((void**)&intr_ring) ||
+       dma_page(&out_ctx) || dma_page(&in_ctx) ||
+       dma_page((void**)&control_buf) || dma_page((void**)&config_buf) ||
+       dma_page((void**)&report_buf))
+        return -1;
+
+    scratch_count = read_scratchpads();
+    if(scratch_count > MAX_SCRATCH) return -1;
+    if(scratch_count){
+        scratch_array = (uint64_t*)page_alloc();
+        if(!scratch_array) return -1;
+        zero_mem(scratch_array, PAGE_SIZE);
+        for(uint32_t i=0;i<scratch_count;++i){
+            scratch_pages[i] = page_alloc();
+            if(!scratch_pages[i]) return -1;
+            zero_mem(scratch_pages[i], PAGE_SIZE);
+            scratch_array[i] = (uint64_t)(uintptr_t)scratch_pages[i];
+        }
+        dcbaa[0] = (uint64_t)(uintptr_t)scratch_array;
+    }
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Ring setup                                                         */
+/* ------------------------------------------------------------------ */
+
+static void link_trb(trb_t *ring, uint32_t cycle){
+    trb_t *t = &ring[RING_TRBS-1u];
+    uint64_t addr = (uint64_t)(uintptr_t)ring;
+    t->lo = (uint32_t)addr;
+    t->hi = (uint32_t)(addr >> 32);
+    t->status = 0;
+    /* Chain bit required by AMD/Renesas/early Intel */
+    t->control = (TRB_LINK << 10) | TRB_TC | TRB_CHAIN | (cycle ? TRB_CYCLE : 0u);
+}
+
+static int setup_rings(void){
+    cmd_index = 0; cmd_cycle = 1;
+    event_index = 0; event_cycle = 1;
+    ep0_index = 0; ep0_cycle = 1;
+    intr_index = 0; intr_cycle = 1;
+
+    link_trb(cmd_ring, 1u);
+    link_trb(ep0_ring, 1u);
+    link_trb(intr_ring, 1u);
+
+    erst[0].base = (uint64_t)(uintptr_t)event_ring;
+    erst[0].size = EVENT_TRBS;
+
+    w64(op_base + OP_CRCR, (uint64_t)(uintptr_t)cmd_ring | 1u);
+
+    uint32_t ir = rt_base + RT_IR0;
+    w32(ir + IR_IMAN, 0u);
+    w32(ir + IR_IMOD, 0u);
+    w32(ir + IR_ERSTSZ, 1u);
+    w64(ir + IR_ERSTBA, (uint64_t)(uintptr_t)erst);
+    w64(ir + IR_ERDP, (uint64_t)(uintptr_t)event_ring);
+    return 0;
+}
+
+static int start_controller(void){
+    uint32_t slots = max_slots;
+    if(slots > 255u) slots = 255u;
+    if(!slots) slots = 1u;
+    w32(op_base + OP_CONFIG, slots);
+    w64(op_base + OP_DCBAAP, (uint64_t)(uintptr_t)dcbaa);
+    w32(op_base + OP_USBCMD, r32(op_base + OP_USBCMD) | CMD_RUN);
+    for(uint32_t i=0;i<2000000u;++i){
+        if(!(r32(op_base + OP_USBSTS) & STS_HCH)) return 0;
+        __asm__ volatile("pause");
+    }
+    return -1;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Command ring                                                       */
+/* ------------------------------------------------------------------ */
+
+static void cmd_submit(uint32_t type, uint64_t param, uint32_t ctl){
+    trb_t *t = &cmd_ring[cmd_index];
+    t->lo = (uint32_t)param;
+    t->hi = (uint32_t)(param >> 32);
+    t->status = 0;
+    t->control = (type << 10) | ctl | (cmd_cycle ? TRB_CYCLE : 0u);
+    ++cmd_index;
+    if(cmd_index >= RING_TRBS-1u){
+        link_trb(cmd_ring, cmd_cycle);
+        cmd_index = 0;
+        cmd_cycle ^= 1u;
+    }
+    dma_wmb();
+    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT + db_base) = 0u;
+}
+
+static int next_event(trb_t *out){
+    trb_t *t = &event_ring[event_index];
+    if((t->control & TRB_CYCLE) != (event_cycle ? TRB_CYCLE : 0u)) return -1;
+    if(out) *out = *t;
+    t->control = 0;
+    ++event_index;
+    if(event_index >= EVENT_TRBS){ event_index = 0; event_cycle ^= 1u; }
+    w64(rt_base + RT_IR0 + IR_ERDP,
+        (uint64_t)(uintptr_t)&event_ring[event_index] | 8u);
+    return 0;
+}
+
+static int cmd_abort(void){
+    uint32_t cmd = r32(op_base + OP_USBCMD);
+    w32(op_base + OP_USBCMD, cmd | CMD_INTE);
+    for(uint32_t i=0;i<2000000u;++i){
+        if(!(r32(op_base + OP_USBCMD) & CMD_INTE)) break;
         __asm__ volatile("pause");
     }
     for(uint32_t n=0;n<5000000u;++n){
         trb_t e;
         if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
-        uint32_t type=(e.control>>10)&0x3Fu;
-        if(type!=TRB_COMMAND_EVENT) continue;
-        uint32_t cc=(e.status>>24)&0xFFu;
-        if(cc==CC_STOPPED) return 0;
+        uint32_t type = (e.control >> 10) & 0x3Fu;
+        if(type != TRB_CMD_EVT) continue;
+        if(((e.status >> 24) & 0xFFu) == CC_CMD_STOPPED) return 0;
     }
     return -1;
 }
 
-static int recover_cmd_ring(void){
-    if(abort_cmd_ring())return -1;
+static int cmd_recover(void){
+    if(cmd_abort()) return -1;
     cmd_cycle ^= 1u;
-    cmd_index = 0u;
+    cmd_index = 0;
     link_trb(cmd_ring, cmd_cycle);
-    w64(op_base+CRCR,(uint64_t)(uintptr_t)cmd_ring | (cmd_cycle?1u:0u));
+    w64(op_base + OP_CRCR,
+        (uint64_t)(uintptr_t)cmd_ring | (cmd_cycle ? 1u : 0u));
     return 0;
 }
 
-static int wait_cmd(uint32_t want_slot){
+static int cmd_wait(uint32_t want_slot){
     for(uint32_t n=0;n<8000000u;++n){
         trb_t e;
-        if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
-        uint32_t type=(e.control>>10)&0x3Fu;
-        if(type==TRB_PORT_EVENT)continue;
-        if(type!=TRB_COMMAND_EVENT)continue;
-        if(want_slot&&((e.control>>24)&0xFFu)!=want_slot)continue;
-        uint32_t cc=(e.status>>24)&0xFFu;
-        if(cc==CC_SUCCESS)return 0;
-        if(cc==CC_RING_FULL){
-            usb_log("[ USB ] xHCI event ring full\n");
+        if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
+        uint32_t type = (e.control >> 10) & 0x3Fu;
+        if(type == TRB_PORT_EVT) continue;
+        if(type == TRB_BW_EVT) continue;
+        if(type != TRB_CMD_EVT) continue;
+        if(want_slot && ((e.control >> 24) & 0xFFu) != want_slot) continue;
+        uint32_t cc = (e.status >> 24) & 0xFFu;
+        if(cc == CC_SUCCESS) return 0;
+        if(cc == CC_RING_FULL){
+            usb_log("[ USB ] event ring full\n");
             continue;
         }
-        (void)recover_cmd_ring();
+        cmd_recover();
         return -1;
     }
-    (void)recover_cmd_ring();
+    cmd_recover();
     return -1;
 }
 
-static int enable_slot(void){
-    submit_cmd(TRB_ENABLE_SLOT,0,0);
+/* ------------------------------------------------------------------ */
+/*  Context helpers                                                    */
+/* ------------------------------------------------------------------ */
+
+/* Input Context: ICC is 32 bytes, then Slot, then Endpoints at ctx_size*dci */
+#define ICC_SIZE 32u
+static uint8_t *in_slot(void){ return (uint8_t*)in_ctx + ICC_SIZE; }
+static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx + ICC_SIZE + ctx_size*dci; }
+/* Device Context: Slot at 0, EP0 (dci=1) at ctx_size*1 */
+static uint8_t *dev_slot(void){ return (uint8_t*)out_ctx; }
+static uint8_t *dev_ep(uint32_t dci){ return (uint8_t*)out_ctx + ctx_size*dci; }
+
+static uint64_t ctx_get64(void *ctx, uint32_t dw){
+    uint32_t *p = (uint32_t*)ctx;
+    return (uint64_t)p[dw] | ((uint64_t)p[dw+1] << 32);
+}
+static void ctx_set64(void *ctx, uint32_t dw, uint64_t v){
+    uint32_t *p = (uint32_t*)ctx;
+    p[dw]   = (uint32_t)v;
+    p[dw+1] = (uint32_t)(v >> 32);
+}
+
+static uint32_t ep0_default_mps(void){
+    if(device_speed == SPEED_HIGH) return 64u;
+    if(device_speed >= SPEED_SUPER) return 512u;
+    return 8u;
+}
+
+static void fill_slot_context(void *slot, uint32_t entries){
+    uint32_t *s = (uint32_t*)slot;
+    zero_mem(s, ctx_size);
+    /* Dword 0: bits 23:20 speed, bits 31:27 context entries */
+    s[0] = ((device_speed & 0xFu) << 20) | ((entries & 0x1Fu) << 27);
+    /* Dword 1: bits 23:16 root hub port number */
+    s[1] = (port_number & 0xFFu) << 16;
+}
+
+/*
+ * Fill an Endpoint Context.
+ *   ep_type:  4 = Control Bidirectional, 7 = Interrupt IN
+ *   mps:      Max Packet Size
+ *   interval: Endpoint interval (only used for interrupt/isochronous)
+ *   dequeue:  TR Dequeue Pointer (bit 0 = DCS)
+ *   avg_len:  Average TRB length
+ */
+static void fill_ep_context(void *ep, uint32_t ep_type, uint32_t mps,
+                            uint32_t interval, uint64_t dequeue,
+                            uint32_t avg_len)
+{
+    uint32_t *e = (uint32_t*)ep;
+    zero_mem(e, ctx_size);
+    /* Dword 0 (ep_info): interval in bits 23:16 */
+    e[0] = (interval & 0xFFu) << 16;
+    /* Dword 1 (ep_info2): EP type in bits 5:3, MPS in bits 31:16 */
+    e[1] = ((ep_type & 0x7u) << 3) | ((mps & 0xFFFFu) << 16);
+    /* Dword 2-3: TR Dequeue Pointer */
+    ctx_set64(ep, 2u, dequeue);
+    /* Dword 4: Average TRB Length (and Max ESIT Payload for periodic) */
+    e[4] = avg_len & 0xFFFFu;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Slot / device commands                                             */
+/* ------------------------------------------------------------------ */
+
+static int cmd_enable_slot(void){
+    cmd_submit(TRB_ENABLE_SLOT, 0, 0);
     for(uint32_t n=0;n<8000000u;++n){
-        trb_t e;if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
-        uint32_t type=(e.control>>10)&0x3Fu;
-        if(type==TRB_PORT_EVENT)continue;
-        if(type!=TRB_COMMAND_EVENT)continue;
-        uint32_t cc=(e.status>>24)&0xFFu;
-        if(cc!=CC_SUCCESS){(void)recover_cmd_ring();return -1;}
-        slot_id=(e.control>>24)&0xFFu;
-        if(!slot_id){(void)recover_cmd_ring();return -1;}
-        return 0;
+        trb_t e;
+        if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
+        uint32_t type = (e.control >> 10) & 0x3Fu;
+        if(type == TRB_PORT_EVT) continue;
+        if(type != TRB_CMD_EVT) continue;
+        uint32_t cc = (e.status >> 24) & 0xFFu;
+        if(cc != CC_SUCCESS){ cmd_recover(); return -1; }
+        slot_id = (e.control >> 24) & 0xFFu;
+        return slot_id ? 0 : -1;
     }
-    (void)recover_cmd_ring();
+    cmd_recover();
     return -1;
 }
 
-/*
- * Context offset helpers.
- *
- * Input Context layout (always):
- *   offset  0              : Input Control Context (ICC), 32 bytes
- *   offset  32             : Slot Context                (ctx_size bytes)
- *   offset  32 + ctx_size  : EP0 Context (DCI = 1)       (ctx_size bytes)
- *   offset  32 + 2*ctx_size: EP1 OUT Context (DCI = 2)   (ctx_size bytes)
- *   offset  32 + n*ctx_size: DCI n Context
- *
- * Device (Output) Context layout:
- *   offset  0              : Slot Context
- *   offset  ctx_size       : EP0 Context (DCI = 1)
- *   offset  n*ctx_size     : DCI n Context
- */
-static uint8_t *ctx_slot(void *in_ctx)             { return (uint8_t*)in_ctx + ICC_SIZE; }
-static uint8_t *ctx_ep(void *in_ctx, uint32_t dci) { return (uint8_t*)in_ctx + ICC_SIZE + ctx_size * dci; }
-static uint8_t *dev_ctx_ep(void *out_ctx, uint32_t dci) { return (uint8_t*)out_ctx + ctx_size * dci; }
+static int cmd_address_device(uint32_t bsr){
+    zero_mem(in_ctx, PAGE_SIZE);
+    dcbaa[slot_id] = (uint64_t)(uintptr_t)out_ctx;
+    ((uint32_t*)in_ctx)[1] = 3u;   /* Add flags: Slot (A0) | EP0 (A1) */
+    fill_slot_context(in_slot(), 1u);
 
-static uint64_t qget(void *ctx,uint32_t dword){uint32_t *p=(uint32_t*)ctx;return (uint64_t)p[dword]|((uint64_t)p[dword+1u]<<32);}
-static void qset(void *ctx,uint32_t dword,uint64_t v){uint32_t *p=(uint32_t*)ctx;p[dword]=(uint32_t)v;p[dword+1u]=(uint32_t)(v>>32);}
+    uint64_t deq = (uint64_t)(uintptr_t)&ep0_ring[ep0_index];
+    deq |= (ep0_cycle ? 1ull : 0ull);
+    fill_ep_context(in_ep(1u), 4u, ep0_mps, 0u, deq, 8u);
 
-static uint32_t ep0_default_mps(void){if(device_speed==3u)return 64u;if(device_speed>=4u)return 512u;return 8u;}
-
-static void fill_slot(void *in_ctx,uint32_t entries){
-    uint32_t *s=(uint32_t*)ctx_slot(in_ctx);
-    zero_mem(s,ctx_size);
-    /* Slot Context Dword 0:
-     *   bits 19:0  Route String (0 for root-port devices)
-     *   bits 23:20 Speed
-     *   bits 31:27 Context Entries
-     */
-    s[0]=((device_speed&0xFu)<<20)|((entries&0x1Fu)<<27);
-    /* Dword 1: bits 23:16 Root Hub Port Number */
-    s[1]=(port_number&0xFFu)<<16;
+    uint32_t ctl = slot_id << 24;
+    if(bsr) ctl |= TRB_BSR;
+    cmd_submit(TRB_ADDRESS_DEVICE, (uint64_t)(uintptr_t)in_ctx, ctl);
+    return cmd_wait(slot_id);
 }
 
-/*
- * Fill the EP0 (DCI 1) Endpoint Context.
- *
- * Endpoint Context Dword 0:
- *   bits  2:0  Endpoint State (0 for EP0)
- *   bits  5:3  Endpoint Type   (unused for EP0)
- *   bits 15:8  Max Burst Size
- *   bits 31:16 Max Packet Size (unused for EP0 in dword 0)
- *
- * Endpoint Context Dword 1 ("ep_info2" in Linux):
- *   bits  2:0  Endpoint State
- *   bits  5:3  Endpoint Type   (4 = Control Bidirectional)
- *   bits 15:8  Max Burst Size
- *   bits 31:16 Max Packet Size
- *
- * Endpoint Context Dword 4:
- *   bits 15:0  Average TRB Length (8 for control endpoints)
- *
- * Linux's xhci_setup_addressable_virt_dev() sets only ep_info2
- * (dword 1) and leaves ep_info (dword 0) zero. Real Intel / AMD
- * controllers reject an Input Context where the EP type is in dword 0
- * and dword 1 is empty.
- */
-static void fill_ep0(void *in_ctx,uint32_t mps,uint64_t dequeue){
-    uint32_t *e=(uint32_t*)ctx_ep(in_ctx,1u);
-    zero_mem(e,ctx_size);
-    e[0]=0u;                             /* EP state / type / MPS live in dword 1 */
-    e[1]=(4u<<3)|((mps&0xFFFFu)<<16);    /* EP type 4 = Control Bidirectional */
-    qset(e,2u,dequeue|(ep0_cycle?1u:0u));/* Dequeue pointer + DCS */
-    e[4]=8u;                             /* Average TRB Length = 8 */
+static int cmd_evaluate_context(void){
+    cmd_submit(TRB_EVAL_CONTEXT, (uint64_t)(uintptr_t)in_ctx, slot_id << 24);
+    return cmd_wait(slot_id);
 }
 
-static int address_device(int block_set_address){
-    zero_mem(in_ctx,PAGE_SIZE);
-    dcbaa[slot_id]=(uint64_t)(uintptr_t)out_ctx;
-    ((uint32_t*)in_ctx)[1]=3u;          /* Add flags: Slot (A0) | EP0 (A1) */
-    fill_slot(in_ctx,1u);
-
-    uint64_t dequeue=(uint64_t)(uintptr_t)&ep0_ring[ep0_index];
-    dequeue|=(ep0_cycle?1ull:0ull);
-    fill_ep0(in_ctx,ep0_mps,dequeue);
-
-    uint32_t ctl=slot_id<<24;
-    if(block_set_address)ctl|=TRB_ADDRESS_BSR;
-    submit_cmd(TRB_ADDRESS_DEVICE,(uint64_t)(uintptr_t)in_ctx,ctl);
-    return wait_cmd(slot_id);
-}
-
-/*
- * Reprogram EP0 MPS via Evaluate Context.
- *
- * Copies the current EP0 context from the Device Context, overrides only
- * the MPS field (dword 1 bits 31:16), and issues Evaluate Context.
- * Used when the device reports inconsistent bMaxPacketSize0 between
- * reads (a firmware bug in some cheap USB 3.x dual-mode devices).
- */
+/* Reprogram EP0 MPS in place, no endpoint reset. */
 static int update_ep0_mps(uint32_t mps){
-    uint8_t *out_ep=dev_ctx_ep(out_ctx,1u);
-    uint8_t *in_ep =ctx_ep(in_ctx,1u);
+    if(mps == ep0_mps) return 0;
 
-    zero_mem(in_ctx,PAGE_SIZE);
-    ((uint32_t*)in_ctx)[1]=1u|(1u<<1);      /* Add flags: Slot | EP0 */
-    fill_slot(in_ctx,1u);
+    /* Copy EP0 from the device context (which the HC updated) */
+    uint8_t *dst = in_ep(1u);
+    uint8_t *src = dev_ep(1u);
 
-    /* Copy the current EP0 context from the Device Context. */
-    for(uint32_t i=0;i<ctx_size;++i) in_ep[i]=out_ep[i];
-    /* Override MPS in dword 1 bits 31:16. */
-    ((uint32_t*)in_ep)[1] = (((uint32_t*)in_ep)[1] & 0x0000FFFFu)
-                          | ((mps & 0xFFFFu) << 16);
+    zero_mem(in_ctx, PAGE_SIZE);
+    ((uint32_t*)in_ctx)[1] = 1u | (1u << 1);   /* Add: Slot | EP0 */
+    fill_slot_context(in_slot(), 1u);
+    for(uint32_t i=0;i<ctx_size;++i) dst[i] = src[i];
+    /* Override MPS (dword 1 bits 31:16), keep EP type */
+    uint32_t *dw = (uint32_t*)dst;
+    dw[1] = (dw[1] & 0x0000FFFFu) | ((mps & 0xFFFFu) << 16);
 
-    submit_cmd(TRB_EVAL_CONTEXT,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
-    return wait_cmd(slot_id);
-}
-
-static void write_trb(trb_t *t,uint64_t param,uint32_t status,uint32_t type,uint32_t ctl,uint32_t cycle){
-    t->lo=(uint32_t)param;t->hi=(uint32_t)(param>>32);t->status=status;
-    t->control=(type<<10)|ctl|(cycle?TRB_CYCLE:0u);
-}
-
-static void advance_ep0(void){
-    ++ep0_index;
-    if(ep0_index>=RING_TRBS-1u){link_trb(ep0_ring,ep0_cycle);ep0_index=0;ep0_cycle^=1u;}
-}
-
-static int reset_ep0_ring(void){
-    uint32_t ctl=(1u<<16)|(slot_id<<24);    /* Target = EP0 (DCI 1) */
-    submit_cmd(TRB_RESET_ENDPOINT,0u,ctl);
-    if(wait_cmd(slot_id))return -1;
-
-    uint64_t deq=(uint64_t)(uintptr_t)&ep0_ring[ep0_index];
-    deq|=(ep0_cycle?1ull:0ull);
-    submit_cmd(TRB_SET_TR_DEQ,deq,ctl);
-    return wait_cmd(slot_id);
-}
-
-static int control_xfer_raw(uint8_t bm,uint8_t req,uint16_t value,uint16_t index,void *data,uint16_t length,int in){
-    uint64_t setup=(uint64_t)bm|((uint64_t)req<<8)|((uint64_t)value<<16)|((uint64_t)index<<32)|((uint64_t)length<<48);
-    uint32_t trt=length?(in?(3u<<16):(2u<<16)):0u;
-    write_trb(&ep0_ring[ep0_index],setup,8u,TRB_SETUP,TRB_IDT|TRB_CHAIN|trt,ep0_cycle);advance_ep0();
-    if(length){
-        write_trb(&ep0_ring[ep0_index],(uint64_t)(uintptr_t)data,length&0x1FFFFu,TRB_DATA,TRB_CHAIN|(in?TRB_DIR_IN:0u),ep0_cycle);
-        advance_ep0();
+    if(cmd_evaluate_context() != 0){
+        usb_log("[ USB ] Evaluate Context failed\n");
+        return -1;
     }
-    write_trb(&ep0_ring[ep0_index],0,0,TRB_STATUS,TRB_IOC|(in?0u:TRB_DIR_IN),ep0_cycle);advance_ep0();
+    ep0_mps = mps;
+    return 0;
+}
+
+static int cmd_reset_ep0(void){
+    uint32_t ctl = (1u << 16) | (slot_id << 24);   /* Target = DCI 1 */
+    cmd_submit(TRB_RESET_EP, 0, ctl);
+    if(cmd_wait(slot_id)) return -1;
+
+    uint64_t deq = (uint64_t)(uintptr_t)&ep0_ring[ep0_index];
+    deq |= (ep0_cycle ? 1ull : 0ull);
+    cmd_submit(TRB_SET_DEQ, deq, ctl);
+    return cmd_wait(slot_id);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Control transfers                                                  */
+/* ------------------------------------------------------------------ */
+
+static int ep0_xfer(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
+                    void *data, uint16_t len, int in)
+{
+    uint64_t setup = (uint64_t)bm | ((uint64_t)req << 8) | ((uint64_t)val << 16)
+                   | ((uint64_t)idx << 32) | ((uint64_t)len << 48);
+    uint32_t trt = len ? (in ? (3u << 16) : (2u << 16)) : 0u;
+
+    trb_t *t = &ep0_ring[ep0_index];
+    t->lo = (uint32_t)setup;
+    t->hi = (uint32_t)(setup >> 32);
+    t->status = 8u;
+    t->control = (TRB_SETUP << 10) | TRB_IDT | TRB_CHAIN | trt
+                 | (ep0_cycle ? TRB_CYCLE : 0u);
+    ++ep0_index;
+    if(ep0_index >= RING_TRBS-1u){ link_trb(ep0_ring, ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+
+    if(len){
+        t = &ep0_ring[ep0_index];
+        t->lo = (uint32_t)(uintptr_t)data;
+        t->hi = (uint32_t)((uint64_t)(uintptr_t)data >> 32);
+        t->status = len & 0x1FFFFu;
+        t->control = (TRB_DATA << 10) | TRB_CHAIN | (in ? TRB_DIR_IN : 0u)
+                     | (ep0_cycle ? TRB_CYCLE : 0u);
+        ++ep0_index;
+        if(ep0_index >= RING_TRBS-1u){ link_trb(ep0_ring, ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+    }
+
+    t = &ep0_ring[ep0_index];
+    t->lo = 0; t->hi = 0; t->status = 0;
+    t->control = (TRB_STATUS << 10) | TRB_IOC | (in ? 0u : TRB_DIR_IN)
+                 | (ep0_cycle ? TRB_CYCLE : 0u);
+    ++ep0_index;
+    if(ep0_index >= RING_TRBS-1u){ link_trb(ep0_ring, ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+
     dma_wmb();
-    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=1u;
+    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT + db_base + slot_id*4u) = 1u;
+
     for(uint32_t n=0;n<8000000u;++n){
-        trb_t e;if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
-        if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVENT)continue;
-        if(((e.control>>24)&0xFFu)!=slot_id||((e.control>>16)&0x1Fu)!=1u)continue;
-        uint32_t cc=(e.status>>24)&0xFFu;
-        diag_last_cc=cc;
-        if(cc==CC_SUCCESS)return 0;
-        if(reset_ep0_ring()==0u)return -2;
+        trb_t e;
+        if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
+        if(((e.control >> 10) & 0x3Fu) != TRB_TRANSFER_EVT) continue;
+        if(((e.control >> 24) & 0xFFu) != slot_id) continue;
+        if(((e.control >> 16) & 0x1Fu) != 1u) continue;
+        uint32_t cc = (e.status >> 24) & 0xFFu;
+        diag_last_cc = cc;
+        if(cc == CC_SUCCESS || cc == CC_SHORT_PKT) return 0;
+        if(cmd_reset_ep0() == 0) return -2;
         return -1;
     }
     return -1;
 }
 
-static int usb_ctrl(uint8_t bm,uint8_t req,uint16_t value,uint16_t index,
-                    void *data,uint16_t length,int in,uint32_t retries){
+/* Retry wrapper — QEMU-level robustness on real hardware. */
+static int ctrl(uint8_t bm, uint8_t req, uint16_t val, uint16_t idx,
+                void *data, uint16_t len, int in, uint32_t retries)
+{
     for(uint32_t i=0;i<=retries;++i){
-        int rc=control_xfer_raw(bm,req,value,index,data,length,in);
-        if(rc==0)return 0;
-        if(i<retries){
+        int rc = ep0_xfer(bm, req, val, idx, data, len, in);
+        if(rc == 0) return 0;
+        if(i < retries){
             xhci_delay_ms(20u);
-            if(rc==-2){ep0_index=0;ep0_cycle=1;reset_ep0_ring();xhci_delay_ms(10u);}
-        }else{
+            if(rc == -2){
+                ep0_index = 0; ep0_cycle = 1;
+                cmd_reset_ep0();
+                xhci_delay_ms(10u);
+            }
+        } else {
             return rc;
         }
     }
     return -1;
 }
 
-static int get_device(void){
-    zero_mem(control_buf,PAGE_SIZE);
+/* ------------------------------------------------------------------ */
+/*  Descriptors                                                        */
+/* ------------------------------------------------------------------ */
 
-    if(usb_ctrl(0x80u,6u,0x0100u,0,control_buf,8u,1,3))return -1;
-    if(control_buf[0]<8u||control_buf[1]!=1u)return -1;
+static int read_device_descriptor(void){
+    /* First 8 bytes to learn MPS */
+    zero_mem(control_buf, PAGE_SIZE);
+    if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 8u, 1, 3)) return -1;
+    if(control_buf[0] < 8u || control_buf[1] != 1u) return -1;
 
     uint32_t mps = control_buf[7];
-    if(mps == 9u){
-        mps = 512u;
-    } else if(mps != 8u && mps != 16u && mps != 32u && mps != 64u){
-        mps = (device_speed >= 4u) ? 512u : 8u;
-    }
+    if(mps == 9u) mps = 512u;                     /* USB 3.x encoding */
+    else if(mps != 8u && mps != 16u && mps != 32u && mps != 64u)
+        mps = (device_speed >= SPEED_SUPER) ? 512u : 8u;
     ep0_mps = mps;
 
-    usb_log("[ USB ] ep0_mps(first read)="); usb_log_dec(ep0_mps); usb_log_nl();
+    usb_log("[ USB ] ep0_mps(first)="); usb_log_dec(ep0_mps); usb_log_nl();
 
-    if(address_device(0))return -1;
+    /* Real address phase */
+    if(cmd_address_device(0)) return -1;
     xhci_delay_ms(20u);
-    ep0_index=0;ep0_cycle=1;
-    (void)reset_ep0_ring();
+    ep0_index = 0; ep0_cycle = 1;
+    cmd_reset_ep0();
     xhci_delay_ms(10u);
 
-    zero_mem(control_buf,PAGE_SIZE);
-    if(usb_ctrl(0x80u,6u,0x0100u,0,control_buf,18u,1,3))return -1;
-    if(control_buf[0]<18u||control_buf[1]!=1u)return -1;
+    /* Full 18 bytes */
+    zero_mem(control_buf, PAGE_SIZE);
+    if(ctrl(0x80u, 6u, 0x0100u, 0, control_buf, 18u, 1, 3)) return -1;
+    if(control_buf[0] < 18u || control_buf[1] != 1u) return -1;
 
     console_write("[ USB ] dev desc:");
-    for(int i=0;i<18;++i){console_putc(' ');console_write_hex(control_buf[i]);}
+    for(int i=0;i<18;++i){ console_putc(' '); console_write_hex(control_buf[i]); }
     console_putc('\n');
 
+    /* Cross-check MPS — resolve inconsistency */
     uint32_t mps2 = control_buf[7];
     if(mps2 == 9u) mps2 = 512u;
     else if(mps2 != 8u && mps2 != 16u && mps2 != 32u && mps2 != 64u) mps2 = ep0_mps;
 
-    usb_log("[ USB ] ep0_mps(second read)="); usb_log_dec(mps2); usb_log_nl();
-
+    usb_log("[ USB ] ep0_mps(second)="); usb_log_dec(mps2); usb_log_nl();
     if(mps2 != ep0_mps){
-        usb_log("[ USB ] MPS mismatch — updating EP0 to ");
-        usb_log_dec(mps2); usb_log_nl();
-        if(update_ep0_mps(mps2)==0){
-            ep0_mps = mps2;
-            usb_log("[ USB ] EP0 MPS updated ok\n");
+        usb_log("[ USB ] MPS mismatch -> "); usb_log_dec(mps2); usb_log_nl();
+        if(update_ep0_mps(mps2) == 0){
+            usb_log("[ USB ] EP0 MPS updated\n");
             xhci_delay_ms(20u);
         } else {
-            usb_log("[ USB ] EP0 MPS update FAILED\n");
+            usb_log("[ USB ] EP0 MPS update failed\n");
         }
     }
 
-    diag_vid=(uint16_t)control_buf[8]|((uint16_t)control_buf[9]<<8);
-    diag_pid=(uint16_t)control_buf[10]|((uint16_t)control_buf[11]<<8);
-    diag_device_class=control_buf[4];
-    diag_device_subclass=control_buf[5];
-    diag_device_protocol=control_buf[6];
+    diag_vid  = (uint16_t)control_buf[8]  | ((uint16_t)control_buf[9]  << 8);
+    diag_pid  = (uint16_t)control_buf[10] | ((uint16_t)control_buf[11] << 8);
+    diag_device_class    = control_buf[4];
+    diag_device_subclass = control_buf[5];
+    diag_device_protocol = control_buf[6];
     return 0;
 }
 
-static void dump_usb_descriptors(uint16_t total){
-    usb_log("\n[ USB DEBUG ] DEVICE\n");
-    usb_log(" VID=0x");usb_log_hex(diag_vid);
-    usb_log(" PID=0x");usb_log_hex(diag_pid);
-    usb_log(" CLASS=0x");usb_log_hex(diag_device_class);
-    usb_log(" SUB=0x");usb_log_hex(diag_device_subclass);
-    usb_log(" PROTO=0x");usb_log_hex(diag_device_protocol);
-    usb_log("\n[ USB DEBUG ] CONFIG\n");
-
-    diag_interface_count=0u;
-    diag_endpoint_count=0u;
-    diag_hid_count=0u;
-    diag_hid_iface=0xFFu;
-    diag_hid_subclass=0u;
-    diag_hid_protocol=0u;
-    diag_hid_endpoint=0u;
-    diag_hid_ep_type=0u;
-    diag_hid_packet=0u;
-    diag_hid_interval=0u;
-
-    uint32_t i=0u;
-    uint8_t current_iface=0xFFu;
-    uint8_t current_is_hid=0u;
-
-    while(i+2u<=total){
-        uint8_t len=config_buf[i],type=config_buf[i+1u];
-        if(len<2u||i+len>total)break;
-        if(type==4u&&len>=9u){
-            current_iface=config_buf[i+2u];
-            uint8_t alt=config_buf[i+3u];
-            uint8_t cls=config_buf[i+5u];
-            uint8_t sub=config_buf[i+6u];
-            uint8_t proto=config_buf[i+7u];
-            current_is_hid=(alt==0u&&cls==3u)?1u:0u;
-            ++diag_interface_count;
-            usb_log(" IF=");usb_log_dec(current_iface);
-            usb_log(" ALT=");usb_log_dec(alt);
-            usb_log(" CLASS=0x");usb_log_hex(cls);
-            usb_log(" SUB=0x");usb_log_hex(sub);
-            usb_log(" PROTO=0x");usb_log_hex(proto);
-            usb_log_nl();
-            if(current_is_hid){
-                ++diag_hid_count;
-                if(diag_hid_iface==0xFFu){
-                    diag_hid_iface=current_iface;
-                    diag_hid_subclass=sub;
-                    diag_hid_protocol=proto;
-                }
-            }
-        }else if(type==5u&&len>=7u){
-            uint8_t addr=config_buf[i+2u];
-            uint8_t attr=config_buf[i+3u];
-            uint16_t mps=(uint16_t)config_buf[i+4u]|((uint16_t)config_buf[i+5u]<<8);
-            ++diag_endpoint_count;
-            usb_log("  EP=0x");usb_log_hex(addr);
-            usb_log(" IF=");usb_log_dec(current_iface);
-            usb_log(" TYPE=");usb_log_dec(attr&3u);
-            usb_log(" MPS=");usb_log_dec(mps&0x7FFu);
-            usb_log(" INT=");usb_log_dec(config_buf[i+6u]);
-            usb_log_nl();
-            if(current_is_hid && !diag_hid_endpoint && (addr&0x80u) && (attr&3u)==3u){
-                diag_hid_endpoint=addr;
-                diag_hid_ep_type=attr&3u;
-                diag_hid_packet=mps&0x7FFu;
-                diag_hid_interval=config_buf[i+6u];
+/* Two-stage config read (Linux behaviour). */
+static int read_config_descriptor(void){
+    for(uint32_t attempt=0; attempt<3; ++attempt){
+        /* Stage 1: read 9-byte header */
+        zero_mem(config_buf, PAGE_SIZE);
+        int rc = ctrl(0x80u, 6u, 0x0200u, 0, config_buf, 9u, 1, 1);
+        if(rc == 0 && config_buf[1] == 2u && config_buf[0] >= 9u){
+            uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3] << 8);
+            if(total >= 9u && total <= 4096u){
+                /* Stage 2: read the full config in one shot */
+                xhci_delay_ms(10u);
+                rc = ctrl(0x80u, 6u, 0x0200u, 0, config_buf, total, 1, 2);
+                if(rc == 0 && config_buf[1] == 2u && config_buf[0] >= 9u)
+                    return 0;
             }
         }
-        i+=len;
+        usb_log("[ USB ] cfg retry "); usb_log_dec(attempt);
+        usb_log(" rc="); usb_log_dec((uint32_t)rc);
+        usb_log(" b0="); usb_log_hex(config_buf[0]);
+        usb_log(" b1="); usb_log_hex(config_buf[1]);
+        usb_log_nl();
+        xhci_delay_ms(50u);
+        ep0_index = 0; ep0_cycle = 1;
+        cmd_reset_ep0();
+        xhci_delay_ms(20u);
     }
-    usb_log(" SUMMARY IF=");usb_log_dec(diag_interface_count);
-    usb_log(" EP=");usb_log_dec(diag_endpoint_count);
-    usb_log(" HID=");usb_log_dec(diag_hid_count);
+    return -1;
+}
+
+static void dump_config(void){
+    usb_log("\n[ USB DEBUG ] DEVICE\n");
+    usb_log(" VID=0x"); usb_log_hex(diag_vid);
+    usb_log(" PID=0x"); usb_log_hex(diag_pid);
+    usb_log(" CLASS=0x"); usb_log_hex(diag_device_class);
+    usb_log(" SUB=0x"); usb_log_hex(diag_device_subclass);
+    usb_log(" PROTO=0x"); usb_log_hex(diag_device_protocol);
+    usb_log("\n[ USB DEBUG ] CONFIG\n");
+
+    diag_interface_count = 0;
+    diag_endpoint_count = 0;
+    diag_hid_count = 0;
+    diag_hid_iface = 0xFFu;
+    diag_hid_subclass = diag_hid_protocol = 0;
+    diag_hid_endpoint = diag_hid_ep_type = 0;
+    diag_hid_packet = 0;
+    diag_hid_interval = 0;
+
+    uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3] << 8);
+    if(total > 4096u) total = 4096u;
+    uint32_t i = 0;
+    uint8_t cur_iface = 0xFFu;
+    uint8_t cur_is_hid = 0;
+
+    while(i + 2u <= total){
+        uint8_t len = config_buf[i], type = config_buf[i+1u];
+        if(len < 2u || i + len > total) break;
+
+        if(type == 4u && len >= 9u){
+            cur_iface = config_buf[i+2u];
+            uint8_t alt = config_buf[i+3u];
+            uint8_t cls = config_buf[i+5u];
+            uint8_t sub = config_buf[i+6u];
+            uint8_t proto = config_buf[i+7u];
+            cur_is_hid = (alt == 0u && cls == 3u) ? 1u : 0u;
+            ++diag_interface_count;
+
+            usb_log(" IF="); usb_log_dec(cur_iface);
+            usb_log(" ALT="); usb_log_dec(alt);
+            usb_log(" CLASS=0x"); usb_log_hex(cls);
+            usb_log(" SUB=0x"); usb_log_hex(sub);
+            usb_log(" PROTO=0x"); usb_log_hex(proto);
+            usb_log_nl();
+
+            if(cur_is_hid){
+                ++diag_hid_count;
+                if(diag_hid_iface == 0xFFu){
+                    diag_hid_iface = cur_iface;
+                    diag_hid_subclass = sub;
+                    diag_hid_protocol = proto;
+                }
+            }
+        } else if(type == 5u && len >= 7u){
+            uint8_t addr = config_buf[i+2u];
+            uint8_t attr = config_buf[i+3u];
+            uint16_t mps = (uint16_t)config_buf[i+4u] | ((uint16_t)config_buf[i+5u] << 8);
+            ++diag_endpoint_count;
+
+            usb_log("  EP=0x"); usb_log_hex(addr);
+            usb_log(" IF="); usb_log_dec(cur_iface);
+            usb_log(" TYPE="); usb_log_dec(attr & 3u);
+            usb_log(" MPS="); usb_log_dec(mps & 0x7FFu);
+            usb_log(" INT="); usb_log_dec(config_buf[i+6u]);
+            usb_log_nl();
+
+            if(cur_is_hid && !diag_hid_endpoint && (addr & 0x80u) && (attr & 3u) == 3u){
+                diag_hid_endpoint = addr;
+                diag_hid_ep_type = attr & 3u;
+                diag_hid_packet = mps & 0x7FFu;
+                diag_hid_interval = config_buf[i+6u];
+            }
+        }
+        i += len;
+    }
+    usb_log(" SUMMARY IF="); usb_log_dec(diag_interface_count);
+    usb_log(" EP="); usb_log_dec(diag_endpoint_count);
+    usb_log(" HID="); usb_log_dec(diag_hid_count);
     usb_log_nl();
 }
 
-static int read_config_descriptor(void){
-    uint32_t cand[3];
-    uint32_t n=0;
-    cand[n++]=ep0_mps;
-    if(ep0_mps!=64u) cand[n++]=64u;
-    if(ep0_mps!=512u) cand[n++]=512u;
-
-    for(uint32_t ci=0;ci<n;++ci){
-        if(cand[ci]!=ep0_mps){
-            usb_log("[ USB ] trying MPS=");usb_log_dec(cand[ci]);usb_log_nl();
-            if(update_ep0_mps(cand[ci])==0){
-                ep0_mps=cand[ci];
-                xhci_delay_ms(20u);
-            }else{
-                usb_log("[ USB ] MPS switch failed\n");
-                continue;
-            }
-        }
-        for(uint32_t attempt=0;attempt<4;++attempt){
-            zero_mem(config_buf,PAGE_SIZE);
-            int rc=usb_ctrl(0x80u,6u,0x0200u,0,config_buf,255u,1,1);
-            if(rc==0&&config_buf[1]==2u&&config_buf[0]>=9u)return 0;
-            usb_log("[ USB ] cfg retry ");usb_log_dec(attempt);
-            usb_log(" rc=");usb_log_dec((uint32_t)rc);
-            usb_log(" b0=");usb_log_hex(config_buf[0]);
-            usb_log(" b1=");usb_log_hex(config_buf[1]);
-            usb_log_nl();
-            xhci_delay_ms(50u);
-            ep0_index=0;ep0_cycle=1;reset_ep0_ring();
-            xhci_delay_ms(20u);
-        }
-    }
-    return -1;
-}
-
 static int find_hid(hid_candidate_t *c){
-    if(read_config_descriptor())return -1;
-    if(config_buf[1]!=2u||config_buf[0]<9u)return -1;
+    if(read_config_descriptor()) return -1;
+    uint16_t total = (uint16_t)config_buf[2] | ((uint16_t)config_buf[3] << 8);
+    if(total < 9u) return -1;
+    if(total > 4096u) total = 4096u;
 
-    uint16_t total=(uint16_t)config_buf[2]|((uint16_t)config_buf[3]<<8);
-    if(total<9u||total>CONFIG_MAX)return -1;
-    if(total>255u)total=255u;
+    dump_config();
+    zero_mem(c, sizeof(*c));
+    c->config_value = config_buf[5];
 
-    dump_usb_descriptors(total);
-    zero_mem(c,sizeof(*c));
-    c->config_value=config_buf[5];
-
-    for(uint32_t pass=0;pass<2u;++pass){
-        uint32_t i=0;int selected=0;
-        while(i+2u<=total){
-            uint8_t len=config_buf[i],type=config_buf[i+1u];
-            if(len<2u||i+len>total)break;
-            if(type==4u&&len>=9u){
-                uint8_t alt=config_buf[i+3u];
-                uint8_t cls=config_buf[i+5u],sub=config_buf[i+6u],proto=config_buf[i+7u];
-                selected=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&proto==2u):(alt==0u&&cls==3u);
-                if(selected)c->interface_number=config_buf[i+2u];
-            }else if(type==5u&&len>=7u&&selected){
-                uint8_t addr=config_buf[i+2u],attr=config_buf[i+3u];
-                uint16_t mps=(uint16_t)config_buf[i+4u]|((uint16_t)config_buf[i+5u]<<8);
-                if((addr&0x80u)&&(attr&3u)==3u&&(mps&0x7FFu)){
-                    c->endpoint_address=addr;c->packet_size=mps&0x7FFu;
-                    c->interval=config_buf[i+6u]?config_buf[i+6u]:1u;
+    for(uint32_t pass=0; pass<2; ++pass){
+        uint32_t i = 0;
+        int sel = 0;
+        while(i + 2u <= total){
+            uint8_t len = config_buf[i], type = config_buf[i+1u];
+            if(len < 2u || i + len > total) break;
+            if(type == 4u && len >= 9u){
+                uint8_t alt = config_buf[i+3u];
+                uint8_t cls = config_buf[i+5u];
+                uint8_t sub = config_buf[i+6u];
+                uint8_t proto = config_buf[i+7u];
+                sel = (pass == 0)
+                    ? (alt == 0u && cls == 3u && sub == 1u && proto == 2u)
+                    : (alt == 0u && cls == 3u);
+                if(sel) c->interface_number = config_buf[i+2u];
+            } else if(type == 5u && len >= 7u && sel){
+                uint8_t addr = config_buf[i+2u];
+                uint8_t attr = config_buf[i+3u];
+                uint16_t mps = (uint16_t)config_buf[i+4u] | ((uint16_t)config_buf[i+5u] << 8);
+                if((addr & 0x80u) && (attr & 3u) == 3u && (mps & 0x7FFu)){
+                    c->endpoint_address = addr;
+                    c->packet_size = mps & 0x7FFu;
+                    c->interval = config_buf[i+6u] ? config_buf[i+6u] : 1u;
                     return 0;
                 }
             }
-            i+=len;
+            i += len;
         }
     }
     return -1;
 }
 
-static int set_protocol(uint8_t iface){
-    (void)usb_ctrl(0x21u,0x0Bu,0u,iface,0,0,0,1);   /* SET_PROTOCOL(boot) */
-    (void)usb_ctrl(0x21u,0x0Au,0u,iface,0,0,0,1);   /* SET_IDLE */
-    return 0;
-}
+/* ------------------------------------------------------------------ */
+/*  Interrupt endpoint                                                 */
+/* ------------------------------------------------------------------ */
 
-static uint32_t interval_value(uint32_t v){
-    if(!v)v=1u;
-    if(device_speed>=3u){
-        if(v>16u)v=16u;
-        return v-1u;
+static uint32_t interval_encode(uint32_t v){
+    if(!v) v = 1;
+    if(device_speed >= SPEED_HIGH){
+        /* High/Super speed: exponent from bInterval directly */
+        if(v > 16u) v = 16u;
+        return v - 1u;
     }
-    uint32_t microframes=v*8u;
-    if(microframes<8u)microframes=8u;
-    if(microframes>1024u)microframes=1024u;
-    uint32_t e=3u;
-    while(e<10u && (1u<<(e+1u))<=microframes)++e;
+    /* Full/Low speed: 8 microframes per frame, encode as exponent */
+    uint32_t uf = v * 8u;
+    if(uf < 8u) uf = 8u;
+    if(uf > 1024u) uf = 1024u;
+    uint32_t e = 3u;
+    while(e < 10u && (1u << (e + 1u)) <= uf) ++e;
     return e;
 }
 
-/*
- * Fill an interrupt IN endpoint context (DCI = endpoint_id).
- * Dword 1: EP type 7 (Interrupt IN) + MPS   ← matches Linux ep_info2
- * Dword 0: Interval goes here for the *device* side... but for the Input
- *          Context on xHCI, Interval is dword 0 bits 23:16 for USB 3.x
- *          and dword 0 bits 23:16 for USB 2.x as an exponent or microframe
- *          count. Linux writes it to ep_info (dword 0).
- *
- * Wait — Linux's xhci_endpoint_init() puts interval in ep_info (dword 0)
- * bits 23:16 via EP_INTERVAL(). And EP type + MPS in ep_info2 (dword 1).
- * Same rule as EP0.
- */
-static void fill_intr_ep(void *in_ctx){
-    uint32_t *e=(uint32_t*)ctx_ep(in_ctx,endpoint_id);
-    zero_mem(e,ctx_size);
-    e[0]=(endpoint_interval&0xFFu)<<16;    /* Interval in dword 0 bits 23:16 */
-    e[1]=(7u<<3)|((endpoint_packet&0xFFFFu)<<16);   /* Interrupt IN + MPS */
-    qset(e,2u,(uint64_t)(uintptr_t)intr_ring|(intr_cycle?1u:0u));
-    e[4]=endpoint_packet&0xFFFFu;
-}
+static int cmd_configure_hid(hid_candidate_t *c){
+    uint32_t n = c->endpoint_address & 0x0Fu;
+    if(!n || !(c->endpoint_address & 0x80u)) return -1;
 
-static int configure_mouse(hid_candidate_t *c){
-    uint32_t n=c->endpoint_address&0x0Fu;
-    if(!n||(c->endpoint_address&0x80u)==0)return -1;
-    endpoint_id=n*2u+1u;
-    if(endpoint_id>=32u)return -1;
-    endpoint_packet=c->packet_size;
-    if(endpoint_packet>1024u)endpoint_packet=1024u;
-    endpoint_interval=interval_value(c->interval);
+    endpoint_id = n * 2u + 1u;      /* IN endpoints are odd DCIs */
+    if(endpoint_id >= 32u) return -1;
 
-    zero_mem(in_ctx,PAGE_SIZE);
-    ((uint32_t*)in_ctx)[1]=1u|(1u<<endpoint_id);   /* Add: Slot | EP */
-    fill_slot(in_ctx,endpoint_id);
-    fill_intr_ep(in_ctx);
+    endpoint_packet = c->packet_size;
+    if(endpoint_packet > 1024u) endpoint_packet = 1024u;
+    endpoint_interval = interval_encode(c->interval);
 
-    submit_cmd(TRB_CONFIGURE_EP,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
-    return wait_cmd(slot_id);
-}
+    zero_mem(in_ctx, PAGE_SIZE);
+    ((uint32_t*)in_ctx)[1] = 1u | (1u << endpoint_id);
+    fill_slot_context(in_slot(), endpoint_id);
 
-static void advance_intr(void){
-    ++intr_index;
-    if(intr_index>=RING_TRBS-1u){link_trb(intr_ring,intr_cycle);intr_index=0;intr_cycle^=1u;}
+    uint64_t deq = (uint64_t)(uintptr_t)intr_ring | (intr_cycle ? 1ull : 0ull);
+    fill_ep_context(in_ep(endpoint_id), 7u, endpoint_packet,
+                    endpoint_interval, deq, endpoint_packet);
+
+    cmd_submit(TRB_CONFIGURE_EP, (uint64_t)(uintptr_t)in_ctx, slot_id << 24);
+    return cmd_wait(slot_id);
 }
 
 static int submit_report(void){
-    if(report_pending)return 0;
-    report_length=endpoint_packet;
-    if(report_length<3u)report_length=3u;
-    if(report_length>PAGE_SIZE)report_length=PAGE_SIZE;
-    write_trb(&intr_ring[intr_index],(uint64_t)(uintptr_t)report_buf,
-              report_length&0x1FFFFu,TRB_NORMAL,TRB_IOC,intr_cycle);
-    advance_intr();
+    if(report_pending) return 0;
+    report_length = endpoint_packet;
+    if(report_length < 3u) report_length = 3u;
+    if(report_length > PAGE_SIZE) report_length = PAGE_SIZE;
+
+    trb_t *t = &intr_ring[intr_index];
+    t->lo = (uint32_t)(uintptr_t)report_buf;
+    t->hi = (uint32_t)((uint64_t)(uintptr_t)report_buf >> 32);
+    t->status = report_length & 0x1FFFFu;
+    t->control = (TRB_NORMAL << 10) | TRB_IOC | (intr_cycle ? TRB_CYCLE : 0u);
+
+    ++intr_index;
+    if(intr_index >= RING_TRBS-1u){ link_trb(intr_ring, intr_cycle); intr_index=0; intr_cycle^=1u; }
+
     dma_wmb();
-    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
-    report_pending=1u;
+    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT + db_base + slot_id*4u) = endpoint_id;
+    report_pending = 1u;
     ++diag_transfer_submitted;
     return 0;
 }
 
-static int try_enumerate(uint32_t p){
-    uint32_t po=op_base+PORT_BASE+(p-1u)*PORT_STRIDE;
-    uint32_t ps=r32(po);
-    if(!(ps&PORT_CCS))return -1;
+/* ------------------------------------------------------------------ */
+/*  Port power + scan                                                  */
+/* ------------------------------------------------------------------ */
 
-    uint32_t speed_field=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
-    int is_usb3=(speed_field>=4u);
+static void port_enable_power(void){
+    if(!ppc_enabled) return;
+    for(uint32_t p=1;p<=max_ports;++p){
+        uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
+        uint32_t ps = r32(po);
+        if(!(ps & PS_PP)){
+            /* Clear stale change bits, then set PP */
+            uint32_t chg = ps & PS_CHANGE_BITS;
+            if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
+            ps = r32(po);
+            w32(po, (ps & ~PS_CHANGE_BITS & ~PS_PP) | PS_PP | (ps & PS_CHANGE_BITS));
+        }
+    }
+    xhci_delay_ms(20u);
+}
 
-    uint32_t stale=ps&PORT_CHANGE;
-    if(stale) w32(po,(ps&PORT_NEUTRAL)|stale);
+/* Reset port. Returns 0 on success, -1 on failure. */
+static int port_reset(uint32_t p){
+    uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
+    uint32_t ps = r32(po);
+    if(!(ps & PS_CCS)) return -1;
 
-    if(is_usb3)
-        w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_WPR|PORT_LINK_STROBE);
-    else
-        w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_PR);
+    uint8_t proto = port_protocol(p);
+    int is_usb3 = (proto == PROTO_USB3);
+    /* Fallback if no protocol info: use current speed */
+    if(proto == 0){
+        uint32_t sp = (ps & PS_SPEED_MASK) >> PS_SPEED_SHIFT;
+        is_usb3 = (sp >= SPEED_SUPER);
+    }
+
+    /* Clear stale change bits */
+    uint32_t chg = ps & PS_CHANGE_BITS;
+    if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
+
+    /* Request reset */
+    ps = r32(po);
+    if(is_usb3){
+        w32(po, (ps & ~(PS_PLS_MASK|PS_CHANGE_BITS|PS_PR)) | PS_PP | PS_WPR | PS_LWS);
+    } else {
+        w32(po, (ps & ~(PS_PLS_MASK|PS_CHANGE_BITS|PS_WPR|PS_LWS)) | PS_PP | PS_PR);
+    }
     (void)r32(po);
-    xhci_delay_ms(is_usb3?100u:50u);
+    xhci_delay_ms(is_usb3 ? 100u : 50u);
 
-    int reset=0;
     for(uint32_t n=0;n<10000000u;++n){
-        uint32_t q=r32(po);
-        uint32_t qpls=(q>>5)&0xFu;
+        uint32_t q = r32(po);
+        uint32_t pls = q & PS_PLS_MASK;
         if(is_usb3){
-            if(!(q&PORT_WPR) && qpls==0u && (q&PORT_CCS)){reset=1;break;}
-        }else{
-            if(!(q&PORT_PR) && (q&PORT_CCS)){reset=1;break;}
+            if(!(q & PS_WPR) && pls == PS_PLS_U0 && (q & PS_CCS)) return 0;
+        } else {
+            if(!(q & PS_PR) && (q & PS_CCS)) return 0;
         }
         __asm__ volatile("pause");
     }
-    if(!reset)return -1;
 
-    ps=r32(po);
-    if(!(ps&PORT_CCS)) return -1;
-    speed_field=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
-    is_usb3=(speed_field>=4u);
-    uint32_t pls=(ps>>5)&0xFu;
-
-    if(is_usb3 && (pls==PLS_POLLING || pls==PLS_COMPLIANCE)){
-        w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_WPR|PORT_LINK_STROBE);
+    /* Compliance / Polling recovery */
+    ps = r32(po);
+    if(is_usb3 && (ps & PS_PLS_MASK) != PS_PLS_U0){
+        w32(po, (ps & ~(PS_PLS_MASK|PS_CHANGE_BITS)) | PS_PP | PS_WPR | PS_LWS);
         xhci_delay_ms(100u);
         for(uint32_t n=0;n<5000000u;++n){
-            ps=r32(po);
-            pls=(ps>>5)&0xFu;
-            if(!(ps&PORT_WPR) && pls==0u)break;
+            ps = r32(po);
+            if(!(ps & PS_WPR) && (ps & PS_PLS_MASK) == PS_PLS_U0) return 0;
             __asm__ volatile("pause");
         }
     }
+    return -1;
+}
 
-    int enabled = is_usb3 ? (((ps&PORT_CCS)!=0u)&&(pls==PLS_U0))
-                          : (((ps&PORT_CCS)!=0u)&&((ps&PORT_PED)!=0u));
-    if(!enabled){
-        xhci_delay_ms(20u);
-        ps=r32(po);
-        pls=(ps>>5)&0xFu;
-        speed_field=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
-        is_usb3=(speed_field>=4u);
-        enabled = is_usb3 ? (((ps&PORT_CCS)!=0u)&&(pls==PLS_U0))
-                          : (((ps&PORT_CCS)!=0u)&&((ps&PORT_PED)!=0u));
-        if(!enabled){
-            usb_log("[ USB ] port connected but not enabled\n");
-            return -1;
-        }
-    }
+static void clear_change_bits(uint32_t p, uint32_t ps){
+    uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
+    uint32_t chg = ps & PS_CHANGE_BITS;
+    if(chg) w32(po, (ps & ~PS_CHANGE_BITS) | chg);
+}
 
-    uint32_t change=ps&PORT_CHANGE;
-    if(change) w32(po,(ps&PORT_NEUTRAL)|change);
-    ps=r32(po);
-    diag_last_portsc=ps;
-    port_number=p;
-    device_speed=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
-    if(!device_speed)return -1;
+/* ------------------------------------------------------------------ */
+/*  Enumerate one port                                                 */
+/* ------------------------------------------------------------------ */
 
-    ep0_mps=ep0_default_mps();
+static int enumerate_port(uint32_t p){
+    uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
+    uint32_t ps = r32(po);
+    if(!(ps & PS_CCS)) return -1;
 
-    if(enable_slot())return -1;
-    xhci_delay_ms(5u);
-
-    if(address_device(1))return -1;
-    xhci_delay_ms(10u);
-
-    if(get_device())return -1;
-
-    hid_candidate_t c;
-    if(find_hid(&c)||!c.config_value)return -1;
-
-    int cfg_rc=-1;
-    for(uint32_t i=0;i<3u;++i){
-        cfg_rc=usb_ctrl(0,9u,c.config_value,0,0,0,0,1);
-        if(cfg_rc==0)break;
-        xhci_delay_ms(20u);
-        ep0_index=0;ep0_cycle=1;reset_ep0_ring();
-    }
-    if(cfg_rc)return -1;
-
-    if(configure_mouse(&c))return -1;
-    if(set_protocol(c.interface_number))return -1;
-
-    endpoint_packet=c.packet_size;
-    if(endpoint_packet>PAGE_SIZE)endpoint_packet=PAGE_SIZE;
-
-    usb_log("[ USB ] HID mouse interface ");
-    usb_log_dec(c.interface_number);
-    usb_log(" endpoint ");usb_log_hex(c.endpoint_address);
-    usb_log(" packet ");usb_log_dec(endpoint_packet);
-    usb_log(" interval ");usb_log_dec(c.interval);
+    uint8_t proto = port_protocol(p);
+    usb_log("[ USB ] port "); usb_log_dec(p);
+    usb_log(" proto="); usb_log_dec(proto ? proto : 99u);
+    usb_log(" PORTSC=0x"); usb_log_hex(ps);
     usb_log_nl();
 
-    report_pending=0;report_length=0;report_seen=0u;
-    if(submit_report())return -1;
+    if(port_reset(p)) return -1;
 
-    diag_stage="HID REPORT WAIT";
-    ready=1u;diag_init_ok=1u;
-    debug_write("LIONOS:USB-MOUSE-READY\n");
-    usb_log("[ OK ] xHCI HID mouse ready on root port ");
+    ps = r32(po);
+    if(!(ps & PS_CCS)) return -1;
+
+    clear_change_bits(p, ps);
+    ps = r32(po);
+    diag_last_portsc = ps;
+    port_number = p;
+    device_speed = (ps & PS_SPEED_MASK) >> PS_SPEED_SHIFT;
+    if(!device_speed) return -1;
+
+    usb_log("[ USB ] speed="); usb_log_dec(device_speed); usb_log_nl();
+
+    ep0_mps = ep0_default_mps();
+
+    if(cmd_enable_slot()) return -1;
+    xhci_delay_ms(5u);
+
+    if(cmd_address_device(1)) return -1;    /* BSR=1 */
+    xhci_delay_ms(10u);
+
+    if(read_device_descriptor()) return -1;
+
+    hid_candidate_t c;
+    if(find_hid(&c) || !c.config_value) return -1;
+
+    /* SET_CONFIGURATION */
+    int rc = -1;
+    for(uint32_t i=0;i<3;++i){
+        rc = ctrl(0u, 9u, c.config_value, 0, 0, 0, 0, 1);
+        if(rc == 0) break;
+        xhci_delay_ms(20u);
+        ep0_index = 0; ep0_cycle = 1;
+        cmd_reset_ep0();
+    }
+    if(rc) return -1;
+
+    if(cmd_configure_hid(&c)) return -1;
+
+    /* SET_PROTOCOL(boot) and SET_IDLE — ignore failures */
+    (void)ctrl(0x21u, 0x0Bu, 0u, c.interface_number, 0, 0, 0, 1);
+    (void)ctrl(0x21u, 0x0Au, 0u, c.interface_number, 0, 0, 0, 1);
+
+    endpoint_packet = c.packet_size;
+    if(endpoint_packet > PAGE_SIZE) endpoint_packet = PAGE_SIZE;
+
+    usb_log("[ USB ] mouse: iface="); usb_log_dec(c.interface_number);
+    usb_log(" ep=0x"); usb_log_hex(c.endpoint_address);
+    usb_log(" pkt="); usb_log_dec(endpoint_packet);
+    usb_log(" int="); usb_log_dec(c.interval);
+    usb_log_nl();
+
+    report_pending = 0;
+    report_length = 0;
+    report_seen = 0;
+
+    if(submit_report()) return -1;
+
+    diag_stage = "HID REPORT WAIT";
+    ready = 1;
+    diag_init_ok = 1;
+    usb_log("[ OK ] xHCI HID mouse ready on port ");
     usb_log_dec(port_number);
     usb_log_nl();
     return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Public API — init                                                  */
+/* ------------------------------------------------------------------ */
+
 int xhci_mouse_init(void){
-    if(ready)return 0;
-    diag_stage="SCANNING PCI";
-    diag_controller_found=0u;diag_init_ok=0u;
-    diag_transfer_submitted=0u;diag_event_count=0u;diag_success_count=0u;
-    diag_error_count=0u;diag_report_count=0u;
-    diag_last_cc=0u;diag_last_portsc=0u;diag_last_report_len=0u;
-    diag_vid=0u;diag_pid=0u;
-    diag_device_class=0u;diag_device_subclass=0u;diag_device_protocol=0u;
-    diag_hid_iface=0xFFu;diag_hid_subclass=0u;diag_hid_protocol=0u;
-    diag_hid_endpoint=0u;diag_hid_ep_type=0u;diag_hid_packet=0u;diag_hid_interval=0u;
-    diag_interface_count=0u;diag_endpoint_count=0u;diag_hid_count=0u;
+    if(ready) return 0;
 
-    pci_xhci_t d;
-    if(find_xhci(&d))return usb_fail("PCI");
-    diag_controller_found=1u;
-    diag_stage="xHCI FOUND";
+    /* Reset diagnostics only at first call */
+    diag_stage = "SCANNING PCI";
+    diag_controller_found = 0;
+    diag_init_ok = 0;
+    diag_transfer_submitted = diag_event_count = 0;
+    diag_success_count = diag_error_count = diag_report_count = 0;
+    diag_last_cc = diag_last_portsc = diag_last_report_len = 0;
+    diag_vid = diag_pid = 0;
+    diag_device_class = diag_device_subclass = diag_device_protocol = 0;
+    diag_hid_iface = 0xFFu;
+    diag_hid_subclass = diag_hid_protocol = 0;
+    diag_hid_endpoint = diag_hid_ep_type = 0;
+    diag_hid_packet = 0;
+    diag_hid_interval = 0;
+    diag_interface_count = diag_endpoint_count = diag_hid_count = 0;
+    zero_mem(diag_last_report, 8);
+
+    pci_dev_t d;
+    if(pci_find_xhci(&d)) return usb_fail("PCI");
+    diag_controller_found = 1;
+    diag_stage = "xHCI FOUND";
+
     usb_log("[ USB ] xHCI controller ");
-    console_write_hex(d.vendor);console_putc(':');console_write_hex(d.device);console_putc('\n');
+    console_write_hex(d.vendor); console_putc(':');
+    console_write_hex(d.device); console_putc('\n');
 
-    uint32_t pcicmd=pci_r32(d.bus,d.slot,d.function,PCI_COMMAND);
-    pcicmd|=0x6u;
-    pci_w32(d.bus,d.slot,d.function,PCI_COMMAND,pcicmd);
+    uint32_t pcicmd = pci_r32(d.bus, d.slot, d.function, PCI_COMMAND);
+    pcicmd |= 0x6u;   /* Memory space + bus master */
+    pci_w32(d.bus, d.slot, d.function, PCI_COMMAND, pcicmd);
 
-    diag_stage="MAPPING MMIO";
-    if(map_mmio(d.bar0))return usb_fail("MMIO");
+    diag_stage = "MAPPING MMIO";
+    if(map_mmio(d.bar0)) return usb_fail("MMIO");
 
-    cap_len=r32(CAPLENGTH)&0xFFu;
-    hci_version=(r32(CAPLENGTH)>>16)&0xFFFFu;
-    if(cap_len<0x20u)return usb_fail("CAP");
+    cap_len = r32(CAP_CAPLENGTH) & 0xFFu;
+    hci_version = (r32(CAP_CAPLENGTH) >> 16) & 0xFFFFu;
+    if(cap_len < 0x20u) return usb_fail("CAP");
 
-    op_base=cap_len;
-    db_base=r32(DBOFF)&~3u;
-    rt_base=r32(RTSOFF)&~0x1Fu;
-    uint32_t hcs1=r32(HCSPARAMS1);
-    max_slots=hcs1&0xFFu;
-    max_ports=(hcs1>>24)&0xFFu;
-    ctx_size=(r32(HCCPARAMS1)&4u)?64u:32u;
-    if(!max_slots||!max_ports||(r32(op_base+PAGESIZE)&1u)==0)return usb_fail("PARAMS");
+    op_base = cap_len;
+    db_base = r32(CAP_DBOFF) & ~3u;
+    rt_base = r32(CAP_RTSOFF) & ~0x1Fu;
 
-    usb_log("[ USB ] xHCI version ");console_write_hex(hci_version);
-    usb_log(" / context ");console_write_dec(ctx_size);
-    usb_log(" / ports ");console_write_dec(max_ports);usb_log_nl();
+    uint32_t hcs1 = r32(CAP_HCSPARAMS1);
+    max_slots = hcs1 & 0xFFu;
+    max_ports = (hcs1 >> 24) & 0xFFu;
+    uint32_t hcc1 = r32(CAP_HCCPARAMS1);
+    ctx_size = (hcc1 & 4u) ? 64u : 32u;
+    ppc_enabled = (hcc1 & 8u) ? 1u : 0u;    /* PPC bit */
 
-    diag_stage="FIRMWARE HANDOFF";
-    if(legacy_handoff())return usb_fail("LEGACY");
-    diag_stage="RESETTING xHCI";
-    if(reset_controller())return usb_fail("RESET");
-    diag_stage="ALLOCATING DMA";
-    if(alloc_memory())return usb_fail("ALLOC");
-    init_rings();
-    diag_stage="STARTING xHCI";
-    if(run_controller())return usb_fail("RUN");
+    if(!max_slots || !max_ports || max_ports > MAX_PORTS)
+        return usb_fail("PARAMS");
+    if((r32(op_base + OP_PAGESIZE) & 1u) == 0u)
+        return usb_fail("PAGESIZE");
 
-    {
-        submit_cmd(TRB_NOOP_CMD,0u,0u);
-        if(wait_cmd(0u))return usb_fail("NOOP-CMD");
+    usb_log("[ USB ] xHCI ver "); console_write_hex(hci_version);
+    usb_log(" / ctx "); console_write_dec(ctx_size);
+    usb_log(" / ports "); console_write_dec(max_ports);
+    usb_log(" / ppc "); console_write_dec(ppc_enabled);
+    usb_log_nl();
+
+    diag_stage = "FIRMWARE HANDOFF";
+    if(legacy_handoff()) return usb_fail("LEGACY");
+
+    diag_stage = "RESETTING xHCI";
+    if(hc_reset()) return usb_fail("RESET");
+
+    diag_stage = "ALLOCATING DMA";
+    if(alloc_memory()) return usb_fail("ALLOC");
+
+    diag_stage = "PARSING PROTOCOLS";
+    parse_usb_protocols();
+    for(uint32_t i=0;i<protocol_count;++i){
+        usb_log("[ USB ] proto ");
+        usb_log_dec(protocols[i].major); usb_log(".");
+        usb_log_dec(protocols[i].minor); usb_log(" ports=");
+        usb_log_dec(protocols[i].port_count); usb_log(" off=");
+        usb_log_dec(protocols[i].port_offset); usb_log_nl();
     }
 
-    uint32_t saw_connected=0u;
-    uint32_t saw_reset_timeout=0u;
+    diag_stage = "SETUP RINGS";
+    setup_rings();
 
+    diag_stage = "STARTING xHCI";
+    if(start_controller()) return usb_fail("RUN");
+
+    /* No-Op command verifies the command ring is live */
+    diag_stage = "NOOP VERIFY";
+    cmd_submit(TRB_NOOP_CMD, 0, 0);
+    if(cmd_wait(0)) return usb_fail("NOOP-CMD");
+
+    /* Enable port power if firmware didn't */
+    diag_stage = "PORT POWER";
+    port_enable_power();
+
+    /* Scan every port */
+    uint32_t saw_ccs = 0;
     for(uint32_t p=1;p<=max_ports;++p){
-        uint32_t po=op_base+PORT_BASE+(p-1u)*PORT_STRIDE;
-        uint32_t ps=r32(po);
-        diag_last_portsc=ps;
-        if(!(ps&PORT_CCS))continue;
-        saw_connected=1u;
-        diag_stage="USB PORT CONNECTED";
+        uint32_t po = op_base + OP_PORT_BASE + (p-1u)*OP_PORT_STRIDE;
+        uint32_t ps = r32(po);
+        diag_last_portsc = ps;
+        if(!(ps & PS_CCS)) continue;
+        saw_ccs = 1;
+        diag_stage = "USB PORT CONNECTED";
 
-        for(uint32_t attempt=0;attempt<3u;++attempt){
-            usb_log("[ USB ] enum attempt ");usb_log_dec(attempt);
-            usb_log(" port ");usb_log_dec(p);usb_log_nl();
+        usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
+        usb_log(" ---\n");
 
-            int r=try_enumerate(p);
-            if(r==0)return 0;
-
-            usb_log("[ USB ] enum failed, resetting port and retrying\n");
-            ps=r32(po);
-            uint32_t speed_field=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
-            int is_usb3=(speed_field>=4u);
-            uint32_t stale=ps&PORT_CHANGE;
-            if(stale) w32(po,(ps&PORT_NEUTRAL)|stale);
-            if(is_usb3)
-                w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_WPR|PORT_LINK_STROBE);
-            else
-                w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_PR);
-            xhci_delay_ms(is_usb3?200u:150u);
-            for(uint32_t n=0;n<10000000u;++n){
-                uint32_t q=r32(po);
-                if(is_usb3){
-                    if(!(q&PORT_WPR) && ((q>>5)&0xFu)==0u)break;
-                }else{
-                    if(!(q&PORT_PR))break;
-                }
-                __asm__ volatile("pause");
-            }
-        }
+        if(enumerate_port(p) == 0) return 0;
+        usb_log("[ USB ] port "); usb_log_dec(p);
+        usb_log(" failed, moving on\n");
     }
 
-    if(saw_reset_timeout)return usb_fail("PORT-RESET");
-    if(!saw_connected)return usb_fail("NO-PORT");
+    if(!saw_ccs) return usb_fail("NO-PORT");
     return usb_fail("NO-HID-MOUSE");
 }
 
-int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
-    if(dx) *dx=0;
-    if(dy) *dy=0;
-    if(buttons) *buttons=0;
-    if(!ready)return 0;
+/* ------------------------------------------------------------------ */
+/*  Public API — poll                                                  */
+/* ------------------------------------------------------------------ */
+
+int xhci_mouse_poll(int32_t *dx, int32_t *dy, uint8_t *buttons){
+    if(dx) *dx = 0;
+    if(dy) *dy = 0;
+    if(buttons) *buttons = 0;
+    if(!ready) return 0;
 
     trb_t e;
-    while(next_event(&e)==0){
-        if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVENT)continue;
-        if(((e.control>>24)&0xFFu)!=slot_id||((e.control>>16)&0x1Fu)!=endpoint_id)continue;
+    while(next_event(&e) == 0){
+        if(((e.control >> 10) & 0x3Fu) != TRB_TRANSFER_EVT) continue;
+        if(((e.control >> 24) & 0xFFu) != slot_id) continue;
+        if(((e.control >> 16) & 0x1Fu) != endpoint_id) continue;
 
-        report_pending=0;++diag_event_count;
-        uint32_t cc=((e.status>>24)&0xFFu);diag_last_cc=cc;
-        if(cc==CC_SUCCESS||cc==13u){   /* 13 = Short Packet */
-            if(report_length>=3u){
-                uint32_t residual=e.status&0xFFFFFFu;
-                uint32_t actual=report_length>residual?report_length-residual:0u;
-                if(actual>PAGE_SIZE)actual=PAGE_SIZE;
-                diag_last_report_len=actual>8u?8u:actual;
-                for(uint32_t i=0u;i<8u;++i)
-                    diag_last_report[i]=(i<diag_last_report_len)?report_buf[i]:0u;
-                ++diag_report_count;++diag_success_count;
+        report_pending = 0;
+        ++diag_event_count;
+        uint32_t cc = (e.status >> 24) & 0xFFu;
+        diag_last_cc = cc;
+
+        if(cc == CC_SUCCESS || cc == CC_SHORT_PKT){
+            if(report_length >= 3u){
+                uint32_t residual = e.status & 0xFFFFFFu;
+                uint32_t actual = report_length > residual ? report_length - residual : 0u;
+                if(actual > PAGE_SIZE) actual = PAGE_SIZE;
+                diag_last_report_len = actual > 8u ? 8u : actual;
+                for(uint32_t i=0;i<8;++i)
+                    diag_last_report[i] = (i < diag_last_report_len) ? report_buf[i] : 0u;
+                ++diag_report_count;
+                ++diag_success_count;
                 if(!report_seen){
-                    report_seen=1u;
+                    report_seen = 1;
                     usb_log("[ OK ] HID mouse reports active\n");
                 }
-                if(buttons)*buttons=report_buf[0]&7u;
-                if(dx)*dx=(int32_t)(int8_t)report_buf[1];
-                if(dy)*dy=-(int32_t)(int8_t)report_buf[2];
+                if(buttons) *buttons = report_buf[0] & 7u;
+                if(dx) *dx = (int32_t)(int8_t)report_buf[1];
+                if(dy) *dy = -(int32_t)(int8_t)report_buf[2];
             }
-            (void)submit_report();
+            submit_report();
             return 1;
         }
         ++diag_error_count;
-        (void)submit_report();
+        submit_report();
         return -1;
     }
     return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Public API — status (read-only, safe to call any time)             */
+/* ------------------------------------------------------------------ */
+
 int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
-    if(!out)return -1;
-    out->controller_found=diag_controller_found;out->initialized=diag_init_ok;out->ready=ready;
-    out->port=port_number;out->speed=device_speed;out->slot=slot_id;out->endpoint_id=endpoint_id;
-    out->endpoint_address=endpoint_id?(((endpoint_id-1u)/2u)|0x80u):0u;
-    out->packet_size=endpoint_packet;out->interval=endpoint_interval;
-    out->vid=diag_vid;out->pid=diag_pid;
-    out->device_class=diag_device_class;out->device_subclass=diag_device_subclass;out->device_protocol=diag_device_protocol;
-    out->hid_iface=diag_hid_iface;out->hid_subclass=diag_hid_subclass;out->hid_protocol=diag_hid_protocol;
-    out->hid_endpoint=diag_hid_endpoint;out->hid_ep_type=diag_hid_ep_type;
-    out->hid_packet=diag_hid_packet;out->hid_interval=diag_hid_interval;
-    out->interfaces=diag_interface_count;out->endpoints=diag_endpoint_count;out->hid_interfaces=diag_hid_count;
-    out->submitted=diag_transfer_submitted;out->events=diag_event_count;
-    out->successes=diag_success_count;out->errors=diag_error_count;out->reports=diag_report_count;
-    out->last_completion=diag_last_cc;
-    out->portsc=diag_last_portsc;out->stage=diag_stage;out->report_len=diag_last_report_len;
-    for(uint32_t i=0u;i<8u;++i)out->report[i]=diag_last_report[i];
-    if(diag_controller_found){
-        out->usb_status=r32(op_base+USBSTS);
-        out->usb_command=r32(op_base+USBCMD);
+    if(!out) return -1;
+    out->controller_found = diag_controller_found;
+    out->initialized = diag_init_ok;
+    out->ready = ready;
+    out->port = port_number;
+    out->speed = device_speed;
+    out->slot = slot_id;
+    out->endpoint_id = endpoint_id;
+    out->endpoint_address = endpoint_id ? (((endpoint_id - 1u) / 2u) | 0x80u) : 0u;
+    out->packet_size = endpoint_packet;
+    out->interval = endpoint_interval;
+    out->vid = diag_vid;
+    out->pid = diag_pid;
+    out->device_class = diag_device_class;
+    out->device_subclass = diag_device_subclass;
+    out->device_protocol = diag_device_protocol;
+    out->hid_iface = diag_hid_iface;
+    out->hid_subclass = diag_hid_subclass;
+    out->hid_protocol = diag_hid_protocol;
+    out->hid_endpoint = diag_hid_endpoint;
+    out->hid_ep_type = diag_hid_ep_type;
+    out->hid_packet = diag_hid_packet;
+    out->hid_interval = diag_hid_interval;
+    out->interfaces = diag_interface_count;
+    out->endpoints = diag_endpoint_count;
+    out->hid_interfaces = diag_hid_count;
+    out->submitted = diag_transfer_submitted;
+    out->events = diag_event_count;
+    out->successes = diag_success_count;
+    out->errors = diag_error_count;
+    out->reports = diag_report_count;
+    out->last_completion = diag_last_cc;
+    out->portsc = diag_last_portsc;
+    out->stage = diag_stage;
+    out->report_len = diag_last_report_len;
+    for(uint32_t i=0;i<8;++i) out->report[i] = diag_last_report[i];
+
+    /* Only read USBSTS/USBCMD if MMIO was successfully mapped */
+    if(diag_controller_found && op_base){
+        out->usb_status = r32(op_base + OP_USBSTS);
+        out->usb_command = r32(op_base + OP_USBCMD);
     } else {
-        out->usb_status=0u;out->usb_command=0u;
+        out->usb_status = 0;
+        out->usb_command = 0;
     }
     return 0;
 }
