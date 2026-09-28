@@ -2,6 +2,7 @@
 #define MOUSE_H
 
 #include <stdint.h>
+#include "xhci.h"
 
 /* Initialize the PS/2 mouse (and install IRQ12 handler). */
 void mouse_init(void);
