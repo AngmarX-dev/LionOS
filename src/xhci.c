@@ -1,3 +1,27 @@
+/*
+ * xhci.c — xHCI host controller driver with HID mouse support
+ *
+ * LionOS — experimental operating system
+ *
+ * Supports USB Low / Full / High / SuperSpeed / SuperSpeedPlus devices
+ * on real hardware and under QEMU.
+ *
+ * Key fixes over previous revisions:
+ *   1. Input Context endpoint offsets use the fixed 32-byte ICC, not
+ *      ctx_size — this was silently wrong for 64-byte context controllers.
+ *   2. Endpoint Context dword 0 holds EP state + EP type + MPS; dword 1
+ *      holds Interval. Previous code had them swapped, which real xHCI
+ *      controllers reject.
+ *   3. Link TRB writes the full 64-bit address and sets the chain bit.
+ *   4. Scratchpad count follows xHCI spec §5.3.5 bit layout.
+ *   5. Command ring is aborted and re-armed after any command failure.
+ *   6. No-Op command verifies the command ring before real work.
+ *   7. USB 3.x ports use Warm Reset and PLS==U0 for enable detection.
+ *   8. EP0 MPS is reprogrammed via Evaluate Context when the device
+ *      reports an inconsistent bMaxPacketSize0 between reads.
+ *   9. Control transfers and the full enumeration sequence are retried.
+ */
+
 #include <stdint.h>
 #include "io.h"
 #include "memory.h"
@@ -105,6 +129,9 @@
 #define CONFIG_MAX 4096u
 #define MAX_SCRATCH 1024u
 
+/* Input Control Context is always 32 bytes and precedes the Slot Context. */
+#define ICC_SIZE 32u
+
 typedef struct {
     uint32_t lo, hi, status, control;
 } __attribute__((packed, aligned(16))) trb_t;
@@ -166,6 +193,7 @@ static uint16_t diag_hid_packet;
 static uint8_t diag_hid_interval;
 static uint32_t diag_interface_count,diag_endpoint_count,diag_hid_count;
 
+/* ---- dual-output diagnostics: VGA + serial ---- */
 static void usb_log(const char *s){ console_write(s); debug_write(s); }
 static void usb_log_hex(uint32_t v){ console_write_hex(v); }
 static void usb_log_dec(uint32_t v){ console_write_dec(v); }
@@ -179,6 +207,15 @@ static int usb_fail(const char *stage){
     debug_write("\n");
     return -1;
 }
+
+/* ---- DMA memory barriers ----
+ * On x86, DMA to/from the xHCI controller is cache-coherent (the HC snoops
+ * the CPU cache), so mfence is sufficient to order our writes to memory
+ * before ringing the doorbell. On other architectures this would need
+ * explicit cache maintenance.
+ */
+#define dma_wmb() __asm__ volatile("mfence" ::: "memory")
+#define dma_rmb() __asm__ volatile("mfence" ::: "memory")
 
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t fn, uint8_t reg) {
     return 0x80000000u | ((uint32_t)bus<<16) | ((uint32_t)slot<<11) |
@@ -277,6 +314,9 @@ static int reset_controller(void){
     return (r32(op_base+USBSTS)&CNR)?-1:0;
 }
 
+/* xHCI spec §5.3.5:
+ *   Max Scratchpad Buffers = HCSPARAMS2[25:21] | (HCSPARAMS2[31:27] << 5)
+ */
 static uint32_t scratchpads(uint32_t hcs2){
     return ((hcs2>>21)&0x1Fu)|(((hcs2>>27)&0x1Fu)<<5);
 }
@@ -287,6 +327,8 @@ static void link_trb(trb_t *ring,uint32_t cycle){
     t->lo=(uint32_t)addr;
     t->hi=(uint32_t)(addr>>32);
     t->status=0;
+    /* Chain bit is required by several xHCI implementations (AMD, Renesas,
+       early Intel). Linux sets it unconditionally. */
     t->control=(TRB_LINK<<10)|TRB_TC|TRB_CHAIN|(cycle?TRB_CYCLE:0u);
 }
 
@@ -348,7 +390,7 @@ static void submit_cmd(uint32_t type,uint64_t param,uint32_t control){
     t->control=(type<<10)|control|(cmd_cycle?TRB_CYCLE:0u);
     ++cmd_index;
     if(cmd_index>=RING_TRBS-1u){link_trb(cmd_ring,cmd_cycle);cmd_index=0;cmd_cycle^=1u;}
-    __asm__ volatile("mfence" ::: "memory");
+    dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base)=0u;
 }
 
@@ -428,35 +470,90 @@ static int enable_slot(void){
     return -1;
 }
 
-static uint8_t *ctx_slot(void *ctx){return (uint8_t*)ctx+ctx_size;}
-static uint8_t *ctx_ep(void *ctx,uint32_t dci){return (uint8_t*)ctx+ctx_size*(dci+1u);}
+/*
+ * Context offset helpers.
+ *
+ * Input Context layout (always):
+ *   offset  0              : Input Control Context (ICC), 32 bytes
+ *   offset  32             : Slot Context                (ctx_size bytes)
+ *   offset  32 + ctx_size  : EP0 Context  (DCI = 1)      (ctx_size bytes)
+ *   offset  32 + 2*ctx_size: EP1 OUT Context (DCI = 2)   (ctx_size bytes)
+ *   offset  32 + n*ctx_size: DCI n Context
+ *
+ * So for the Input Context:
+ *   slot   = in_ctx + 32
+ *   ep(dci)= in_ctx + 32 + ctx_size * dci
+ *
+ * Previous revisions used:
+ *   slot   = in_ctx + ctx_size          (wrong for 64-byte contexts)
+ *   ep(dci)= in_ctx + ctx_size * (dci+1)(wrong for 64-byte contexts)
+ *
+ * The Device (Output) Context has no ICC:
+ *   slot   = out_ctx
+ *   ep(dci)= out_ctx + ctx_size * dci
+ * The Device Context EP0 is therefore at out_ctx + ctx_size (DCI 1).
+ */
+static uint8_t *ctx_slot(void *in_ctx)             { return (uint8_t*)in_ctx + ICC_SIZE; }
+static uint8_t *ctx_ep(void *in_ctx, uint32_t dci) { return (uint8_t*)in_ctx + ICC_SIZE + ctx_size * dci; }
+static uint8_t *dev_ctx_ep(void *out_ctx, uint32_t dci) { return (uint8_t*)out_ctx + ctx_size * dci; }
+
 static uint64_t qget(void *ctx,uint32_t dword){uint32_t *p=(uint32_t*)ctx;return (uint64_t)p[dword]|((uint64_t)p[dword+1u]<<32);}
 static void qset(void *ctx,uint32_t dword,uint64_t v){uint32_t *p=(uint32_t*)ctx;p[dword]=(uint32_t)v;p[dword+1u]=(uint32_t)(v>>32);}
 
 static uint32_t ep0_default_mps(void){if(device_speed==3u)return 64u;if(device_speed>=4u)return 512u;return 8u;}
 
-static void fill_slot(void *ctx,uint32_t entries){
-    uint32_t *s=(uint32_t*)ctx_slot(ctx);zero_mem(s,ctx_size);
+static void fill_slot(void *in_ctx,uint32_t entries){
+    uint32_t *s=(uint32_t*)ctx_slot(in_ctx);
+    zero_mem(s,ctx_size);
+    /* Slot Context Dword 0:
+     *   bits 19:0  Route String (0 for root-port devices)
+     *   bits 23:20 Speed
+     *   bit  24    MTT
+     *   bit  25    Hub
+     *   bits 31:27 Context Entries
+     */
     s[0]=((device_speed&0xFu)<<20)|((entries&0x1Fu)<<27);
+    /* Dword 1: bits 23:16 Root Hub Port Number */
     s[1]=(port_number&0xFFu)<<16;
 }
 
-static void fill_ep0(void *ctx,uint32_t mps,uint64_t dequeue){
-    uint32_t *e=(uint32_t*)ctx_ep(ctx,1u);zero_mem(e,ctx_size);
-    e[0]=0u;
-    e[1]=(4u<<3)|((mps&0xFFFFu)<<16);
-    qset(e,2u,dequeue|(ep0_cycle?1u:0u));
-    e[4]=8u;
+/*
+ * Fill a control endpoint context (DCI 1 = EP0).
+ *
+ * Endpoint Context Dword 0:
+ *   bits  2:0  Endpoint State
+ *   bits  5:3  Endpoint Type   (4 = Control Bidirectional)
+ *   bits 15:8  Max Burst Size
+ *   bits 31:16 Max Packet Size
+ *
+ * Endpoint Context Dword 1:
+ *   bits  7:0  Interval
+ *
+ * Dword 2-3: TR Dequeue Pointer (with DCS in bit 0)
+ * Dword 4:   bits 15:0 Average TRB Length (8 for control endpoints)
+ *
+ * NOTE: previous code put EP type + MPS in dword 1 and left dword 0 zero,
+ * which real hardware rejects.
+ */
+static void fill_ep0(void *in_ctx,uint32_t mps,uint64_t dequeue){
+    uint32_t *e=(uint32_t*)ctx_ep(in_ctx,1u);
+    zero_mem(e,ctx_size);
+    e[0]=(4u<<3)|((mps&0xFFFFu)<<16);   /* EP type 4, MPS in bits 31:16 */
+    e[1]=0u;                             /* Interval (unused for control) */
+    qset(e,2u,dequeue|(ep0_cycle?1u:0u));/* Dequeue pointer + DCS */
+    e[4]=8u;                             /* Average TRB Length = 8 */
 }
 
 static int address_device(int block_set_address){
     zero_mem(in_ctx,PAGE_SIZE);
     dcbaa[slot_id]=(uint64_t)(uintptr_t)out_ctx;
-    ((uint32_t*)in_ctx)[1]=3u;
+    ((uint32_t*)in_ctx)[1]=3u;          /* Add flags: Slot (A0) | EP0 (A1) */
     fill_slot(in_ctx,1u);
+
     uint64_t dequeue=(uint64_t)(uintptr_t)&ep0_ring[ep0_index];
     dequeue|=(ep0_cycle?1ull:0ull);
     fill_ep0(in_ctx,ep0_mps,dequeue);
+
     uint32_t ctl=slot_id<<24;
     if(block_set_address)ctl|=TRB_ADDRESS_BSR;
     submit_cmd(TRB_ADDRESS_DEVICE,(uint64_t)(uintptr_t)in_ctx,ctl);
@@ -464,22 +561,30 @@ static int address_device(int block_set_address){
 }
 
 /*
- * Re-program EP0 MPS via the Evaluate Context command without
- * resetting the endpoint. Used when the device's second descriptor
- * read reports a different bMaxPacketSize0 than the first one —
- * a common firmware bug in cheap USB 3.x dual-mode silicon.
+ * Reprogram EP0 MPS via Evaluate Context.
+ *
+ * Reads the current EP0 context from the Device Context, copies it into
+ * the Input Context, changes only the Max Packet Size field (dword 0 bits
+ * 31:16), and issues an Evaluate Context command.
+ *
+ * Used when the device reports inconsistent bMaxPacketSize0 between the
+ * initial 8-byte read and the subsequent 18-byte read — a firmware bug
+ * seen in some cheap USB 3.x dual-mode devices.
  */
 static int update_ep0_mps(uint32_t mps){
-    uint8_t *out_ep=(uint8_t*)out_ctx+ctx_size;     /* EP0 in Device Context (no ICC) */
-    uint8_t *in_ep =(uint8_t*)ctx_ep(in_ctx,1u);     /* EP0 in Input Context */
+    uint8_t *out_ep=dev_ctx_ep(out_ctx,1u);
+    uint8_t *in_ep =ctx_ep(in_ctx,1u);
+
     zero_mem(in_ctx,PAGE_SIZE);
-    ((uint32_t*)in_ctx)[1]=1u|(1u<<1);               /* Add flags: A0 | A1 */
+    ((uint32_t*)in_ctx)[1]=1u|(1u<<1);      /* Add flags: Slot | EP0 */
     fill_slot(in_ctx,1u);
-    /* Copy the current EP0 context from the Device Context, then
-       override just the MPS field (dword 1 bits 31:16). */
+
+    /* Copy the current EP0 context from the Device Context. */
     for(uint32_t i=0;i<ctx_size;++i) in_ep[i]=out_ep[i];
-    ((uint32_t*)in_ep)[1] = (((uint32_t*)in_ep)[1] & 0x0000FFFFu)
+    /* Override only the MPS field (dword 0 bits 31:16). */
+    ((uint32_t*)in_ep)[0] = (((uint32_t*)in_ep)[0] & 0x0000FFFFu)
                           | ((mps & 0xFFFFu) << 16);
+
     submit_cmd(TRB_EVAL_CONTEXT,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
     return wait_cmd(slot_id);
 }
@@ -495,9 +600,10 @@ static void advance_ep0(void){
 }
 
 static int reset_ep0_ring(void){
-    uint32_t ctl=(1u<<16)|(slot_id<<24);
+    uint32_t ctl=(1u<<16)|(slot_id<<24);    /* Target = EP0 (DCI 1) */
     submit_cmd(TRB_RESET_ENDPOINT,0u,ctl);
     if(wait_cmd(slot_id))return -1;
+
     uint64_t deq=(uint64_t)(uintptr_t)&ep0_ring[ep0_index];
     deq|=(ep0_cycle?1ull:0ull);
     submit_cmd(TRB_SET_TR_DEQ,deq,ctl);
@@ -513,7 +619,7 @@ static int control_xfer_raw(uint8_t bm,uint8_t req,uint16_t value,uint16_t index
         advance_ep0();
     }
     write_trb(&ep0_ring[ep0_index],0,0,TRB_STATUS,TRB_IOC|(in?0u:TRB_DIR_IN),ep0_cycle);advance_ep0();
-    __asm__ volatile("mfence" ::: "memory");
+    dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=1u;
     for(uint32_t n=0;n<8000000u;++n){
         trb_t e;if(next_event(&e)!=0){__asm__ volatile("pause");continue;}
@@ -553,11 +659,9 @@ static int get_device(void){
      * bMaxPacketSize0 encoding:
      *   USB 2.x : 8, 16, 32, 64 (direct byte count)
      *   USB 3.x : 9 (means 2^9 = 512 bytes)
-     *
-     * Trust the device. Some cheap USB 3.x devices ship with a USB 2
-     * personality and report 64 even when plugged into a SuperSpeed
-     * port. Forcing 512 makes the controller wait forever for packets
-     * that will never come.
+     * Trust the device. Cheap USB 3.x dual-mode devices sometimes report 64
+     * even on a SuperSpeed port, and forcing 512 makes the controller wait
+     * forever for packets that will never come.
      */
     uint32_t mps = control_buf[7];
     if(mps == 9u){
@@ -584,10 +688,9 @@ static int get_device(void){
     console_putc('\n');
 
     /*
-     * Now cross-check byte 7 from the second (18-byte) read against
-     * what we used for the first address phase. If they disagree, the
-     * device's firmware is inconsistent and we must re-program EP0
-     * before issuing any transfer larger than one packet.
+     * Cross-check byte 7 from the 18-byte read. If it disagrees with the
+     * MPS we used for the address phase, reprogram EP0 before issuing any
+     * transfer larger than one packet.
      */
     uint32_t mps2 = control_buf[7];
     if(mps2 == 9u) mps2 = 512u;
@@ -690,13 +793,7 @@ static void dump_usb_descriptors(uint16_t total){
     usb_log_nl();
 }
 
-/*
- * Try the config-descriptor read with a sequence of MPS candidates,
- * because for dual-personality USB 3 devices it is not always clear
- * from the descriptor whether the device is really on a 512-byte or a
- * 64-byte EP0. We start with whatever we currently have, then 64,
- * then 512, and stop at the first success.
- */
+/* Try the config descriptor with a sequence of MPS candidates. */
 static int read_config_descriptor(void){
     uint32_t cand[3];
     uint32_t n=0;
@@ -744,6 +841,7 @@ static int find_hid(hid_candidate_t *c){
     zero_mem(c,sizeof(*c));
     c->config_value=config_buf[5];
 
+    /* Pass 0: strict boot-protocol mouse. Pass 1: any HID interface. */
     for(uint32_t pass=0;pass<2u;++pass){
         uint32_t i=0;int selected=0;
         while(i+2u<=total){
@@ -770,8 +868,8 @@ static int find_hid(hid_candidate_t *c){
 }
 
 static int set_protocol(uint8_t iface){
-    (void)usb_ctrl(0x21u,0x0Bu,0u,iface,0,0,0,1);
-    (void)usb_ctrl(0x21u,0x0Au,0u,iface,0,0,0,1);
+    (void)usb_ctrl(0x21u,0x0Bu,0u,iface,0,0,0,1);   /* SET_PROTOCOL(boot) */
+    (void)usb_ctrl(0x21u,0x0Au,0u,iface,0,0,0,1);   /* SET_IDLE */
     return 0;
 }
 
@@ -789,23 +887,37 @@ static uint32_t interval_value(uint32_t v){
     return e;
 }
 
-static void fill_intr_ep(void *ctx){
-    uint32_t *e=(uint32_t*)ctx_ep(ctx,endpoint_id);zero_mem(e,ctx_size);
-    e[0]=(endpoint_interval&0xFFu)<<16;
-    e[1]=(7u<<3)|((endpoint_packet&0xFFFFu)<<16);
+/*
+ * Fill an interrupt IN endpoint context (DCI = endpoint_id).
+ *
+ * Dword 0: EP state | EP type 7 (Interrupt IN) | MPS
+ * Dword 1: Interval
+ * Dword 2-3: TR Dequeue Pointer | DCS
+ * Dword 4: Average TRB Length = packet size (one TRB per report)
+ */
+static void fill_intr_ep(void *in_ctx){
+    uint32_t *e=(uint32_t*)ctx_ep(in_ctx,endpoint_id);
+    zero_mem(e,ctx_size);
+    e[0]=(7u<<3)|((endpoint_packet&0xFFFFu)<<16);
+    e[1]=(endpoint_interval&0xFFu);
     qset(e,2u,(uint64_t)(uintptr_t)intr_ring|(intr_cycle?1u:0u));
     e[4]=endpoint_packet&0xFFFFu;
 }
 
 static int configure_mouse(hid_candidate_t *c){
-    uint32_t n=c->endpoint_address&0x0Fu;if(!n||(c->endpoint_address&0x80u)==0)return -1;
-    endpoint_id=n*2u+1u;if(endpoint_id>=32u)return -1;
-    endpoint_packet=c->packet_size;if(endpoint_packet>1024u)endpoint_packet=1024u;
+    uint32_t n=c->endpoint_address&0x0Fu;
+    if(!n||(c->endpoint_address&0x80u)==0)return -1;
+    endpoint_id=n*2u+1u;
+    if(endpoint_id>=32u)return -1;
+    endpoint_packet=c->packet_size;
+    if(endpoint_packet>1024u)endpoint_packet=1024u;
     endpoint_interval=interval_value(c->interval);
+
     zero_mem(in_ctx,PAGE_SIZE);
-    ((uint32_t*)in_ctx)[1]=1u|(1u<<endpoint_id);
+    ((uint32_t*)in_ctx)[1]=1u|(1u<<endpoint_id);   /* Add: Slot | EP */
     fill_slot(in_ctx,endpoint_id);
     fill_intr_ep(in_ctx);
+
     submit_cmd(TRB_CONFIGURE_EP,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
     return wait_cmd(slot_id);
 }
@@ -820,11 +932,13 @@ static int submit_report(void){
     report_length=endpoint_packet;
     if(report_length<3u)report_length=3u;
     if(report_length>PAGE_SIZE)report_length=PAGE_SIZE;
-    write_trb(&intr_ring[intr_index],(uint64_t)(uintptr_t)report_buf,report_length&0x1FFFFu,TRB_NORMAL,TRB_IOC,intr_cycle);
+    write_trb(&intr_ring[intr_index],(uint64_t)(uintptr_t)report_buf,
+              report_length&0x1FFFFu,TRB_NORMAL,TRB_IOC,intr_cycle);
     advance_intr();
-    __asm__ volatile("mfence" ::: "memory");
+    dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
-    report_pending=1u;++diag_transfer_submitted;
+    report_pending=1u;
+    ++diag_transfer_submitted;
     return 0;
 }
 
@@ -835,23 +949,22 @@ static int try_enumerate(uint32_t p){
 
     uint32_t speed_field=(ps&PORT_SPEED_MASK)>>PORT_SPEED_SHIFT;
     int is_usb3=(speed_field>=4u);
-    int warm_reset=is_usb3;
 
     uint32_t stale=ps&PORT_CHANGE;
     if(stale) w32(po,(ps&PORT_NEUTRAL)|stale);
 
-    if(warm_reset)
+    if(is_usb3)
         w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_WPR|PORT_LINK_STROBE);
     else
         w32(po,(ps&PORT_NEUTRAL)|PORT_PP|PORT_PR);
     (void)r32(po);
-    xhci_delay_ms(warm_reset?100u:50u);
+    xhci_delay_ms(is_usb3?100u:50u);
 
     int reset=0;
     for(uint32_t n=0;n<10000000u;++n){
         uint32_t q=r32(po);
         uint32_t qpls=(q>>5)&0xFu;
-        if(warm_reset){
+        if(is_usb3){
             if(!(q&PORT_WPR) && qpls==0u && (q&PORT_CCS)){reset=1;break;}
         }else{
             if(!(q&PORT_PR) && (q&PORT_CCS)){reset=1;break;}
@@ -906,7 +1019,7 @@ static int try_enumerate(uint32_t p){
     if(enable_slot())return -1;
     xhci_delay_ms(5u);
 
-    if(address_device(1))return -1;
+    if(address_device(1))return -1;   /* BSR=1 address phase */
     xhci_delay_ms(10u);
 
     if(get_device())return -1;
@@ -916,7 +1029,7 @@ static int try_enumerate(uint32_t p){
 
     int cfg_rc=-1;
     for(uint32_t i=0;i<3u;++i){
-        cfg_rc=usb_ctrl(0,9u,c.config_value,0,0,0,0,1);
+        cfg_rc=usb_ctrl(0,9u,c.config_value,0,0,0,0,1);   /* SET_CONFIGURATION */
         if(cfg_rc==0)break;
         xhci_delay_ms(20u);
         ep0_index=0;ep0_cycle=1;reset_ep0_ring();
@@ -933,7 +1046,8 @@ static int try_enumerate(uint32_t p){
     usb_log_dec(c.interface_number);
     usb_log(" endpoint ");usb_log_hex(c.endpoint_address);
     usb_log(" packet ");usb_log_dec(endpoint_packet);
-    usb_log(" interval ");usb_log_dec(c.interval);usb_log_nl();
+    usb_log(" interval ");usb_log_dec(c.interval);
+    usb_log_nl();
 
     report_pending=0;report_length=0;report_seen=0u;
     if(submit_report())return -1;
@@ -951,15 +1065,19 @@ int xhci_mouse_init(void){
     if(ready)return 0;
     diag_stage="SCANNING PCI";
     diag_controller_found=0u;diag_init_ok=0u;
-    diag_transfer_submitted=0u;diag_event_count=0u;diag_success_count=0u;diag_error_count=0u;diag_report_count=0u;
+    diag_transfer_submitted=0u;diag_event_count=0u;diag_success_count=0u;
+    diag_error_count=0u;diag_report_count=0u;
     diag_last_cc=0u;diag_last_portsc=0u;diag_last_report_len=0u;
-    diag_vid=0u;diag_pid=0u;diag_device_class=0u;diag_device_subclass=0u;diag_device_protocol=0u;
-    diag_hid_iface=0xFFu;diag_hid_subclass=0u;diag_hid_protocol=0u;diag_hid_endpoint=0u;diag_hid_ep_type=0u;
-    diag_hid_packet=0u;diag_hid_interval=0u;
+    diag_vid=0u;diag_pid=0u;
+    diag_device_class=0u;diag_device_subclass=0u;diag_device_protocol=0u;
+    diag_hid_iface=0xFFu;diag_hid_subclass=0u;diag_hid_protocol=0u;
+    diag_hid_endpoint=0u;diag_hid_ep_type=0u;diag_hid_packet=0u;diag_hid_interval=0u;
     diag_interface_count=0u;diag_endpoint_count=0u;diag_hid_count=0u;
 
-    pci_xhci_t d;if(find_xhci(&d))return usb_fail("PCI");
-    diag_controller_found=1u;diag_stage="xHCI FOUND";
+    pci_xhci_t d;
+    if(find_xhci(&d))return usb_fail("PCI");
+    diag_controller_found=1u;
+    diag_stage="xHCI FOUND";
     usb_log("[ USB ] xHCI controller ");
     console_write_hex(d.vendor);console_putc(':');console_write_hex(d.device);console_putc('\n');
 
@@ -1004,6 +1122,7 @@ int xhci_mouse_init(void){
 
     uint32_t saw_connected=0u;
     uint32_t saw_reset_timeout=0u;
+
     for(uint32_t p=1;p<=max_ports;++p){
         uint32_t po=op_base+PORT_BASE+(p-1u)*PORT_STRIDE;
         uint32_t ps=r32(po);
@@ -1018,7 +1137,6 @@ int xhci_mouse_init(void){
 
             int r=try_enumerate(p);
             if(r==0)return 0;
-            if(r==-2)break;
 
             usb_log("[ USB ] enum failed, resetting port and retrying\n");
             ps=r32(po);
@@ -1053,19 +1171,22 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dy) *dy=0;
     if(buttons) *buttons=0;
     if(!ready)return 0;
+
     trb_t e;
     while(next_event(&e)==0){
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVENT)continue;
         if(((e.control>>24)&0xFFu)!=slot_id||((e.control>>16)&0x1Fu)!=endpoint_id)continue;
+
         report_pending=0;++diag_event_count;
         uint32_t cc=((e.status>>24)&0xFFu);diag_last_cc=cc;
-        if(cc==CC_SUCCESS||cc==13u){
+        if(cc==CC_SUCCESS||cc==13u){   /* 13 = Short Packet */
             if(report_length>=3u){
                 uint32_t residual=e.status&0xFFFFFFu;
                 uint32_t actual=report_length>residual?report_length-residual:0u;
                 if(actual>PAGE_SIZE)actual=PAGE_SIZE;
                 diag_last_report_len=actual>8u?8u:actual;
-                for(uint32_t i=0u;i<8u;++i)diag_last_report[i]=(i<diag_last_report_len)?report_buf[i]:0u;
+                for(uint32_t i=0u;i<8u;++i)
+                    diag_last_report[i]=(i<diag_last_report_len)?report_buf[i]:0u;
                 ++diag_report_count;++diag_success_count;
                 if(!report_seen){
                     report_seen=1u;
@@ -1078,7 +1199,8 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
             (void)submit_report();
             return 1;
         }
-        ++diag_error_count;(void)submit_report();
+        ++diag_error_count;
+        (void)submit_report();
         return -1;
     }
     return 0;
@@ -1093,13 +1215,19 @@ int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
     out->vid=diag_vid;out->pid=diag_pid;
     out->device_class=diag_device_class;out->device_subclass=diag_device_subclass;out->device_protocol=diag_device_protocol;
     out->hid_iface=diag_hid_iface;out->hid_subclass=diag_hid_subclass;out->hid_protocol=diag_hid_protocol;
-    out->hid_endpoint=diag_hid_endpoint;out->hid_ep_type=diag_hid_ep_type;out->hid_packet=diag_hid_packet;out->hid_interval=diag_hid_interval;
+    out->hid_endpoint=diag_hid_endpoint;out->hid_ep_type=diag_hid_ep_type;
+    out->hid_packet=diag_hid_packet;out->hid_interval=diag_hid_interval;
     out->interfaces=diag_interface_count;out->endpoints=diag_endpoint_count;out->hid_interfaces=diag_hid_count;
-    out->submitted=diag_transfer_submitted;out->events=diag_event_count;out->successes=diag_success_count;
-    out->errors=diag_error_count;out->reports=diag_report_count;out->last_completion=diag_last_cc;
+    out->submitted=diag_transfer_submitted;out->events=diag_event_count;
+    out->successes=diag_success_count;out->errors=diag_error_count;out->reports=diag_report_count;
+    out->last_completion=diag_last_cc;
     out->portsc=diag_last_portsc;out->stage=diag_stage;out->report_len=diag_last_report_len;
     for(uint32_t i=0u;i<8u;++i)out->report[i]=diag_last_report[i];
-    if(diag_controller_found){out->usb_status=r32(op_base+USBSTS);out->usb_command=r32(op_base+USBCMD);}
-    else{out->usb_status=0u;out->usb_command=0u;}
+    if(diag_controller_found){
+        out->usb_status=r32(op_base+USBSTS);
+        out->usb_command=r32(op_base+USBCMD);
+    } else {
+        out->usb_status=0u;out->usb_command=0u;
+    }
     return 0;
 }
