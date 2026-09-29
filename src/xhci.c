@@ -1040,23 +1040,28 @@ static int enumerate_port(uint32_t p){
     int is_usb3=(device_speed>=SPEED_SUPER);
     int already_addressed=0;
 
-    diag_stage=is_usb3?"ADDRESS USB3":"ADDRESS FULL/HIGH";
-    if(is_usb3){
-        if(cmd_address_device(1)) return usb_fail("ADDRESS USB3");
-        xhci_delay_ms(150u);
-    } else {
-        if(cmd_address_device(0)) return usb_fail("ADDRESS FULL/HIGH");
-        xhci_delay_ms(100u);
-        already_addressed=1;
-        /*
-         * Address Device leaves EP0 in the usable state for the newly
-         * addressed full/high-speed device.  Do not issue a proactive
-         * Reset Endpoint here: some xHCI implementations reject a reset
-         * of a freshly addressed EP0 even though control transfers work.
-         * EP0 is reset only by ep0_xfer() when an actual transfer fails.
-         */
-        xhci_delay_ms(100u);
+    /*
+     * For USB 2.0/full/high-speed devices, use the xHCI BSR sequence:
+     * Address Device with BSR=1 first, so the device remains at USB
+     * address 0 while the first 8-byte descriptor request determines
+     * bMaxPacketSize0.  read_device_descriptor() then evaluates the
+     * EP0 MPS and performs the real Address Device (BSR=0).
+     *
+     * Some physical USB mice are stricter about this sequence than
+     * QEMU's virtual mouse.
+     */
+    diag_stage=is_usb3?"ADDRESS USB3 BSR":"ADDRESS USB2 BSR";
+    if(cmd_address_device(1)){
+        return usb_fail(is_usb3?"ADDRESS USB3 BSR":"ADDRESS USB2 BSR");
     }
+    xhci_delay_ms(is_usb3?150u:100u);
+
+    /*
+     * Keep already_addressed=0 so read_device_descriptor() performs
+     * the first descriptor read at address 0 and then sends the final
+     * Address Device command after EP0 MPS is known.
+     */
+    already_addressed=0;
 
     diag_stage="DEVICE DESCRIPTOR";
     if(read_device_descriptor(already_addressed)){
