@@ -223,7 +223,6 @@ static void xhci_delay_ms(uint32_t ms){
 }
 #define dma_wmb() __asm__ volatile("mfence" ::: "memory")
 
-/* ---- PCI ---- */
 static uint32_t pci_key(uint8_t b,uint8_t s,uint8_t f,uint8_t r){
     return 0x80000000u|((uint32_t)b<<16)|((uint32_t)s<<11)|((uint32_t)f<<8)|(r&0xFCu);
 }
@@ -255,7 +254,6 @@ static int pci_find_xhci(pci_dev_t *out){
     return -1;
 }
 
-/* ---- MMIO ---- */
 static uint32_t r32(uint32_t o){ return *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+o); }
 static void w32(uint32_t o,uint32_t v){ *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+o)=v; }
 static void w64(uint32_t o,uint64_t v){
@@ -271,7 +269,6 @@ static int map_mmio(uint64_t phys){
     return 0;
 }
 
-/* ---- Extended capabilities ---- */
 static void parse_usb_protocols(void){
     protocol_count=0;
     uint32_t x=((r32(CAP_HCCPARAMS1)>>16)&0xFFFFu)*4u;
@@ -335,7 +332,6 @@ static uint8_t port_protocol(uint32_t p){
     return 0;
 }
 
-/* ---- Controller reset ---- */
 static int hc_reset(void){
     uint32_t cmd=r32(op_base+OP_USBCMD)&~CMD_RUN;
     w32(op_base+OP_USBCMD,cmd);
@@ -349,7 +345,6 @@ static int hc_reset(void){
     return (r32(op_base+OP_USBSTS)&STS_CNR)?-1:0;
 }
 
-/* ---- DMA ---- */
 static int dma_page(void **out){
     void *p=page_alloc();
     if(!p) return -1;
@@ -383,7 +378,6 @@ static int alloc_memory(void){
     return 0;
 }
 
-/* ---- Rings ---- */
 static void link_trb(trb_t *ring,uint32_t cyc){
     trb_t *t=&ring[RING_TRBS-1u];
     uint64_t a=(uint64_t)(uintptr_t)ring;
@@ -463,7 +457,6 @@ static int cmd_wait(uint32_t want_slot){
     cmd_recover(); return -1;
 }
 
-/* ---- Contexts ---- */
 #define ICC_SIZE 32u
 static uint8_t *in_slot(void){ return (uint8_t*)in_ctx+ICC_SIZE; }
 static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx+ICC_SIZE+ctx_size*dci; }
@@ -490,7 +483,6 @@ static void fill_ep_context(void *ep,uint32_t ep_type,uint32_t mps,
     e[4]=avg_len&0xFFFFu;
 }
 
-/* ---- Slot / EP commands ---- */
 static int cmd_enable_slot(void){
     cmd_submit(TRB_ENABLE_SLOT,0,0);
     for(uint32_t n=0;n<8000000u;++n){
@@ -545,7 +537,6 @@ static int cmd_reset_ep0(void){
     return cmd_wait(slot_id);
 }
 
-/* ---- EP0 transfer ---- */
 static int ep0_xfer(uint8_t bm,uint8_t req,uint16_t val,uint16_t idx,
                     void *data,uint16_t len,int in){
     uint64_t setup=(uint64_t)bm|((uint64_t)req<<8)|((uint64_t)val<<16)
@@ -849,54 +840,105 @@ static void dump_ports(void){
     }
 }
 
+/*
+ * port_reset()
+ *
+ * USB 3 (SuperSpeed): reset done when WPR clears + PLS = U0 + CCS still set.
+ * USB 2 (Full/Low/High Speed): reset done when PR clears + PED sets + CCS.
+ *   After PR clears on some Intel companion ports the link does not
+ *   automatically enter U0 (Link Enabled). We force it with a PLS write
+ *   that includes the Link State Strobe (LWS) bit. This is the last
+ *   software lever available for ports whose PHY doesn't auto-transition.
+ */
 static int port_reset(uint32_t p){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t ps=r32(po);
     if(!(ps&PS_CCS)) return -1;
+
     uint8_t proto=port_protocol(p);
     int is_usb3=(proto==PROTO_USB3);
-    if(proto==0){ uint32_t sp=(ps&PS_SPEED_MASK)>>PS_SPEED_SHIFT; is_usb3=(sp>=SPEED_SUPER); }
+    if(proto==0){
+        uint32_t sp=(ps&PS_SPEED_MASK)>>PS_SPEED_SHIFT;
+        is_usb3=(sp>=SPEED_SUPER);
+    }
+
+    /* Clear stale change bits with write-1-to-clear. */
     uint32_t chg=ps&PS_CHANGE_BITS;
     if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
+
+    /* Request reset: USB 3 uses Warm Reset (WPR), USB 2 uses Port Reset (PR). */
     ps=r32(po);
-    if(is_usb3) w32(po,(ps&~(PS_PLS_MASK|PS_CHANGE_BITS|PS_PR))|PS_PP|PS_WPR|PS_LWS);
-    else        w32(po,(ps&~(PS_PLS_MASK|PS_CHANGE_BITS|PS_WPR|PS_LWS))|PS_PP|PS_PR);
+    if(is_usb3){
+        w32(po,(ps&~(PS_PLS_MASK|PS_CHANGE_BITS|PS_PR))|PS_PP|PS_WPR|PS_LWS);
+    } else {
+        w32(po,(ps&~(PS_PLS_MASK|PS_CHANGE_BITS|PS_WPR|PS_LWS))|PS_PP|PS_PR);
+    }
     (void)r32(po);
     xhci_delay_ms(100u);
+
+    /* Wait for reset completion. */
     for(uint32_t n=0;n<20000000u;++n){
         uint32_t q=r32(po);
         if(is_usb3){
             if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0&&(q&PS_CCS)) return 0;
         } else {
-            if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)) return 0;
+            if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)){
+                /* Force PLS=U0 with LWS. Long shot but free to try. */
+                w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PLS_U0|PS_LWS);
+                xhci_delay_ms(20u);
+                return 0;
+            }
         }
         __asm__ volatile("pause");
     }
+
+    /* Second chance: wait longer, re-check, force PLS=U0. */
     xhci_delay_ms(300u);
     uint32_t q=r32(po);
-    if(is_usb3){ if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0) return 0; }
-    else       { if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)) return 0; }
+    if(is_usb3){
+        if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0) return 0;
+    } else {
+        if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)){
+            w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PLS_U0|PS_LWS);
+            xhci_delay_ms(20u);
+            return 0;
+        }
+    }
+
+    /* Last resort: restrobe the reset once and wait longer. */
     q=r32(po);
-    if(is_usb3) w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PP|PS_WPR|PS_LWS);
-    else        w32(po,(q&~PS_CHANGE_BITS)|PS_PP|PS_PR);
+    if(is_usb3){
+        w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PP|PS_WPR|PS_LWS);
+    } else {
+        w32(po,(q&~PS_CHANGE_BITS)|PS_PP|PS_PR);
+    }
     xhci_delay_ms(300u);
     for(uint32_t n=0;n<10000000u;++n){
         q=r32(po);
-        if(is_usb3){ if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0) return 0; }
-        else       { if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)) return 0; }
+        if(is_usb3){
+            if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0) return 0;
+        } else {
+            if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)){
+                w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PLS_U0|PS_LWS);
+                xhci_delay_ms(20u);
+                return 0;
+            }
+        }
         __asm__ volatile("pause");
     }
     return -1;
 }
+
 static void clear_change_bits(uint32_t p,uint32_t ps){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t chg=ps&PS_CHANGE_BITS;
     if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
 }
 
-/* ---- Port enumeration ----
- * USB 3 (SuperSpeed+): BSR=1, read desc, BSR=0, read again.
- * USB 2 (Full/Low/High): BSR=0 directly, read desc.
+/*
+ * Port enumeration.
+ * USB 3 (SuperSpeed+): BSR=1, read 8-byte descriptor, BSR=0, read full.
+ * USB 2 (Full/Low/High): BSR=0 directly, read full.
  */
 static int enumerate_port(uint32_t p){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
