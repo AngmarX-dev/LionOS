@@ -366,31 +366,18 @@ static void parse_usb_protocols(void){
  *   SuperSpeed and SuperSpeedPlus ports.
  */
 static void enable_intel_usb3_ports(void){
-    if(xhci_vendor_id != 0x8086u) return;   /* not Intel */
-
-    uint32_t x = xecp_start();
-    for(uint32_t i=0;i<64u;++i){
-        if(!x || x >= XHCI_MAP_SIZE) break;
-        uint32_t cap = r32(x);
-        uint32_t id  = cap & 0xFFu;
-        uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
-
-        if(id == EXT_VENDOR_ID){
-            uint32_t vsec_id = (cap >> 16) & 0xFFFFu;
-            if(vsec_id == INTEL_VSEC_ID){
-                uint32_t ports = r32(x + INTEL_VSEC_USB3_PORTS);
-                usb_log("[ USB ] Intel VSEC USB3_PORTS=0x"); usb_log_hex(ports);
-                usb_log(" -> enabling SS+SSP\n");
-                /* Bits 0 and 1: SuperSpeed + SuperSpeedPlus port enable */
-                w32(x + INTEL_VSEC_USB3_PORTS, ports | 0x3u);
-                xhci_delay_ms(50u);
-                return;
-            }
-        }
-        if(!next) break;
-        x += next;
-    }
-    usb_log("[ USB ] Intel VSEC not found (non-Intel or old chipset)\n");
+    /*
+     * Do not modify arbitrary xHCI extended-capability registers here.
+     * USB3 port power/link state is controlled through PORTSC and the
+     * controller's Supported Protocol capabilities. Older LionOS code
+     * treated extended-capability ID 0x0C as an Intel VSEC and wrote to
+     * offset +0x0A; that ID is an xHCI-defined capability on real
+     * controllers, so that write could corrupt controller state.
+     *
+     * Intel xHCI controllers do not require this speculative write.
+     * Port reset/power sequencing below handles the root ports.
+     */
+    (void)xhci_vendor_id;
 }
 
 static int legacy_handoff(void){
@@ -1088,6 +1075,7 @@ static int enumerate_port(uint32_t p){
     diag_stage="HID REPORT WAIT"; ready=1; diag_init_ok=1;
     usb_log("[ OK ] xHCI HID mouse ready on port ");
     usb_log_dec(port_number); usb_log_nl();
+    debug_write("LIONOS:USB-MOUSE-READY\n");
     return 0;
 }
 
