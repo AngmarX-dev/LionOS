@@ -1048,9 +1048,14 @@ static int enumerate_port(uint32_t p){
         if(cmd_address_device(0)) return usb_fail("ADDRESS FULL/HIGH");
         xhci_delay_ms(100u);
         already_addressed=1;
-        ep0_index=0; ep0_cycle=1;
-        if(cmd_reset_ep0()) return usb_fail("RESET EP0 AFTER ADDRESS");
-        xhci_delay_ms(50u);
+        /*
+         * Address Device leaves EP0 in the usable state for the newly
+         * addressed full/high-speed device.  Do not issue a proactive
+         * Reset Endpoint here: some xHCI implementations reject a reset
+         * of a freshly addressed EP0 even though control transfers work.
+         * EP0 is reset only by ep0_xfer() when an actual transfer fails.
+         */
+        xhci_delay_ms(100u);
     }
 
     diag_stage="DEVICE DESCRIPTOR";
