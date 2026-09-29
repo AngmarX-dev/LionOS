@@ -4,9 +4,14 @@
  *
  * Supports USB 1.x / 2.0 / 3.x / 3.1 / 3.2.
  *
- * IMPORTANT: BSR=1 in Address Device is a SuperSpeed-only feature.
- * USB 2 devices (Full/Low/High speed) MUST use BSR=0 directly.
- * Per xHCI spec §4.6.6.
+ * Reference: Linux drivers/usb/host/xhci.c, xhci-pci.c, xhci-ring.c
+ *
+ * Key points:
+ *   - BSR=1 in Address Device is a SuperSpeed-only feature.
+ *   - Intel controllers expose a VSEC with a USB3_PORTS register that
+ *     must be written to enable SuperSpeed and SuperSpeedPlus ports.
+ *   - USB 2 ports must reach CCS+PED+!PR before any transfer.
+ *   - EP0 Average TRB Length must be 8 (xHCI 1.2 §6.2.3).
  */
 
 #include <stdint.h>
@@ -110,6 +115,13 @@
 #define USBLEGSUP_BIOS_OWNED (1u << 16)
 #define USBLEGSUP_OS_OWNED (1u << 24)
 
+/* xHCI spec extended capability IDs */
+#define EXT_USB_PROTOCOL_ID 2u
+#define EXT_USB_LEGSUP_ID 1u
+#define EXT_VENDOR_ID 0x0Cu     /* Intel VSEC uses this extended cap ID */
+#define INTEL_VSEC_ID 1u        /* Intel VSEC revision/vendor tag */
+#define INTEL_VSEC_USB3_PORTS 0x0Au  /* offset of USB3_PORTS register in VSEC */
+
 #define PROTO_USB2 1u
 #define PROTO_USB3 2u
 
@@ -167,6 +179,7 @@ static uint32_t endpoint_packet, endpoint_interval;
 static uint32_t ep0_mps;
 static uint32_t ready;
 static uint32_t ppc_enabled;
+static uint16_t xhci_vendor_id;   /* PCI vendor of the xHCI controller */
 
 static uint64_t *dcbaa;
 static erst_t *erst;
@@ -269,16 +282,62 @@ static int map_mmio(uint64_t phys){
     return 0;
 }
 
+/*
+ * Walk the extended capability list once and:
+ *   1. Parse USB Protocol capabilities (which port is USB2/USB3)
+ *   2. Enable Intel VSEC USB3 ports (SuperSpeed + SuperSpeedPlus)
+ *   3. Dump every extended cap so we can see what the controller offers
+ */
+static uint32_t xecp_start(void){
+    return ((r32(CAP_HCCPARAMS1) >> 16) & 0xFFFFu) * 4u;
+}
+
+static void dump_xecp(void){
+    uint32_t x = xecp_start();
+    if(!x){ usb_log("[ USB ] no extended capabilities\n"); return; }
+    usb_log("[ USB ] extended capabilities:\n");
+    for(uint32_t i=0;i<64u;++i){
+        if(!x || x >= XHCI_MAP_SIZE) break;
+        uint32_t cap = r32(x);
+        uint32_t id  = cap & 0xFFu;
+        uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
+        usb_log("[ USB ]   off=0x"); usb_log_hex(x);
+        usb_log(" id=0x"); usb_log_hex(id);
+        usb_log(" dw0=0x"); usb_log_hex(cap);
+        usb_log(" next="); usb_log_dec(next);
+        if(id == EXT_USB_PROTOCOL_ID){
+            uint32_t dw2 = r32(x+8u);
+            usb_log(" [USB-PROTO major="); usb_log_dec((cap>>24)&0xFFu);
+            usb_log(" off="); usb_log_dec(dw2 & 0xFFu);
+            usb_log(" cnt="); usb_log_dec((dw2>>8)&0xFFu);
+            usb_log("]");
+        } else if(id == EXT_USB_LEGSUP_ID){
+            usb_log(" [USB-LEGSUP]");
+        } else if(id == EXT_VENDOR_ID){
+            uint32_t vsec_id = (cap >> 16) & 0xFFFFu;
+            usb_log(" [VENDOR vsec_id=0x"); usb_log_hex(vsec_id);
+            if(vsec_id == INTEL_VSEC_ID){
+                uint32_t ports = r32(x + INTEL_VSEC_USB3_PORTS);
+                usb_log(" INTEL USB3_PORTS=0x"); usb_log_hex(ports);
+            }
+            usb_log("]");
+        }
+        usb_log_nl();
+        if(!next) break;
+        x += next;
+    }
+}
+
 static void parse_usb_protocols(void){
     protocol_count=0;
-    uint32_t x=((r32(CAP_HCCPARAMS1)>>16)&0xFFFFu)*4u;
+    uint32_t x=xecp_start();
     if(!x) return;
     for(uint32_t i=0;i<64u;++i){
         if(!x||x>=XHCI_MAP_SIZE) break;
         uint32_t cap=r32(x);
         uint32_t id=cap&0xFFu;
         uint32_t next=((cap>>8)&0xFFu)*4u;
-        if(id==2u){
+        if(id==EXT_USB_PROTOCOL_ID){
             uint32_t dw2=r32(x+8u);
             uint8_t major=(uint8_t)((cap>>24)&0xFFu);
             uint8_t minor=(uint8_t)((cap>>16)&0xFFu);
@@ -300,14 +359,48 @@ static void parse_usb_protocols(void){
         x+=next;
     }
 }
+
+/*
+ * Linux xhci-pci.c usb_enable_intel_xhci_ports():
+ *   find Intel VSEC, set bits 0 and 1 of USB3_PORTS register to enable
+ *   SuperSpeed and SuperSpeedPlus ports.
+ */
+static void enable_intel_usb3_ports(void){
+    if(xhci_vendor_id != 0x8086u) return;   /* not Intel */
+
+    uint32_t x = xecp_start();
+    for(uint32_t i=0;i<64u;++i){
+        if(!x || x >= XHCI_MAP_SIZE) break;
+        uint32_t cap = r32(x);
+        uint32_t id  = cap & 0xFFu;
+        uint32_t next = ((cap >> 8) & 0xFFu) * 4u;
+
+        if(id == EXT_VENDOR_ID){
+            uint32_t vsec_id = (cap >> 16) & 0xFFFFu;
+            if(vsec_id == INTEL_VSEC_ID){
+                uint32_t ports = r32(x + INTEL_VSEC_USB3_PORTS);
+                usb_log("[ USB ] Intel VSEC USB3_PORTS=0x"); usb_log_hex(ports);
+                usb_log(" -> enabling SS+SSP\n");
+                /* Bits 0 and 1: SuperSpeed + SuperSpeedPlus port enable */
+                w32(x + INTEL_VSEC_USB3_PORTS, ports | 0x3u);
+                xhci_delay_ms(50u);
+                return;
+            }
+        }
+        if(!next) break;
+        x += next;
+    }
+    usb_log("[ USB ] Intel VSEC not found (non-Intel or old chipset)\n");
+}
+
 static int legacy_handoff(void){
-    uint32_t x=((r32(CAP_HCCPARAMS1)>>16)&0xFFFFu)*4u;
+    uint32_t x=xecp_start();
     for(uint32_t i=0;i<64u;++i){
         if(!x||x>=XHCI_MAP_SIZE) break;
         uint32_t cap=r32(x);
         uint32_t id=cap&0xFFu;
         uint32_t next=((cap>>8)&0xFFu)*4u;
-        if(id==EXT_USBLEGSUP_ID){
+        if(id==EXT_USB_LEGSUP_ID){
             w32(x,cap|USBLEGSUP_OS_OWNED);
             if(cap&USBLEGSUP_BIOS_OWNED){
                 for(uint32_t k=0;k<10000000u;++k){
@@ -323,6 +416,7 @@ static int legacy_handoff(void){
     }
     return 0;
 }
+
 static uint8_t port_protocol(uint32_t p){
     for(uint32_t i=0;i<protocol_count;++i){
         uint32_t start=(uint32_t)protocols[i].port_offset+1u;
@@ -840,16 +934,6 @@ static void dump_ports(void){
     }
 }
 
-/*
- * port_reset()
- *
- * USB 3 (SuperSpeed): reset done when WPR clears + PLS = U0 + CCS still set.
- * USB 2 (Full/Low/High Speed): reset done when PR clears + PED sets + CCS.
- *   After PR clears on some Intel companion ports the link does not
- *   automatically enter U0 (Link Enabled). We force it with a PLS write
- *   that includes the Link State Strobe (LWS) bit. This is the last
- *   software lever available for ports whose PHY doesn't auto-transition.
- */
 static int port_reset(uint32_t p){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t ps=r32(po);
@@ -862,11 +946,9 @@ static int port_reset(uint32_t p){
         is_usb3=(sp>=SPEED_SUPER);
     }
 
-    /* Clear stale change bits with write-1-to-clear. */
     uint32_t chg=ps&PS_CHANGE_BITS;
     if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
 
-    /* Request reset: USB 3 uses Warm Reset (WPR), USB 2 uses Port Reset (PR). */
     ps=r32(po);
     if(is_usb3){
         w32(po,(ps&~(PS_PLS_MASK|PS_CHANGE_BITS|PS_PR))|PS_PP|PS_WPR|PS_LWS);
@@ -876,14 +958,12 @@ static int port_reset(uint32_t p){
     (void)r32(po);
     xhci_delay_ms(100u);
 
-    /* Wait for reset completion. */
     for(uint32_t n=0;n<20000000u;++n){
         uint32_t q=r32(po);
         if(is_usb3){
             if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0&&(q&PS_CCS)) return 0;
         } else {
             if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)){
-                /* Force PLS=U0 with LWS. Long shot but free to try. */
                 w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PLS_U0|PS_LWS);
                 xhci_delay_ms(20u);
                 return 0;
@@ -892,7 +972,6 @@ static int port_reset(uint32_t p){
         __asm__ volatile("pause");
     }
 
-    /* Second chance: wait longer, re-check, force PLS=U0. */
     xhci_delay_ms(300u);
     uint32_t q=r32(po);
     if(is_usb3){
@@ -905,7 +984,6 @@ static int port_reset(uint32_t p){
         }
     }
 
-    /* Last resort: restrobe the reset once and wait longer. */
     q=r32(po);
     if(is_usb3){
         w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PP|PS_WPR|PS_LWS);
@@ -935,11 +1013,6 @@ static void clear_change_bits(uint32_t p,uint32_t ps){
     if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
 }
 
-/*
- * Port enumeration.
- * USB 3 (SuperSpeed+): BSR=1, read 8-byte descriptor, BSR=0, read full.
- * USB 2 (Full/Low/High): BSR=0 directly, read full.
- */
 static int enumerate_port(uint32_t p){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t ps=r32(po);
@@ -1035,6 +1108,8 @@ int xhci_mouse_init(void){
     pci_dev_t d;
     if(pci_find_xhci(&d)) return usb_fail("PCI");
     diag_controller_found=1; diag_stage="xHCI FOUND";
+    xhci_vendor_id = d.vendor;
+
     usb_log("[ USB ] xHCI controller ");
     console_write_hex(d.vendor); console_putc(':');
     console_write_hex(d.device); console_putc('\n');
@@ -1068,8 +1143,16 @@ int xhci_mouse_init(void){
     usb_log(" / ports "); console_write_dec(max_ports);
     usb_log(" / ppc "); console_write_dec(ppc_enabled); usb_log_nl();
 
+    /* Dump every extended capability BEFORE we do anything that could
+     * clobber the controller state. */
+    dump_xecp();
+
     diag_stage="FIRMWARE HANDOFF";
     if(legacy_handoff()) return usb_fail("LEGACY");
+
+    /* Linux: usb_enable_intel_xhci_ports() — enable SuperSpeed ports */
+    diag_stage="INTEL VSEC ENABLE";
+    enable_intel_usb3_ports();
 
     diag_stage="RESETTING xHCI";
     if(hc_reset()) return usb_fail("RESET");
