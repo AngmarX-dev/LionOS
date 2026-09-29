@@ -1005,61 +1005,90 @@ static int enumerate_port(uint32_t p){
     uint32_t ps=r32(po);
     if(!(ps&PS_CCS)) return -1;
 
+    port_number=p;
+    diag_last_portsc=ps;
+    diag_stage="USB PORT CONNECTED";
+
     uint8_t proto=port_protocol(p);
     usb_log("[ USB ] port "); usb_log_dec(p);
     usb_log(" proto="); usb_log_dec(proto?proto:99u);
     usb_log(" PORTSC=0x"); usb_log_hex(ps); usb_log_nl();
 
-    if(port_reset(p)) return -1;
+    diag_stage="PORT RESET";
+    if(port_reset(p)){
+        diag_last_portsc=r32(po);
+        return usb_fail("PORT RESET");
+    }
 
     ps=r32(po);
-    if(!(ps&PS_CCS)) return -1;
+    diag_last_portsc=ps;
+    if(!(ps&PS_CCS)) return usb_fail("PORT DISCONNECTED");
     clear_change_bits(p,ps);
     ps=r32(po);
     diag_last_portsc=ps;
-    port_number=p;
     device_speed=(ps&PS_SPEED_MASK)>>PS_SPEED_SHIFT;
-    if(!device_speed) return -1;
+    if(!device_speed) return usb_fail("NO USB SPEED");
     usb_log("[ USB ] speed="); usb_log_dec(device_speed); usb_log_nl();
 
     ep0_mps=ep0_default_mps();
+    usb_log("[ USB ] EP0 default MPS="); usb_log_dec(ep0_mps); usb_log_nl();
 
-    if(cmd_enable_slot()) return -1;
+    diag_stage="ENABLE SLOT";
+    if(cmd_enable_slot()) return usb_fail("ENABLE SLOT");
     xhci_delay_ms(20u);
 
     int is_usb3=(device_speed>=SPEED_SUPER);
     int already_addressed=0;
 
+    diag_stage=is_usb3?"ADDRESS USB3":"ADDRESS FULL/HIGH";
     if(is_usb3){
-        if(cmd_address_device(1)) return -1;
+        if(cmd_address_device(1)) return usb_fail("ADDRESS USB3");
         xhci_delay_ms(150u);
     } else {
-        if(cmd_address_device(0)) return -1;
+        if(cmd_address_device(0)) return usb_fail("ADDRESS FULL/HIGH");
         xhci_delay_ms(100u);
         already_addressed=1;
         ep0_index=0; ep0_cycle=1;
-        (void)cmd_reset_ep0();
+        if(cmd_reset_ep0()) return usb_fail("RESET EP0 AFTER ADDRESS");
         xhci_delay_ms(50u);
     }
 
-    if(read_device_descriptor(already_addressed)) return -1;
+    diag_stage="DEVICE DESCRIPTOR";
+    if(read_device_descriptor(already_addressed)){
+        usb_log("[ USB ] device descriptor failed cc=0x"); usb_log_hex(diag_last_cc);
+        usb_log(" portsc=0x"); usb_log_hex(r32(po)); usb_log_nl();
+        diag_last_portsc=r32(po);
+        return usb_fail("DEVICE DESCRIPTOR");
+    }
 
+    diag_stage="HID CONFIGURATION";
     hid_candidate_t c;
-    if(find_hid(&c)||!c.config_value) return -1;
+    if(find_hid(&c)||!c.config_value)
+        return usb_fail("HID CONFIGURATION");
 
+    diag_stage="SET CONFIGURATION";
     int rc=-1;
     for(uint32_t i=0;i<3u;++i){
         rc=ctrl(0u,9u,c.config_value,0,0,0,0,1);
         if(rc==0) break;
+        usb_log("[ USB ] SET CONFIG retry "); usb_log_dec(i+1u);
+        usb_log(" cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
         xhci_delay_ms(50u);
-        ep0_index=0; ep0_cycle=1; cmd_reset_ep0();
+        ep0_index=0; ep0_cycle=1;
+        if(cmd_reset_ep0()) break;
     }
-    if(rc) return -1;
+    if(rc) return usb_fail("SET CONFIGURATION");
 
-    if(cmd_configure_hid(&c)) return -1;
+    diag_stage="CONFIGURE HID EP";
+    if(cmd_configure_hid(&c)) return usb_fail("CONFIGURE HID EP");
 
-    (void)ctrl(0x21u,0x0Bu,0u,c.interface_number,0,0,0,1);
-    (void)ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1);
+    diag_stage="HID CLASS SETUP";
+    if(ctrl(0x21u,0x0Bu,0u,c.interface_number,0,0,0,1)){
+        usb_log("[ USB ] SET_PROTOCOL failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
+    }
+    if(ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1)){
+        usb_log("[ USB ] SET_IDLE failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
+    }
 
     endpoint_packet=c.packet_size;
     if(endpoint_packet>PAGE_SIZE) endpoint_packet=PAGE_SIZE;
@@ -1069,8 +1098,9 @@ static int enumerate_port(uint32_t p){
     usb_log(" pkt="); usb_log_dec(endpoint_packet);
     usb_log(" int="); usb_log_dec(c.interval); usb_log_nl();
 
+    diag_stage="SUBMIT HID REPORT";
     report_pending=0; report_length=0; report_seen=0;
-    if(submit_report()) return -1;
+    if(submit_report()) return usb_fail("SUBMIT HID REPORT");
 
     diag_stage="HID REPORT WAIT"; ready=1; diag_init_ok=1;
     usb_log("[ OK ] xHCI HID mouse ready on port ");
@@ -1078,7 +1108,6 @@ static int enumerate_port(uint32_t p){
     debug_write("LIONOS:USB-MOUSE-READY\n");
     return 0;
 }
-
 int xhci_mouse_init(void){
     if(ready) return 0;
     diag_stage="SCANNING PCI";
@@ -1190,7 +1219,7 @@ int xhci_mouse_init(void){
             usb_log("[ USB ] port "); usb_log_dec(p);
             usb_log(" failed, moving on\n");
         }
-        if(saw_ccs) break;
+        if(saw_ccs) return usb_fail(diag_stage);
         if(pass==0u){
             usb_log("[ USB ] no devices, retry after wake\n");
             wake_all_ports();
