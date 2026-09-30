@@ -926,12 +926,31 @@ static int port_reset(uint32_t p){
     uint32_t ps=r32(po);
     if(!(ps&PS_CCS)) return -1;
 
-    uint8_t proto=port_protocol(p);
-    int is_usb3=(proto==PROTO_USB3);
-    if(proto==0){
-        uint32_t sp=(ps&PS_SPEED_MASK)>>PS_SPEED_SHIFT;
-        is_usb3=(sp>=SPEED_SUPER);
+    /*
+     * IMPORTANT: for an attached device, PORTSC Speed is authoritative
+     * for reset selection.  A physical full/low/high-speed device can be
+     * attached to hardware that also exposes a USB3 Supported Protocol
+     * capability for the same physical connector.  Using the protocol
+     * capability alone can incorrectly select Warm Port Reset (WPR).
+     *
+     * USB2 devices require Port Reset (PR); SuperSpeed devices require
+     * Warm Port Reset.  Only use the protocol capability as a fallback
+     * when the controller has not yet reported a device speed.
+     */
+    uint32_t sp=(ps&PS_SPEED_MASK)>>PS_SPEED_SHIFT;
+    int is_usb3;
+    if(sp>=SPEED_SUPER){
+        is_usb3=1;
+    } else if(sp!=SPEED_UNDEF){
+        is_usb3=0;
+    } else {
+        is_usb3=(port_protocol(p)==PROTO_USB3);
     }
+
+    usb_log("[ USB ] reset port "); usb_log_dec(p);
+    usb_log(" speed="); usb_log_dec(sp);
+    usb_log(" mode="); usb_log(is_usb3?"USB3-WPR":"USB2-PR");
+    usb_log_nl();
 
     uint32_t chg=ps&PS_CHANGE_BITS;
     if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
