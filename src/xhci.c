@@ -1082,30 +1082,30 @@ static int enumerate_port(uint32_t p){
     xhci_delay_ms(20u);
 
     int is_usb3=(device_speed>=SPEED_SUPER);
-    int already_addressed=0;
 
     /*
-     * For USB 2.0/full/high-speed devices, use the xHCI BSR sequence:
-     * Address Device with BSR=1 first, so the device remains at USB
-     * address 0 while the first 8-byte descriptor request determines
-     * bMaxPacketSize0.  read_device_descriptor() then evaluates the
-     * EP0 MPS and performs the real Address Device (BSR=0).
+     * USB 2.0/full/high-speed devices use the normal Address Device
+     * command.  The default EP0 MPS is 8 bytes, which is valid for the
+     * initial address phase.  Once the device descriptor is returned,
+     * read_device_descriptor() updates the EP0 MPS before requesting
+     * the remaining descriptor bytes.
      *
-     * Some physical USB mice are stricter about this sequence than
-     * QEMU's virtual mouse.
+     * BSR is intentionally NOT used for this USB2 path.  It is a
+     * SuperSpeed-specific xHCI mechanism and is not required for a
+     * full-speed HID mouse.
      */
-    diag_stage=is_usb3?"ADDRESS USB3 BSR":"ADDRESS USB2 BSR";
-    if(cmd_address_device(1)){
-        return usb_fail(is_usb3?"ADDRESS USB3 BSR":"ADDRESS USB2 BSR");
+    diag_stage=is_usb3?"ADDRESS USB3":"ADDRESS USB2 FULL/HIGH";
+    if(cmd_address_device(is_usb3?1u:0u)){
+        return usb_fail(diag_stage);
     }
     xhci_delay_ms(is_usb3?150u:100u);
 
     /*
-     * Keep already_addressed=0 so read_device_descriptor() performs
-     * the first descriptor read at address 0 and then sends the final
-     * Address Device command after EP0 MPS is known.
+     * The device already has its USB address.  read_device_descriptor()
+     * therefore performs GET_DESCRIPTOR at that address and handles the
+     * EP0 MPS discovery/update.
      */
-    already_addressed=0;
+    int already_addressed=1;
 
     diag_stage="DEVICE DESCRIPTOR";
     if(read_device_descriptor(already_addressed)){
