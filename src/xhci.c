@@ -100,6 +100,7 @@
 
 #define TRB_CYCLE 0x1u
 #define TRB_TC 0x2u
+#define TRB_ISP 0x4u
 #define TRB_CHAIN 0x10u
 #define TRB_IOC 0x20u
 #define TRB_IDT 0x40u
