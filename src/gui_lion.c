@@ -92,6 +92,10 @@ static int desktop_icon_drag = -1;
 static int desktop_icon_press_x;
 static int desktop_icon_press_y;
 
+static int desktop_icon_at(uint32_t x,uint32_t y);
+static void move_desktop_icon(struct desktop_icon *icon,uint32_t x,uint32_t y);
+static void activate_desktop_icon(uint8_t action);
+
 struct display_mode { uint32_t width; uint32_t height; };
 static const struct display_mode display_modes[] = {
     {640u,480u},{800u,600u},{1024u,768u},{1280u,720u},
