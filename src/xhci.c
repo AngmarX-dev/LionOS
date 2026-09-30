@@ -927,25 +927,19 @@ static int port_reset(uint32_t p){
     if(!(ps&PS_CCS)) return -1;
 
     /*
-     * IMPORTANT: for an attached device, PORTSC Speed is authoritative
-     * for reset selection.  A physical full/low/high-speed device can be
-     * attached to hardware that also exposes a USB3 Supported Protocol
-     * capability for the same physical connector.  Using the protocol
-     * capability alone can incorrectly select Warm Port Reset (WPR).
+     * For a connected device, PORTSC Speed determines the reset type.
+     * USB2/full-speed devices need ordinary Port Reset (PR).  SuperSpeed
+     * devices need Warm Port Reset (WPR).
      *
-     * USB2 devices require Port Reset (PR); SuperSpeed devices require
-     * Warm Port Reset.  Only use the protocol capability as a fallback
-     * when the controller has not yet reported a device speed.
+     * Do not rewrite PLS/LWS on USB2 ports.  Those fields are not part of
+     * the USB2 reset operation and changing them can disturb a real
+     * controller's USB2 link while the device is being enumerated.
      */
     uint32_t sp=(ps&PS_SPEED_MASK)>>PS_SPEED_SHIFT;
     int is_usb3;
-    if(sp>=SPEED_SUPER){
-        is_usb3=1;
-    } else if(sp!=SPEED_UNDEF){
-        is_usb3=0;
-    } else {
-        is_usb3=(port_protocol(p)==PROTO_USB3);
-    }
+    if(sp>=SPEED_SUPER) is_usb3=1;
+    else if(sp!=SPEED_UNDEF) is_usb3=0;
+    else is_usb3=(port_protocol(p)==PROTO_USB3);
 
     usb_log("[ USB ] reset port "); usb_log_dec(p);
     usb_log(" speed="); usb_log_dec(sp);
@@ -954,65 +948,88 @@ static int port_reset(uint32_t p){
 
     uint32_t chg=ps&PS_CHANGE_BITS;
     if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
+    (void)r32(po);
 
     ps=r32(po);
+
     if(is_usb3){
-        w32(po,(ps&~(PS_PLS_MASK|PS_CHANGE_BITS|PS_PR))|PS_PP|PS_WPR|PS_LWS);
+        /* Warm Port Reset: preserve the controller-reported link state. */
+        uint32_t v=ps&~PS_CHANGE_BITS;
+        if(ppc_enabled) v|=PS_PP;
+        v|=PS_WPR;
+        w32(po,v);
     } else {
-        w32(po,(ps&~(PS_PLS_MASK|PS_CHANGE_BITS|PS_WPR|PS_LWS))|PS_PP|PS_PR);
+        /* USB2 Port Reset: PR is the only reset control we need. */
+        uint32_t v=ps&~(PS_CHANGE_BITS|PS_WPR);
+        if(ppc_enabled) v|=PS_PP;
+        v|=PS_PR;
+        w32(po,v);
     }
     (void)r32(po);
-    xhci_delay_ms(100u);
+
+    /*
+     * Give the device time to complete reset, then wait for the
+     * controller to report an attached/enabled USB2 device.
+     */
+    xhci_delay_ms(50u);
 
     for(uint32_t n=0;n<20000000u;++n){
         uint32_t q=r32(po);
+
         if(is_usb3){
-            if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0&&(q&PS_CCS)) return 0;
+            if(!(q&PS_WPR) && (q&PS_CCS) &&
+               (q&PS_PLS_MASK)==PS_PLS_U0){
+                clear_change_bits(p,q);
+                return 0;
+            }
         } else {
-            if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)){
-                w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PLS_U0|PS_LWS);
-                xhci_delay_ms(20u);
+            if((q&PS_CCS) && (q&PS_PED) && !(q&PS_PR)){
+                clear_change_bits(p,q);
                 return 0;
             }
         }
         __asm__ volatile("pause");
     }
 
-    xhci_delay_ms(300u);
-    uint32_t q=r32(po);
+    /*
+     * One controlled retry.  Do not force PLS/U0 on USB2.
+     */
+    ps=r32(po);
+    if(!(ps&PS_CCS)) return -1;
+
     if(is_usb3){
-        if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0) return 0;
+        uint32_t v=ps&~PS_CHANGE_BITS;
+        if(ppc_enabled) v|=PS_PP;
+        v|=PS_WPR;
+        w32(po,v);
     } else {
-        if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)){
-            w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PLS_U0|PS_LWS);
-            xhci_delay_ms(20u);
-            return 0;
-        }
+        uint32_t v=ps&~(PS_CHANGE_BITS|PS_WPR);
+        if(ppc_enabled) v|=PS_PP;
+        v|=PS_PR;
+        w32(po,v);
     }
 
-    q=r32(po);
-    if(is_usb3){
-        w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PP|PS_WPR|PS_LWS);
-    } else {
-        w32(po,(q&~PS_CHANGE_BITS)|PS_PP|PS_PR);
-    }
-    xhci_delay_ms(300u);
+    xhci_delay_ms(100u);
+
     for(uint32_t n=0;n<10000000u;++n){
-        q=r32(po);
+        uint32_t q=r32(po);
         if(is_usb3){
-            if(!(q&PS_WPR)&&(q&PS_PLS_MASK)==PS_PLS_U0) return 0;
+            if(!(q&PS_WPR) && (q&PS_CCS) &&
+               (q&PS_PLS_MASK)==PS_PLS_U0){
+                clear_change_bits(p,q);
+                return 0;
+            }
         } else {
-            if((q&PS_CCS)&&(q&PS_PED)&&!(q&PS_PR)){
-                w32(po,(q&~(PS_PLS_MASK|PS_CHANGE_BITS))|PS_PLS_U0|PS_LWS);
-                xhci_delay_ms(20u);
+            if((q&PS_CCS) && (q&PS_PED) && !(q&PS_PR)){
+                clear_change_bits(p,q);
                 return 0;
             }
         }
         __asm__ volatile("pause");
     }
+
     return -1;
 }
-
 static void clear_change_bits(uint32_t p,uint32_t ps){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t chg=ps&PS_CHANGE_BITS;
