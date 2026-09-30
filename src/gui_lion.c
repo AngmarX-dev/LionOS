@@ -61,6 +61,37 @@ static uint32_t mouse_px_x, mouse_px_y, previous_buttons;
 static uint8_t scene_dirty;
 static const char *last_usb_status;
 
+struct desktop_icon {
+    uint32_t x, y;
+    uint8_t action;
+    uint8_t dragging;
+    uint8_t moved;
+    uint8_t pad;
+    const uint32_t *bitmap;
+};
+
+#define DESKTOP_ICON_SIZE 64u
+#define DESKTOP_ICON_COUNT 6u
+#define ICON_ACTION_FILES 1u
+#define ICON_ACTION_TERMINAL 2u
+#define ICON_ACTION_BROWSER 3u
+#define ICON_ACTION_SETTINGS 4u
+#define ICON_ACTION_ABOUT 5u
+#define ICON_ACTION_TRASH 6u
+
+static struct desktop_icon desktop_icons[DESKTOP_ICON_COUNT] = {
+    {24u, 24u, ICON_ACTION_FILES,    0u, 0u, 0u, lion_icon_computer},
+    {24u, 124u, ICON_ACTION_FILES,   0u, 0u, 0u, lion_icon_home},
+    {24u, 224u, ICON_ACTION_TERMINAL, 0u, 0u, 0u, lion_icon_terminal},
+    {24u, 324u, ICON_ACTION_BROWSER,  0u, 0u, 0u, lion_icon_browser},
+    {24u, 424u, ICON_ACTION_SETTINGS, 0u, 0u, 0u, lion_icon_tools},
+    {24u, 524u, ICON_ACTION_ABOUT,    0u, 0u, 0u, lion_icon_desktop}
+};
+
+static int desktop_icon_drag = -1;
+static int desktop_icon_press_x;
+static int desktop_icon_press_y;
+
 struct display_mode { uint32_t width; uint32_t height; };
 static const struct display_mode display_modes[] = {
     {640u,480u},{800u,600u},{1024u,768u},{1280u,720u},
@@ -185,6 +216,13 @@ static void resize_windows_to_display(void){
     windows[3].x=(sw*41u)/100u;windows[3].y=(sh*18u)/100u;windows[3].w=(sw*34u)/100u;windows[3].h=(sh*52u)/100u;
     for(uint32_t i=0u;i<WIN_MAX;++i)if(windows[i].maximized){windows[i].x=0u;windows[i].y=0u;windows[i].w=sw;windows[i].h=sh;}
     mouse_set_bounds(sw,framebuffer_height());
+    uint32_t max_x=sw>DESKTOP_ICON_SIZE?sw-DESKTOP_ICON_SIZE:0u;
+    uint32_t max_y=framebuffer_height()>TASKBAR_H+DESKTOP_ICON_SIZE
+        ? framebuffer_height()-TASKBAR_H-DESKTOP_ICON_SIZE : 0u;
+    for(uint32_t i=0u;i<DESKTOP_ICON_COUNT;++i){
+        if(desktop_icons[i].x>max_x)desktop_icons[i].x=max_x;
+        if(desktop_icons[i].y>max_y)desktop_icons[i].y=max_y;
+    }
 }
 static void draw_settings(const struct ui_window*w){
     window_chrome(w,"Settings");
@@ -206,11 +244,24 @@ static void draw_settings(const struct ui_window*w){
 
 static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
 
-static void draw_icon(uint32_t x,uint32_t y,const char*name,const uint32_t*icon){
-    fill(x,y,66u,66u,COL_PANEL2);
-    border(x,y,66u,66u,COL_GOLD_DIM);
-    framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+9u,y+9u,48u);
-    text_line(name,x+(66u>label_width(name)?(66u-label_width(name))/2u:0u),y+72u,COL_TEXT,COL_GROUND);
+static void draw_desktop_icon(const struct desktop_icon *icon){
+    if(!icon||!icon->bitmap)return;
+    /*
+     * Icon-only desktop shortcuts: no text box, no permanent label.
+     * A subtle hover plate keeps the desktop readable without looking
+     * like a row of buttons.
+     */
+    uint32_t x=icon->x,y=icon->y;
+    if(x+DESKTOP_ICON_SIZE<=framebuffer_width() &&
+       y+DESKTOP_ICON_SIZE<=framebuffer_height()-TASKBAR_H){
+        if(icon->dragging||((mouse_px_x>=x&&mouse_px_x<x+DESKTOP_ICON_SIZE)&&
+                            (mouse_px_y>=y&&mouse_px_y<y+DESKTOP_ICON_SIZE))){
+            fill(x-5u,y-5u,DESKTOP_ICON_SIZE+10u,DESKTOP_ICON_SIZE+10u,COL_PANEL2);
+            border(x-5u,y-5u,DESKTOP_ICON_SIZE+10u,DESKTOP_ICON_SIZE+10u,COL_GOLD_DIM);
+        }
+        framebuffer_blit_rgba32(icon->bitmap,LION_ICON_SIZE,LION_ICON_SIZE,
+                                x+8u,y+8u,48u);
+    }
 }
 
 static void draw_sun(uint32_t cx,uint32_t cy,uint32_t r){for(int dy=-(int)r;dy<=(int)r;++dy){uint32_t ady=(uint32_t)(dy<0?-dy:dy);uint32_t rem=ady>r?0u:r-ady;uint32_t half=(rem*rem)/(r?r:1u);uint32_t dx=0u;while((dx+1u)*(dx+1u)<=half)++dx;fill(cx>=dx?cx-dx:0u,cy+(uint32_t)dy,dx*2u+1u,1u,COL_SUN);}}
@@ -253,8 +304,8 @@ static void draw_system_widget(void){
     text_line("USB MOUSE",x+16u,y+100u,COL_DIM,COL_PANEL);
     text_line(mouse_usb_status_text(),x+126u,y+100u,
               mouse_usb_status_text()[0]=='A'?COL_OK:COL_GOLD,COL_PANEL);
-    text_line("NETWORK",x+16u,y+128u,COL_DIM,COL_PANEL);
-    text_line("READY",x+126u,y+128u,COL_OK,COL_PANEL);
+    text_line("REFRESH",x+16u,y+128u,COL_DIM,COL_PANEL);
+    text_line("60 HZ",x+126u,y+128u,COL_OK,COL_PANEL);
     fill(x+16u,y+146u,ww-32u,2u,COL_GOLD_DIM);
     text_line("Small - Fast - Powerful",x+16u,y+152u,COL_TEXT,COL_PANEL);
 }
@@ -298,24 +349,34 @@ static void draw_start_menu(void){
 }
 
 static void draw_cursor(uint32_t x,uint32_t y){
-    fill(x,y,2u,20u,COL_TEXT);
-    fill(x+2u,y+2u,2u,15u,COL_TEXT);
-    fill(x+4u,y+4u,2u,12u,COL_TEXT);
-    fill(x+6u,y+6u,2u,10u,COL_TEXT);
-    fill(x+8u,y+8u,2u,8u,COL_TEXT);
-    fill(x+3u,y+14u,4u,2u,COL_GROUND);
-    fill(x+5u,y+16u,5u,2u,COL_GROUND);
+    /*
+     * Classic desktop pointer: black 1-pixel outline/shadow with a
+     * white arrow fill, visually similar to mainstream desktop cursors.
+     */
+    static const uint16_t arrow[] = {
+        0x8000u,0xC000u,0xE000u,0xF000u,0xF800u,
+        0xFC00u,0xFE00u,0xFF00u,0xFF80u,0xFFC0u,
+        0xFFE0u,0xFFF0u,0xFFF8u,0xFFF0u,0xF3E0u,
+        0xE1C0u,0xC080u,0x8000u
+    };
+    const uint32_t h=sizeof(arrow)/sizeof(arrow[0]);
+    for(uint32_t row=0u;row<h;++row){
+        for(uint32_t col=0u;col<16u;++col){
+            if(arrow[row]&(0x8000u>>col))
+                fill(x+col+1u,y+row+1u,1u,1u,COL_GROUND);
+        }
+    }
+    for(uint32_t row=1u;row<h-1u;++row){
+        for(uint32_t col=1u;col<15u;++col){
+            if(arrow[row]&(0x8000u>>col))
+                fill(x+col,y+row,1u,1u,COL_TEXT);
+        }
+    }
 }
 static void draw_desktop_background(void){draw_wallpaper();}
 static void draw_desktop_icons(void){
-    uint32_t base_y=12u;
-    draw_icon(16u,base_y,"This PC",lion_icon_computer);
-    draw_icon(16u,base_y+96u,"Home",lion_icon_home);
-    draw_icon(16u,base_y+192u,"Terminal",lion_icon_terminal);
-    draw_icon(16u,base_y+288u,"Browser",lion_icon_browser);
-    draw_icon(16u,base_y+384u,"Settings",lion_icon_tools);
-    draw_icon(16u,base_y+480u,"About",lion_icon_desktop);
-    draw_icon(16u,base_y+576u,"Trash",lion_icon_trash);
+    for(uint32_t i=0u;i<DESKTOP_ICON_COUNT;++i)
+        draw_desktop_icon(&desktop_icons[i]);
 }
 
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
@@ -333,7 +394,13 @@ static void init_windows(void){
     windows[1]=(struct ui_window){WIN_FILES,0u,0u,0u,0u,(sw*25u)/100u,(sh*17u)/100u,(sw*50u)/100u,(sh*58u)/100u,0u,0u,0u,0u};
     windows[2]=(struct ui_window){WIN_ABOUT,0u,0u,0u,0u,(sw*34u)/100u,(sh*20u)/100u,(sw*36u)/100u,(sh*48u)/100u,0u,0u,0u,0u};
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
-    terminal_init();gui_active=1u;start_open=0u;drag_active=0u;terminal_focus=0u;scene_dirty=1u;
+    terminal_init();gui_active=1u;start_open=0u;drag_active=0u;
+    desktop_icon_drag=-1;
+    for(uint32_t i=0u;i<DESKTOP_ICON_COUNT;++i){
+        desktop_icons[i].dragging=0u;
+        desktop_icons[i].moved=0u;
+    }
+    terminal_focus=0u;scene_dirty=1u;
     selected_display_mode=0u;
     for(uint32_t i=0u;i<sizeof(display_modes)/sizeof(display_modes[0]);++i)
         if(display_modes[i].width==framebuffer_width()&&display_modes[i].height==framebuffer_height()){selected_display_mode=i;break;}
@@ -391,6 +458,19 @@ static void handle_click(void){
         struct ui_window*w=&windows[i];
         if(w->visible&&!w->minimized&&x>=w->x&&x<w->x+w->w&&y>=w->y&&y<w->y+w->h){handle_window_click(w);return;}
     }
+
+    {
+        int icon=desktop_icon_at(x,y);
+        if(icon>=0){
+            desktop_icon_drag=icon;
+            desktop_icons[icon].dragging=1u;
+            desktop_icons[icon].moved=0u;
+            desktop_icon_press_x=(int)x-(int)desktop_icons[icon].x;
+            desktop_icon_press_y=(int)y-(int)desktop_icons[icon].y;
+            return;
+        }
+    }
+
     if(x>=16u&&x<86u&&y>=12u&&y<82u){show(WIN_FILES);return;}
     if(x>=16u&&x<86u&&y>=108u&&y<178u){show(WIN_FILES);return;}
     if(x>=16u&&x<86u&&y>=204u&&y<274u){show(WIN_TERMINAL);terminal_init();return;}
@@ -400,8 +480,54 @@ static void handle_click(void){
     if(x>=16u&&x<86u&&y>=588u&&y<658u){return;}
 }
 
+static int desktop_icon_at(uint32_t x,uint32_t y){
+    uint32_t bottom=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:0u;
+    for(int i=(int)DESKTOP_ICON_COUNT-1;i>=0;--i){
+        const struct desktop_icon *icon=&desktop_icons[i];
+        if(x>=icon->x&&x<icon->x+DESKTOP_ICON_SIZE&&
+           y>=icon->y&&y<icon->y+DESKTOP_ICON_SIZE&&
+           y+DESKTOP_ICON_SIZE<=bottom) return i;
+    }
+    return -1;
+}
+
+static void move_desktop_icon(struct desktop_icon *icon,uint32_t x,uint32_t y){
+    if(!icon)return;
+    uint32_t max_x=framebuffer_width()>DESKTOP_ICON_SIZE
+        ? framebuffer_width()-DESKTOP_ICON_SIZE : 0u;
+    uint32_t max_y=framebuffer_height()>TASKBAR_H+DESKTOP_ICON_SIZE
+        ? framebuffer_height()-TASKBAR_H-DESKTOP_ICON_SIZE : 0u;
+    int nx=(int)x-desktop_icon_press_x;
+    int ny=(int)y-desktop_icon_press_y;
+    if(nx<0)nx=0;
+    if(ny<0)ny=0;
+    if(nx>(int)max_x)nx=(int)max_x;
+    if(ny>(int)max_y)ny=(int)max_y;
+    if((uint32_t)nx!=icon->x || (uint32_t)ny!=icon->y)
+        icon->moved=1u;
+    icon->x=(uint32_t)nx;
+    icon->y=(uint32_t)ny;
+}
+
+static void activate_desktop_icon(uint8_t action){
+    switch(action){
+        case ICON_ACTION_FILES: show(WIN_FILES); break;
+        case ICON_ACTION_TERMINAL: show(WIN_TERMINAL); terminal_init(); break;
+        case ICON_ACTION_BROWSER: browser_start(); break;
+        case ICON_ACTION_SETTINGS: show(WIN_SETTINGS); break;
+        case ICON_ACTION_ABOUT: show(WIN_ABOUT); break;
+        default: break;
+    }
+}
+
 static void handle_move(void){
     scene_dirty=1u;
+
+    if(desktop_icon_drag>=0){
+        move_desktop_icon(&desktop_icons[desktop_icon_drag],mouse_px_x,mouse_px_y);
+        return;
+    }
+
     if(!drag_active)return;
     struct ui_window*w=window_by_id(drag_id);
     if(!w||!w->visible){drag_active=0u;return;}
@@ -454,7 +580,17 @@ void gui_step(void){
     uint32_t buttons=mouse_buttons();
     if(mouse_px_x!=old_x||mouse_px_y!=old_y||buttons!=previous_buttons)scene_dirty=1u;
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
-    if(!(buttons&1u)&&(previous_buttons&1u)){drag_active=0u;scene_dirty=1u;}
+    if(!(buttons&1u)&&(previous_buttons&1u)){
+        if(desktop_icon_drag>=0){
+            int icon=desktop_icon_drag;
+            desktop_icons[icon].dragging=0u;
+            if(!desktop_icons[icon].moved)
+                activate_desktop_icon(desktop_icons[icon].action);
+            desktop_icon_drag=-1;
+        }
+        drag_active=0u;
+        scene_dirty=1u;
+    }
     handle_move();
     if(browser_is_active()){browser_step();previous_buttons=buttons;scene_dirty=1u;render_all();return;}
     while(keyboard_available()){scene_dirty=1u;handle_key(keyboard_getchar());}
