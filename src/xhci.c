@@ -921,6 +921,8 @@ static void dump_ports(void){
     }
 }
 
+static void clear_change_bits(uint32_t p,uint32_t ps);
+
 static int port_reset(uint32_t p){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t ps=r32(po);
