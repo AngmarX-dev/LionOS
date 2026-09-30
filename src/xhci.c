@@ -559,7 +559,13 @@ static void fill_ep_context(void *ep,uint32_t ep_type,uint32_t mps,
                             uint32_t interval,uint64_t dequeue,uint32_t avg_len){
     uint32_t *e=(uint32_t*)ep; zero_mem(e,ctx_size);
     e[0]=(interval&0xFFu)<<16;
-    e[1]=((ep_type&0x7u)<<3)|((mps&0xFFFFu)<<16);
+    /*
+     * CErr (Endpoint Context DW1 bits 2:1) must be initialized for
+     * non-isochronous endpoints.  Use the normal xHCI value of 3.
+     * Physical controllers can reject transfers when these bits are
+     * left at zero, even when QEMU accepts the context.
+     */
+    e[1]=(3u<<1)|((ep_type&0x7u)<<3)|((mps&0xFFFFu)<<16);
     ctx_set64(ep,2u,dequeue);
     e[4]=avg_len&0xFFFFu;
 }
