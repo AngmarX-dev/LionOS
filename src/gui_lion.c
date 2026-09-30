@@ -356,7 +356,7 @@ static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visi
 static void render_all(void){
     if(browser_is_active()){browser_render();framebuffer_present();return;}
     if(!scene_dirty)return;
-    draw_desktop_background();draw_desktop_icons();draw_usb_test_panel();draw_system_widget();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);
+    draw_desktop_background();draw_desktop_icons();draw_system_widget();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);
     framebuffer_present();scene_dirty=0u;
 }
 
