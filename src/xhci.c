@@ -493,7 +493,13 @@ static void link_trb(trb_t *ring,uint32_t cyc){
     trb_t *t=&ring[RING_TRBS-1u];
     uint64_t a=(uint64_t)(uintptr_t)ring;
     t->lo=(uint32_t)a; t->hi=(uint32_t)(a>>32); t->status=0;
-    t->control=(TRB_LINK<<10)|TRB_TC|TRB_CHAIN|(cyc?TRB_CYCLE:0u);
+    /*
+     * Normal xHCI Link TRBs are not chained. Linux only sets CHAIN on
+     * Link TRBs for a small set of legacy controller quirks. Keeping it
+     * clear lets physical Intel xHCI controllers cross the 255-TRB
+     * segment boundary correctly.
+     */
+    t->control=(TRB_LINK<<10)|TRB_TC|(cyc?TRB_CYCLE:0u);
 }
 static int setup_rings(void){
     cmd_index=0; cmd_cycle=1; event_index=0; event_cycle=1;
@@ -1361,7 +1367,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
                 if(!report_seen){ report_seen=1; usb_log("[ OK ] HID mouse reports active\n"); }
                 if(buttons)*buttons=report_buf[0]&7u;
                 if(dx)*dx=(int32_t)(int8_t)report_buf[1];
-                if(dy)*dy=-(int32_t)(int8_t)report_buf[2];
+                if(dy)*dy=(int32_t)(int8_t)report_buf[2];
             }
             submit_report();
             return 1;
