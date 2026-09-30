@@ -546,8 +546,15 @@ static void ctx_set64(void *c,uint32_t dw,uint64_t v){
     uint32_t *p=(uint32_t*)c; p[dw]=(uint32_t)v; p[dw+1]=(uint32_t)(v>>32);
 }
 static uint32_t ep0_default_mps(void){
+    /*
+     * Match the xHCI/Linux enumeration model: before the first
+     * device descriptor, use the standard 64-byte EP0 context for
+     * full-speed devices.  The returned descriptor then supplies
+     * the device's actual bMaxPacketSize0.
+     */
     if(device_speed==SPEED_HIGH) return 64u;
     if(device_speed>=SPEED_SUPER) return 512u;
+    if(device_speed==SPEED_FULL) return 64u;
     return 8u;
 }
 static void fill_slot_context(void *slot,uint32_t entries){
@@ -630,25 +637,38 @@ static int ep0_xfer(uint8_t bm,uint8_t req,uint16_t val,uint16_t idx,
                   |((uint64_t)idx<<32)|((uint64_t)len<<48);
     uint32_t trt=len?(in?(3u<<16):(2u<<16)):0u;
     trb_t *t=&ep0_ring[ep0_index];
+
+    /*
+     * Follow the xHCI control-transfer model used by Linux:
+     * Setup/Data/Status are one control TD and are sequenced by the
+     * control-transfer engine.  Do not add TRB_CHAIN to these stages.
+     */
     t->lo=(uint32_t)setup; t->hi=(uint32_t)(setup>>32); t->status=8u;
-    t->control=(TRB_SETUP<<10)|TRB_IDT|TRB_CHAIN|trt|(ep0_cycle?TRB_CYCLE:0u);
+    t->control=(TRB_SETUP<<10)|TRB_IDT|trt|(ep0_cycle?TRB_CYCLE:0u);
     ++ep0_index;
     if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+
     if(len){
         t=&ep0_ring[ep0_index];
-        t->lo=(uint32_t)(uintptr_t)data; t->hi=(uint32_t)((uint64_t)(uintptr_t)data>>32);
+        t->lo=(uint32_t)(uintptr_t)data;
+        t->hi=(uint32_t)((uint64_t)(uintptr_t)data>>32);
         t->status=len&0x1FFFFu;
-        t->control=(TRB_DATA<<10)|TRB_CHAIN|(in?TRB_DIR_IN:0u)|(ep0_cycle?TRB_CYCLE:0u);
+        t->control=(TRB_DATA<<10)|(in?TRB_DIR_IN:0u)|
+                   (in?TRB_ISP:0u)|(ep0_cycle?TRB_CYCLE:0u);
         ++ep0_index;
         if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
     }
+
     t=&ep0_ring[ep0_index];
     t->lo=0; t->hi=0; t->status=0;
-    t->control=(TRB_STATUS<<10)|TRB_IOC|(in?0u:TRB_DIR_IN)|(ep0_cycle?TRB_CYCLE:0u);
+    t->control=(TRB_STATUS<<10)|TRB_IOC|(in?0u:TRB_DIR_IN)|
+               (ep0_cycle?TRB_CYCLE:0u);
     ++ep0_index;
     if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=1u;
+
     for(uint32_t n=0;n<8000000u;++n){
         trb_t e;
         if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
