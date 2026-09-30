@@ -155,10 +155,17 @@ void mouse_poll(void){
     /* PS/2 state is updated by IRQ12 handler. Nothing to do here. */
 
     if(usb_initialized){
-        int32_t dx = 0, dy = 0;
-        uint8_t btn = 0;
-        int r = xhci_mouse_poll(&dx, &dy, &btn);
-        if(r == 1){
+        /*
+         * HID reports can arrive faster than the GUI loop.  Drain a small
+         * batch each tick so queued xHCI transfer events do not turn into
+         * visible cursor stutter or input lag.
+         */
+        for(uint32_t sample = 0u; sample < 8u; ++sample){
+            int32_t dx = 0, dy = 0;
+            uint8_t btn = 0;
+            int r = xhci_mouse_poll(&dx, &dy, &btn);
+            if(r != 1) break;
+
             usb_x += dx;
             usb_y += dy;
             if(usb_x < 0) usb_x = 0;
@@ -168,7 +175,7 @@ void mouse_poll(void){
             usb_buttons = btn;
         }
     } else if(usb_retry_attempts < 3u){
-        /* Retry every ~30 frames (~0.5 s at 60 Hz) up to 3 times. */
+        /* Retry every ~30 frames (~0.5 s) up to 3 times. */
         usb_status = 3u;
         if(++usb_retry_frames >= 30u){
             usb_retry_frames = 0;
