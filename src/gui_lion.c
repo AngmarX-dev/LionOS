@@ -4,7 +4,6 @@
 #include "framebuffer.h"
 #include "keyboard.h"
 #include "mouse.h"
-#include "xhci.h"
 #include "memory.h"
 #include "vfs.h"
 #include "lapic.h"
@@ -238,38 +237,6 @@ static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const c
     framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+7u,y+7u,22u);
     if(label&&label[0]) text_line(label,x+35u,y+9u,COL_TEXT,c);
 }
-static void draw_usb_test_panel(void){
-    uint32_t w=framebuffer_width(),h=framebuffer_height();
-    if(w<760u||h<520u)return;
-    xhci_mouse_debug_info_t d;if(xhci_mouse_debug_get(&d)!=0)return;
-    uint32_t x=18u,y=18u,pw=430u,ph=242u;
-    fill(x+4u,y+4u,pw,ph,0x03070Cu);fill(x,y,pw,ph,COL_PANEL);border(x,y,pw,ph,COL_GOLD_DIM);fill(x,y,pw,3u,COL_GOLD);
-    text_line("REAL USB MOUSE TEST",x+14u,y+12u,COL_GOLD,COL_PANEL);
-    text_line("STAGE",x+14u,y+38u,COL_DIM,COL_PANEL);text_line(d.stage?d.stage:"UNKNOWN",x+96u,y+38u,d.reports?COL_OK:COL_TEXT,COL_PANEL);
-    text_line("CONTROLLER",x+14u,y+62u,COL_DIM,COL_PANEL);text_line(d.controller_found?"FOUND":"NOT FOUND",x+96u,y+62u,d.controller_found?COL_OK:COL_DANGER,COL_PANEL);
-    text_line("VID",x+210u,y+62u,COL_DIM,COL_PANEL);draw_uint(d.vid,x+250u,y+62u,COL_TEXT,COL_PANEL);
-    text_line("PID",x+310u,y+62u,COL_DIM,COL_PANEL);draw_uint(d.pid,x+350u,y+62u,COL_TEXT,COL_PANEL);
-    text_line("PORT",x+14u,y+86u,COL_DIM,COL_PANEL);draw_uint(d.port,x+96u,y+86u,COL_TEXT,COL_PANEL);
-    text_line("SPEED",x+178u,y+86u,COL_DIM,COL_PANEL);draw_uint(d.speed,x+238u,y+86u,COL_TEXT,COL_PANEL);
-    text_line("EP",x+300u,y+86u,COL_DIM,COL_PANEL);draw_uint(d.endpoint_address,x+352u,y+86u,COL_TEXT,COL_PANEL);
-    text_line("PKT",x+14u,y+110u,COL_DIM,COL_PANEL);draw_uint(d.packet_size,x+96u,y+110u,COL_TEXT,COL_PANEL);
-    text_line("SUB",x+178u,y+110u,COL_DIM,COL_PANEL);draw_uint(d.submitted,x+238u,y+110u,COL_TEXT,COL_PANEL);
-    text_line("EVENT",x+300u,y+110u,COL_DIM,COL_PANEL);draw_uint(d.events,x+352u,y+110u,COL_TEXT,COL_PANEL);
-    text_line("REPORTS",x+14u,y+134u,COL_DIM,COL_PANEL);draw_uint(d.reports,x+96u,y+134u,d.reports?COL_OK:COL_TEXT,COL_PANEL);
-    text_line("LAST CC",x+178u,y+134u,COL_DIM,COL_PANEL);draw_uint(d.last_completion,x+238u,y+134u,COL_TEXT,COL_PANEL);
-    text_line("ERR",x+300u,y+134u,COL_DIM,COL_PANEL);draw_uint(d.errors,x+352u,y+134u,d.errors?COL_DANGER:COL_TEXT,COL_PANEL);
-    text_line("HID IF",x+14u,y+158u,COL_DIM,COL_PANEL);draw_uint(d.hid_iface,x+96u,y+158u,COL_TEXT,COL_PANEL);
-    text_line("CLS",x+178u,y+158u,COL_DIM,COL_PANEL);draw_uint(d.hid_subclass,x+238u,y+158u,COL_TEXT,COL_PANEL);
-    text_line("PROTO",x+300u,y+158u,COL_DIM,COL_PANEL);draw_uint(d.hid_protocol,x+352u,y+158u,COL_TEXT,COL_PANEL);
-    text_line("RAW",x+14u,y+182u,COL_DIM,COL_PANEL);
-    for(uint32_t i=0u;i<d.report_len&&i<8u;++i){char hx[3];static const char dg[]="0123456789ABCDEF";hx[0]=dg[(d.report[i]>>4)&15u];hx[1]=dg[d.report[i]&15u];hx[2]=0;text_line(hx,x+96u+i*28u,y+158u,COL_GOLD,COL_PANEL);}
-    text_line("PORTSC",x+14u,y+206u,COL_DIM,COL_PANEL);draw_uint(d.portsc,x+96u,y+206u,COL_TEXT,COL_PANEL);
-    text_line("SUCC",x+178u,y+206u,COL_DIM,COL_PANEL);draw_uint(d.successes,x+238u,y+206u,COL_OK,COL_PANEL);
-    text_line("IF/EP",x+14u,y+230u,COL_DIM,COL_PANEL);draw_uint(d.interfaces,x+96u,y+230u,COL_TEXT,COL_PANEL);text_line("/",x+132u,y+230u,COL_DIM,COL_PANEL);draw_uint(d.endpoints,x+148u,y+230u,COL_TEXT,COL_PANEL);
-    text_line("HID",x+178u,y+230u,COL_DIM,COL_PANEL);draw_uint(d.hid_interfaces,x+238u,y+230u,COL_TEXT,COL_PANEL);
-    text_line("Move the physical USB mouse.",x+14u,y+250u,COL_TEXT,COL_PANEL);
-}
-
 static void draw_system_widget(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height();
     if(w<760u||h<520u)return;
