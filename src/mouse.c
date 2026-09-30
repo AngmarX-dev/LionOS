@@ -160,7 +160,7 @@ void mouse_poll(void){
          * batch each tick so queued xHCI transfer events do not turn into
          * visible cursor stutter or input lag.
          */
-        for(uint32_t sample = 0u; sample < 8u; ++sample){
+        for(uint32_t sample = 0u; sample < 16u; ++sample){
             int32_t dx = 0, dy = 0;
             uint8_t btn = 0;
             int r = xhci_mouse_poll(&dx, &dy, &btn);
