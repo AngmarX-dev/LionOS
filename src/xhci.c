@@ -73,6 +73,17 @@
 #define PS_WPR (1u << 31)
 #define PS_LWS (1u << 16)
 #define PS_CHANGE_BITS (PS_CSC|PS_PEC|PS_WRC|PS_OCC|PS_PRC|PS_PLC|PS_CEC)
+/*
+ * PORTSC fields that are safe to carry from a read into a write.
+ * Linux calls this "port state to neutral": preserve only RW state
+ * fields; RW1S/RW1C/reserved fields must not be replayed.
+ */
+#define PS_INDICATOR_MASK (3u << 14)
+#define PS_WAKE_MASK (7u << 25)
+#define PS_RWS_BITS (PS_PLS_MASK|PS_PP|PS_INDICATOR_MASK|PS_WAKE_MASK)
+static uint32_t port_state_neutral(uint32_t ps){
+    return ps & PS_RWS_BITS;
+}
 
 #define RT_IR0 0x20u
 #define IR_IMAN 0x00u
@@ -443,6 +454,24 @@ static int alloc_memory(void){
        dma_page((void**)&erst)||dma_page((void**)&ep0_ring)||dma_page((void**)&intr_ring)||
        dma_page(&out_ctx)||dma_page(&in_ctx)||dma_page((void**)&control_buf)||
        dma_page((void**)&config_buf)||dma_page((void**)&report_buf)) return -1;
+
+    /*
+     * DMA pages are identity-mapped physical memory.  Do not leave stale
+     * boot-time contents in DCBAA, rings, contexts, or ERST entries; a
+     * physical xHC is allowed to fetch any entry it is pointed at.
+     */
+    zero_mem(dcbaa,PAGE_SIZE);
+    zero_mem(cmd_ring,PAGE_SIZE);
+    zero_mem(event_ring,PAGE_SIZE);
+    zero_mem(erst,PAGE_SIZE);
+    zero_mem(ep0_ring,PAGE_SIZE);
+    zero_mem(intr_ring,PAGE_SIZE);
+    zero_mem(out_ctx,PAGE_SIZE);
+    zero_mem(in_ctx,PAGE_SIZE);
+    zero_mem(control_buf,PAGE_SIZE);
+    zero_mem(config_buf,PAGE_SIZE);
+    zero_mem(report_buf,PAGE_SIZE);
+
     scratch_count=read_scratchpads();
     if(scratch_count>MAX_SCRATCH) return -1;
     if(scratch_count){
@@ -925,9 +954,9 @@ static void wake_all_ports(void){
         uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
         uint32_t ps=r32(po);
         uint32_t chg=ps&PS_CHANGE_BITS;
-        if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
+        if(chg) w32(po,port_state_neutral(ps)|chg);
         ps=r32(po);
-        if(!(ps&PS_PP)) w32(po,(ps&~(PS_CHANGE_BITS|PS_PP))|PS_PP|(ps&PS_CHANGE_BITS));
+        if(!(ps&PS_PP)) w32(po,port_state_neutral(ps)|PS_PP|(ps&PS_CHANGE_BITS));
     }
     xhci_delay_ms(50u);
 }
@@ -983,13 +1012,13 @@ static int port_reset(uint32_t p){
 
     if(is_usb3){
         /* Warm Port Reset: preserve the controller-reported link state. */
-        uint32_t v=ps&~PS_CHANGE_BITS;
+        uint32_t v=port_state_neutral(ps);
         if(ppc_enabled) v|=PS_PP;
         v|=PS_WPR;
         w32(po,v);
     } else {
         /* USB2 Port Reset: PR is the only reset control we need. */
-        uint32_t v=ps&~(PS_CHANGE_BITS|PS_WPR);
+        uint32_t v=port_state_neutral(ps);
         if(ppc_enabled) v|=PS_PP;
         v|=PS_PR;
         w32(po,v);
@@ -1027,12 +1056,12 @@ static int port_reset(uint32_t p){
     if(!(ps&PS_CCS)) return -1;
 
     if(is_usb3){
-        uint32_t v=ps&~PS_CHANGE_BITS;
+        uint32_t v=port_state_neutral(ps);
         if(ppc_enabled) v|=PS_PP;
         v|=PS_WPR;
         w32(po,v);
     } else {
-        uint32_t v=ps&~(PS_CHANGE_BITS|PS_WPR);
+        uint32_t v=port_state_neutral(ps);
         if(ppc_enabled) v|=PS_PP;
         v|=PS_PR;
         w32(po,v);
@@ -1062,7 +1091,7 @@ static int port_reset(uint32_t p){
 static void clear_change_bits(uint32_t p,uint32_t ps){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t chg=ps&PS_CHANGE_BITS;
-    if(chg) w32(po,(ps&~PS_CHANGE_BITS)|chg);
+    if(chg) w32(po,port_state_neutral(ps)|chg);
 }
 
 static int enumerate_port(uint32_t p){
