@@ -208,7 +208,7 @@ static uint32_t cmd_index, cmd_cycle;
 static uint32_t event_index, event_cycle;
 static uint32_t ep0_index, ep0_cycle;
 static uint32_t intr_index, intr_cycle, intr_segment;
-static uint32_t report_pending, report_length, report_seen, report_wait_frames;
+static uint32_t report_pending, report_length, report_seen;
 
 static usb_protocol_t protocols[MAX_PROTOCOLS];
 static uint32_t protocol_count;
@@ -711,7 +711,6 @@ static int restart_hid_transfer_ring(void){
     intr_index=0u;
     intr_cycle=1u;
     report_pending=0u;
-    report_wait_frames=0u;
 
     if(cmd_set_endpoint_deq(endpoint_id,
             (uint64_t)(uintptr_t)intr_segments[0]|1ull)!=0) return -1;
@@ -1456,7 +1455,8 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
                     ++diag_success_count;
                     if(!report_seen){
                         report_seen=1;
-                        usb_log("[ OK ] HID mouse reports active\n");
+                        usb_log("[ OK ] HID mouse reports active
+");
                     }
                     if(buttons) *buttons=diag_last_report[0]&7u;
                     if(dx) *dx=(int32_t)(int8_t)diag_last_report[1];
@@ -1468,20 +1468,15 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         }
 
         ++diag_error_count;
-        if(submit_report()!=0) return -1;
         return -1;
     }
 
-    if(report_pending){
-        if(++report_wait_frames >= 30u){
-            report_wait_frames=0u;
-            if(restart_hid_transfer_ring()!=0){
-                report_pending=0u;
-                ++diag_error_count;
-            }
-        }
-    }else{
-        report_wait_frames=0u;
+    /*
+     * A pending interrupt-IN transfer with no completion is normal for an
+     * idle HID mouse: the endpoint remains armed until the device has data.
+     * Do not reset the endpoint merely because several timer ticks passed.
+     */
+    if(!report_pending){
         if(submit_report()!=0) return -1;
     }
     return 0;
