@@ -59,6 +59,8 @@ static uint32_t wallpaper_cache_width;
 static uint32_t wallpaper_cache_height;
 static uint32_t wallpaper_cache_ready;
 static uint32_t desktop_mode;
+static uint8_t clip_enabled;
+static uint32_t clip_x, clip_y, clip_w, clip_h;
 
 /* GRUB/firmware selects the framebuffer mode before the kernel starts.
  * LionOS consumes the Multiboot2 framebuffer tag and has no runtime
@@ -321,6 +323,46 @@ int framebuffer_begin_desktop(void) {
     return 0;
 }
 
+void framebuffer_set_clip(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    if (!width || !height || x >= fb_width_value || y >= fb_height_value) {
+        clip_enabled = 0u;
+        return;
+    }
+    if (width > fb_width_value - x) width = fb_width_value - x;
+    if (height > fb_height_value - y) height = fb_height_value - y;
+    clip_x = x;
+    clip_y = y;
+    clip_w = width;
+    clip_h = height;
+    clip_enabled = 1u;
+}
+
+void framebuffer_clear_clip(void) {
+    clip_enabled = 0u;
+}
+
+static void framebuffer_apply_clip(uint32_t *x, uint32_t *y, uint32_t *width, uint32_t *height) {
+    if (!clip_enabled) return;
+    if (*x < clip_x) {
+        uint32_t delta = clip_x - *x;
+        if (delta >= *width) { *width = 0u; return; }
+        *x = clip_x;
+        *width -= delta;
+    }
+    if (*y < clip_y) {
+        uint32_t delta = clip_y - *y;
+        if (delta >= *height) { *height = 0u; return; }
+        *y = clip_y;
+        *height -= delta;
+    }
+    uint32_t right = *x + *width;
+    uint32_t clip_right = clip_x + clip_w;
+    if (right > clip_right) *width = clip_right > *x ? clip_right - *x : 0u;
+    uint32_t bottom = *y + *height;
+    uint32_t clip_bottom = clip_y + clip_h;
+    if (bottom > clip_bottom) *height = clip_bottom > *y ? clip_bottom - *y : 0u;
+}
+
 static const uint16_t cursor_arrow[] = {
     0x8000u,0xC000u,0xE000u,0xF000u,0xF800u,
     0xFC00u,0xFE00u,0xFF00u,0xFF80u,0xFFC0u,
@@ -403,43 +445,50 @@ void framebuffer_cursor_move(uint32_t x, uint32_t y) {
     cursor_visible = 1u;
 }
 
-void framebuffer_present(void) {
-    if (!enabled || !desktop_mode || !desktop_buffer) return;
+void framebuffer_present_rect(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    if (!enabled || !desktop_mode || !desktop_buffer || !width || !height) return;
+    if (x >= fb_width_value || y >= fb_height_value) return;
+    if (width > fb_width_value - x) width = fb_width_value - x;
+    if (height > fb_height_value - y) height = fb_height_value - y;
     uint32_t bytes=(fb_bpp+7u)/8u;
     if(fb_bpp==32u){
-        /*
-         * The desktop buffer is normal RAM and the framebuffer is a linear
-         * pixel surface.  Let GCC emit its optimized bulk copy instead of
-         * doing one volatile store per pixel.
-         */
-        size_t row_bytes=(size_t)fb_width_value*4u;
-        size_t frame_bytes=row_bytes*(size_t)fb_height_value;
-        if((size_t)fb_pitch==row_bytes){
-            __builtin_memcpy((void *)(uintptr_t)fb,desktop_buffer,frame_bytes);
-        }else{
-            for(uint32_t y=0u;y<fb_height_value;++y){
-                void *dst=(void *)(uintptr_t)(fb+y*fb_pitch);
-                const void *src=(const void *)(desktop_buffer+y*fb_width_value);
-                __builtin_memcpy(dst,src,row_bytes);
-            }
+        size_t row_bytes=(size_t)width*4u;
+        for(uint32_t row=0u;row<height;++row){
+            void *dst=(void *)(uintptr_t)(fb+(y+row)*fb_pitch+x*4u);
+            const void *src=(const void *)(desktop_buffer+(y+row)*fb_width_value+x);
+            __builtin_memcpy(dst,src,row_bytes);
         }
         return;
     }
-    for(uint32_t y=0u;y<fb_height_value;++y){
-        volatile uint8_t *dst=fb+y*fb_pitch;
-        const uint32_t *src=desktop_buffer+y*fb_width_value;
-        for(uint32_t x=0u;x<fb_width_value;++x)
-            write_packed_pixel(dst+x*bytes,src[x]);
+    for(uint32_t row=0u;row<height;++row){
+        volatile uint8_t *dst=fb+(y+row)*fb_pitch+x*bytes;
+        const uint32_t *src=desktop_buffer+(y+row)*fb_width_value+x;
+        for(uint32_t col=0u;col<width;++col)
+            write_packed_pixel(dst+col*bytes,src[col]);
     }
+}
+
+void framebuffer_present(void) {
+    framebuffer_present_rect(0u,0u,fb_width_value,fb_height_value);
 }
 
 void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t height, uint32_t x, uint32_t y, uint32_t size) {
     if (!enabled || !desktop_mode || !desktop_buffer || !pixels || !width || !height || !size) return;
-    for (uint32_t dy = 0; dy < size; ++dy) {
+    uint32_t start_x = 0u, end_x = size, start_y = 0u, end_y = size;
+    if (clip_enabled) {
+        uint32_t clip_right = clip_x + clip_w, clip_bottom = clip_y + clip_h;
+        if (x < clip_x) start_x = clip_x - x;
+        if (y < clip_y) start_y = clip_y - y;
+        if (x + end_x > clip_right) end_x = clip_right > x ? clip_right - x : 0u;
+        if (y + end_y > clip_bottom) end_y = clip_bottom > y ? clip_bottom - y : 0u;
+    }
+    if (x + start_x >= fb_width_value || y + start_y >= fb_height_value ||
+        end_x <= start_x || end_y <= start_y) return;
+    if (end_x > fb_width_value - x) end_x = fb_width_value - x;
+    if (end_y > fb_height_value - y) end_y = fb_height_value - y;
+    for (uint32_t dy = start_y; dy < end_y; ++dy) {
         uint32_t sy = (dy * height) / size;
-        if (y + dy >= fb_height_value) break;
-        for (uint32_t dx = 0; dx < size; ++dx) {
-            if (x + dx >= fb_width_value) break;
+        for (uint32_t dx = start_x; dx < end_x; ++dx) {
             uint32_t sx = (dx * width) / size;
             uint32_t src = pixels[sy * width + sx];
             uint32_t alpha = src >> 24;
@@ -494,6 +543,18 @@ void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint3
     }
     framebuffer_restore_wallpaper();
 }
+void framebuffer_restore_wallpaper_rect(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    if (!enabled || !desktop_mode || !desktop_buffer || !wallpaper_cache || !wallpaper_cache_ready || !width || !height) return;
+    if (x >= fb_width_value || y >= fb_height_value) return;
+    if (width > fb_width_value - x) width = fb_width_value - x;
+    if (height > fb_height_value - y) height = fb_height_value - y;
+    for (uint32_t row = 0u; row < height; ++row) {
+        uint32_t *dst = desktop_buffer + (y + row) * fb_width_value + x;
+        const uint32_t *src = wallpaper_cache + (y + row) * fb_width_value + x;
+        __builtin_memcpy(dst, src, (size_t)width * sizeof(uint32_t));
+    }
+}
+
 void framebuffer_restore_wallpaper(void) {
     if (!enabled || !desktop_mode || !desktop_buffer || !wallpaper_cache || !wallpaper_cache_ready) return;
     uint32_t count=fb_width_value*fb_height_value;
@@ -506,9 +567,11 @@ void framebuffer_clear(uint32_t color) {
 
 void framebuffer_fill_rect(uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t color) {
     if (!enabled) return;
-    if (x >= fb_width_value || y >= fb_height_value) return;
+    if (x >= fb_width_value || y >= fb_height_value || !width || !height) return;
     if (width > fb_width_value - x) width = fb_width_value - x;
     if (height > fb_height_value - y) height = fb_height_value - y;
+    framebuffer_apply_clip(&x, &y, &width, &height);
+    if (!width || !height) return;
     uint32_t packed = pack_rgb(color);
     for (uint32_t yy = y; yy < y + height; ++yy) {
         if(desktop_mode){
