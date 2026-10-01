@@ -29,7 +29,6 @@ static volatile uint32_t usb_retry_frames = 0;
 static volatile int32_t  usb_x = 400;
 static volatile int32_t  usb_y = 300;
 static volatile uint8_t  usb_buttons = 0;
-static volatile uint32_t usb_idle_frames = 0;
 static volatile uint32_t usb_recovery_cooldown = 0;
 static int32_t cursor_smooth_x = 400;
 static int32_t cursor_smooth_y = 300;
