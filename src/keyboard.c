@@ -47,16 +47,57 @@ static void push_char(uint8_t c) {
     write_index = next;
 }
 
+static void kbd_wait_write(void){
+    for(uint32_t i=0u;i<100000u;++i)
+        if((inb(PS2_STATUS)&2u)==0u) return;
+}
+static void kbd_wait_read(void){
+    for(uint32_t i=0u;i<100000u;++i)
+        if(inb(PS2_STATUS)&1u) return;
+}
 void keyboard_init(void) {
     read_index = 0;
     write_index = 0;
     shift_down = 0;
     extended_prefix = 0;
 
+    /*
+     * Re-enable and initialize the first PS/2 port instead of relying on
+     * firmware state. This matters on real laptops and after firmware handoff.
+     */
+    kbd_wait_write();
+    outb(PS2_STATUS,0xAEu);          /* enable keyboard port */
+    kbd_wait_write();
+    outb(PS2_STATUS,0x20u);          /* read controller config */
+    kbd_wait_read();
+    uint8_t cfg=inb(PS2_DATA);
+    cfg|=0x01u;                       /* IRQ1 */
+    cfg&=(uint8_t)~0x10u;             /* keyboard clock enabled */
+    kbd_wait_write();
+    outb(PS2_STATUS,0x60u);
+    kbd_wait_write();
+    outb(PS2_DATA,cfg);
+
+    /* Ask the keyboard to resume scanning; discard its ACK if present. */
+    kbd_wait_write();
+    outb(PS2_DATA,0xF4u);
+    for(uint32_t i=0u;i<100000u && !(inb(PS2_STATUS)&1u);++i) __asm__ volatile("pause");
+    if(inb(PS2_STATUS)&1u){
+        uint8_t st=inb(PS2_STATUS);
+        if(!(st&0x20u)) (void)inb(PS2_DATA);
+    }
+
+    /* Flush any old keyboard bytes without consuming AUX mouse data. */
+    while(inb(PS2_STATUS)&1u){
+        uint8_t st=inb(PS2_STATUS);
+        if(st&0x20u) break;
+        (void)inb(PS2_DATA);
+    }
+
     /* Enable keyboard IRQ1 on the master PIC. */
-    uint8_t mask = inb(0x21);
-    mask &= ~(1u << 1);
-    outb(0x21, mask);
+    uint8_t mask=inb(0x21);
+    mask&=(uint8_t)~(1u<<1);
+    outb(0x21,mask);
 }
 
 void keyboard_handle_scancode(uint8_t scancode) {
