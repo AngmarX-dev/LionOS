@@ -81,7 +81,7 @@ struct desktop_icon {
 #define DESKTOP_ICON_LABEL_GAP 4u
 #define DESKTOP_ICON_LABEL_H 20u
 #define DESKTOP_ICON_BLOCK_H (DESKTOP_ICON_SIZE + DESKTOP_ICON_LABEL_GAP + DESKTOP_ICON_LABEL_H)
-#define DESKTOP_ICON_COUNT 6u
+#define DESKTOP_ICON_COUNT 7u
 #define ICON_ACTION_FILES 1u
 #define ICON_ACTION_TERMINAL 2u
 #define ICON_ACTION_BROWSER 3u
@@ -177,7 +177,7 @@ static void hide(uint8_t id){
     if(id==WIN_TERMINAL)terminal_focus=0u;
     if(id==WIN_NOTEPAD)notepad_focus=0u;
 }
-static void minimize(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;w->minimized=1u;w->focused=0u;drag_active=0u;if(id==WIN_TERMINAL)terminal_focus=0u;}
+static void minimize(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;w->minimized=1u;w->focused=0u;drag_active=0u;if(id==WIN_TERMINAL)terminal_focus=0u;if(id==WIN_NOTEPAD){notepad_save();notepad_focus=0u;}}
 static void toggle_max(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;uint32_t dh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();if(!w->maximized){w->old_x=w->x;w->old_y=w->y;w->old_w=w->w;w->old_h=w->h;w->x=0u;w->y=0u;w->w=framebuffer_width();w->h=dh;w->maximized=1u;}else{w->x=w->old_x;w->y=w->old_y;w->w=w->old_w;w->h=w->old_h;w->maximized=0u;}focus(id);}
 
 static void term_clear(void){term_line_count=0u;term_len=0u;term_input[0]=0;}
@@ -562,7 +562,7 @@ static void handle_click(void){
     }
     if(start_open){
         uint32_t mw=framebuffer_width()>520u?420u:300u;
-        uint32_t mh=framebuffer_height()>520u?390u:framebuffer_height()>360u?300u:240u;
+        uint32_t mh=framebuffer_height()>560u?440u:framebuffer_height()>460u?400u:340u;
         uint32_t sx=12u,sy=h-TASKBAR_H-mh-8u;
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+122u&&y<sy+160u){show(WIN_TERMINAL);terminal_init();return;}
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+164u&&y<sy+202u){show(WIN_FILES);return;}
@@ -683,6 +683,11 @@ static void handle_key(int key){
         if(terminal_focus&&window_by_id(WIN_TERMINAL)&&window_by_id(WIN_TERMINAL)->visible){hide(WIN_TERMINAL);return;}
         for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].focused){hide(windows[i].id);return;}
         close_gui();return;
+    }
+    if(notepad_focus){
+        notepad_insert(key);
+        dirty_full();
+        return;
     }
     if(terminal_focus){
         if(key=='\n'||key==13){terminal_command();return;}
