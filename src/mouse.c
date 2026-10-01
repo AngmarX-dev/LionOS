@@ -34,7 +34,7 @@ static int32_t cursor_smooth_y = 300;
 static int32_t smooth_step(int32_t current,int32_t target){
     int32_t d=target-current;
     if(d==0)return current;
-    int32_t step=d/2;
+    int32_t step=(d*3)/4;
     if(step==0)step=(d>0)?1:-1;
     return current+step;
 }
@@ -170,7 +170,7 @@ void mouse_poll(void){
     /* PS/2 state is updated by IRQ12 handler. Nothing to do here. */
 
     if(usb_initialized){
-        for(uint32_t sample=0u;sample<16u;++sample){
+        for(uint32_t sample=0u;sample<32u;++sample){
             int32_t dx=0,dy=0;
             uint8_t btn=0;
             int r=xhci_mouse_poll(&dx,&dy,&btn);
