@@ -176,7 +176,7 @@ uint32_t *process_schedule(uint32_t *frame){
         set_current_local(next);
         next->cpu_owner=cpu;
         next->state=PROCESS_RUNNING;
-        debug_write("LIONOS:SCHED-SWITCH\n");
+        /* Scheduler hot path: never emit debug I/O here. Port 0xE9 is a\n         * QEMU debug console and is far more expensive than the context switch. */
         paging_switch_address_space(next->page_directory);
         tss_set_kernel_stack(next->kernel_stack_top);
         if(prev&&prev->reap_pending)reap_process(prev);
