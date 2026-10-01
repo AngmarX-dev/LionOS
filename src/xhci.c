@@ -684,6 +684,7 @@ static int update_ep0_mps(uint32_t mps){
     if(cmd_evaluate_context()!=0){ usb_log("[ USB ] Eval Ctx fail\n"); return -1; }
     ep0_mps=mps; return 0;
 }
+static int submit_report(void);
 static int cmd_reset_endpoint(uint32_t ep){
     uint32_t ctl=((ep&0x1Fu)<<16)|(slot_id<<24);
     cmd_submit(TRB_RESET_EP,0,ctl);
