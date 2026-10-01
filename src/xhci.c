@@ -1027,7 +1027,6 @@ static int submit_report(void){
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
     report_pending=1u;
-    report_wait_frames=0u;
     ++diag_transfer_submitted;
     return 0;
 }
@@ -1286,7 +1285,7 @@ static int enumerate_port(uint32_t p){
     usb_log(" int="); usb_log_dec(c.interval); usb_log_nl();
 
     diag_stage="SUBMIT HID REPORT";
-    report_pending=0; report_length=0; report_seen=0; report_wait_frames=0;
+    report_pending=0; report_length=0; report_seen=0;
     if(submit_report()) return usb_fail("SUBMIT HID REPORT");
 
     diag_stage="HID REPORT WAIT"; ready=1; diag_init_ok=1;
@@ -1421,7 +1420,6 @@ int xhci_mouse_init(void){
 int xhci_mouse_recover(void){
     if(!ready||!slot_id||!endpoint_id) return -1;
     report_pending=0u;
-    report_wait_frames=0u;
     return restart_hid_transfer_ring();
 }
 int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
