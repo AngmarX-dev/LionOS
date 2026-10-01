@@ -357,7 +357,6 @@ static void draw_desktop_icon(const struct desktop_icon *icon){
      * Keep every icon caption physically inside its 64px label cell.
      * Long names are shortened instead of painting over the wallpaper.
      */
-    static const char *short_names[]={"","FILES","HOME","TERM","BROW","SET","ABOUT","NOTE"};
     const char *label=icon->label;
     switch(icon->action){
         case ICON_ACTION_FILES: label=(icon->label[0]=='T')?"PC":"HOME"; break;
@@ -368,7 +367,6 @@ static void draw_desktop_icon(const struct desktop_icon *icon){
         case ICON_ACTION_NOTEPAD: label="NOTE"; break;
         default: break;
     }
-    (void)short_names;
     uint32_t label_w=label_width(label);
     if(label_w>DESKTOP_ICON_SIZE){label_w=DESKTOP_ICON_SIZE;}
     uint32_t label_x=x+(DESKTOP_ICON_SIZE-label_w)/2u;
@@ -409,6 +407,7 @@ static void draw_taskbar(void){
     draw_task_button(322u,y+8u,42u,COL_PANEL,"",lion_icon_browser);
     draw_task_button(374u,y+8u,42u,COL_PANEL,"",lion_icon_tools);
     draw_task_button(426u,y+8u,42u,COL_PANEL,"",lion_icon_desktop);
+    draw_task_button(478u,y+8u,42u,COL_PANEL,"",lion_icon_documents);
     if(w>760u){
         text_line("WiFi",w-170u,y+9u,COL_TEXT,COL_PANEL);
         text_line("VOL",w-116u,y+9u,COL_TEXT,COL_PANEL);
