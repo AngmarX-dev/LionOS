@@ -185,7 +185,7 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT | PTE_USER;
 
-    if (current_directory == pd_physical)
+    if (current_directory[cpu_current_index() < LIONOS_MAX_CPUS ? cpu_current_index() : 0u] == pd_physical)
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
