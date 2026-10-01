@@ -695,6 +695,15 @@ static int cmd_set_endpoint_deq(uint32_t ep,uint64_t deq){
     cmd_submit(TRB_SET_DEQ,deq,ctl);
     return cmd_wait(slot_id);
 }
+static uint32_t hid_endpoint_state(void){
+    if(!ready||!slot_id||!endpoint_id||!dev_ep(endpoint_id)) return 0u;
+    return ((uint32_t*)dev_ep(endpoint_id))[0] & 0x7u;
+}
+static int hid_endpoint_needs_recovery(void){
+    uint32_t state=hid_endpoint_state();
+    return state==2u || state==3u || state==4u;
+}
+
 static int restart_hid_transfer_ring(void){
     if(!ready||!slot_id||!endpoint_id) return -1;
 
@@ -1427,6 +1436,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dy) *dy = 0;
     if(buttons) *buttons = 0;
     if(!ready) return 0;
+    if(hid_endpoint_needs_recovery()) return -1;
 
     trb_t e;
     while(next_event(&e)==0){
