@@ -24,7 +24,8 @@
 #define WIN_FILES 2u
 #define WIN_ABOUT 3u
 #define WIN_SETTINGS 4u
-#define WIN_MAX 4u
+#define WIN_NOTEPAD 5u
+#define WIN_MAX 5u
 
 /* Warm, restrained palette matching the supplied LionOS visual reference. */
 #define COL_SKY_TOP 0x07111Fu
@@ -86,6 +87,7 @@ struct desktop_icon {
 #define ICON_ACTION_BROWSER 3u
 #define ICON_ACTION_SETTINGS 4u
 #define ICON_ACTION_ABOUT 5u
+#define ICON_ACTION_NOTEPAD 6u
 
 static struct desktop_icon desktop_icons[DESKTOP_ICON_COUNT] = {
     {24u, 24u,  ICON_ACTION_FILES,    0u, 0u, 0u, lion_icon_computer, "THIS PC"},
@@ -93,7 +95,8 @@ static struct desktop_icon desktop_icons[DESKTOP_ICON_COUNT] = {
     {24u, 224u, ICON_ACTION_TERMINAL, 0u, 0u, 0u, lion_icon_terminal, "TERMINAL"},
     {24u, 324u, ICON_ACTION_BROWSER,  0u, 0u, 0u, lion_icon_browser,  "BROWSER"},
     {24u, 424u, ICON_ACTION_SETTINGS, 0u, 0u, 0u, lion_icon_tools,    "SETTINGS"},
-    {24u, 524u, ICON_ACTION_ABOUT,    0u, 0u, 0u, lion_icon_desktop,  "ABOUT"}
+    {24u, 524u, ICON_ACTION_ABOUT,    0u, 0u, 0u, lion_icon_desktop,  "ABOUT"},
+    {24u, 624u, ICON_ACTION_NOTEPAD,    0u, 0u, 0u, lion_icon_documents, "NOTEPAD"}
 };
 
 static int desktop_icon_drag = -1;
@@ -110,6 +113,12 @@ static char term_input[121];
 static uint32_t term_len;
 static char term_lines[22][121];
 static uint32_t term_line_count;
+
+#define NOTEPAD_TEXT_MAX 4095u
+static char notepad_text[NOTEPAD_TEXT_MAX+1u];
+static uint32_t notepad_len;
+static uint32_t notepad_cursor;
+static uint8_t notepad_focus;
 
 static void glyph(char c, uint16_t rows[FONT_H]) {
     for (uint32_t i=0u;i< FONT_H;++i) rows[i]=0u;
@@ -154,8 +163,20 @@ static void dirty_rect(uint32_t x,uint32_t y,uint32_t w,uint32_t h){
 }
 static struct ui_window*window_by_id(uint8_t id){return id>=1u&&id<=WIN_MAX?&windows[id-1u]:0;}
 static void focus(uint8_t id){for(uint32_t i=0;i<WIN_MAX;++i)windows[i].focused=(windows[i].id==id&&windows[i].visible&&!windows[i].minimized)?1u:0u;}
-static void show(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;w->visible=1u;w->minimized=0u;focus(id);start_open=0u;if(id==WIN_TERMINAL)terminal_focus=1u;}
-static void hide(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;w->visible=0u;w->minimized=0u;w->focused=0u;drag_active=0u;if(id==WIN_TERMINAL)terminal_focus=0u;}
+static void show(uint8_t id){
+    struct ui_window*w=window_by_id(id); if(!w)return;
+    w->visible=1u; w->minimized=0u; focus(id); start_open=0u;
+    terminal_focus=0u; notepad_focus=0u;
+    if(id==WIN_TERMINAL)terminal_focus=1u;
+    if(id==WIN_NOTEPAD){notepad_init();}
+}
+static void hide(uint8_t id){
+    struct ui_window*w=window_by_id(id);if(!w)return;
+    if(id==WIN_NOTEPAD)notepad_save();
+    w->visible=0u;w->minimized=0u;w->focused=0u;drag_active=0u;
+    if(id==WIN_TERMINAL)terminal_focus=0u;
+    if(id==WIN_NOTEPAD)notepad_focus=0u;
+}
 static void minimize(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;w->minimized=1u;w->focused=0u;drag_active=0u;if(id==WIN_TERMINAL)terminal_focus=0u;}
 static void toggle_max(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;uint32_t dh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();if(!w->maximized){w->old_x=w->x;w->old_y=w->y;w->old_w=w->w;w->old_h=w->h;w->x=0u;w->y=0u;w->w=framebuffer_width();w->h=dh;w->maximized=1u;}else{w->x=w->old_x;w->y=w->old_y;w->w=w->old_w;w->h=w->old_h;w->maximized=0u;}focus(id);}
 
@@ -164,6 +185,34 @@ static void term_line(const char*s){if(term_line_count<22u){uint32_t i=0;while(s
 static int eq(const char*a,const char*b){while(*a&&*a==*b){++a;++b;}return *a==*b;}
 static void terminal_command(void){term_input[term_len]=0;if(!term_len)return;if(eq(term_input,"help"))term_line("help  ls  pwd  mem  uname  version  about  clear  exit");else if(eq(term_input,"ls")){uint32_t n=vfs_count();if(!n)term_line("(no files)");else for(uint32_t i=0;i<n&&term_line_count<21u;++i){const char*nme=vfs_name(i);if(nme)term_line(nme);}}else if(eq(term_input,"pwd"))term_line("/");else if(eq(term_input,"mem"))term_line("memory manager online");else if(eq(term_input,"uname"))term_line("LionOS 0.8 x86 i386");else if(eq(term_input,"version"))term_line("LionOS version 0.8");else if(eq(term_input,"about"))term_line("Experimental 32-bit OS with SMP, VFS and GUI.");else if(eq(term_input,"clear"))term_clear();else if(eq(term_input,"exit")){hide(WIN_TERMINAL);return;}else term_line("Unknown command. Type help.");term_len=0u;term_input[0]=0;}
 static void terminal_init(void){term_clear();term_line("LionOS Terminal");term_line("Graphical terminal ready.");term_line("Type help for commands. ESC closes this window.");}
+static void notepad_init(void){
+    notepad_len=0u;
+    notepad_cursor=0u;
+    notepad_text[0]=0;
+    notepad_focus=1u;
+}
+static void notepad_insert(int key){
+    if(key=='\b'||key==127){
+        if(notepad_cursor){
+            for(uint32_t i=notepad_cursor;i<notepad_len;++i) notepad_text[i-1u]=notepad_text[i];
+            --notepad_cursor; --notepad_len; notepad_text[notepad_len]=0;
+        }
+        return;
+    }
+    if(key<' '&&key!='\n'&&key!=13)return;
+    if(key==13)key='\n';
+    if(notepad_len>=NOTEPAD_TEXT_MAX)return;
+    for(uint32_t i=notepad_len;i>notepad_cursor;--i)notepad_text[i]=notepad_text[i-1u];
+    notepad_text[notepad_cursor++]=(char)key;
+    ++notepad_len;
+    notepad_text[notepad_len]=0;
+}
+static void notepad_save(void){
+    int fd=vfs_open("/notepad.txt",2u);
+    if(fd<0)return;
+    (void)vfs_write(fd,notepad_text,notepad_len);
+    (void)vfs_close(fd);
+}
 
 static void window_chrome(const struct ui_window*w,const char*title){
     uint32_t active=w->focused?COL_PANEL2:COL_PANEL;
@@ -246,14 +295,47 @@ static void draw_settings(const struct ui_window*w){
     text_line("The bootloader selects the best available mode.",w->x+24u,w->y+230u,COL_DIM,COL_PANEL);
 }
 static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
+static void draw_notepad(const struct ui_window*w){
+    window_chrome(w,"Notepad");
+    uint32_t x=w->x+14u,y=w->y+TITLE_H+10u;
+    uint32_t body_w=w->w>28u?w->w-28u:1u;
+    uint32_t body_h=w->h>TITLE_H+28u?w->h-TITLE_H-28u:1u;
+    fill(x,y,body_w,body_h,0x050A12u);
+    border(x,y,body_w,body_h,COL_GOLD_DIM);
+
+    uint32_t line_y=y+10u;
+    uint32_t line_start=0u;
+    uint32_t line_no=0u;
+    uint32_t visible_lines=body_h>24u?(body_h-20u)/CHAR_H:1u;
+    while(line_start<=notepad_len && line_no<visible_lines){
+        uint32_t p=line_start;
+        while(p<notepad_len && notepad_text[p]!='\n' && p-line_start<((body_w>16u?(body_w-16u):1u)/CHAR_W)) ++p;
+        uint32_t end=p;
+        char line[121];
+        uint32_t n=0u;
+        while(line_start<end && n<120u) line[n++]=notepad_text[line_start++];
+        line[n]=0;
+        text_line(line,x+8u,line_y,COL_TEXT,0x050A12u);
+        ++line_no;
+        if(p<notepad_len && notepad_text[p]=='\n') ++p;
+        line_start=p;
+        line_y+=CHAR_H;
+    }
+    if(notepad_len==0u)
+        text_line("Type here...",x+8u,y+10u,COL_DIM,0x050A12u);
+
+    uint32_t status_y=w->y+w->h-30u;
+    fill(x,status_y,body_w,20u,COL_PANEL2);
+    text_line("NOTEPAD",x+8u,status_y+2u,COL_GOLD,COL_PANEL2);
+    text_line("ESC CLOSE   AUTOSAVE",x+100u,status_y+2u,COL_DIM,COL_PANEL2);
+}
 
 static void draw_desktop_icon(const struct desktop_icon *icon){
     if(!icon||!icon->bitmap)return;
     uint32_t x=icon->x,y=icon->y;
     uint32_t lw=label_width(icon->label);
-    uint32_t text_x;
+    uint32_t text_x=x;
     if(lw<DESKTOP_ICON_SIZE) text_x=x+(DESKTOP_ICON_SIZE-lw)/2u;
-    else text_x=x;
     uint32_t label_y=y+DESKTOP_ICON_SIZE+DESKTOP_ICON_LABEL_GAP;
     uint32_t hovered=(mouse_px_x>=x&&mouse_px_x<x+DESKTOP_ICON_SIZE&&
                       mouse_px_y>=y&&mouse_px_y<y+DESKTOP_ICON_BLOCK_H);
@@ -266,7 +348,26 @@ static void draw_desktop_icon(const struct desktop_icon *icon){
         framebuffer_blit_rgba32(icon->bitmap,LION_ICON_SIZE,LION_ICON_SIZE,
                                 x+8u,y+8u,48u);
     }
-    text_line(icon->label,text_x,label_y,COL_TEXT,COL_GROUND);
+    /*
+     * Keep every icon caption physically inside its 64px label cell.
+     * Long names are shortened instead of painting over the wallpaper.
+     */
+    static const char *short_names[]={"","FILES","HOME","TERM","BROW","SET","ABOUT","NOTE"};
+    const char *label=icon->label;
+    switch(icon->action){
+        case ICON_ACTION_FILES: label=(icon->label[0]=='T')?"PC":"HOME"; break;
+        case ICON_ACTION_TERMINAL: label="TERM"; break;
+        case ICON_ACTION_BROWSER: label="BROW"; break;
+        case ICON_ACTION_SETTINGS: label="SET"; break;
+        case ICON_ACTION_ABOUT: label="ABOUT"; break;
+        case ICON_ACTION_NOTEPAD: label="NOTE"; break;
+        default: break;
+    }
+    (void)short_names;
+    uint32_t label_w=label_width(label);
+    if(label_w>DESKTOP_ICON_SIZE){label_w=DESKTOP_ICON_SIZE;}
+    uint32_t label_x=x+(DESKTOP_ICON_SIZE-label_w)/2u;
+    text_line(label,label_x,label_y,COL_TEXT,COL_GROUND);
 }
 
 static void draw_sun(uint32_t cx,uint32_t cy,uint32_t r){for(int dy=-(int)r;dy<=(int)r;++dy){uint32_t ady=(uint32_t)(dy<0?-dy:dy);uint32_t rem=ady>r?0u:r-ady;uint32_t half=(rem*rem)/(r?r:1u);uint32_t dx=0u;while((dx+1u)*(dx+1u)<=half)++dx;fill(cx>=dx?cx-dx:0u,cy+(uint32_t)dy,dx*2u+1u,1u,COL_SUN);}}
@@ -328,6 +429,7 @@ static void draw_start_menu(void){
     fill(x+18u,y+188u,mw-36u,38u,COL_PANEL2);border(x+18u,y+188u,mw-36u,38u,COL_GOLD_DIM);text_line("ABOUT",x+18u+(mw-36u-label_width("ABOUT"))/2u,y+198u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+234u,mw-36u,38u,COL_PANEL2);border(x+18u,y+234u,mw-36u,38u,COL_GOLD_DIM);text_line("SETTINGS",x+18u+(mw-36u-label_width("SETTINGS"))/2u,y+244u,COL_TEXT,COL_PANEL2);
     fill(x+18u,y+280u,mw-36u,38u,COL_PANEL2);border(x+18u,y+280u,mw-36u,38u,COL_GOLD_DIM);text_line("BROWSER",x+18u+(mw-36u-label_width("BROWSER"))/2u,y+290u,COL_TEXT,COL_PANEL2);
+    fill(x+18u,y+326u,mw-36u,38u,COL_PANEL2);border(x+18u,y+326u,mw-36u,38u,COL_GOLD_DIM);text_line("NOTEPAD",x+18u+(mw-36u-label_width("NOTEPAD"))/2u,y+336u,COL_TEXT,COL_PANEL2);
     if(mh>330u){fill(x+18u,y+mh-52u,140u,34u,COL_DANGER);border(x+18u,y+mh-52u,140u,34u,COL_GOLD_DIM);text_line("POWER",x+32u,y+mh-44u,COL_TEXT,COL_DANGER);}
 }
 
@@ -362,7 +464,7 @@ static void draw_desktop_icons(void){
         draw_desktop_icon(&desktop_icons[i]);
 }
 
-static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
+static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;case WIN_NOTEPAD:draw_notepad(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
 static void render_all(void){
     uint32_t now=interrupt_timer_ticks();
@@ -406,6 +508,7 @@ static void init_windows(void){
     windows[1]=(struct ui_window){WIN_FILES,0u,0u,0u,0u,(sw*25u)/100u,(sh*17u)/100u,(sw*50u)/100u,(sh*58u)/100u,0u,0u,0u,0u};
     windows[2]=(struct ui_window){WIN_ABOUT,0u,0u,0u,0u,(sw*34u)/100u,(sh*20u)/100u,(sw*36u)/100u,(sh*48u)/100u,0u,0u,0u,0u};
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
+    windows[4]=(struct ui_window){WIN_NOTEPAD,0u,0u,0u,0u,(sw*22u)/100u,(sh*12u)/100u,(sw*56u)/100u,(sh*64u)/100u,0u,0u,0u,0u};
     terminal_init();gui_active=1u;start_open=0u;drag_active=0u;
     desktop_icon_drag=-1;
     for(uint32_t i=0u;i<DESKTOP_ICON_COUNT;++i){
@@ -440,6 +543,7 @@ static void handle_click(void){
         if(x>=322u&&x<364u){browser_start();return;}
         if(x>=374u&&x<416u){show(WIN_SETTINGS);return;}
         if(x>=426u&&x<468u){show(WIN_ABOUT);return;}
+        if(x>=478u&&x<520u){show(WIN_NOTEPAD);return;}
     }
     if(start_open){
         uint32_t mw=framebuffer_width()>520u?420u:300u;
@@ -450,6 +554,7 @@ static void handle_click(void){
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+214u&&y<sy+252u){show(WIN_ABOUT);return;}
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+260u&&y<sy+298u){show(WIN_SETTINGS);return;}
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+306u&&y<sy+344u){browser_start();return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+330u&&y<sy+368u){show(WIN_NOTEPAD);return;}
         if(mh>330u&&x>=sx+18u&&x<sx+158u&&y>=sy+mh-52u&&y<sy+mh-18u){close_gui();return;}
         start_open=0u;
     }
@@ -508,6 +613,7 @@ static void activate_desktop_icon(uint8_t action){
         case ICON_ACTION_BROWSER: browser_start(); break;
         case ICON_ACTION_SETTINGS: show(WIN_SETTINGS); break;
         case ICON_ACTION_ABOUT: show(WIN_ABOUT); break;
+        case ICON_ACTION_NOTEPAD: show(WIN_NOTEPAD); break;
         default: break;
     }
 }
