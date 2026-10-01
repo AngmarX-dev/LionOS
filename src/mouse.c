@@ -29,6 +29,8 @@ static volatile uint32_t usb_retry_frames = 0;
 static volatile int32_t  usb_x = 400;
 static volatile int32_t  usb_y = 300;
 static volatile uint8_t  usb_buttons = 0;
+static volatile uint32_t usb_idle_frames = 0;
+static volatile uint32_t usb_recovery_cooldown = 0;
 static int32_t cursor_smooth_x = 400;
 static int32_t cursor_smooth_y = 300;
 static int32_t smooth_step(int32_t current,int32_t target){
@@ -153,6 +155,8 @@ int mouse_usb_init(void){
     }
     usb_initialized = 1;
     usb_status = 1u;                            /* READY */
+    usb_idle_frames = 0u;
+    usb_recovery_cooldown = 0u;
     return 0;
 }
 
@@ -161,6 +165,8 @@ void mouse_usb_retry(void){
     usb_retry_frames = 0;
     usb_initialized = 0;
     usb_status = 3u;
+    usb_idle_frames = 0u;
+    usb_recovery_cooldown = 0u;
     (void)mouse_usb_init();
 }
 
@@ -175,6 +181,17 @@ void mouse_poll(void){
             int32_t dx=0,dy=0;
             uint8_t btn=0;
             int r=xhci_mouse_poll(&dx,&dy,&btn);
+            if(r==1){
+                usb_idle_frames=0u;
+            }else if(r<0){
+                usb_idle_frames=0u;
+                if(usb_recovery_cooldown==0u)
+                    (void)xhci_mouse_recover();
+                usb_recovery_cooldown=30u;
+                break;
+            }else{
+                ++usb_idle_frames;
+            }
             if(r!=1)break;
             usb_x+=mouse_scale_delta(dx);
             usb_y+=mouse_scale_delta(dy);
@@ -191,6 +208,13 @@ void mouse_poll(void){
             ++usb_retry_attempts;
             (void)mouse_usb_init();
         }
+    }
+
+    if(usb_recovery_cooldown) --usb_recovery_cooldown;
+    if(usb_initialized && usb_idle_frames>=20u && usb_recovery_cooldown==0u){
+        usb_idle_frames=0u;
+        (void)xhci_mouse_recover();
+        usb_recovery_cooldown=30u;
     }
 
     {
