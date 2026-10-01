@@ -321,6 +321,88 @@ int framebuffer_begin_desktop(void) {
     return 0;
 }
 
+static const uint16_t cursor_arrow[] = {
+    0x8000u,0xC000u,0xE000u,0xF000u,0xF800u,
+    0xFC00u,0xFE00u,0xFF00u,0xFF80u,0xFFC0u,
+    0xFFE0u,0xFFF0u,0xFFF8u,0xFFF0u,0xF3E0u,
+    0xE1C0u,0xC080u,0x8000u
+};
+#define CURSOR_ARROW_W 16u
+#define CURSOR_ARROW_H 18u
+#define CURSOR_UNDER_W 17u
+#define CURSOR_UNDER_H 19u
+static uint32_t cursor_under[CURSOR_UNDER_W * CURSOR_UNDER_H];
+static uint32_t cursor_under_w;
+static uint32_t cursor_under_h;
+static uint32_t cursor_under_x;
+static uint32_t cursor_under_y;
+static uint8_t cursor_visible;
+
+int framebuffer_cursor_overlay_supported(void) {
+    return enabled != 0u && desktop_mode != 0u && desktop_buffer != 0 && fb_bpp == 32u;
+}
+
+void framebuffer_cursor_hide(void) {
+    if (!framebuffer_cursor_overlay_supported() || !cursor_visible) return;
+    for (uint32_t y = 0u; y < cursor_under_h; ++y) {
+        uint32_t sy = cursor_under_y + y;
+        if (sy >= fb_height_value) break;
+        volatile uint32_t *dst = (volatile uint32_t *)(uintptr_t)(fb + sy * fb_pitch + cursor_under_x * 4u);
+        for (uint32_t x = 0u; x < cursor_under_w; ++x) {
+            if (cursor_under_x + x >= fb_width_value) break;
+            dst[x] = cursor_under[y * CURSOR_UNDER_W + x];
+        }
+    }
+    cursor_visible = 0u;
+}
+
+void framebuffer_cursor_move(uint32_t x, uint32_t y) {
+    if (!framebuffer_cursor_overlay_supported()) return;
+    framebuffer_cursor_hide();
+    if (x >= fb_width_value || y >= fb_height_value) return;
+
+    cursor_under_x = x;
+    cursor_under_y = y;
+    cursor_under_w = CURSOR_UNDER_W;
+    cursor_under_h = CURSOR_UNDER_H;
+    if (cursor_under_x + cursor_under_w > fb_width_value)
+        cursor_under_w = fb_width_value - cursor_under_x;
+    if (cursor_under_y + cursor_under_h > fb_height_value)
+        cursor_under_h = fb_height_value - cursor_under_y;
+
+    for (uint32_t row = 0u; row < cursor_under_h; ++row) {
+        uint32_t sy = cursor_under_y + row;
+        volatile uint32_t *src = (volatile uint32_t *)(uintptr_t)(fb + sy * fb_pitch + cursor_under_x * 4u);
+        for (uint32_t col = 0u; col < cursor_under_w; ++col)
+            cursor_under[row * CURSOR_UNDER_W + col] = src[col];
+    }
+
+    uint32_t shadow = pack_rgb(0x050A12u);
+    uint32_t white = pack_rgb(0xF2F5FAu);
+
+    for (uint32_t row = 0u; row < CURSOR_ARROW_H; ++row) {
+        uint16_t bits = cursor_arrow[row];
+        for (uint32_t col = 0u; col < CURSOR_ARROW_W; ++col) {
+            if (!(bits & (0x8000u >> col))) continue;
+            uint32_t px0 = x + col + 1u;
+            uint32_t py0 = y + row + 1u;
+            if (px0 < fb_width_value && py0 < fb_height_value)
+                *(volatile uint32_t *)(uintptr_t)(fb + py0 * fb_pitch + px0 * 4u) = shadow;
+        }
+    }
+    for (uint32_t row = 1u; row + 1u < CURSOR_ARROW_H; ++row) {
+        uint16_t bits = cursor_arrow[row];
+        for (uint32_t col = 1u; col + 1u < CURSOR_ARROW_W; ++col) {
+            if (!(bits & (0x8000u >> col))) continue;
+            uint32_t px0 = x + col;
+            uint32_t py0 = y + row;
+            if (px0 < fb_width_value && py0 < fb_height_value)
+                *(volatile uint32_t *)(uintptr_t)(fb + py0 * fb_pitch + px0 * 4u) = white;
+        }
+    }
+    cursor_visible = 1u;
+}
+
 void framebuffer_present(void) {
     if (!enabled || !desktop_mode || !desktop_buffer) return;
     uint32_t bytes=(fb_bpp+7u)/8u;
