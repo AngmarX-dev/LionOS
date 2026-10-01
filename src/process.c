@@ -106,6 +106,25 @@ static int is_child_of(const struct process*c,uint32_t parent_pid,uint32_t pid){
 static struct process*find_zombie_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i)if(is_child_of(&processes[i],parent_pid,pid)&&processes[i].state==PROCESS_ZOMBIE)return &processes[i];return 0;}
 static int has_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i)if(is_child_of(&processes[i],parent_pid,pid))return 1;return 0;}
 static void reap_process(struct process*p){if(!p||p->state!=PROCESS_ZOMBIE)return;for(uint32_t i=0;i<p->user_page_count;++i)if(p->user_pages[i])page_free((void *)(uintptr_t)p->user_pages[i]);if(p->page_directory&&p->page_directory!=paging_kernel_directory())paging_destroy_address_space(p->page_directory);if(p->kernel_stack_top)page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));clear_process(p);}
+int process_get_exit_code(uint32_t pid,uint32_t*code){
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process*p=0;
+    for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED&&processes[i].pid==pid){p=&processes[i];break;}
+    if(!p||p->state!=PROCESS_ZOMBIE){spinlock_irqrestore_release(&process_lock,flags);return -1;}
+    if(code)*code=p->exit_code;
+    spinlock_irqrestore_release(&process_lock,flags);
+    return 0;
+}
+int process_reap_pid(uint32_t pid){
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process*p=0;
+    for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED&&processes[i].pid==pid){p=&processes[i];break;}
+    if(!p||p->state!=PROCESS_ZOMBIE){spinlock_irqrestore_release(&process_lock,flags);return -1;}
+    reap_process(p);
+    spinlock_irqrestore_release(&process_lock,flags);
+    return 0;
+}
+
 int32_t process_waitpid(uint32_t pid,uint32_t status_ptr){ uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*c=current_local(); if(!c||c==&processes[0]||!status_ptr){spinlock_irqrestore_release(&process_lock,flags);return -1;} struct process*z=find_zombie_child(c->pid,pid);if(z){if(write_user_u32(c,status_ptr,z->exit_code)!=0){spinlock_irqrestore_release(&process_lock,flags);return -1;}int32_t r=(int32_t)z->pid;reap_process(z);spinlock_irqrestore_release(&process_lock,flags);return r;} if(!has_child(c->pid,pid)){spinlock_irqrestore_release(&process_lock,flags);return -1;} c->wait_pid=pid;c->wait_status_ptr=status_ptr;c->state=PROCESS_WAITING;spinlock_irqrestore_release(&process_lock,flags);return PROCESS_WAIT_BLOCKED; }
 static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process*p=&processes[i];if(p->state!=PROCESS_WAITING||p->pid!=child->parent_pid)continue;if(p->wait_pid!=PROCESS_WAIT_ANY&&p->wait_pid!=child->pid)continue;uint32_t*f=(uint32_t *)(uintptr_t)p->saved_frame;if(f)f[11]=child->pid;if(p->wait_status_ptr)write_user_u32(p,p->wait_status_ptr,child->exit_code);p->wait_pid=0;p->wait_status_ptr=0;p->state=PROCESS_READY;child->reap_pending=1;return;}}
 void process_exit_current(uint32_t code){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*c=current_local();if(!c||c==&processes[0]){spinlock_irqrestore_release(&process_lock,flags);return;}c->exit_code=code;c->state=PROCESS_ZOMBIE;wake_waiting_parent(c);spinlock_irqrestore_release(&process_lock,flags);}
