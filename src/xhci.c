@@ -711,7 +711,6 @@ static int restart_hid_transfer_ring(void){
     intr_index=0u;
     intr_cycle=1u;
     report_pending=0u;
-    report_inflight=0u;
     report_wait_frames=0u;
 
     if(cmd_set_endpoint_deq(endpoint_id,
