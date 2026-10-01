@@ -29,6 +29,15 @@ static volatile uint32_t usb_retry_frames = 0;
 static volatile int32_t  usb_x = 400;
 static volatile int32_t  usb_y = 300;
 static volatile uint8_t  usb_buttons = 0;
+static int32_t cursor_smooth_x = 400;
+static int32_t cursor_smooth_y = 300;
+static int32_t smooth_step(int32_t current,int32_t target){
+    int32_t d=target-current;
+    if(d==0)return current;
+    int32_t step=d/2;
+    if(step==0)step=(d>0)?1:-1;
+    return current+step;
+}
 
 /* Cursor movement bounds — updated by mouse_set_bounds() */
 static uint32_t cursor_max_x = 1023u;
@@ -92,7 +101,11 @@ void mouse_irq_handler(void){
                 ps2_y -= mouse_scale_delta(ps2_dy);
                 if(ps2_x < 0) ps2_x = 0;
                 if(ps2_y < 0) ps2_y = 0;
-                if(ps2_x > (int32_t)cursor_max_x) ps2_x = (int32_t)cursor_max_x;
+                if(cursor_smooth_x > (int32_t)cursor_max_x) cursor_smooth_x = (int32_t)cursor_max_x;
+    if(cursor_smooth_y > (int32_t)cursor_max_y) cursor_smooth_y = (int32_t)cursor_max_y;
+    if(cursor_smooth_x < 0) cursor_smooth_x = 0;
+    if(cursor_smooth_y < 0) cursor_smooth_y = 0;
+    if(ps2_x > (int32_t)cursor_max_x) ps2_x = (int32_t)cursor_max_x;
                 if(ps2_y > (int32_t)cursor_max_y) ps2_y = (int32_t)cursor_max_y;
             }
             ps2_cycle = 0;
@@ -176,6 +189,13 @@ void mouse_poll(void){
             if(usb_y > (int32_t)cursor_max_y) usb_y = (int32_t)cursor_max_y;
             usb_buttons = btn;
         }
+    }
+    {
+        int32_t tx=usb_initialized?usb_x:ps2_x;
+        int32_t ty=usb_initialized?usb_y:ps2_y;
+        cursor_smooth_x=smooth_step(cursor_smooth_x,tx);
+        cursor_smooth_y=smooth_step(cursor_smooth_y,ty);
+    }
     } else if(usb_retry_attempts < 3u){
         /* Retry every ~30 frames (~0.5 s) up to 3 times. */
         usb_status = 3u;
@@ -190,8 +210,8 @@ void mouse_poll(void){
 /* ============================================================
  * Public accessors
  * ============================================================ */
-int32_t mouse_x(void){ return usb_initialized ? usb_x : ps2_x; }
-int32_t mouse_y(void){ return usb_initialized ? usb_y : ps2_y; }
+int32_t mouse_x(void){ return cursor_smooth_x; }
+int32_t mouse_y(void){ return cursor_smooth_y; }
 uint8_t mouse_buttons(void){ return usb_initialized ? usb_buttons : ps2_buttons; }
 
 void mouse_set_cursor_visible(int visible){ cursor_visible = visible; }
