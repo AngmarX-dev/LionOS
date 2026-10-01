@@ -7,5 +7,7 @@ int main(void){
     for(uint32_t i=0u;i<4u;++i)(void)lion_yield();
     if(shared_value!=0x11223344u)return 3;
     int32_t status=-1;if(lion_waitpid(child,&status)!=(int32_t)child)return 4;
-    if(status!=0)return 5;if(shared_value!=0x11223344u)return 6;return 0;
+    if(status!=0)return 5;
+    if(shared_value!=0x11223344u)return 6;
+    return 0;
 }
