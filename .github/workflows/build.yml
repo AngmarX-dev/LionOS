@@ -35,6 +35,36 @@ jobs:
           grep -q 'framebuffer_boot_splash' src/framebuffer.c
           grep -q 'console_use_framebuffer' src/kernel.c
           ! grep -R -E -q 'framebuffer_(set_mode|mode_supported)' src include
+          grep -A5 -q '^    dw 5
+          ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
+
+      - name: Verify USB image is bootable as a disk
+        run: |
+          timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
+
+      - name: Upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: lionos-images
+          path: |
+            build/lionos.iso
+            build/lionos-usb.img
+ boot/boot.asm
+          ! grep -A5 '^    dw 5
+          ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
+
+      - name: Verify USB image is bootable as a disk
+        run: |
+          timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
+
+      - name: Upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: lionos-images
+          path: |
+            build/lionos.iso
+            build/lionos-usb.img
+ boot/boot.asm | grep -q 'dd 1024'
           ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
 
       - name: Verify USB image is bootable as a disk

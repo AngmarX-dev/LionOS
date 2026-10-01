@@ -11,9 +11,9 @@ dd -(0xE85250D6 + 0 + (multiboot_header_end - multiboot_header))
     dw 5
     dw 0
     dd 20
-    dd 1024
-    dd 768
-    dd 32
+    dd 0
+    dd 0
+    dd 0
 align 8
     dw 0
     dw 0

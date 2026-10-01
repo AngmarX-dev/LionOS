@@ -4,7 +4,7 @@ Phase 26 begins the real graphical desktop layer while preserving the Phase 23 s
 
 ## Stage 26.1 — Framebuffer foundation
 
-- Multiboot2 framebuffer request: 1024x768x32
+- Multiboot2 framebuffer request: bootloader-selected maximum/native mode
 - GRUB graphical payload configuration
 - Framebuffer discovery from the Multiboot2 framebuffer tag
 - High-memory framebuffer mapping through the existing kernel MMIO page table

@@ -492,15 +492,23 @@ static int alloc_memory(void){
     return 0;
 }
 
-static void link_trb(trb_t *ring,trb_t *next,uint32_t cyc){
+static void link_trb(trb_t *ring,trb_t *next,uint32_t toggle){
     trb_t *t=&ring[RING_TRBS-1u];
     uint64_t a=(uint64_t)(uintptr_t)next;
     t->lo=(uint32_t)a; t->hi=(uint32_t)(a>>32); t->status=0;
     /*
-     * Link TRBs terminate fixed 256-TRB transfer segments. They do not
-     * use CHAIN; TC toggles the ring cycle at each segment boundary.
+     * Linux/xHCI ring rules: every segment Link TRB starts with cycle=0;
+     * only the final segment has Toggle Cycle set.  The producer toggles
+     * each Link TRB's cycle bit when it crosses that link.  This keeps
+     * multi-segment HID rings valid across repeated wraps.
      */
-    t->control=(TRB_LINK<<10)|TRB_TC|(cyc?TRB_CYCLE:0u);
+    t->control=(TRB_LINK<<10)|(toggle?TRB_TC:0u);
+}
+static void advance_link(trb_t *link,uint32_t *ring_cycle){
+    uint32_t toggle=link->control&TRB_TC;
+    dma_wmb();
+    link->control^=TRB_CYCLE;
+    if(toggle)*ring_cycle^=1u;
 }
 static int setup_rings(void){
     cmd_index=0; cmd_cycle=1;
@@ -512,7 +520,7 @@ static int setup_rings(void){
     link_trb(ep0_ring,ep0_ring,1u);
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i)
         link_trb(intr_segments[i],intr_segments[(i+1u)%INTR_SEGMENTS],
-                 (i&1u)?0u:1u);
+                 i==(INTR_SEGMENTS-1u));
 
     erst[0].base=(uint64_t)(uintptr_t)event_ring;
     erst[0].size=EVENT_TRBS;
@@ -538,7 +546,10 @@ static void cmd_submit(uint32_t type,uint64_t p,uint32_t ctl){
     t->lo=(uint32_t)p; t->hi=(uint32_t)(p>>32); t->status=0;
     t->control=(type<<10)|ctl|(cmd_cycle?TRB_CYCLE:0u);
     ++cmd_index;
-    if(cmd_index>=RING_TRBS-1u){ link_trb(cmd_ring,cmd_ring,cmd_cycle); cmd_index=0; cmd_cycle^=1u; }
+    if(cmd_index>=RING_TRBS-1u){
+        advance_link(&cmd_ring[RING_TRBS-1u],&cmd_cycle);
+        cmd_index=0u;
+    }
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base)=0u;
 }
@@ -569,7 +580,7 @@ static int cmd_abort(void){
 static int cmd_recover(void){
     if(cmd_abort()) return -1;
     cmd_cycle^=1u; cmd_index=0;
-    link_trb(cmd_ring,cmd_ring,cmd_cycle);
+    link_trb(cmd_ring,cmd_ring,1u);
     w64(op_base+OP_CRCR,(uint64_t)(uintptr_t)cmd_ring|(cmd_cycle?1u:0u));
     return 0;
 }
@@ -698,7 +709,10 @@ static int ep0_xfer(uint8_t bm,uint8_t req,uint16_t val,uint16_t idx,
     t->lo=(uint32_t)setup; t->hi=(uint32_t)(setup>>32); t->status=8u;
     t->control=(TRB_SETUP<<10)|TRB_IDT|trt|(ep0_cycle?TRB_CYCLE:0u);
     ++ep0_index;
-    if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+    if(ep0_index>=RING_TRBS-1u){
+        advance_link(&ep0_ring[RING_TRBS-1u],&ep0_cycle);
+        ep0_index=0u;
+    }
 
     if(len){
         t=&ep0_ring[ep0_index];
@@ -708,7 +722,7 @@ static int ep0_xfer(uint8_t bm,uint8_t req,uint16_t val,uint16_t idx,
         t->control=(TRB_DATA<<10)|(in?TRB_DIR_IN:0u)|
                    (in?TRB_ISP:0u)|(ep0_cycle?TRB_CYCLE:0u);
         ++ep0_index;
-        if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+        if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_ring,1u); ep0_index=0; ep0_cycle^=1u; }
     }
 
     t=&ep0_ring[ep0_index];
@@ -716,7 +730,7 @@ static int ep0_xfer(uint8_t bm,uint8_t req,uint16_t val,uint16_t idx,
     t->control=(TRB_STATUS<<10)|TRB_IOC|(in?0u:TRB_DIR_IN)|
                (ep0_cycle?TRB_CYCLE:0u);
     ++ep0_index;
-    if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_ring,ep0_cycle); ep0_index=0; ep0_cycle^=1u; }
+    if(ep0_index>=RING_TRBS-1u){ link_trb(ep0_ring,ep0_ring,1u); ep0_index=0; ep0_cycle^=1u; }
 
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=1u;
@@ -965,15 +979,11 @@ static int submit_report(void){
     t->control=(TRB_NORMAL<<10)|TRB_IOC|(intr_cycle?TRB_CYCLE:0u);
     ++intr_index;
     if(intr_index>=RING_TRBS-1u){
-        link_trb(intr_segments[intr_segment],
-                 intr_segments[(intr_segment+1u)%INTR_SEGMENTS],
-                 intr_cycle);
+        advance_link(&intr_segments[intr_segment][RING_TRBS-1u],&intr_cycle);
         intr_index=0u;
         ++intr_segment;
-        if(intr_segment>=INTR_SEGMENTS){
+        if(intr_segment>=INTR_SEGMENTS)
             intr_segment=0u;
-            intr_cycle^=1u;
-        }
     }
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
