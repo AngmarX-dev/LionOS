@@ -180,31 +180,39 @@ fail:
 }
 
 int exec_run_file(const char *name) {
-    uint32_t entry = 0, stack = 0, pd = 0;
-    uint32_t pages[MAX_EXEC_PAGES] = {0};
-    uint32_t vas[MAX_EXEC_PAGES] = {0};
-    uint32_t count = 0;
-
-    if (load_image(name, &entry, &stack, &pd, pages, vas, &count) != 0) {
+    uint32_t entry=0,stack=0,pd=0;
+    uint32_t pages[MAX_EXEC_PAGES]={0},vas[MAX_EXEC_PAGES]={0},count=0;
+    const uint8_t *image=(const uint8_t*)ramfs_data(name);
+    uint32_t image_size=ramfs_size(name);
+    if(!image||!image_size){
+        debug_write("LIONOS:EXEC-NO-IMAGE ");
+        debug_write(name);
+        debug_write("\n");
+        return -1;
+    }
+    if(exec_validate_image(image,image_size,&entry,&stack)!=0){
+        debug_write("LIONOS:EXEC-BAD-ELF ");
+        debug_write(name);
+        debug_write("\n");
+        return -1;
+    }
+    if(load_image(name,&entry,&stack,&pd,pages,vas,&count)!=0){
         debug_write("LIONOS:EXEC-LOAD-FAIL ");
         debug_write(name);
         debug_write("\n");
         return -1;
     }
-
-    struct process *p = process_create_ex_vas(entry, stack, pd, pages, vas, count);
-    if (!p) {
+    struct process *p=process_create_ex_vas(entry,stack,pd,pages,vas,count);
+    if(!p){
         debug_write("LIONOS:EXEC-PROC-FAIL ");
         debug_write(name);
         debug_write("\n");
         paging_destroy_address_space(pd);
-        for (uint32_t i = 0; i < count; ++i)
-            if (pages[i]) page_free((void *)(uintptr_t)pages[i]);
+        for(uint32_t i=0;i<count;++i)if(pages[i])page_free((void*)(uintptr_t)pages[i]);
         return -1;
     }
     return (int)p->pid;
 }
-
 int exec_replace_current(const char *name) {
     uint32_t entry = 0, stack = 0, pd = 0;
     uint32_t pages[MAX_EXEC_PAGES] = {0};
