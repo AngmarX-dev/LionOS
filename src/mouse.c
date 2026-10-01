@@ -35,10 +35,9 @@ static int32_t cursor_smooth_y = 300;
 static int32_t smooth_step(int32_t current,int32_t target){
     int32_t d=target-current;
     if(d==0)return current;
-    /* Keep smoothing, but converge faster so the pointer does not feel delayed. */
-    int32_t step=(d*15)/16;
-    if(step==0)step=(d>0)?1:-1;
-    return current+step;
+    /* Input coordinates are already sampled at the GUI tick; do not add
+       frame-to-frame lag that can make a stalled device look frozen. */
+    return target;
 }
 
 /* Cursor movement bounds — updated by mouse_set_bounds() */
