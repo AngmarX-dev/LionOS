@@ -224,9 +224,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     BOOT_STAGE(68u, "PROCESS MANAGER READY");
 
     if(lapic_ready){
-        lapic_timer_init();
-        pit_disable_timer();
-        console_write("[ OK ] LAPIC timer / BSP preemption clock\n");
+        /* Keep the PIT 100 Hz timer active for the desktop and input path. */
+        console_write("[ OK ] PIT 100 Hz / desktop + input clock\n");
         BOOT_STAGE(72u, "SYSTEM TIMER READY");
     }
 
