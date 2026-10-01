@@ -7,6 +7,7 @@
 #include "memory.h"
 #include "vfs.h"
 #include "lapic.h"
+#include "idt.h"
 #include "browser.h"
 #include "lion_icons.h"
 #include "lion_font.h"
@@ -534,12 +535,17 @@ int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){
     gui_start();
     if(!gui_active)return;
-    uint32_t last_frame=lapic_timer_ticks();
+    uint32_t last_frame=interrupt_timer_ticks();
     for(;;){
-        while(gui_active && lapic_timer_ticks()==last_frame)
+        /*
+         * Use the existing PIT 100 Hz interrupt as the desktop/input clock.
+         * It is already the kernel scheduler clock and does not depend on
+         * LAPIC timer calibration, which can vary across physical machines.
+         */
+        while(gui_active && interrupt_timer_ticks()==last_frame)
             __asm__ volatile("sti; hlt");
         if(!gui_active)break;
-        last_frame=lapic_timer_ticks();
+        last_frame=interrupt_timer_ticks();
         gui_step();
     }
 }
