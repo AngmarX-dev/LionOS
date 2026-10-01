@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include "memory.h"
-#include "cpu.h"
 #include "paging.h"
 
 #define PAGE_SIZE 4096u
@@ -21,8 +20,7 @@
 #define PTE_PRESENT 0x1ULL
 #define PTE_WRITABLE 0x2ULL
 #define PTE_USER 0x4ULL
-#define PTE_COW 0x200ULL
-#define PTE_FLAGS_MASK 0x21FULL
+#define PTE_FLAGS_MASK 0x1FULL
 #define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
 
 /*
@@ -39,7 +37,7 @@ static uint64_t page_root[PAE_ROOT_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t kernel_pd[PAE_ROOT_ENTRIES][PAE_PD_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t identity_pt[IDENTITY_PT_COUNT][PAE_PT_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t kernel_mmio_pt[KERNEL_MMIO_PT_COUNT][PAE_PT_ENTRIES] __attribute__((aligned(4096)));
-static uint32_t current_directory[LIONOS_MAX_CPUS];
+static uint32_t current_directory;
 
 static uint64_t *pdpt_ptr(uint32_t physical) {
     return (uint64_t *)(uintptr_t)physical;
@@ -107,7 +105,7 @@ void paging_init(void) {
     page_root[2] = ((uint64_t)(uintptr_t)kernel_pd[2] & PTE_ADDR_MASK) | PTE_PRESENT;
     page_root[3] = ((uint64_t)(uintptr_t)kernel_pd[3] & PTE_ADDR_MASK) | PTE_PRESENT;
 
-    for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i)current_directory[i]=(uint32_t)(uintptr_t)page_root;
+    current_directory = (uint32_t)(uintptr_t)page_root;
     enable_pae_paging();
 }
 
@@ -132,7 +130,7 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT;
 
-    uint32_t cpu=cpu_current_index();if(cpu>=LIONOS_MAX_CPUS)cpu=0u;if(current_directory[cpu]==paging_kernel_directory())
+    if (current_directory == paging_kernel_directory())
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
@@ -185,78 +183,7 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT | PTE_USER;
 
-    uint32_t cpu = cpu_current_index();
-    if (cpu >= LIONOS_MAX_CPUS) cpu = 0u;
-    if (current_directory[cpu] == pd_physical)
-        __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
-    return 0;
-}
-
-int paging_set_user_page_flags(uint32_t pd_physical, uint32_t virtual_address, uint32_t flags) {
-    if (!pd_physical || virtual_address >= USER_LIMIT ||
-        (virtual_address & (PAGE_SIZE - 1u))) return -1;
-    uint32_t pdpt_index = virtual_address >> 30;
-    uint32_t pd_index = (virtual_address >> 21) & 0x1FFu;
-    uint32_t pt_index = (virtual_address >> 12) & 0x1FFu;
-    uint64_t *directory = pd_ptr(pd_physical, pdpt_index);
-    if (!directory) return -1;
-    uint64_t pde = directory[pd_index];
-    if (!(pde & PTE_PRESENT) || !(pde & PTE_USER)) return -1;
-    uint64_t *table = pt_ptr(pde);
-    uint64_t pte = table[pt_index];
-    if (!(pte & PTE_PRESENT) || !(pte & PTE_USER)) return -1;
-    table[pt_index] = (pte & PTE_ADDR_MASK) |
-                      ((uint64_t)flags & PTE_FLAGS_MASK) |
-                      PTE_PRESENT | PTE_USER;
-    uint32_t cpu = cpu_current_index();
-    if (cpu >= LIONOS_MAX_CPUS) cpu = 0u;
-    if (current_directory[cpu] == pd_physical)
-        __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
-    return 0;
-}
-
-int paging_mark_cow(uint32_t pd_physical, uint32_t virtual_address) {
-    uint32_t phys = 0, flags = 0;
-    if (paging_get_user_page(pd_physical, virtual_address, &phys, &flags) != 0) return -1;
-    flags = (flags & ~0x2u) | 0x200u;
-    return paging_set_user_page_flags(pd_physical, virtual_address, flags);
-}
-
-int paging_resolve_cow(uint32_t pd_physical, uint32_t virtual_address) {
-    if (!pd_physical || virtual_address >= USER_LIMIT ||
-        (virtual_address & (PAGE_SIZE - 1u))) return -1;
-    uint32_t pdpt_index = virtual_address >> 30;
-    uint32_t pd_index = (virtual_address >> 21) & 0x1FFu;
-    uint32_t pt_index = (virtual_address >> 12) & 0x1FFu;
-    uint64_t *directory = pd_ptr(pd_physical, pdpt_index);
-    if (!directory) return -1;
-    uint64_t pde = directory[pd_index];
-    if (!(pde & PTE_PRESENT) || !(pde & PTE_USER)) return -1;
-    uint64_t *table = pt_ptr(pde);
-    uint64_t pte = table[pt_index];
-    if (!(pte & PTE_PRESENT) || !(pte & PTE_USER) || !(pte & PTE_COW)) return -1;
-    uint32_t old_phys = (uint32_t)(pte & PTE_ADDR_MASK);
-    uint32_t old_flags = (uint32_t)(pte & PTE_FLAGS_MASK);
-    uint32_t refs = page_refcount((void *)(uintptr_t)old_phys);
-    if (!refs) return -1;
-    if (refs == 1u) {
-        table[pt_index] = (pte & PTE_ADDR_MASK) |
-                          ((uint64_t)((old_flags | 0x2u) & ~0x200u)) |
-                          PTE_PRESENT | PTE_USER;
-    } else {
-        void *new_page = page_alloc();
-        if (!new_page) return -1;
-        uint8_t *dst = (uint8_t *)new_page;
-        const uint8_t *src = (const uint8_t *)(uintptr_t)old_phys;
-        for (uint32_t i = 0u; i < PAGE_SIZE; ++i) dst[i] = src[i];
-        table[pt_index] = ((uint64_t)(uintptr_t)new_page & PTE_ADDR_MASK) |
-                          ((uint64_t)((old_flags | 0x2u) & ~0x200u)) |
-                          PTE_PRESENT | PTE_USER;
-        page_free((void *)(uintptr_t)old_phys);
-    }
-    uint32_t cpu = cpu_current_index();
-    if (cpu >= LIONOS_MAX_CPUS) cpu = 0u;
-    if (current_directory[cpu] == pd_physical)
+    if (current_directory == pd_physical)
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
@@ -307,16 +234,11 @@ void paging_destroy_address_space(uint32_t pd_physical) {
 }
 
 void paging_switch_address_space(uint32_t pd_physical) {
-    if (!pd_physical) return;
-    uint32_t cpu = cpu_current_index();
-    if (cpu >= LIONOS_MAX_CPUS) cpu = 0u;
-    if (pd_physical == current_directory[cpu]) return;
-    current_directory[cpu] = pd_physical;
+    if (!pd_physical || pd_physical == current_directory) return;
+    current_directory = pd_physical;
     __asm__ volatile ("mov %0, %%cr3" : : "r"(pd_physical) : "memory");
 }
 
 uint32_t paging_current_address_space(void) {
-    uint32_t cpu = cpu_current_index();
-    if (cpu >= LIONOS_MAX_CPUS) cpu = 0u;
-    return current_directory[cpu];
+    return current_directory;
 }

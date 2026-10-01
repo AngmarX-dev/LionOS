@@ -9,9 +9,6 @@ uint32_t paging_create_address_space(void);
 int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, uint32_t flags);
 int paging_map_user_page_in(uint32_t page_directory, uint32_t virtual_address,
                             uint32_t physical_address, uint32_t flags);
-int paging_set_user_page_flags(uint32_t page_directory, uint32_t virtual_address, uint32_t flags);
-int paging_mark_cow(uint32_t page_directory, uint32_t virtual_address);
-int paging_resolve_cow(uint32_t page_directory, uint32_t virtual_address);
 int paging_get_user_page(uint32_t page_directory, uint32_t virtual_address,
                          uint32_t *physical_address, uint32_t *flags);
 void paging_destroy_address_space(uint32_t page_directory);

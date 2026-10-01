@@ -9,7 +9,6 @@
 #include "tss.h"
 #include "process.h"
 #include "user.h"
-#include "exec.h"
 #include "console.h"
 #include "framebuffer.h"
 #include "ramfs.h"
@@ -122,7 +121,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     BOOT_STAGE(18u, "CLOCK READY");
 
     pit_init(100);
-    console_write("[ OK ] PIT 100 Hz / preemptive scheduler + input clock\n");
+    console_write("[ OK ] PIT 100 Hz / preemptive scheduler clock\n");
 
     keyboard_init();
     console_write("[ OK ] PS/2 keyboard / scancode input buffer\n");
@@ -247,39 +246,6 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     vfs_init();
     console_write("[ OK ] VFS / unified file descriptor layer\n");
     vfs_boot_test();
-
-    /* Automated userspace integration tests. */
-    {
-        int vfs_pid=exec_run_file("vfs_test.elf");
-        int cow_pid=exec_run_file("cow_test.elf");
-        if(vfs_pid<0||cow_pid<0){
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
-        }else{
-            __asm__ volatile("sti");
-            uint32_t pending=2u,ok=1u;
-            while(pending){
-                if(vfs_pid>0){
-                    int32_t state=process_get_state((uint32_t)vfs_pid);
-                    if(state==PROCESS_ZOMBIE){
-                        uint32_t code=0xFFFFFFFFu;
-                        if(process_get_exit_code((uint32_t)vfs_pid,&code)!=0||code!=0u)ok=0u;
-                        process_reap_pid((uint32_t)vfs_pid);vfs_pid=-1;--pending;
-                    }else if(state<0){ok=0u;vfs_pid=-1;--pending;}
-                }
-                if(cow_pid>0){
-                    int32_t state=process_get_state((uint32_t)cow_pid);
-                    if(state==PROCESS_ZOMBIE){
-                        uint32_t code=0xFFFFFFFFu;
-                        if(process_get_exit_code((uint32_t)cow_pid,&code)!=0||code!=0u)ok=0u;
-                        process_reap_pid((uint32_t)cow_pid);cow_pid=-1;--pending;
-                    }else if(state<0){ok=0u;cow_pid=-1;--pending;}
-                }
-                if(pending)__asm__ volatile("sti; hlt");
-            }
-            if(ok){debug_write("LIONOS:VFS-USER-TEST-OK\n");debug_write("LIONOS:COW-TEST-OK\n");}
-            else debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
-        }
-    }
 
     ipc_init();
     console_write("[ OK ] IPC / kernel message queues\n");
