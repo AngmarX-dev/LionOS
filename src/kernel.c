@@ -89,55 +89,69 @@ static void diskfs_boot_test(void){
         console_write("[ERR] Persistent filesystem self-test\n");
     }
 }
-static int integration_started;
+static int integration_stage;
 static int integration_done;
-static int integration_vfs_pid=-1;
-static int integration_cow_pid=-1;
+static int integration_pid=-1;
 static int integration_vfs_ok;
 static int integration_cow_ok;
 
 void lionos_user_integration_step(void){
     if(integration_done)return;
-    if(!integration_started){
-        integration_vfs_pid=exec_run_file("vfs_test.elf");
-        integration_cow_pid=exec_run_file("cow_test.elf");
-        integration_started=1;
-        if(integration_vfs_pid<0||integration_cow_pid<0){
+
+    if(integration_stage==0){
+        integration_pid=exec_run_file("vfs_test.elf");
+        integration_stage=(integration_pid>0)?1:-1;
+        if(integration_stage<0){
             integration_done=1;
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            debug_write("LIONOS:USER-VFS-LAUNCH-FAIL\n");
         }
         return;
     }
 
-    if(integration_vfs_pid>0){
-        int32_t s=process_get_state((uint32_t)integration_vfs_pid);
+    if(integration_stage==1){
+        int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
-            integration_vfs_ok=(process_get_exit_code((uint32_t)integration_vfs_pid,&code)==0&&code==0u);
-            process_reap_pid((uint32_t)integration_vfs_pid);
-            integration_vfs_pid=-1;
-        }else if(s<0){integration_vfs_ok=0;integration_vfs_pid=-1;}
+            integration_vfs_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
+            process_reap_pid((uint32_t)integration_pid);
+            integration_pid=-1;
+            integration_stage=2;
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:USER-VFS-STATE-FAIL\n");
+        }
+        return;
     }
 
-    if(integration_cow_pid>0){
-        int32_t s=process_get_state((uint32_t)integration_cow_pid);
+    if(integration_stage==2){
+        integration_pid=exec_run_file("cow_test.elf");
+        if(integration_pid<0){
+            integration_done=1;
+            debug_write("LIONOS:USER-COW-LAUNCH-FAIL\n");
+            return;
+        }
+        integration_stage=3;
+        return;
+    }
+
+    if(integration_stage==3){
+        int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
-            integration_cow_ok=(process_get_exit_code((uint32_t)integration_cow_pid,&code)==0&&code==0u);
-            process_reap_pid((uint32_t)integration_cow_pid);
-            integration_cow_pid=-1;
-        }else if(s<0){integration_cow_ok=0;integration_cow_pid=-1;}
-    }
-
-    if(integration_vfs_pid<0&&integration_cow_pid<0){
-        integration_done=1;
-        if(integration_vfs_ok&&integration_cow_ok){
-            debug_write("LIONOS:VFS-USER-TEST-OK\n");
-            debug_write("LIONOS:COW-TEST-OK\n");
-            console_write("[ OK ] Automated VFS + userspace COW integration tests\n");
-        }else{
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
-            console_write("[ERR] Automated userspace integration tests\n");
+            integration_cow_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
+            process_reap_pid((uint32_t)integration_pid);
+            integration_done=1;
+            if(integration_vfs_ok&&integration_cow_ok){
+                debug_write("LIONOS:VFS-USER-TEST-OK\n");
+                debug_write("LIONOS:COW-TEST-OK\n");
+                console_write("[ OK ] Automated VFS + userspace COW integration tests\n");
+            }else{
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+                console_write("[ERR] Automated userspace integration tests\n");
+            }
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:USER-COW-STATE-FAIL\n");
         }
     }
 }
