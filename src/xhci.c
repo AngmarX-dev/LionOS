@@ -147,7 +147,6 @@ static uint32_t port_state_neutral(uint32_t ps){
 #define RING_TRBS 256u
 #define EVENT_TRBS 256u
 #define INTR_SEGMENTS 4u
-#define EVENT_SEGMENTS 4u
 #define MAX_SCRATCH 1024u
 #define MAX_PORTS 256u
 #define MAX_PROTOCOLS 8u
@@ -198,7 +197,7 @@ static uint16_t xhci_vendor_id;   /* PCI vendor of the xHCI controller */
 static uint64_t *dcbaa;
 static erst_t *erst;
 static trb_t *cmd_ring, *event_ring, *ep0_ring, *intr_ring;
-static trb_t *event_segments[EVENT_SEGMENTS], *intr_segments[INTR_SEGMENTS];
+static trb_t *intr_segments[INTR_SEGMENTS];
 static void *out_ctx, *in_ctx;
 static uint8_t *control_buf, *config_buf, *report_buf;
 static uint64_t *scratch_array;
@@ -206,7 +205,7 @@ static void *scratch_pages[MAX_SCRATCH];
 static uint32_t scratch_count;
 
 static uint32_t cmd_index, cmd_cycle;
-static uint32_t event_index, event_cycle, event_segment;
+static uint32_t event_index, event_cycle;
 static uint32_t ep0_index, ep0_cycle;
 static uint32_t intr_index, intr_cycle, intr_segment;
 static uint32_t report_pending, report_length, report_seen;
@@ -454,20 +453,19 @@ static uint32_t read_scratchpads(void){
 }
 static int alloc_memory(void){
     if(dma_page((void**)&dcbaa)||dma_page((void**)&cmd_ring)||
-       dma_page((void**)&erst)||dma_page((void**)&ep0_ring)||
-       dma_page(&out_ctx)||dma_page(&in_ctx)||dma_page((void**)&control_buf)||
-       dma_page((void**)&config_buf)||dma_page((void**)&report_buf)) return -1;
+       dma_page((void**)&event_ring)||dma_page((void**)&erst)||
+       dma_page((void**)&ep0_ring)||dma_page(&out_ctx)||dma_page(&in_ctx)||
+       dma_page((void**)&control_buf)||dma_page((void**)&config_buf)||
+       dma_page((void**)&report_buf)) return -1;
 
-    for(uint32_t i=0u;i<EVENT_SEGMENTS;++i)
-        if(dma_page((void**)&event_segments[i])) return -1;
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i)
         if(dma_page((void**)&intr_segments[i])) return -1;
 
-    event_ring=event_segments[0];
     intr_ring=intr_segments[0];
 
     zero_mem(dcbaa,PAGE_SIZE);
     zero_mem(cmd_ring,PAGE_SIZE);
+    zero_mem(event_ring,PAGE_SIZE);
     zero_mem(erst,PAGE_SIZE);
     zero_mem(ep0_ring,PAGE_SIZE);
     zero_mem(out_ctx,PAGE_SIZE);
@@ -475,7 +473,6 @@ static int alloc_memory(void){
     zero_mem(control_buf,PAGE_SIZE);
     zero_mem(config_buf,PAGE_SIZE);
     zero_mem(report_buf,PAGE_SIZE);
-    for(uint32_t i=0u;i<EVENT_SEGMENTS;++i) zero_mem(event_segments[i],PAGE_SIZE);
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i) zero_mem(intr_segments[i],PAGE_SIZE);
 
     scratch_count=read_scratchpads();
@@ -507,7 +504,7 @@ static void link_trb(trb_t *ring,trb_t *next,uint32_t cyc){
 }
 static int setup_rings(void){
     cmd_index=0; cmd_cycle=1;
-    event_index=0; event_cycle=1; event_segment=0;
+    event_index=0; event_cycle=1;
     ep0_index=0; ep0_cycle=1;
     intr_index=0; intr_cycle=1; intr_segment=0;
 
@@ -517,17 +514,15 @@ static int setup_rings(void){
         link_trb(intr_segments[i],intr_segments[(i+1u)%INTR_SEGMENTS],
                  (i&1u)?0u:1u);
 
-    for(uint32_t i=0u;i<EVENT_SEGMENTS;++i){
-        erst[i].base=(uint64_t)(uintptr_t)event_segments[i];
-        erst[i].size=EVENT_TRBS;
-        erst[i].reserved=0u;
-    }
+    erst[0].base=(uint64_t)(uintptr_t)event_ring;
+    erst[0].size=EVENT_TRBS;
+    erst[0].reserved=0u;
 
     w64(op_base+OP_CRCR,(uint64_t)(uintptr_t)cmd_ring|1u);
     uint32_t ir=rt_base+RT_IR0;
-    w32(ir+IR_IMAN,0u); w32(ir+IR_IMOD,0u); w32(ir+IR_ERSTSZ,EVENT_SEGMENTS);
+    w32(ir+IR_IMAN,0u); w32(ir+IR_IMOD,0u); w32(ir+IR_ERSTSZ,1u);
     w64(ir+IR_ERSTBA,(uint64_t)(uintptr_t)erst);
-    w64(ir+IR_ERDP,(uint64_t)(uintptr_t)event_segments[0]);
+    w64(ir+IR_ERDP,(uint64_t)(uintptr_t)event_ring);
     return 0;
 }
 static int start_controller(void){
@@ -548,21 +543,17 @@ static void cmd_submit(uint32_t type,uint64_t p,uint32_t ctl){
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base)=0u;
 }
 static int next_event(trb_t *out){
-    trb_t *t=&event_segments[event_segment][event_index];
+    trb_t *t=&event_ring[event_index];
     if((t->control&TRB_CYCLE)!=(event_cycle?TRB_CYCLE:0u)) return -1;
     if(out)*out=*t;
     t->control=0;
     ++event_index;
     if(event_index>=EVENT_TRBS){
         event_index=0u;
-        ++event_segment;
-        if(event_segment>=EVENT_SEGMENTS){
-            event_segment=0u;
-            event_cycle^=1u;
-        }
+        event_cycle^=1u;
     }
     w64(rt_base+RT_IR0+IR_ERDP,
-        (uint64_t)(uintptr_t)&event_segments[event_segment][event_index]|8u);
+        (uint64_t)(uintptr_t)&event_ring[event_index]|8u);
     return 0;
 }
 static int cmd_abort(void){
