@@ -331,10 +331,15 @@ void framebuffer_present(void) {
          * doing one volatile store per pixel.
          */
         size_t row_bytes=(size_t)fb_width_value*4u;
-        for(uint32_t y=0u;y<fb_height_value;++y){
-            void *dst=(void *)(uintptr_t)(fb+y*fb_pitch);
-            const void *src=(const void *)(desktop_buffer+y*fb_width_value);
-            __builtin_memcpy(dst,src,row_bytes);
+        size_t frame_bytes=row_bytes*(size_t)fb_height_value;
+        if((size_t)fb_pitch==row_bytes){
+            __builtin_memcpy((void *)(uintptr_t)fb,desktop_buffer,frame_bytes);
+        }else{
+            for(uint32_t y=0u;y<fb_height_value;++y){
+                void *dst=(void *)(uintptr_t)(fb+y*fb_pitch);
+                const void *src=(const void *)(desktop_buffer+y*fb_width_value);
+                __builtin_memcpy(dst,src,row_bytes);
+            }
         }
         return;
     }
