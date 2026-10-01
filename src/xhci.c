@@ -147,6 +147,7 @@ static uint32_t port_state_neutral(uint32_t ps){
 #define RING_TRBS 256u
 #define EVENT_TRBS 256u
 #define INTR_SEGMENTS 4u
+#define REPORT_QUEUE_DEPTH 64u
 #define MAX_SCRATCH 1024u
 #define MAX_PORTS 256u
 #define MAX_PROTOCOLS 8u
@@ -208,7 +209,7 @@ static uint32_t cmd_index, cmd_cycle;
 static uint32_t event_index, event_cycle;
 static uint32_t ep0_index, ep0_cycle;
 static uint32_t intr_index, intr_cycle, intr_segment;
-static uint32_t report_pending, report_length, report_seen, report_wait_frames;
+static uint32_t report_pending, report_length, report_seen, report_wait_frames, report_inflight;
 
 static usb_protocol_t protocols[MAX_PROTOCOLS];
 static uint32_t protocol_count;
@@ -697,20 +698,26 @@ static int cmd_set_endpoint_deq(uint32_t ep,uint64_t deq){
 }
 static int restart_hid_transfer_ring(void){
     if(!ready||!slot_id||!endpoint_id) return -1;
-    /* Stop the endpoint before changing any DMA ring memory. */
+
+    /* Reset the endpoint before replacing the DMA queue. */
     if(cmd_reset_endpoint(endpoint_id)!=0) return -1;
+
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i){
         zero_mem(intr_segments[i],PAGE_SIZE);
         link_trb(intr_segments[i],intr_segments[(i+1u)%INTR_SEGMENTS],
                  i==(INTR_SEGMENTS-1u));
     }
+
     intr_segment=0u;
     intr_index=0u;
     intr_cycle=1u;
     report_pending=0u;
+    report_inflight=0u;
     report_wait_frames=0u;
+
     if(cmd_set_endpoint_deq(endpoint_id,
             (uint64_t)(uintptr_t)intr_segments[0]|1ull)!=0) return -1;
+
     dma_wmb();
     return submit_report();
 }
@@ -997,16 +1004,17 @@ static int cmd_configure_hid(hid_candidate_t *c){
     cmd_submit(TRB_CONFIGURE_EP,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
     return cmd_wait(slot_id);
 }
-static int submit_report(void){
-    if(report_pending) return 0;
-    report_length=endpoint_packet;
-    if(report_length<3u) report_length=3u;
-    if(report_length>PAGE_SIZE) report_length=PAGE_SIZE;
+static int submit_report_slot(uint32_t slot){
+    if(slot>=REPORT_QUEUE_DEPTH) return -1;
+    if(report_inflight>=REPORT_QUEUE_DEPTH) return -1;
+
     trb_t *t=&intr_segments[intr_segment][intr_index];
-    t->lo=(uint32_t)(uintptr_t)report_buf;
-    t->hi=(uint32_t)((uint64_t)(uintptr_t)report_buf>>32);
+    uint8_t *buf=report_buf+(slot*8u);
+    t->lo=(uint32_t)(uintptr_t)buf;
+    t->hi=(uint32_t)((uint64_t)(uintptr_t)buf>>32);
     t->status=report_length&0x1FFFFu;
-    t->control=(TRB_NORMAL<<10)|TRB_IOC|(intr_cycle?TRB_CYCLE:0u);
+    t->control=(TRB_NORMAL<<10)|TRB_IOC|TRB_ISP|(intr_cycle?TRB_CYCLE:0u);
+
     ++intr_index;
     if(intr_index>=RING_TRBS-1u){
         advance_link(&intr_segments[intr_segment][RING_TRBS-1u],&intr_cycle);
@@ -1015,11 +1023,27 @@ static int submit_report(void){
         if(intr_segment>=INTR_SEGMENTS)
             intr_segment=0u;
     }
+
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
     report_pending=1u;
+    ++report_inflight;
     report_wait_frames=0u;
     ++diag_transfer_submitted;
+    return 0;
+}
+
+static int submit_report(void){
+    if(!ready||!endpoint_id) return -1;
+    report_length=endpoint_packet;
+    if(report_length<3u) report_length=3u;
+    if(report_length>PAGE_SIZE) report_length=PAGE_SIZE;
+
+    if(report_inflight) return 0;
+
+    for(uint32_t slot=0u;slot<REPORT_QUEUE_DEPTH;++slot){
+        if(submit_report_slot(slot)!=0) return -1;
+    }
     return 0;
 }
 
@@ -1277,7 +1301,7 @@ static int enumerate_port(uint32_t p){
     usb_log(" int="); usb_log_dec(c.interval); usb_log_nl();
 
     diag_stage="SUBMIT HID REPORT";
-    report_pending=0; report_length=0; report_seen=0;
+    report_pending=0; report_length=0; report_seen=0; report_inflight=0; report_wait_frames=0;
     if(submit_report()) return usb_fail("SUBMIT HID REPORT");
 
     diag_stage="HID REPORT WAIT"; ready=1; diag_init_ok=1;
@@ -1414,43 +1438,91 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dy) *dy = 0;
     if(buttons) *buttons = 0;
     if(!ready) return 0;
+
     trb_t e;
     while(next_event(&e)==0){
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) continue;
         if(((e.control>>24)&0xFFu)!=slot_id) continue;
         if(((e.control>>16)&0x1Fu)!=endpoint_id) continue;
-        report_pending=0;
+
         ++diag_event_count;
         uint32_t cc=(e.status>>24)&0xFFu;
         diag_last_cc=cc;
-        if(cc==CC_SUCCESS||cc==CC_SHORT_PKT){
-            if(report_length>=3u){
-                uint32_t residual=e.status&0xFFFFFFu;
-                uint32_t actual=report_length>residual?report_length-residual:0u;
-                if(actual>PAGE_SIZE) actual=PAGE_SIZE;
-                diag_last_report_len=actual>8u?8u:actual;
-                for(uint32_t i=0;i<8;++i)
-                    diag_last_report[i]=(i<diag_last_report_len)?report_buf[i]:0u;
-                ++diag_report_count; ++diag_success_count;
-                if(!report_seen){ report_seen=1; usb_log("[ OK ] HID mouse reports active\n"); }
-                if(buttons)*buttons=report_buf[0]&7u;
-                if(dx)*dx=(int32_t)(int8_t)report_buf[1];
-                if(dy)*dy=(int32_t)(int8_t)report_buf[2];
+
+        /*
+         * The Transfer Event points at the completed NORMAL TRB. Its TRB
+         * contains the unique report-buffer slot used for this transfer.
+         * Read/copy that buffer BEFORE recycling the TRB for the next IN TD.
+         */
+        trb_t *completed=(trb_t*)(uintptr_t)e.lo;
+        uint8_t *buf=report_buf;
+        uint32_t valid=0u;
+        if(completed){
+            uintptr_t bp=(uintptr_t)completed->lo;
+            uintptr_t base=(uintptr_t)report_buf;
+            uintptr_t end=base+(REPORT_QUEUE_DEPTH*8u);
+            if(bp>=base && bp<end && ((bp-base)&7u)==0u){
+                buf=(uint8_t*)bp;
+                valid=1u;
             }
-            submit_report();
+        }
+
+        if(report_inflight) --report_inflight;
+        report_pending=report_inflight?1u:0u;
+
+        if(cc==CC_SUCCESS||cc==CC_SHORT_PKT){
+            uint32_t residual=e.status&0xFFFFFFu;
+            uint32_t actual=report_length>residual?report_length-residual:0u;
+            if(actual>PAGE_SIZE) actual=PAGE_SIZE;
+            diag_last_report_len=actual>8u?8u:actual;
+
+            if(valid){
+                for(uint32_t i=0u;i<8u;++i)
+                    diag_last_report[i]=(i<diag_last_report_len)?buf[i]:0u;
+            }else{
+                diag_last_report_len=0u;
+                for(uint32_t i=0u;i<8u;++i) diag_last_report[i]=0u;
+            }
+
+            if(diag_last_report_len>=3u){
+                ++diag_report_count;
+                ++diag_success_count;
+                if(!report_seen){
+                    report_seen=1;
+                    usb_log("[ OK ] HID mouse reports active\n");
+                }
+                if(buttons) *buttons=diag_last_report[0]&7u;
+                if(dx) *dx=(int32_t)(int8_t)diag_last_report[1];
+                if(dy) *dy=(int32_t)(int8_t)diag_last_report[2];
+            }
+
+            if(valid){
+                uint32_t slot=(uint32_t)(((uintptr_t)buf-(uintptr_t)report_buf)/8u);
+                if(submit_report_slot(slot)!=0) return -1;
+            }else{
+                if(submit_report()!=0) return -1;
+            }
             return 1;
         }
+
         ++diag_error_count;
-        submit_report();
+        if(valid){
+            uint32_t slot=(uint32_t)(((uintptr_t)buf-(uintptr_t)report_buf)/8u);
+            if(submit_report_slot(slot)!=0) return -1;
+        }else{
+            submit_report();
+        }
         return -1;
     }
-    if(report_pending){
-        /* One HID IN TD is kept outstanding. If a broken controller/ring
-           stops delivering its completion, recover the endpoint instead of
-           leaving the physical mouse dead forever. */
+
+    if(report_inflight){
+        /* The queue should stay populated continuously. Recover only when
+           the controller stops completing every outstanding transfer. */
         if(++report_wait_frames >= 30u){
             (void)restart_hid_transfer_ring();
         }
+    }else{
+        report_pending=0u;
     }
     return 0;
 }
