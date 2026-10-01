@@ -49,7 +49,8 @@ void smp_ap_main(void){
     cpu_mark_online(index,lapic_id());
     __atomic_fetch_or(&ap_online_mask,1u<<index,__ATOMIC_RELEASE);
     debug_write("LIONOS:SMP-AP-ONLINE-MARKED\n");
-    for(;;)__asm__ volatile("hlt");
+    debug_write("LIONOS:SCHED-PERCPU-READY\n");
+    for(;;)__asm__ volatile("sti; hlt");
 }
 
 void smp_init(void){
