@@ -6,6 +6,7 @@
 #include "tss.h"
 #include "spinlock.h"
 #include "cpu.h"
+#include "debug.h"
 
 #define PROCESS_WAIT_ANY 0u
 #define PROCESS_WAIT_BLOCKED (-2)
