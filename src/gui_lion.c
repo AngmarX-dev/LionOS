@@ -189,6 +189,14 @@ static void notepad_init(void){
     notepad_len=0u;
     notepad_cursor=0u;
     notepad_text[0]=0;
+    int fd=vfs_open("/notepad.txt",1u);
+    if(fd>=0){
+        int n=vfs_read(fd,notepad_text,NOTEPAD_TEXT_MAX);
+        if(n>0u) notepad_len=(uint32_t)n;
+        (void)vfs_close(fd);
+    }
+    notepad_text[notepad_len]=0;
+    notepad_cursor=notepad_len;
     notepad_focus=1u;
 }
 static void notepad_insert(int key){
@@ -416,7 +424,7 @@ static void draw_start_menu(void){
     if(!start_open) return;
     uint32_t w=framebuffer_width(),h=framebuffer_height();
     uint32_t mw=w>520u?420u:300u;
-    uint32_t mh=h>520u?390u:h>360u?300u:240u;
+    uint32_t mh=h>560u?440u:h>460u?400u:340u;
     uint32_t x=12u,y=h-TASKBAR_H-mh-8u;
     fill(x+5u,y+5u,mw,mh,0x03070Cu);
     fill(x,y,mw,mh,COL_PANEL);border(x,y,mw,mh,COL_GOLD_DIM);fill(x,y,mw,54u,COL_PANEL2);
@@ -424,13 +432,20 @@ static void draw_start_menu(void){
     fill(x+18u,y+62u,mw-36u,32u,COL_INPUT);border(x+18u,y+62u,mw-36u,32u,COL_GOLD_DIM);
     text_line("Search applications...",x+30u,y+71u,COL_DIM,COL_INPUT);
     text_line("PINNED APPLICATIONS",x+18u,y+108u,COL_DIM,COL_PANEL);
-    fill(x+18u,y+122u,mw-36u,38u,COL_PANEL2);border(x+18u,y+122u,mw-36u,38u,COL_GOLD_DIM);text_line("TERMINAL",x+18u+(mw-36u-label_width("TERMINAL"))/2u,y+132u,COL_TEXT,COL_PANEL2);
-    fill(x+18u,y+142u,mw-36u,38u,COL_PANEL2);border(x+18u,y+142u,mw-36u,38u,COL_GOLD_DIM);text_line("FILES",x+18u+(mw-36u-label_width("FILES"))/2u,y+152u,COL_TEXT,COL_PANEL2);
-    fill(x+18u,y+188u,mw-36u,38u,COL_PANEL2);border(x+18u,y+188u,mw-36u,38u,COL_GOLD_DIM);text_line("ABOUT",x+18u+(mw-36u-label_width("ABOUT"))/2u,y+198u,COL_TEXT,COL_PANEL2);
-    fill(x+18u,y+234u,mw-36u,38u,COL_PANEL2);border(x+18u,y+234u,mw-36u,38u,COL_GOLD_DIM);text_line("SETTINGS",x+18u+(mw-36u-label_width("SETTINGS"))/2u,y+244u,COL_TEXT,COL_PANEL2);
-    fill(x+18u,y+280u,mw-36u,38u,COL_PANEL2);border(x+18u,y+280u,mw-36u,38u,COL_GOLD_DIM);text_line("BROWSER",x+18u+(mw-36u-label_width("BROWSER"))/2u,y+290u,COL_TEXT,COL_PANEL2);
-    fill(x+18u,y+326u,mw-36u,38u,COL_PANEL2);border(x+18u,y+326u,mw-36u,38u,COL_GOLD_DIM);text_line("NOTEPAD",x+18u+(mw-36u-label_width("NOTEPAD"))/2u,y+336u,COL_TEXT,COL_PANEL2);
-    if(mh>330u){fill(x+18u,y+mh-52u,140u,34u,COL_DANGER);border(x+18u,y+mh-52u,140u,34u,COL_GOLD_DIM);text_line("POWER",x+32u,y+mh-44u,COL_TEXT,COL_DANGER);}
+    static const char *items[]={"TERMINAL","FILES","ABOUT","SETTINGS","BROWSER","NOTEPAD"};
+    for(uint32_t i=0u;i<6u;++i){
+        uint32_t by=y+122u+i*42u;
+        fill(x+18u,by,mw-36u,38u,COL_PANEL2);
+        border(x+18u,by,mw-36u,38u,COL_GOLD_DIM);
+        const char *name=items[i];
+        text_line(name,x+18u+(mw-36u-label_width(name))/2u,by+10u,COL_TEXT,COL_PANEL2);
+    }
+    if(mh>400u){
+        uint32_t py=y+mh-52u;
+        fill(x+18u,py,140u,34u,COL_DANGER);
+        border(x+18u,py,140u,34u,COL_GOLD_DIM);
+        text_line("POWER",x+32u,py+8u,COL_TEXT,COL_DANGER);
+    }
 }
 
 static void draw_cursor(uint32_t x,uint32_t y){
@@ -550,11 +565,11 @@ static void handle_click(void){
         uint32_t mh=framebuffer_height()>520u?390u:framebuffer_height()>360u?300u:240u;
         uint32_t sx=12u,sy=h-TASKBAR_H-mh-8u;
         if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+122u&&y<sy+160u){show(WIN_TERMINAL);terminal_init();return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+168u&&y<sy+206u){show(WIN_FILES);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+214u&&y<sy+252u){show(WIN_ABOUT);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+260u&&y<sy+298u){show(WIN_SETTINGS);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+306u&&y<sy+344u){browser_start();return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+330u&&y<sy+368u){show(WIN_NOTEPAD);return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+164u&&y<sy+202u){show(WIN_FILES);return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+206u&&y<sy+244u){show(WIN_ABOUT);return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+248u&&y<sy+286u){show(WIN_SETTINGS);return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+290u&&y<sy+328u){browser_start();return;}
+        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+332u&&y<sy+370u){show(WIN_NOTEPAD);return;}
         if(mh>330u&&x>=sx+18u&&x<sx+158u&&y>=sy+mh-52u&&y<sy+mh-18u){close_gui();return;}
         start_open=0u;
     }
