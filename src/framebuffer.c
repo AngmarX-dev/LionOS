@@ -324,15 +324,25 @@ int framebuffer_begin_desktop(void) {
 void framebuffer_present(void) {
     if (!enabled || !desktop_mode || !desktop_buffer) return;
     uint32_t bytes=(fb_bpp+7u)/8u;
-    for (uint32_t y=0u;y<fb_height_value;++y){
+    if(fb_bpp==32u){
+        /*
+         * The desktop buffer is normal RAM and the framebuffer is a linear
+         * pixel surface.  Let GCC emit its optimized bulk copy instead of
+         * doing one volatile store per pixel.
+         */
+        size_t row_bytes=(size_t)fb_width_value*4u;
+        for(uint32_t y=0u;y<fb_height_value;++y){
+            void *dst=(void *)(uintptr_t)(fb+y*fb_pitch);
+            const void *src=(const void *)(desktop_buffer+y*fb_width_value);
+            __builtin_memcpy(dst,src,row_bytes);
+        }
+        return;
+    }
+    for(uint32_t y=0u;y<fb_height_value;++y){
         volatile uint8_t *dst=fb+y*fb_pitch;
         const uint32_t *src=desktop_buffer+y*fb_width_value;
-        if(fb_bpp==32u){
-            volatile uint32_t *d32=(volatile uint32_t *)dst;
-            for(uint32_t x=0u;x<fb_width_value;++x)d32[x]=src[x];
-        }else{
-            for(uint32_t x=0u;x<fb_width_value;++x)write_packed_pixel(dst+x*bytes,src[x]);
-        }
+        for(uint32_t x=0u;x<fb_width_value;++x)
+            write_packed_pixel(dst+x*bytes,src[x]);
     }
 }
 
@@ -400,7 +410,7 @@ void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint3
 void framebuffer_restore_wallpaper(void) {
     if (!enabled || !desktop_mode || !desktop_buffer || !wallpaper_cache || !wallpaper_cache_ready) return;
     uint32_t count=fb_width_value*fb_height_value;
-    for(uint32_t i=0u;i<count;++i) desktop_buffer[i]=wallpaper_cache[i];
+    __builtin_memcpy(desktop_buffer,wallpaper_cache,(size_t)count*sizeof(uint32_t));
 }
 
 void framebuffer_clear(uint32_t color) {
