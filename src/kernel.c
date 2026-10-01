@@ -100,6 +100,9 @@ void lionos_user_integration_step(void){
 
     if(integration_stage==0){
         integration_pid=exec_run_file("vfs_test.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:USER-VFS-LAUNCHED\n");
+        }
         integration_stage=(integration_pid>0)?1:-1;
         if(integration_stage<0){
             integration_done=1;
@@ -115,6 +118,7 @@ void lionos_user_integration_step(void){
             integration_vfs_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
             process_reap_pid((uint32_t)integration_pid);
             integration_pid=-1;
+            debug_write("LIONOS:USER-VFS-DONE\n");
             integration_stage=2;
         }else if(s<0){
             integration_done=1;
@@ -125,6 +129,7 @@ void lionos_user_integration_step(void){
 
     if(integration_stage==2){
         integration_pid=exec_run_file("cow_test.elf");
+        if(integration_pid>0)debug_write("LIONOS:USER-COW-LAUNCHED\n");
         if(integration_pid<0){
             integration_done=1;
             debug_write("LIONOS:USER-COW-LAUNCH-FAIL\n");
