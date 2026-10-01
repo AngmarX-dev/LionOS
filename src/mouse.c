@@ -11,6 +11,8 @@
 static volatile int32_t  ps2_x = 400;
 static volatile int32_t  ps2_y = 300;
 static volatile uint8_t  ps2_buttons = 0;
+#define MOUSE_GAIN 2
+static int32_t mouse_scale_delta(int32_t d){return d*MOUSE_GAIN;}
 static volatile uint8_t  ps2_cycle = 0;
 static volatile int32_t  ps2_dx = 0;
 static volatile int32_t  ps2_dy = 0;
@@ -86,8 +88,8 @@ void mouse_irq_handler(void){
         case 2:
             /* overflow bits — discard packet if set */
             if(!(data & 0xC0u)){
-                ps2_x += ps2_dx;
-                ps2_y -= ps2_dy;
+                ps2_x += mouse_scale_delta(ps2_dx);
+                ps2_y -= mouse_scale_delta(ps2_dy);
                 if(ps2_x < 0) ps2_x = 0;
                 if(ps2_y < 0) ps2_y = 0;
                 if(ps2_x > (int32_t)cursor_max_x) ps2_x = (int32_t)cursor_max_x;
@@ -166,8 +168,8 @@ void mouse_poll(void){
             int r = xhci_mouse_poll(&dx, &dy, &btn);
             if(r != 1) break;
 
-            usb_x += dx;
-            usb_y += dy;
+            usb_x += mouse_scale_delta(dx);
+            usb_y += mouse_scale_delta(dy);
             if(usb_x < 0) usb_x = 0;
             if(usb_y < 0) usb_y = 0;
             if(usb_x > (int32_t)cursor_max_x) usb_x = (int32_t)cursor_max_x;
