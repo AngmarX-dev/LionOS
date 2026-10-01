@@ -43,6 +43,7 @@ struct process {
     uint32_t user_page_count;
     uint32_t pending_signals;
     uint32_t capabilities;
+    uint32_t cpu_owner;
     uint8_t fd_used[PROCESS_FD_MAX];
     uint8_t fd_backend[PROCESS_FD_MAX];
     uint32_t fd_flags[PROCESS_FD_MAX];
