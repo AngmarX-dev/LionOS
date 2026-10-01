@@ -63,6 +63,8 @@ static uint8_t scene_dirty;
 static const char *last_usb_status;
 static uint32_t last_render_tick = 0xFFFFFFFFu;
 static uint8_t cursor_overlay;
+static uint8_t dirty_valid;
+static uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
 
 struct desktop_icon {
     uint32_t x, y;
@@ -127,6 +129,29 @@ static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
 static void text_line(const char*s,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){while(*s&&x+CHAR_W<framebuffer_width()){text(*s,x,y,fg,bg);x+=CHAR_W;++s;}}
 static uint32_t px(void){return mouse_x();}
 static uint32_t py(void){return mouse_y();}
+static void dirty_full(void){
+    scene_dirty=1u;
+    dirty_valid=1u;
+    dirty_x=0u; dirty_y=0u;
+    dirty_w=framebuffer_width(); dirty_h=framebuffer_height();
+}
+static void dirty_rect(uint32_t x,uint32_t y,uint32_t w,uint32_t h){
+    if(!w||!h)return;
+    uint32_t sw=framebuffer_width(),sh=framebuffer_height();
+    if(x>=sw||y>=sh)return;
+    if(w>sw-x)w=sw-x;
+    if(h>sh-y)h=sh-y;
+    if(!dirty_valid){
+        dirty_x=x;dirty_y=y;dirty_w=w;dirty_h=h;dirty_valid=1u;
+    }else{
+        uint32_t old_r=dirty_x+dirty_w, old_b=dirty_y+dirty_h;
+        uint32_t new_r=x+w, new_b=y+h;
+        uint32_t left=dirty_x<x?dirty_x:x, top=dirty_y<y?dirty_y:y;
+        uint32_t right=old_r>new_r?old_r:new_r, bottom=old_b>new_b?old_b:new_b;
+        dirty_x=left;dirty_y=top;dirty_w=right-left;dirty_h=bottom-top;
+    }
+    scene_dirty=1u;
+}
 static struct ui_window*window_by_id(uint8_t id){return id>=1u&&id<=WIN_MAX?&windows[id-1u]:0;}
 static void focus(uint8_t id){for(uint32_t i=0;i<WIN_MAX;++i)windows[i].focused=(windows[i].id==id&&windows[i].visible&&!windows[i].minimized)?1u:0u;}
 static void show(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;w->visible=1u;w->minimized=0u;focus(id);start_open=0u;if(id==WIN_TERMINAL)terminal_focus=1u;}
@@ -340,31 +365,38 @@ static void draw_desktop_icons(void){
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
 static void render_all(void){
-    /*
-     * The desktop is software-rendered.  A full composition + framebuffer
-     * copy on every interrupt can starve input and kernel work, so keep
-     * input polling at the existing cadence but cap composition at 50 Hz.
-     */
     uint32_t now=interrupt_timer_ticks();
-    if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<2u)return;
+    uint32_t sw=framebuffer_width(), sh=framebuffer_height();
+    uint64_t dirty_pixels=dirty_valid?(uint64_t)dirty_w*dirty_h:(uint64_t)sw*sh;
+    uint64_t screen_pixels=(uint64_t)sw*sh;
+    uint32_t min_ticks=(dirty_pixels*2u<screen_pixels)?1u:2u;
+    if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<min_ticks)return;
 
     if(browser_is_active()){
         framebuffer_cursor_hide();
         browser_render();
         framebuffer_present();
         last_render_tick=now;
+        dirty_valid=0u;
+        scene_dirty=0u;
         return;
     }
-    if(!scene_dirty)return;
+    if(!scene_dirty||!dirty_valid)return;
+
+    uint32_t x=dirty_x,y=dirty_y,w=dirty_w,h=dirty_h;
     framebuffer_cursor_hide();
+    framebuffer_restore_wallpaper_rect(x,y,w,h);
+    framebuffer_set_clip(x,y,w,h);
     draw_desktop_background();
     draw_desktop_icons();
     draw_windows();
     draw_taskbar();
     draw_start_menu();
     if(!cursor_overlay)draw_cursor(mouse_px_x,mouse_px_y);
-    framebuffer_present();
+    framebuffer_clear_clip();
+    framebuffer_present_rect(x,y,w,h);
     scene_dirty=0u;
+    dirty_valid=0u;
     last_render_tick=now;
 }
 
@@ -485,20 +517,41 @@ static void handle_move(void){
         struct desktop_icon *icon=&desktop_icons[desktop_icon_drag];
         uint32_t old_x=icon->x,old_y=icon->y;
         move_desktop_icon(icon,mouse_px_x,mouse_px_y);
-        if(icon->x!=old_x||icon->y!=old_y)scene_dirty=1u;
+        if(icon->x!=old_x||icon->y!=old_y){
+            uint32_t left=old_x<icon->x?old_x:icon->x;
+            uint32_t top=old_y<icon->y?old_y:icon->y;
+            uint32_t right_old=old_x+DESKTOP_ICON_SIZE+8u;
+            uint32_t right_new=icon->x+DESKTOP_ICON_SIZE+8u;
+            uint32_t bottom_old=old_y+DESKTOP_ICON_BLOCK_H+8u;
+            uint32_t bottom_new=icon->y+DESKTOP_ICON_BLOCK_H+8u;
+            uint32_t right=right_old>right_new?right_old:right_new;
+            uint32_t bottom=bottom_old>bottom_new?bottom_old:bottom_new;
+            dirty_rect(left>5u?left-5u:0u,top>5u?top-5u:0u,
+                       right-left+10u,bottom-top+10u);
+        }
         return;
     }
 
     if(!drag_active)return;
     struct ui_window*w=window_by_id(drag_id);
     if(!w||!w->visible){drag_active=0u;return;}
+    uint32_t old_x=w->x, old_y=w->y;
     int nx=(int)mouse_px_x-drag_dx,ny=(int)mouse_px_y-drag_dy;
     int max_y=(int)framebuffer_height()-(int)TASKBAR_H-(int)TITLE_H;
     if(nx<4)nx=4;
     if(ny<0)ny=0;
     if(nx+(int)w->w>(int)framebuffer_width()-4)nx=(int)framebuffer_width()-(int)w->w-4;
     if(ny>max_y)ny=max_y;
-    if(w->x!=(uint32_t)nx||w->y!=(uint32_t)ny)scene_dirty=1u;
+    if(w->x!=(uint32_t)nx||w->y!=(uint32_t)ny){
+        uint32_t new_x=(uint32_t)nx,new_y=(uint32_t)ny;
+        uint32_t left=old_x<new_x?old_x:new_x;
+        uint32_t top=old_y<new_y?old_y:new_y;
+        uint32_t right_old=old_x+w->w,right_new=new_x+w->w;
+        uint32_t bottom_old=old_y+w->h,bottom_new=new_y+w->h;
+        uint32_t right=right_old>right_new?right_old:right_new;
+        uint32_t bottom=bottom_old>bottom_new?bottom_old:bottom_new;
+        dirty_rect(left,top,right-left+4u,bottom-top+4u);
+    }
     w->x=(uint32_t)nx;
     w->y=(uint32_t)ny;
 }
@@ -544,7 +597,7 @@ void gui_step(void){
     mouse_px_x=px();mouse_px_y=py();
     uint32_t buttons=mouse_buttons();
     uint8_t cursor_moved=(mouse_px_x!=old_x||mouse_px_y!=old_y)?1u:0u;
-    if((cursor_moved&&!cursor_overlay)||buttons!=previous_buttons)scene_dirty=1u;
+    if((cursor_moved&&!cursor_overlay)||buttons!=previous_buttons)dirty_full();
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
     if(!(buttons&1u)&&(previous_buttons&1u)){
         if(desktop_icon_drag>=0){
@@ -558,7 +611,7 @@ void gui_step(void){
         scene_dirty=1u;
     }
     handle_move();
-    if(browser_is_active()){browser_step();previous_buttons=buttons;scene_dirty=1u;render_all();return;}
+    if(browser_is_active()){browser_step();previous_buttons=buttons;dirty_full();render_all();return;}
     while(keyboard_available()){scene_dirty=1u;handle_key(keyboard_getchar());}
     previous_buttons=buttons;
     render_all();
