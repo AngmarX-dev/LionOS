@@ -20,7 +20,8 @@
 #define PTE_PRESENT 0x1ULL
 #define PTE_WRITABLE 0x2ULL
 #define PTE_USER 0x4ULL
-#define PTE_FLAGS_MASK 0x1FULL
+#define PTE_COW 0x200ULL
+#define PTE_FLAGS_MASK 0x21FULL
 #define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
 
 /*
@@ -185,6 +186,46 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
 
     if (current_directory == pd_physical)
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+    return 0;
+}
+
+int paging_set_user_page_flags(uint32_t pd_physical,uint32_t virtual_address,uint32_t flags){
+    if(!pd_physical||virtual_address>=USER_LIMIT||(virtual_address&(PAGE_SIZE-1u)))return-1;
+    uint32_t pdpt_index=virtual_address>>30,pd_index=(virtual_address>>21)&0x1FFu,pt_index=(virtual_address>>12)&0x1FFu;
+    uint64_t*directory=pd_ptr(pd_physical,pdpt_index);if(!directory)return-1;uint64_t pde=directory[pd_index];
+    if(!(pde&PTE_PRESENT)||!(pde&PTE_USER))return-1;
+    uint64_t*table=pt_ptr(pde);uint64_t pte=table[pt_index];
+    if(!(pte&PTE_PRESENT)||!(pte&PTE_USER))return-1;
+    table[pt_index]=(pte&PTE_ADDR_MASK)|((uint64_t)flags&PTE_FLAGS_MASK)|PTE_PRESENT|PTE_USER;
+    if(pd_physical==paging_current_address_space())__asm__ volatile("invlpg (%0)"::"r"(virtual_address):"memory");
+    return 0;
+}
+int paging_mark_cow(uint32_t pd_physical,uint32_t virtual_address){
+    uint32_t phys=0,flags=0;
+    if(paging_get_user_page(pd_physical,virtual_address,&phys,&flags)!=0)return-1;
+    if(!(flags&0x2u))return-1;
+    flags=(flags&~0x2u)|PTE_COW;
+    return paging_set_user_page_flags(pd_physical,virtual_address,flags);
+}
+int paging_resolve_cow(uint32_t pd_physical,uint32_t virtual_address){
+    if(!pd_physical||virtual_address>=USER_LIMIT||(virtual_address&(PAGE_SIZE-1u)))return-1;
+    uint32_t pdpt_index=virtual_address>>30,pd_index=(virtual_address>>21)&0x1FFu,pt_index=(virtual_address>>12)&0x1FFu;
+    uint64_t*directory=pd_ptr(pd_physical,pdpt_index);if(!directory)return-1;
+    uint64_t pde=directory[pd_index];if(!(pde&PTE_PRESENT)||!(pde&PTE_USER))return-1;
+    uint64_t*table=pt_ptr(pde);uint64_t pte=table[pt_index];
+    if(!(pte&PTE_PRESENT)||!(pte&PTE_USER)||!(pte&PTE_COW))return-1;
+    uint32_t old_phys=(uint32_t)(pte&PTE_ADDR_MASK),old_flags=(uint32_t)(pte&PTE_FLAGS_MASK);
+    uint32_t refs=page_refcount((void*)(uintptr_t)old_phys);if(!refs)return-1;
+    if(refs==1u){
+        table[pt_index]=(pte&PTE_ADDR_MASK)|((uint64_t)((old_flags|0x2u)&~(uint32_t)PTE_COW))|PTE_PRESENT|PTE_USER;
+    }else{
+        void*new_page=page_alloc();if(!new_page)return-1;
+        uint8_t*dst=(uint8_t*)new_page;const uint8_t*src=(const uint8_t*)(uintptr_t)old_phys;
+        for(uint32_t i=0u;i<PAGE_SIZE;++i)dst[i]=src[i];
+        table[pt_index]=((uint64_t)(uintptr_t)new_page&PTE_ADDR_MASK)|((uint64_t)((old_flags|0x2u)&~(uint32_t)PTE_COW))|PTE_PRESENT|PTE_USER;
+        page_free((void*)(uintptr_t)old_phys);
+    }
+    if(pd_physical==paging_current_address_space())__asm__ volatile("invlpg (%0)"::"r"(virtual_address):"memory");
     return 0;
 }
 
