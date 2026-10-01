@@ -68,24 +68,27 @@ struct desktop_icon {
     uint8_t moved;
     uint8_t pad;
     const uint32_t *bitmap;
+    const char *label;
 };
 
 #define DESKTOP_ICON_SIZE 64u
+#define DESKTOP_ICON_LABEL_GAP 4u
+#define DESKTOP_ICON_LABEL_H 20u
+#define DESKTOP_ICON_BLOCK_H (DESKTOP_ICON_SIZE + DESKTOP_ICON_LABEL_GAP + DESKTOP_ICON_LABEL_H)
 #define DESKTOP_ICON_COUNT 6u
 #define ICON_ACTION_FILES 1u
 #define ICON_ACTION_TERMINAL 2u
 #define ICON_ACTION_BROWSER 3u
 #define ICON_ACTION_SETTINGS 4u
 #define ICON_ACTION_ABOUT 5u
-#define ICON_ACTION_TRASH 6u
 
 static struct desktop_icon desktop_icons[DESKTOP_ICON_COUNT] = {
-    {24u, 24u, ICON_ACTION_FILES,    0u, 0u, 0u, lion_icon_computer},
-    {24u, 124u, ICON_ACTION_FILES,   0u, 0u, 0u, lion_icon_home},
-    {24u, 224u, ICON_ACTION_TERMINAL, 0u, 0u, 0u, lion_icon_terminal},
-    {24u, 324u, ICON_ACTION_BROWSER,  0u, 0u, 0u, lion_icon_browser},
-    {24u, 424u, ICON_ACTION_SETTINGS, 0u, 0u, 0u, lion_icon_tools},
-    {24u, 524u, ICON_ACTION_ABOUT,    0u, 0u, 0u, lion_icon_desktop}
+    {24u, 24u,  ICON_ACTION_FILES,    0u, 0u, 0u, lion_icon_computer, "THIS PC"},
+    {24u, 124u, ICON_ACTION_FILES,    0u, 0u, 0u, lion_icon_home,     "HOME"},
+    {24u, 224u, ICON_ACTION_TERMINAL, 0u, 0u, 0u, lion_icon_terminal, "TERMINAL"},
+    {24u, 324u, ICON_ACTION_BROWSER,  0u, 0u, 0u, lion_icon_browser,  "BROWSER"},
+    {24u, 424u, ICON_ACTION_SETTINGS, 0u, 0u, 0u, lion_icon_tools,    "SETTINGS"},
+    {24u, 524u, ICON_ACTION_ABOUT,    0u, 0u, 0u, lion_icon_desktop,  "ABOUT"}
 };
 
 static int desktop_icon_drag = -1;
@@ -96,13 +99,6 @@ static int desktop_icon_at(uint32_t x,uint32_t y);
 static void move_desktop_icon(struct desktop_icon *icon,uint32_t x,uint32_t y);
 static void activate_desktop_icon(uint8_t action);
 
-struct display_mode { uint32_t width; uint32_t height; };
-static const struct display_mode display_modes[] = {
-    {640u,480u},{800u,600u},{1024u,768u},{1280u,720u},
-    {1366u,768u},{1600u,900u},{1920u,1080u}
-};
-static uint32_t selected_display_mode;
-static char display_status[64];
 static uint32_t label_width(const char*label);
 
 static char term_input[121];
@@ -209,63 +205,40 @@ static void draw_uint(uint32_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t 
 static void draw_resolution(uint32_t width,uint32_t height,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
     draw_uint(width,x,y,fg,bg);x+=label_width("1920");text_line("x",x,y,fg,bg);x+=CHAR_W;draw_uint(height,x,y,fg,bg);
 }
-static void set_display_status(const char*s){
-    uint32_t i=0u;while(s[i]&&i<63u){display_status[i]=s[i];++i;}display_status[i]=0;
-}
-static void resize_windows_to_display(void){
-    uint32_t sw=framebuffer_width(),sh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();
-    windows[0].x=(sw*18u)/100u;windows[0].y=(sh*13u)/100u;windows[0].w=(sw*62u)/100u;windows[0].h=(sh*68u)/100u;
-    windows[1].x=(sw*25u)/100u;windows[1].y=(sh*17u)/100u;windows[1].w=(sw*50u)/100u;windows[1].h=(sh*58u)/100u;
-    windows[2].x=(sw*34u)/100u;windows[2].y=(sh*20u)/100u;windows[2].w=(sw*36u)/100u;windows[2].h=(sh*48u)/100u;
-    windows[3].x=(sw*41u)/100u;windows[3].y=(sh*18u)/100u;windows[3].w=(sw*34u)/100u;windows[3].h=(sh*52u)/100u;
-    for(uint32_t i=0u;i<WIN_MAX;++i)if(windows[i].maximized){windows[i].x=0u;windows[i].y=0u;windows[i].w=sw;windows[i].h=sh;}
-    mouse_set_bounds(sw,framebuffer_height());
-    uint32_t max_x=sw>DESKTOP_ICON_SIZE?sw-DESKTOP_ICON_SIZE:0u;
-    uint32_t max_y=framebuffer_height()>TASKBAR_H+DESKTOP_ICON_SIZE
-        ? framebuffer_height()-TASKBAR_H-DESKTOP_ICON_SIZE : 0u;
-    for(uint32_t i=0u;i<DESKTOP_ICON_COUNT;++i){
-        if(desktop_icons[i].x>max_x)desktop_icons[i].x=max_x;
-        if(desktop_icons[i].y>max_y)desktop_icons[i].y=max_y;
-    }
-}
 static void draw_settings(const struct ui_window*w){
     window_chrome(w,"Settings");
-    text_line("Display",w->x+24u,w->y+62u,COL_TEXT,COL_PANEL);
-    text_line("Current resolution",w->x+24u,w->y+90u,COL_DIM,COL_PANEL);
-    draw_resolution(framebuffer_width(),framebuffer_height(),w->x+190u,w->y+90u,COL_GOLD,COL_PANEL);
-    text_line("Choose a display mode",w->x+24u,w->y+122u,COL_DIM,COL_PANEL);
-    uint32_t row_y=w->y+148u;
-    for(uint32_t i=0u;i<sizeof(display_modes)/sizeof(display_modes[0]);++i){
-        uint32_t selected=(i==selected_display_mode);
-        uint32_t bg=selected?COL_PANEL2:COL_PANEL;
-        fill(w->x+20u,row_y+i*42u,w->w-40u,34u,bg);
-        border(w->x+20u,row_y+i*42u,w->w-40u,34u,selected?COL_GOLD:COL_GOLD_DIM);
-        draw_resolution(display_modes[i].width,display_modes[i].height,w->x+34u,row_y+8u+i*42u,COL_TEXT,bg);
-        if(selected)text_line("ACTIVE",w->x+w->w-90u,row_y+8u+i*42u,COL_OK,bg);
-    }
-    text_line(display_status,w->x+24u,w->y+w->h-34u,COL_DIM,COL_PANEL);
+    text_line("DISPLAY",w->x+24u,w->y+62u,COL_TEXT,COL_PANEL);
+    text_line("MODE",w->x+24u,w->y+96u,COL_DIM,COL_PANEL);
+    text_line("AUTOMATIC / MAXIMUM",w->x+190u,w->y+96u,COL_OK,COL_PANEL);
+    text_line("RESOLUTION",w->x+24u,w->y+126u,COL_DIM,COL_PANEL);
+    draw_resolution(framebuffer_width(),framebuffer_height(),w->x+190u,w->y+126u,COL_GOLD,COL_PANEL);
+    text_line("SOURCE",w->x+24u,w->y+158u,COL_DIM,COL_PANEL);
+    text_line("GRUB / FIRMWARE FRAMEBUFFER",w->x+190u,w->y+158u,COL_TEXT,COL_PANEL);
+    text_line("LionOS does not change display modes at runtime.",w->x+24u,w->y+204u,COL_DIM,COL_PANEL);
+    text_line("The bootloader selects the best available mode.",w->x+24u,w->y+230u,COL_DIM,COL_PANEL);
 }
-
 static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
 
 static void draw_desktop_icon(const struct desktop_icon *icon){
     if(!icon||!icon->bitmap)return;
-    /*
-     * Icon-only desktop shortcuts: no text box, no permanent label.
-     * A subtle hover plate keeps the desktop readable without looking
-     * like a row of buttons.
-     */
     uint32_t x=icon->x,y=icon->y;
+    uint32_t lw=label_width(icon->label);
+    uint32_t text_x;
+    if(lw<DESKTOP_ICON_SIZE) text_x=x+(DESKTOP_ICON_SIZE-lw)/2u;
+    else text_x=x;
+    uint32_t label_y=y+DESKTOP_ICON_SIZE+DESKTOP_ICON_LABEL_GAP;
+    uint32_t hovered=(mouse_px_x>=x&&mouse_px_x<x+DESKTOP_ICON_SIZE&&
+                      mouse_px_y>=y&&mouse_px_y<y+DESKTOP_ICON_BLOCK_H);
+    if(icon->dragging||hovered){
+        fill(x-5u,y-5u,DESKTOP_ICON_SIZE+10u,DESKTOP_ICON_BLOCK_H+10u,COL_PANEL2);
+        border(x-5u,y-5u,DESKTOP_ICON_SIZE+10u,DESKTOP_ICON_BLOCK_H+10u,COL_GOLD_DIM);
+    }
     if(x+DESKTOP_ICON_SIZE<=framebuffer_width() &&
        y+DESKTOP_ICON_SIZE<=framebuffer_height()-TASKBAR_H){
-        if(icon->dragging||((mouse_px_x>=x&&mouse_px_x<x+DESKTOP_ICON_SIZE)&&
-                            (mouse_px_y>=y&&mouse_px_y<y+DESKTOP_ICON_SIZE))){
-            fill(x-5u,y-5u,DESKTOP_ICON_SIZE+10u,DESKTOP_ICON_SIZE+10u,COL_PANEL2);
-            border(x-5u,y-5u,DESKTOP_ICON_SIZE+10u,DESKTOP_ICON_SIZE+10u,COL_GOLD_DIM);
-        }
         framebuffer_blit_rgba32(icon->bitmap,LION_ICON_SIZE,LION_ICON_SIZE,
                                 x+8u,y+8u,48u);
     }
+    text_line(icon->label,text_x,label_y,COL_TEXT,COL_GROUND);
 }
 
 static void draw_sun(uint32_t cx,uint32_t cy,uint32_t r){for(int dy=-(int)r;dy<=(int)r;++dy){uint32_t ady=(uint32_t)(dy<0?-dy:dy);uint32_t rem=ady>r?0u:r-ady;uint32_t half=(rem*rem)/(r?r:1u);uint32_t dx=0u;while((dx+1u)*(dx+1u)<=half)++dx;fill(cx>=dx?cx-dx:0u,cy+(uint32_t)dy,dx*2u+1u,1u,COL_SUN);}}
@@ -405,27 +378,12 @@ static void init_windows(void){
         desktop_icons[i].moved=0u;
     }
     terminal_focus=0u;scene_dirty=1u;
-    selected_display_mode=0u;
-    for(uint32_t i=0u;i<sizeof(display_modes)/sizeof(display_modes[0]);++i)
-        if(display_modes[i].width==framebuffer_width()&&display_modes[i].height==framebuffer_height()){selected_display_mode=i;break;}
-    set_display_status("Select a resolution");
 }
 static void close_gui(void){gui_active=0u;scene_dirty=1u;debug_write("LIONOS:GUI-EXIT\\n");}
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
     focus(w->id);
-    if(w->id==WIN_SETTINGS && y>=w->y+148u && y<w->y+148u+42u*(sizeof(display_modes)/sizeof(display_modes[0])) && x>=w->x+20u && x<w->x+w->w-20u){
-        uint32_t idx=(y-(w->y+148u))/42u;
-        if(idx<sizeof(display_modes)/sizeof(display_modes[0])){
-            selected_display_mode=idx;
-            if(framebuffer_set_mode(display_modes[idx].width,display_modes[idx].height)==0){
-                resize_windows_to_display();
-                set_display_status("Resolution applied");
-            }else set_display_status("Mode unavailable");
-        }
-        return;
-    }
     if(y<w->y+TITLE_H&&x>=w->x&&x<w->x+w->w){
         if(x>=w->x+w->w-28u){hide(w->id);return;}
         if(x>=w->x+w->w-52u){toggle_max(w->id);return;}
@@ -475,13 +433,6 @@ static void handle_click(void){
         }
     }
 
-    if(x>=16u&&x<86u&&y>=12u&&y<82u){show(WIN_FILES);return;}
-    if(x>=16u&&x<86u&&y>=108u&&y<178u){show(WIN_FILES);return;}
-    if(x>=16u&&x<86u&&y>=204u&&y<274u){show(WIN_TERMINAL);terminal_init();return;}
-    if(x>=16u&&x<86u&&y>=300u&&y<370u){browser_start();return;}
-    if(x>=16u&&x<86u&&y>=396u&&y<466u){show(WIN_SETTINGS);return;}
-    if(x>=16u&&x<86u&&y>=492u&&y<562u){show(WIN_ABOUT);return;}
-    if(x>=16u&&x<86u&&y>=588u&&y<658u){return;}
 }
 
 static int desktop_icon_at(uint32_t x,uint32_t y){
@@ -489,8 +440,8 @@ static int desktop_icon_at(uint32_t x,uint32_t y){
     for(int i=(int)DESKTOP_ICON_COUNT-1;i>=0;--i){
         const struct desktop_icon *icon=&desktop_icons[i];
         if(x>=icon->x&&x<icon->x+DESKTOP_ICON_SIZE&&
-           y>=icon->y&&y<icon->y+DESKTOP_ICON_SIZE&&
-           y+DESKTOP_ICON_SIZE<=bottom) return i;
+           y>=icon->y&&y<icon->y+DESKTOP_ICON_BLOCK_H&&
+           y+DESKTOP_ICON_BLOCK_H<=bottom) return i;
     }
     return -1;
 }
@@ -499,8 +450,8 @@ static void move_desktop_icon(struct desktop_icon *icon,uint32_t x,uint32_t y){
     if(!icon)return;
     uint32_t max_x=framebuffer_width()>DESKTOP_ICON_SIZE
         ? framebuffer_width()-DESKTOP_ICON_SIZE : 0u;
-    uint32_t max_y=framebuffer_height()>TASKBAR_H+DESKTOP_ICON_SIZE
-        ? framebuffer_height()-TASKBAR_H-DESKTOP_ICON_SIZE : 0u;
+    uint32_t max_y=framebuffer_height()>TASKBAR_H+DESKTOP_ICON_BLOCK_H
+        ? framebuffer_height()-TASKBAR_H-DESKTOP_ICON_BLOCK_H : 0u;
     int nx=(int)x-desktop_icon_press_x;
     int ny=(int)y-desktop_icon_press_y;
     if(nx<0)nx=0;
