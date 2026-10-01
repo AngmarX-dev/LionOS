@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "io.h"
 #include "keyboard.h"
+#include "mouse.h"
 
 #define KEYBOARD_BUFFER_SIZE 128u
 #define PS2_STATUS 0x64u
@@ -97,7 +98,11 @@ void keyboard_poll(void) {
        controller bytes belonging to the mouse (AUX status bit set). */
     while (inb(PS2_STATUS) & 0x01u) {
         uint8_t status = inb(PS2_STATUS);
-        if (status & 0x20u) break;
+        if (status & 0x20u) {
+            /* A stale PS/2 auxiliary byte must not block the keyboard FIFO. */
+            mouse_irq_handler();
+            continue;
+        }
         keyboard_handle_scancode(inb(PS2_DATA));
     }
 }
