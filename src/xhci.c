@@ -1419,6 +1419,12 @@ int xhci_mouse_init(void){
     return usb_fail("NO-HID-MOUSE");
 }
 
+int xhci_mouse_recover(void){
+    if(!ready||!slot_id||!endpoint_id) return -1;
+    report_pending=0u;
+    report_wait_frames=0u;
+    return restart_hid_transfer_ring();
+}
 int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dx) *dx = 0;
     if(dy) *dy = 0;
