@@ -146,7 +146,13 @@ uint32_t*process_saved_frame(struct process*p){return p?(uint32_t *)(uintptr_t)p
 uint32_t process_kernel_stack_top(struct process*p){return p?p->kernel_stack_top:0;}
 
 uint32_t *process_schedule(uint32_t *frame){
-    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    /* Do not let a timer interrupt spin behind another CPU. Linux keeps\n     * scheduler critical sections CPU-local; until LionOS has independent\n     * runqueue locks, dropping a contended tick is preferable to stalling\n     * the CPU in an IRQ-disabled spin loop. */
+    uint32_t flags;
+    __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+    if(!spinlock_try_acquire(&process_lock)){
+        __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
+        return frame;
+    }
     uint32_t cpu=cpu_current_index();
     if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
