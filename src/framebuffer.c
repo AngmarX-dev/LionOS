@@ -3,8 +3,8 @@
 #include "paging.h"
 #include "heap.h"
 
-#define FB_VIRTUAL_BASE 0xF0000000u
-#define FB_MAX_MAPPED_SIZE 0x01000000u
+#define FB_VIRTUAL_BASE 0xF4000000u
+#define FB_MAX_MAPPED_SIZE 0x04000000u
 #define MB2_TAG_FRAMEBUFFER 8u
 #define MB2_TAG_END 0u
 #define PAGE_SIZE 4096u
@@ -172,7 +172,7 @@ int framebuffer_prepare(uint32_t multiboot_info) {
         if (tag->type == MB2_TAG_FRAMEBUFFER && tag->size >= sizeof(struct mb2_fb_tag)) {
             struct mb2_fb_tag *fb_tag = (struct mb2_fb_tag *)cursor;
             if (fb_tag->framebuffer_type != 1u ||
-                (fb_tag->framebuffer_bpp != 24u && fb_tag->framebuffer_bpp != 32u))
+                (fb_tag->framebuffer_bpp != 16u && fb_tag->framebuffer_bpp != 24u && fb_tag->framebuffer_bpp != 32u))
                 return -1;
             saved_fb_tag = *fb_tag;
             saved_fb_valid = 1u;
@@ -203,7 +203,7 @@ int framebuffer_init(uint32_t multiboot_info) {
         if (tag->type == MB2_TAG_END) break;
         if (tag->type == MB2_TAG_FRAMEBUFFER && tag->size >= sizeof(struct mb2_fb_tag)) {
             struct mb2_fb_tag *fb_tag = (struct mb2_fb_tag *)cursor;
-            if (fb_tag->framebuffer_type != 1u || (fb_tag->framebuffer_bpp != 24u && fb_tag->framebuffer_bpp != 32u)) return -1;
+            if (fb_tag->framebuffer_type != 1u || (fb_tag->framebuffer_bpp != 16u && fb_tag->framebuffer_bpp != 24u && fb_tag->framebuffer_bpp != 32u)) return -1;
             fb_phys = fb_tag->framebuffer_addr;
             fb_pitch = fb_tag->framebuffer_pitch;
             fb_width_value = fb_tag->framebuffer_width;
