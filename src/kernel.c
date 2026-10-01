@@ -121,8 +121,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ OK ] PIC remapped\n");
     BOOT_STAGE(18u, "CLOCK READY");
 
-    pit_init(200);
-    console_write("[ OK ] PIT 200 Hz / preemptive scheduler + input clock\n");
+    pit_init(100);
+    console_write("[ OK ] PIT 100 Hz / preemptive scheduler + input clock\n");
 
     keyboard_init();
     console_write("[ OK ] PS/2 keyboard / scancode input buffer\n");
@@ -226,7 +226,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     if(lapic_ready){
         /* Keep the PIT 100 Hz timer active for the desktop and input path. */
-        console_write("[ OK ] PIT 200 Hz / desktop + input clock\n");
+        console_write("[ OK ] PIT 100 Hz / desktop + input clock\n");
         BOOT_STAGE(72u, "SYSTEM TIMER READY");
     }
 
