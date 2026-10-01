@@ -27,6 +27,7 @@ static void lionos_gui_or_shell_loop(void){
             return;
         }
         gui_step();
+        lionos_user_integration_step();
         __asm__ volatile("sti; hlt");
     }
 }
