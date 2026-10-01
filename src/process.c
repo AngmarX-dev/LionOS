@@ -146,21 +146,70 @@ uint32_t*process_saved_frame(struct process*p){return p?(uint32_t *)(uintptr_t)p
 uint32_t process_kernel_stack_top(struct process*p){return p?p->kernel_stack_top:0;}
 
 uint32_t *process_schedule(uint32_t *frame){
-    uint32_t flags=spinlock_irqsave_acquire(&process_lock);uint32_t cpu=cpu_current_index();if(cpu>=LIONOS_MAX_CPUS)cpu=0u;struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];++sc->schedule_count;struct process*prev=current_local();
-    if(prev&&prev!=&processes[0])prev->saved_frame=(uint32_t)(uintptr_t)frame;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    uint32_t cpu=cpu_current_index();
+    if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
+    struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
+    ++sc->schedule_count;
+    struct process*prev=current_local();
+    if(prev)prev->saved_frame=(uint32_t)(uintptr_t)frame;
     if(prev&&prev->deferred_kernel_stack){page_free((void *)(uintptr_t)(prev->deferred_kernel_stack-4096u));prev->deferred_kernel_stack=0;}
-    uint32_t start=prev?process_index(prev):0;
-    for(uint32_t step=1;step<=LIONOS_PROCESS_MAX;++step){uint32_t idx=(start+step)%LIONOS_PROCESS_MAX;struct process*c=&processes[idx];if(c->state!=PROCESS_READY)continue;
-        if(prev&&prev->state==PROCESS_RUNNING){prev->state=PROCESS_READY;}
-        set_current_local(c);c->state=PROCESS_RUNNING;debug_write("LIONOS:SCHED-SWITCH\\n");paging_switch_address_space(c->page_directory);tss_set_kernel_stack(c->kernel_stack_top);
-        if(prev&&prev->reap_pending){reap_process(prev);}
-        uint32_t*n=process_saved_frame(c);spinlock_irqrestore_release(&process_lock,flags);return n;
+
+    uint32_t start_idx=prev?process_index(prev):sc->cursor;
+    struct process*next=0;
+    /* Prefer work already assigned to this CPU. */
+    for(uint32_t step=1;step<=LIONOS_PROCESS_MAX;++step){
+        uint32_t idx=(start_idx+step)%LIONOS_PROCESS_MAX;
+        struct process*p=&processes[idx];
+        if(p->state==PROCESS_READY&&p->cpu_owner==cpu){next=p;sc->cursor=idx;break;}
+    }
+    /* Work stealing: take any READY process when this CPU has no local work. */
+    if(!next){
+        for(uint32_t step=1;step<=LIONOS_PROCESS_MAX;++step){
+            uint32_t idx=(start_idx+step)%LIONOS_PROCESS_MAX;
+            struct process*p=&processes[idx];
+            if(p->state==PROCESS_READY){next=p;p->cpu_owner=cpu;sc->cursor=idx;++sc->steal_count;break;}
+        }
+    }
+    if(next){
+        if(prev&&prev->state==PROCESS_RUNNING)prev->state=PROCESS_READY;
+        set_current_local(next);
+        next->cpu_owner=cpu;
+        next->state=PROCESS_RUNNING;
+        debug_write("LIONOS:SCHED-SWITCH\n");
+        paging_switch_address_space(next->page_directory);
+        tss_set_kernel_stack(next->kernel_stack_top);
+        if(prev&&prev->reap_pending)reap_process(prev);
+        uint32_t*n=process_saved_frame(next);
+        spinlock_irqrestore_release(&process_lock,flags);
+        return n;
     }
     if(prev&&(prev->state==PROCESS_ZOMBIE||prev->state==PROCESS_STOPPED||prev->state==PROCESS_WAITING)){
-        if(cpu==0){struct process*b=&processes[0];set_current_local(b);b->state=PROCESS_RUNNING;paging_switch_address_space(b->page_directory);tss_set_kernel_stack(b->kernel_stack_top);if(prev->reap_pending)reap_process(prev);uint32_t*n=process_saved_frame(b);spinlock_irqrestore_release(&process_lock,flags);return n;}
-        set_current_local(0);if(prev->reap_pending)reap_process(prev);spinlock_irqrestore_release(&process_lock,flags);return frame;
+        if(cpu==0){
+            struct process*b=&processes[0];
+            set_current_local(b);
+            b->cpu_owner=0;
+            b->state=PROCESS_RUNNING;
+            paging_switch_address_space(b->page_directory);
+            tss_set_kernel_stack(b->kernel_stack_top);
+            if(prev->reap_pending)reap_process(prev);
+            uint32_t*n=process_saved_frame(b);
+            spinlock_irqrestore_release(&process_lock,flags);
+            return n;
+        }
+        set_current_local(0);
+        if(prev->reap_pending)reap_process(prev);
+        spinlock_irqrestore_release(&process_lock,flags);
+        return frame;
     }
-    if(!prev&&cpu==0){set_current_local(&processes[0]);processes[0].state=PROCESS_RUNNING;paging_switch_address_space(processes[0].page_directory);tss_set_kernel_stack(processes[0].kernel_stack_top);}
-    spinlock_irqrestore_release(&process_lock,flags);return frame;
+    if(!prev&&cpu==0){
+        set_current_local(&processes[0]);
+        processes[0].cpu_owner=0;
+        processes[0].state=PROCESS_RUNNING;
+        paging_switch_address_space(processes[0].page_directory);
+        tss_set_kernel_stack(processes[0].kernel_stack_top);
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+    return frame;
 }
 void scheduler_idle(void){for(;;)__asm__ volatile("sti; hlt");}
