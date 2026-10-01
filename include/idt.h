@@ -6,5 +6,6 @@ void idt_init(void);
 void idt_load_current(void);
 uint32_t *interrupt_dispatch(uint32_t *frame);
 uint32_t interrupt_timer_ticks(void);
+void interrupt_scheduler_enable(void);
 
 #endif
