@@ -9,3 +9,5 @@
 - [x] Automated ring-3 VFS/userspace integration test
 - [x] Automated COW fork/write integration test
 - [x] GitHub Actions build and xHCI mouse test
+
+- [x] Intel graphics PCI bootstrap and firmware framebuffer handoff
