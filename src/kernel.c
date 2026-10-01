@@ -25,6 +25,7 @@
 #include "smp.h"
 #include "mouse.h"
 #include "xhci.h"
+#include "intel_gpu.h"
 #include "exec.h"
 
 void pic_init(void);
@@ -227,6 +228,9 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_use_framebuffer();
         BOOT_STAGE(34u, "DISPLAY READY");
     }
+
+    console_write("[ -- ] Intel graphics native driver not active; probing firmware-backed display...\\n");
+    (void)intel_gpu_init(framebuffer_available() ? 1u : 0u);
 
     console_write("[ OK ] Paging / supervisor kernel mappings\n");
     BOOT_STAGE(38u, "PAGING READY");
