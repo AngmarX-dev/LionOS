@@ -170,40 +170,33 @@ void mouse_poll(void){
     /* PS/2 state is updated by IRQ12 handler. Nothing to do here. */
 
     if(usb_initialized){
-        /*
-         * HID reports can arrive faster than the GUI loop.  Drain a small
-         * batch each tick so queued xHCI transfer events do not turn into
-         * visible cursor stutter or input lag.
-         */
-        for(uint32_t sample = 0u; sample < 16u; ++sample){
-            int32_t dx = 0, dy = 0;
-            uint8_t btn = 0;
-            int r = xhci_mouse_poll(&dx, &dy, &btn);
-            if(r != 1) break;
-
-            usb_x += mouse_scale_delta(dx);
-            usb_y += mouse_scale_delta(dy);
-            if(usb_x < 0) usb_x = 0;
-            if(usb_y < 0) usb_y = 0;
-            if(usb_x > (int32_t)cursor_max_x) usb_x = (int32_t)cursor_max_x;
-            if(usb_y > (int32_t)cursor_max_y) usb_y = (int32_t)cursor_max_y;
-            usb_buttons = btn;
+        for(uint32_t sample=0u;sample<16u;++sample){
+            int32_t dx=0,dy=0;
+            uint8_t btn=0;
+            int r=xhci_mouse_poll(&dx,&dy,&btn);
+            if(r!=1)break;
+            usb_x+=mouse_scale_delta(dx);
+            usb_y+=mouse_scale_delta(dy);
+            if(usb_x<0)usb_x=0;
+            if(usb_y<0)usb_y=0;
+            if(usb_x>(int32_t)cursor_max_x)usb_x=(int32_t)cursor_max_x;
+            if(usb_y>(int32_t)cursor_max_y)usb_y=(int32_t)cursor_max_y;
+            usb_buttons=btn;
+        }
+    }else if(usb_retry_attempts<3u){
+        usb_status=3u;
+        if(++usb_retry_frames>=30u){
+            usb_retry_frames=0;
+            ++usb_retry_attempts;
+            (void)mouse_usb_init();
         }
     }
+
     {
         int32_t tx=usb_initialized?usb_x:ps2_x;
         int32_t ty=usb_initialized?usb_y:ps2_y;
         cursor_smooth_x=smooth_step(cursor_smooth_x,tx);
         cursor_smooth_y=smooth_step(cursor_smooth_y,ty);
-    }
-    } else if(usb_retry_attempts < 3u){
-        /* Retry every ~30 frames (~0.5 s) up to 3 times. */
-        usb_status = 3u;
-        if(++usb_retry_frames >= 30u){
-            usb_retry_frames = 0;
-            ++usb_retry_attempts;
-            (void)mouse_usb_init();
-        }
     }
 }
 
