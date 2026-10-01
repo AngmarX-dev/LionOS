@@ -11,7 +11,7 @@
 static volatile int32_t  ps2_x = 400;
 static volatile int32_t  ps2_y = 300;
 static volatile uint8_t  ps2_buttons = 0;
-#define MOUSE_GAIN 4
+#define MOUSE_GAIN 1
 static int32_t mouse_scale_delta(int32_t d){return d*MOUSE_GAIN;}
 static volatile uint8_t  ps2_cycle = 0;
 static volatile int32_t  ps2_dx = 0;
