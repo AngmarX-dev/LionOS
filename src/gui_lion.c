@@ -62,6 +62,7 @@ static uint32_t mouse_px_x, mouse_px_y, previous_buttons;
 static uint8_t scene_dirty;
 static const char *last_usb_status;
 static uint32_t last_render_tick = 0xFFFFFFFFu;
+static uint8_t cursor_overlay;
 
 struct desktop_icon {
     uint32_t x, y;
@@ -348,18 +349,20 @@ static void render_all(void){
     if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<2u)return;
 
     if(browser_is_active()){
+        framebuffer_cursor_hide();
         browser_render();
         framebuffer_present();
         last_render_tick=now;
         return;
     }
     if(!scene_dirty)return;
+    framebuffer_cursor_hide();
     draw_desktop_background();
     draw_desktop_icons();
     draw_windows();
     draw_taskbar();
     draw_start_menu();
-    draw_cursor(mouse_px_x,mouse_px_y);
+    if(!cursor_overlay)draw_cursor(mouse_px_x,mouse_px_y);
     framebuffer_present();
     scene_dirty=0u;
     last_render_tick=now;
@@ -525,7 +528,9 @@ void gui_start(void){
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\\n");return;}
     while(keyboard_available())(void)keyboard_getchar();
+    cursor_overlay=(uint8_t)framebuffer_cursor_overlay_supported();
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
+    if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
 }
 void gui_step(void){
     if(!gui_active)return;
@@ -538,7 +543,8 @@ void gui_step(void){
     uint32_t old_x=mouse_px_x,old_y=mouse_px_y;
     mouse_px_x=px();mouse_px_y=py();
     uint32_t buttons=mouse_buttons();
-    if(mouse_px_x!=old_x||mouse_px_y!=old_y||buttons!=previous_buttons)scene_dirty=1u;
+    uint8_t cursor_moved=(mouse_px_x!=old_x||mouse_px_y!=old_y)?1u:0u;
+    if((cursor_moved&&!cursor_overlay)||buttons!=previous_buttons)scene_dirty=1u;
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
     if(!(buttons&1u)&&(previous_buttons&1u)){
         if(desktop_icon_drag>=0){
@@ -556,6 +562,7 @@ void gui_step(void){
     while(keyboard_available()){scene_dirty=1u;handle_key(keyboard_getchar());}
     previous_buttons=buttons;
     render_all();
+    if(cursor_overlay&&cursor_moved)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
 }
 int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){
