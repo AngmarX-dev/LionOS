@@ -10,10 +10,10 @@
 #define KERNEL_MMIO_BASE 0xF0000000u
 #define KERNEL_MMIO_PD_INDEX ((KERNEL_MMIO_BASE >> 21) & 0x1FFu)
 /*
- * 0xF0000000..0xFFFFFFFF is 64 MiB. Each page-directory entry covers
+ * 0xF0000000..0xF7FFFFFF is 128 MiB. Each page-directory entry covers
  * 2 MiB, so only 32 page tables are needed here.
  */
-#define KERNEL_MMIO_PT_COUNT 32u
+#define KERNEL_MMIO_PT_COUNT 64u
 #define USER_LIMIT 0xC0000000u
 #define PROCESS_PAGING_PAGES 5u /* PDPT + four page-directory pages */
 
@@ -93,7 +93,7 @@ void paging_init(void) {
 
     /*
      * Map the F0000000..FFFFFFFF virtual range for MMIO/framebuffers.
-     * This is exactly 64 MiB = 32 page-directory entries.
+     * This reserves 128 MiB = 64 page-directory entries for framebuffer and MMIO mappings.
      */
     for (uint32_t table = 0; table < KERNEL_MMIO_PT_COUNT; ++table) {
         kernel_pd[3][KERNEL_MMIO_PD_INDEX + table] =
