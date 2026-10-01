@@ -5,6 +5,7 @@
 #include "xhci.h"
 
 void mouse_init(void);
+void mouse_irq_handler(void);
 int  mouse_usb_init(void);
 void mouse_usb_retry(void);
 void mouse_poll(void);
