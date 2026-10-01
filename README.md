@@ -1,303 +1,427 @@
 # 🦁 LionOS
 
-> An experimental 32-bit x86 operating system built from scratch with AI-assisted development.
+<p align="center">
+  <strong>A 32-bit x86 operating system built from scratch.</strong><br>
+  Low-level engineering • Experimental kernel • AI-assisted development
+</p>
 
-LionOS is a small educational kernel focused on operating-system internals and low-level programming.
+<p align="center">
+  <a href="https://github.com/AngmarX-dev/LionOS/actions/workflows/build.yml"><img src="https://github.com/AngmarX-dev/LionOS/actions/workflows/build.yml/badge.svg" alt="LionOS Build"></a>
+  <a href="https://github.com/AngmarX-dev/LionOS/actions/workflows/xhci-mouse.yml"><img src="https://github.com/AngmarX-dev/LionOS/actions/workflows/xhci-mouse.yml/badge.svg" alt="xHCI Mouse Test"></a>
+  <a href="https://github.com/AngmarX-dev/LionOS/blob/main/LICENSE"><img src="https://img.shields.io/github/license/AngmarX-dev/LionOS" alt="MIT License"></a>
+  <a href="https://github.com/AngmarX-dev/LionOS"><img src="https://img.shields.io/github/stars/AngmarX-dev/LionOS" alt="GitHub Stars"></a>
+</p>
 
-## 🚀 Current Progress
+<p align="center">
+  <a href="#-overview">Overview</a> • <a href="#-features">Features</a> • <a href="#-architecture">Architecture</a> • <a href="#-build--run">Build & Run</a> • <a href="#-testing">Testing</a> • <a href="#-live-usb">Live USB</a>
+</p>
 
-### Boot & CPU
-- ✅ Multiboot2 boot
-- ✅ GDT with kernel and ring-3 segments
-- ✅ TSS with per-process kernel stacks
-- ✅ IDT and interrupt dispatch
-- ✅ PIC/PIT
-- ✅ CPU exceptions and safe user page-fault handling
-- ✅ SMP CPU bring-up (Phase 22)
-- ✅ CPUID CPU topology detection on the BSP
-- ✅ Local APIC discovery and BSP enablement
-- ✅ AP startup trampoline and INIT-SIPI-SIPI delivery
-- ✅ Per-CPU TSS bootstrap
-- ✅ Local APIC timer interrupt and BSP preemption clock
-- 🚧 Per-CPU scheduler state and concurrent scheduling
-- ✅ ACPI MADT CPU enumeration with QEMU-safe fallback
+---
 
-### Memory
-- ✅ Physical page allocator
-- ✅ Paging with supervisor-only kernel mappings
-- ✅ Per-process address spaces and CR3 switching
-- ✅ User mappings across the lower 3 GiB
-- ✅ Kernel heap with `kmalloc` / `kfree`
-- 🚧 Copy-on-write memory
+## 🦁 Overview
 
-### Processes & syscalls
-- ✅ PID-based process table
-- ✅ Ring-3 user-mode entry
-- ✅ Round-robin preemptive scheduling
-- ✅ Saved interrupt-frame context switching
-- ✅ Per-process user-page ownership
-- ✅ `fork()` with private userspace address-space copies
-- ✅ Parent/child process relationships
-- ✅ Blocking `waitpid()` with zombie retention and deferred reaping
-- ✅ `waitpid()` exit-status delivery to userspace
-- ✅ Process exit codes
-- ✅ Deferred process resource reclamation
-- ✅ 5-argument system-call ABI
-- ✅ Explicit user-pointer/range validation at syscall boundaries
-- ✅ Bounded userspace string and I/O copies
-- ✅ Process ownership checks for signal delivery
-- ✅ Restricted signal control to child/descendant processes
-- ✅ VFS syscalls: `open`, `close`, `read`, `write`, `remove`, `stat`
-- ✅ Userspace file enumeration syscall
-- ✅ Per-process file-descriptor tables
-- ✅ Per-process capability sets with non-escalating syscall gates
+**LionOS** is an experimental educational operating system for **32-bit x86** machines.
 
-### Executables & storage
-- ✅ Scrolling VGA console
-- ✅ Colored VGA console API
-- ✅ PS/2 keyboard input
-- ✅ LionOS Shell
-- ✅ Phase 25 color-coded shell UI
-- ✅ RAM filesystem
-- ✅ `ls`, `cat`, `write`, `touch`, `rm`
-- ✅ Process diagnostics with `ps`
-- ✅ ELF32/i386 validation
-- ✅ Multi-page ELF `PT_LOAD` loading
-- ✅ BSS zero-fill
-- ✅ ELF-backed ring-3 process creation
-- ✅ Initial `argc` / `argv` stack
-- ✅ `run <program.elf>` launcher
-- ✅ True `exec()` replacement semantics with PID preservation
-- ✅ Minimal userspace C runtime and libc
-- ✅ Expanded userspace libc: memory/string helpers, `atoi`, and minimal `printf`
-- ✅ Multi-program userspace build pipeline
-- ✅ Standalone userland utilities: `echo`, `cat`, `ls`, `pwd`, `uname`, `rm`, `stat`
-- ✅ Userspace integration test embedded in RAMFS
-- ✅ ATA PIO sector read/write driver
-- ✅ Persistent LionFS metadata and fixed-size file allocation
-- ✅ Persistent files survive a kernel reboot
-- ✅ VFS abstraction over RAMFS and persistent LionFS
-- ✅ Normalized hierarchical directory/path names
-- ✅ POSIX-style per-process file descriptors
+The project explores operating-system internals through real low-level code: bootstrapping, protected mode, interrupts, virtual memory, processes, system calls, filesystems, networking, SMP bring-up, graphics, and hardware input.
 
-### Networking
-- ✅ Loopback IPv4 transport (`127.0.0.1`)
-- ✅ Packet queues and userspace send/receive syscalls
-- ✅ RTL8139 physical NIC driver\n- ✅ ARP + IPv4 + ICMP echo (ping)\n- ✅ Terminal `ping` command (QEMU user networking)
+### 🎯 Project philosophy
 
-### SMP synchronization
-- ✅ Atomic test-and-set spinlock
-- ✅ IRQ-save / IRQ-restore locking primitive
-- ✅ BSP spinlock self-test during boot
-- ✅ Atomic AP online handshake
-- ✅ Process-table locking
-- ✅ Memory/VFS/IPC/network locking
+> **Build from the bottom up. Understand every layer. Test every subsystem.**
 
-## 🧪 Testing
-- ✅ Multiboot2 kernel validation in CI
-- ✅ 32-bit userspace ELF validation in CI
-- ✅ Userspace process-test ELF validation in CI
-- ✅ ISO generation in CI
-- ✅ Automated 2-CPU QEMU SMP boot test
-- ✅ Automated persistent-storage reboot test
-- 🚧 Automated VFS/userspace integration test
-- 📦 Bootable `lionos-iso` CI artifact
+---
 
-Run the complete local stability suite with:
+## ✨ Features
 
-```bash
-make test
+### 🧠 Kernel & CPU
+
+| Subsystem | Status |
+|---|:---:|
+| Multiboot2 / GRUB boot | ✅ |
+| GDT / IDT / TSS | ✅ |
+| CPU exceptions | ✅ |
+| PIC / PIT | ✅ |
+| CPUID topology detection | ✅ |
+| ACPI MADT CPU enumeration | ✅ |
+| Local APIC + AP startup | ✅ |
+| Per-CPU TSS / IDT bootstrap | ✅ |
+| Local APIC timer | ✅ |
+
+### 🧮 Memory
+
+| Subsystem | Status |
+|---|:---:|
+| Physical page allocator | ✅ |
+| Paging | ✅ |
+| Kernel heap | ✅ |
+| Per-process address spaces | ✅ |
+| User mappings below 3 GiB | ✅ |
+| Physical-page reference counting | ✅ |
+| Copy-on-write fork support | ✅ |
+| COW write-fault resolution | ✅ |
+
+### ⚙️ Processes & Scheduling
+
+| Subsystem | Status |
+|---|:---:|
+| Ring-3 user mode | ✅ |
+| Preemptive scheduling | ✅ |
+| Context switching | ✅ |
+| fork / waitpid / exit status | ✅ |
+| True exec replacement | ✅ |
+| Per-CPU scheduler state | ✅ |
+| Per-CPU process ownership | ✅ |
+| Scheduler work-stealing path | ✅ |
+
+> **SMP note:** AP bring-up and scheduler foundations are implemented. The normal userspace scheduler is not currently claimed as fully concurrent on physical multicore hardware.
+
+### 📁 Filesystems & Userland
+
+| Subsystem | Status |
+|---|:---:|
+| RAMFS | ✅ |
+| Persistent LionFS | ✅ |
+| VFS abstraction | ✅ |
+| ATA PIO storage | ✅ |
+| POSIX-style file descriptors | ✅ |
+| ELF32/i386 loader | ✅ |
+| Ring-3 ELF processes | ✅ |
+| Userspace libc | ✅ |
+| Multi-program userland build | ✅ |
+| VFS integration test | ✅ |
+| COW integration test | ✅ |
+
+### 🌐 Networking
+
+| Subsystem | Status |
+|---|:---:|
+| Loopback IPv4 | ✅ |
+| RTL8139 Ethernet | ✅ |
+| ARP / IPv4 / ICMP | ✅ |
+| userspace networking syscalls | ✅ |
+| terminal ping | ✅ |
+| experimental HTTP browser | ✅ |
+
+### 🎨 Desktop & Input
+
+| Subsystem | Status |
+|---|:---:|
+| VGA console | ✅ |
+| Colorized shell UI | ✅ |
+| Native framebuffer desktop | ✅ |
+| Windows / taskbar / launcher | ✅ |
+| Native framebuffer sizing | ✅ |
+| PS/2 keyboard | ✅ |
+| PS/2 mouse | ✅ |
+| xHCI HID USB mouse path | ✅ |
+| Cursor smoothing | ✅ |
+
+---
+
+## 🏗️ Architecture
+
+```text
+                         ┌──────────────────────────┐
+                         │       GRUB / BIOS        │
+                         │        Multiboot2        │
+                         └────────────┬─────────────┘
+                                      │
+                                      ▼
+                    ┌─────────────────────────────────┐
+                    │          LIONOS KERNEL          │
+                    │                                 │
+                    │ GDT • IDT • TSS • SMP • APIC   │
+                    │ Memory • Paging • COW          │
+                    │ Scheduler • Syscalls • VFS    │
+                    │ Drivers • Networking • GUI     │
+                    └───────────────┬─────────────────┘
+                                    │
+                     ┌──────────────┴──────────────┐
+                     ▼                             ▼
+             ┌───────────────┐             ┌───────────────┐
+             │  RING-3 APPS  │             │    HARDWARE   │
+             │ ELF • libc    │             │ ATA • NIC     │
+             │ VFS syscalls  │             │ PS/2 • xHCI   │
+             └───────────────┘             └───────────────┘
 ```
 
-A successful run verifies both first and second SMP boots, persistent-storage recovery, and the final `LIONOS:READY` state.
+### 🧱 Kernel layers
 
-## 🧩 Phase 22 — SMP ✅
+```text
+Boot
+ ↓
+CPU + Interrupts
+ ↓
+Physical Memory + Paging
+ ↓
+Processes + Scheduler
+ ↓
+Syscalls + UAPI
+ ↓
+VFS + Filesystems
+ ↓
+Drivers + Networking
+ ↓
+Framebuffer GUI + Userland
+```
 
-The first AP bring-up path is implemented and validated under the two-CPU QEMU test configuration. The BSP initializes the local APIC, prepares a low-memory real-mode trampoline at `0x8000`, allocates an AP kernel stack, sends `INIT` followed by `SIPI` startup messages, and waits for the AP to report online.
+---
 
-The AP enters protected mode, loads the kernel page directory, jumps to `smp_ap_main()`, records its APIC ID, initializes a per-CPU TSS and IDT, enables its local APIC timer, and enables interrupts. The BSP uses an atomic online handshake before reporting the CPU online.
+## 📦 Project Structure
 
-The BSP also uses a local APIC periodic timer on vector `48`, which drives the existing scheduler clock after process initialization. The legacy PIT timer IRQ is masked when the LAPIC timer is active.
+```text
+LionOS/
+├── boot/                 # Boot code and Multiboot2 entry
+├── include/              # Kernel headers and UAPI
+├── src/                  # Kernel, drivers, VFS, GUI, SMP
+├── user/                 # Ring-3 programs, libc, tests
+├── scripts/              # Automated test scripts
+├── docs/                 # Design and feature documentation
+├── .github/workflows/    # GitHub Actions CI
+├── Makefile              # Build / ISO / disk / USB / test
+├── LICENSE
+└── README.md
+```
 
-An atomic spinlock primitive with IRQ-save/restore support is available as the synchronization foundation. A boot-time self-test verifies the primitive without pretending that the entire kernel is already SMP-safe.
+---
 
-CPU enumeration now consumes ACPI MADT processor entries when Multiboot provides a valid RSDP/RSDT/XSDT path, with CPUID topology as a safe fallback. AP startup uses the enumerated APIC IDs instead of assuming contiguous IDs. Shared kernel structures have IRQ-safe locking foundations for process, memory, VFS, IPC, and loopback networking, but APs do not run the normal userspace scheduler concurrently yet.
+## 🚀 Build & Run
 
-## 🧩 Phase 23 — Stability & Persistence ✅
+LionOS uses a **freestanding 32-bit Linux toolchain** with NASM and GCC.
 
-Phase 23 adds an automated stability suite covering the release baseline:
-
-- clean kernel and userspace rebuild
-- ELF32/i386 userspace validation
-- ISO generation
-- first SMP boot and persistent filesystem initialization
-- second SMP boot and persistence verification
-- required SMP and `READY` boot markers
-
-The full suite is implemented in [`scripts/test.sh`](scripts/test.sh) and is also executed by CI.
-
-## 📦 Phase 24 — Documentation & Release Preparation 🚧
-
-Phase 24 packages the validated SMP and stability work for an experimental release milestone. The release checklist and known scope limitations are documented in [`docs/PHASE-24-RELEASE.md`](docs/PHASE-24-RELEASE.md).
-
-## 🎨 Phase 25/26 — UI ✅
-
-The user-facing UI layer now includes both the Phase 25 text-mode improvements and the Phase 26 graphical desktop.
-
-The UI includes:
-
-- VGA foreground color support
-- a clearer LionOS shell banner
-- a color-coded `lion:/ >` prompt
-- categorized `help` output
-- colored success, status, and error messages
-- a cleaner `about`, `ls`, `run`, and file-command presentation
-- framebuffer desktop rendering at the native mode reported by Multiboot2
-- mouse cursor and pixel-coordinate input
-- desktop backbuffer/present path driven by the LAPIC wake-up clock
-- graphical desktop windows, taskbar, launcher, and shell handoff
-
-## 🛡️ Security Model
-
-LionOS treats ring-3 userspace as untrusted code. Syscall entry points validate user virtual-address ranges before copying data, strings are bounded by fixed maximum lengths, and user I/O is capped to prevent oversized kernel copies.
-
-Process-control operations are ownership-aware: a userspace process may only signal its own child/descendant processes through the current `kill` interface. Kernel PID 1 is never exposed as a signal target through this interface.
-
-The ELF loader validates the executable structure and load ranges before creating a userspace address space. Kernel mappings are supervisor-only in cloned process page directories. Syscalls additionally check the current process capability mask before entering console, filesystem, process-control, IPC, or networking operations.
-
-This is an educational hardening layer, not a production security boundary. The next major isolation work includes per-process file descriptors, stronger privilege separation, and more complete memory-copy primitives.
-
-## 🛠️ Build
-
-LionOS uses a freestanding 32-bit toolchain on Linux.
+### Clone
 
 ```bash
 git clone https://github.com/AngmarX-dev/LionOS.git
 cd LionOS
+```
+
+### Build
+
+```bash
 make
 make userland
 make iso
 make disk
+```
+
+### Run in QEMU
+
+```bash
 make run
 ```
 
-`make run` starts QEMU with two virtual CPUs for the current SMP bring-up configuration.
-
-`make run` now uses the framebuffer mode selected natively by GRUB (`gfxmode=auto`). LionOS reads the exact width and height supplied by the Multiboot2 framebuffer tag, so the GUI is laid out from the real guest framebuffer size rather than forcing 1920x1080.
-
-QEMU fullscreen controls the display window and scaling; it does not force LionOS to pretend its framebuffer is 1920x1080.
-
-To open QEMU in a normal window:
+For a normal QEMU window:
 
 ```bash
 LIONOS_QEMU_FULLSCREEN=0 make run
 ```
 
-The normal ISO and live-USB image use the same native framebuffer path. There is no 1920x1080 boot-mode constant.
+The graphical desktop uses the **real framebuffer dimensions supplied through Multiboot2** instead of forcing a fixed 1920×1080 mode.
 
-`make userland` builds every userspace ELF. `make` embeds the userland programs into RAMFS as part of the kernel image.
+---
 
-`make disk` creates `build/lionos-disk.img` only when it does not already exist, so repeated `make run` sessions preserve filesystem contents.
+## 🧪 Testing
 
-For the complete release-baseline validation, run:
+LionOS has automated validation through **GitHub Actions** plus the local stability suite.
 
 ```bash
 make test
 ```
 
-## 🧪 Userland
+The test pipeline covers:
 
-User programs share `user/crt0.S` and `user/libc.c`, link against `user/user.ld`, and are embedded into RAMFS. The current command launcher is:
+- Multiboot2 and ELF32 validation
+- kernel and userspace rebuilds
+- ISO generation
+- QEMU boot and SMP configuration
+- persistent-storage reboot checks
+- VFS/userspace integration
+- COW fork/write integration
+- GUI smoke testing
+- xHCI USB mouse testing in QEMU
+
+> 🖱️ **Hardware note:** the CI xHCI test uses a QEMU virtual USB mouse. Continuous movement with a real physical USB mouse still requires testing on the target machine.
+
+---
+
+## 💻 Userland
+
+Example programs include:
 
 ```text
-lion:/ > run echo.elf
-lion:/ > run ls.elf
-lion:/ > run cat.elf
-lion:/ > run pwd.elf
-lion:/ > run uname.elf
-lion:/ > run stat.elf\nlion:/ > ping 10.0.2.2
+echo.elf
+cat.elf
+ls.elf
+pwd.elf
+uname.elf
+rm.elf
+stat.elf
+vfs_test.elf
+cow_test.elf
 ```
 
-The kernel exposes a small UAPI through `include/uapi.h` and `include/user_api.h`. User processes receive an explicit capability mask covering console, filesystem, process-control, IPC, and networking operations; the admin capability is reserved for the kernel and cannot be granted through the userspace process API. `lion_getfile()` provides indexed VFS enumeration to userspace, allowing `ls.elf` to operate without kernel shell code.
+The kernel exposes a small userspace API through **include/uapi.h** and **include/user_api.h**.
 
-## 🧪 Storage
+---
 
-The kernel currently has two filesystem backends:
+## 🗂️ Storage Stack
 
 ```text
-                 ┌──────────────┐
-userspace ──────►│     VFS      │
-                 └──────┬───────┘
-                    ┌───┴───┐
-                    ▼       ▼
-                 RAMFS    LionFS
-                           │
-                         ATA PIO
-                           │
-                       disk image
+                    USERSPACE
+                        │
+                        ▼
+                     ┌─────┐
+                     │ VFS │
+                     └──┬──┘
+                        │
+                 ┌──────┴──────┐
+                 ▼             ▼
+               RAMFS         LionFS
+                                │
+                                ▼
+                             ATA PIO
+                                │
+                                ▼
+                           Disk Image
 ```
 
-Userspace can use the file API through `user_api.h`:
+---
 
-```c
-int fd = lion_open("notes.txt", LIONOS_O_READ | LIONOS_O_WRITE);
-lion_fwrite(fd, "hello", 5);
-char buffer[16];
-lion_fread(fd, buffer, sizeof(buffer));
-lion_close(fd);
+## 🌐 LionOS Browser
+
+The graphical desktop includes an experimental native browser.
+
+Current scope:
+
+```text
+✅ HTTP over IPv4
+✅ Numeric-address URLs
+✅ Native framebuffer URL bar
+✅ Keyboard and mouse controls
+✅ Basic HTML-tag stripping
+
+❌ DNS
+❌ HTTPS / TLS
+❌ JavaScript
+❌ CSS layout
+❌ Image rendering
+❌ Cookies
+❌ Persistent browser storage
 ```
 
-The VFS currently provides a deliberately small interface suitable for the early kernel. It unifies RAMFS and LionFS while keeping the underlying storage implementations independent.
+Example URL:
 
-## 🧠 Architecture
+```text
+http://10.0.2.2/
+```
 
-LionOS currently provides a small 32-bit x86 monolithic kernel with protected mode, GDT/IDT/TSS, interrupt handling, physical memory management, paging, a kernel heap, isolated ring-3 processes, scheduling, parent/child process lifecycle management, `fork()`/`waitpid()` primitives, in-place `exec()` replacement, a userspace C runtime/libc, system calls, syscall input validation, keyboard/console drivers, RAMFS, ATA PIO storage, persistent LionFS, a VFS abstraction, an ELF32 executable loader, a loopback and RTL8139 Ethernet networking layer with ARP/IPv4/ICMP support, Local APIC support, AP startup, per-CPU TSS/IDT bootstrap, a LAPIC scheduler timer, initial SMP synchronization primitives, and the new colored text-mode shell UI.
+---
 
-## 🤖 AI-Assisted Development
+## 💾 Live USB
 
-LionOS is developed with extensive AI assistance to design, implement, debug, test, and document low-level operating-system components.
-
-## 📜 License
-
-MIT License. See [LICENSE](LICENSE).
-
-## ⚠️ Status
-
-LionOS is an early-stage experimental operating system. Phase 22 SMP bring-up and Phase 23 stability testing are complete. Phase 24 release preparation is underway, and the Phase 25/26 UI milestones are implemented. LionOS is not intended for production use.
-
-## Display target
-
-LionOS boots the graphical desktop at the framebuffer mode selected by GRUB/firmware/QEMU. The kernel reports the actual width and height received from Multiboot2; the desktop timer remains 60 Hz.
-
-
-## 💾 Live USB Boot
-
-The CI build produces `build/lionos-usb.img`, a raw copy of the bootable LionOS ISO intended for live USB use. It boots LionOS without installing it to the USB drive; the current live system runs from the boot media and uses the existing RAMFS for the session.
-
-Create the image locally with:
+Create the raw USB image with:
 
 ```bash
 make clean
 make usb
 ```
 
-Write it to a USB stick **only after confirming the correct device**:
+Check the correct device first:
 
 ```bash
 lsblk
+```
+
+Then write the image to the **whole USB device**, not a partition:
+
+```bash
 sudo umount /dev/sdX* 2>/dev/null || true
 sudo dd if=build/lionos-usb.img of=/dev/sdX bs=4M status=progress conv=fsync
 sync
 ```
 
-Replace `/dev/sdX` with the whole USB device, not a partition such as `/dev/sdX1`. The USB contents will be erased. Reboot, select the USB device in the firmware boot menu, and choose `LionOS`.
+> ⚠️ **Warning:** dd erases the selected device. Verify the device name with lsblk before writing.
 
+---
 
+## 🔐 Security Model
 
-## 🌐 LionOS Browser
+LionOS treats Ring-3 userspace as **untrusted code**.
 
-The graphical desktop now includes a built-in experimental browser application. It provides a native framebuffer URL bar, HTTP/1.x page loading, basic HTML-tag stripping, keyboard input, and mouse controls.
+Current protection layers include:
 
-Current networking scope is intentionally small: the browser supports **HTTP over IPv4 using numeric addresses** (for example `http://10.0.2.2/`). DNS, HTTPS/TLS, JavaScript, CSS layout, images, cookies, and persistent browser storage are not implemented yet.
+- user address/range validation at syscall boundaries
+- bounded userspace strings and I/O copies
+- ownership-aware process-control operations
+- supervisor-only kernel mappings
+- capability checks for major syscall groups
+- ELF structure and load-range validation
 
-Open it from the desktop **Browser** icon, the taskbar, or the LionOS launcher. Press **Esc** to close it.
+> This is an educational isolation layer, not a production security boundary.
+
+---
+
+## 🧩 Development Milestones
+
+| Milestone | Status |
+|---|:---:|
+| Phase 22 — SMP Bring-Up | ✅ |
+| Phase 23 — Stability & Persistence | ✅ |
+| Phase 25/26 — Graphical UI | ✅ |
+
+### Phase 22 — SMP
+
+Includes ACPI MADT enumeration, local APIC setup, AP startup, INIT-SIPI-SIPI delivery, AP online handshaking, per-CPU TSS/IDT initialization, LAPIC timer infrastructure, and initial synchronization primitives.
+
+### Phase 23 — Stability
+
+The release-baseline suite validates clean builds, ELF32 userspace, ISO generation, first boot, persistence initialization, second boot recovery, and required boot markers.
+
+### Phase 25/26 — UI
+
+Adds a framebuffer desktop, native framebuffer sizing, graphical windows, taskbar, launcher, shell handoff, and mouse-driven interaction.
+
+---
+
+## 🤖 AI-Assisted Development
+
+LionOS uses extensive AI assistance during:
+
+```text
+Architecture
+    ↓
+Implementation
+    ↓
+Debugging
+    ↓
+Testing
+    ↓
+Documentation
+    ↓
+Iteration
+```
+
+The repository keeps the low-level source, tests, and engineering history visible so the project can be studied and reproduced.
+
+---
+
+## ⚠️ Status
+
+LionOS is an **experimental operating system** intended for learning, kernel development, experimentation, and architecture exploration.
+
+Subsystems are intentionally small and incomplete in places. Automated QEMU validation and real-hardware validation are treated as separate stages.
+
+---
+
+## 📜 License
+
+Released under the **MIT License**.
+
+See [LICENSE](LICENSE).
+
+---
+
+<p align="center">
+  <strong>🦁 LionOS</strong><br>
+  <sub>Build low-level. Learn deeply. Ship the kernel.</sub>
+</p>
