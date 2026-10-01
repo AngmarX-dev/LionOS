@@ -61,6 +61,7 @@ static int drag_dx, drag_dy;
 static uint32_t mouse_px_x, mouse_px_y, previous_buttons;
 static uint8_t scene_dirty;
 static const char *last_usb_status;
+static uint32_t last_render_tick = 0xFFFFFFFFu;
 
 struct desktop_icon {
     uint32_t x, y;
@@ -338,10 +339,30 @@ static void draw_desktop_icons(void){
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
 static void render_all(void){
-    if(browser_is_active()){browser_render();framebuffer_present();return;}
+    /*
+     * The desktop is software-rendered.  A full composition + framebuffer
+     * copy on every interrupt can starve input and kernel work, so keep
+     * input polling at the existing cadence but cap composition at 50 Hz.
+     */
+    uint32_t now=interrupt_timer_ticks();
+    if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<2u)return;
+
+    if(browser_is_active()){
+        browser_render();
+        framebuffer_present();
+        last_render_tick=now;
+        return;
+    }
     if(!scene_dirty)return;
-    draw_desktop_background();draw_desktop_icons();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);
-    framebuffer_present();scene_dirty=0u;
+    draw_desktop_background();
+    draw_desktop_icons();
+    draw_windows();
+    draw_taskbar();
+    draw_start_menu();
+    draw_cursor(mouse_px_x,mouse_px_y);
+    framebuffer_present();
+    scene_dirty=0u;
+    last_render_tick=now;
 }
 
 static void init_windows(void){
@@ -356,7 +377,9 @@ static void init_windows(void){
         desktop_icons[i].dragging=0u;
         desktop_icons[i].moved=0u;
     }
-    terminal_focus=0u;scene_dirty=1u;
+    terminal_focus=0u;
+    scene_dirty=1u;
+    last_render_tick=0xFFFFFFFFu;
 }
 static void close_gui(void){gui_active=0u;scene_dirty=1u;debug_write("LIONOS:GUI-EXIT\\n");}
 
@@ -455,10 +478,11 @@ static void activate_desktop_icon(uint8_t action){
 }
 
 static void handle_move(void){
-    scene_dirty=1u;
-
     if(desktop_icon_drag>=0){
-        move_desktop_icon(&desktop_icons[desktop_icon_drag],mouse_px_x,mouse_px_y);
+        struct desktop_icon *icon=&desktop_icons[desktop_icon_drag];
+        uint32_t old_x=icon->x,old_y=icon->y;
+        move_desktop_icon(icon,mouse_px_x,mouse_px_y);
+        if(icon->x!=old_x||icon->y!=old_y)scene_dirty=1u;
         return;
     }
 
@@ -471,7 +495,9 @@ static void handle_move(void){
     if(ny<0)ny=0;
     if(nx+(int)w->w>(int)framebuffer_width()-4)nx=(int)framebuffer_width()-(int)w->w-4;
     if(ny>max_y)ny=max_y;
-    w->x=(uint32_t)nx;w->y=(uint32_t)ny;
+    if(w->x!=(uint32_t)nx||w->y!=(uint32_t)ny)scene_dirty=1u;
+    w->x=(uint32_t)nx;
+    w->y=(uint32_t)ny;
 }
 
 static void handle_key(int key){
