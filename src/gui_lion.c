@@ -138,6 +138,9 @@ static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
 static void text_line(const char*s,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){while(*s&&x+CHAR_W<framebuffer_width()){text(*s,x,y,fg,bg);x+=CHAR_W;++s;}}
 static uint32_t px(void){return mouse_x();}
 static uint32_t py(void){return mouse_y();}
+static void notepad_init(void);
+static void notepad_save(void);
+
 static void dirty_full(void){
     scene_dirty=1u;
     dirty_valid=1u;
@@ -192,7 +195,7 @@ static void notepad_init(void){
     int fd=vfs_open("/notepad.txt",1u);
     if(fd>=0){
         int n=vfs_read(fd,notepad_text,NOTEPAD_TEXT_MAX);
-        if(n>0u) notepad_len=(uint32_t)n;
+        if(n>0) notepad_len=(uint32_t)n;
         (void)vfs_close(fd);
     }
     notepad_text[notepad_len]=0;
