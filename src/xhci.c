@@ -1034,7 +1034,7 @@ static int submit_report_slot(uint32_t slot){
 }
 
 static int submit_report(void){
-    if(!ready||!endpoint_id) return -1;
+    if(!endpoint_id) return -1;
     report_length=endpoint_packet;
     if(report_length<3u) report_length=3u;
     if(report_length>PAGE_SIZE) report_length=PAGE_SIZE;
