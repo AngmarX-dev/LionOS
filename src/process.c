@@ -56,7 +56,7 @@ uint32_t process_fork_current(uint32_t *parent_frame){
     if(!parent||parent==&processes[0]||!parent_frame||!parent->user_page_count){spinlock_irqrestore_release(&process_lock,irq);return PROCESS_SYSCALL_ERR;}
     struct process*slot=find_free_slot();if(!slot){spinlock_irqrestore_release(&process_lock,irq);return PROCESS_SYSCALL_ERR;}
     uint32_t pd=paging_create_address_space();if(!pd){spinlock_irqrestore_release(&process_lock,irq);return PROCESS_SYSCALL_ERR;}
-    uint32_t pages[LIONOS_PROCESS_MAX_USER_PAGES],vas[LIONOS_PROCESS_MAX_USER_PAGES],old_flags[LIONOS_PROCESS_MAX_USER_PAGES];
+    uint32_t pages[LIONOS_PROCESS_MAX_USER_PAGES]={0};uint32_t vas[LIONOS_PROCESS_MAX_USER_PAGES]={0};uint32_t old_flags[LIONOS_PROCESS_MAX_USER_PAGES]={0};
     uint32_t count=parent->user_page_count,retained=0,cowed=0;
     for(uint32_t i=0;i<count;++i){
         if(paging_get_user_page(parent->page_directory,parent->user_page_vas[i],&pages[i],&old_flags[i])!=0)goto fail;
@@ -65,8 +65,10 @@ uint32_t process_fork_current(uint32_t *parent_frame){
         if(paging_map_user_page_in(pd,vas[i],pages[i],cf)!=0)goto fail;
         page_retain((void*)(uintptr_t)pages[i]);++retained;
     }
-    for(uint32_t i=0;i<count;++i)if(old_flags[i]&0x2u){
-        if(paging_set_user_page_flags(parent->page_directory,vas[i],(old_flags[i]&~0x2u)|0x200u)!=0)goto restore;++cowed;
+    for(uint32_t i=0;i<count;++i){
+        if(!(old_flags[i]&0x2u))continue;
+        if(paging_set_user_page_flags(parent->page_directory,vas[i],(old_flags[i]&~0x2u)|0x200u)!=0)goto restore;
+        ++cowed;
     }
     slot=process_create_ex_vas_locked(parent->entry,parent->user_stack,pd,pages,vas,count);if(!slot)goto restore;
     slot->parent_pid=parent->pid;slot->cpu_owner=cpu_current_index();slot->capabilities=parent->capabilities;
