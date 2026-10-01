@@ -341,9 +341,6 @@ static void draw_notepad(const struct ui_window*w){
 static void draw_desktop_icon(const struct desktop_icon *icon){
     if(!icon||!icon->bitmap)return;
     uint32_t x=icon->x,y=icon->y;
-    uint32_t lw=label_width(icon->label);
-    uint32_t text_x=x;
-    if(lw<DESKTOP_ICON_SIZE) text_x=x+(DESKTOP_ICON_SIZE-lw)/2u;
     uint32_t label_y=y+DESKTOP_ICON_SIZE+DESKTOP_ICON_LABEL_GAP;
     uint32_t hovered=(mouse_px_x>=x&&mouse_px_x<x+DESKTOP_ICON_SIZE&&
                       mouse_px_y>=y&&mouse_px_y<y+DESKTOP_ICON_BLOCK_H);
