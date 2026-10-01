@@ -13,6 +13,7 @@ static void lionos_gui_or_shell_loop(void);
 
 static void lionos_gui_bootstrap(void){
     gui_start();
+    lionos_user_integration_step();
 }
 
 static void lionos_gui_or_shell_loop(void){
