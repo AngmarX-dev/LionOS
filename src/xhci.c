@@ -208,7 +208,7 @@ static uint32_t cmd_index, cmd_cycle;
 static uint32_t event_index, event_cycle;
 static uint32_t ep0_index, ep0_cycle;
 static uint32_t intr_index, intr_cycle, intr_segment;
-static uint32_t report_pending, report_length, report_seen;
+static uint32_t report_pending, report_length, report_seen, report_wait_frames;
 
 static usb_protocol_t protocols[MAX_PROTOCOLS];
 static uint32_t protocol_count;
@@ -684,6 +684,35 @@ static int update_ep0_mps(uint32_t mps){
     if(cmd_evaluate_context()!=0){ usb_log("[ USB ] Eval Ctx fail\n"); return -1; }
     ep0_mps=mps; return 0;
 }
+static int cmd_reset_endpoint(uint32_t ep){
+    uint32_t ctl=((ep&0x1Fu)<<16)|(slot_id<<24);
+    cmd_submit(TRB_RESET_EP,0,ctl);
+    return cmd_wait(slot_id);
+}
+static int cmd_set_endpoint_deq(uint32_t ep,uint64_t deq){
+    uint32_t ctl=((ep&0x1Fu)<<16)|(slot_id<<24);
+    cmd_submit(TRB_SET_DEQ,deq,ctl);
+    return cmd_wait(slot_id);
+}
+static int restart_hid_transfer_ring(void){
+    if(!ready||!slot_id||!endpoint_id) return -1;
+    /* Stop the endpoint before changing any DMA ring memory. */
+    if(cmd_reset_endpoint(endpoint_id)!=0) return -1;
+    for(uint32_t i=0u;i<INTR_SEGMENTS;++i){
+        zero_mem(intr_segments[i],PAGE_SIZE);
+        link_trb(intr_segments[i],intr_segments[(i+1u)%INTR_SEGMENTS],
+                 i==(INTR_SEGMENTS-1u));
+    }
+    intr_segment=0u;
+    intr_index=0u;
+    intr_cycle=1u;
+    report_pending=0u;
+    report_wait_frames=0u;
+    if(cmd_set_endpoint_deq(endpoint_id,
+            (uint64_t)(uintptr_t)intr_segments[0]|1ull)!=0) return -1;
+    dma_wmb();
+    return submit_report();
+}
 static int cmd_reset_ep0(void){
     uint32_t ctl=(1u<<16)|(slot_id<<24);
     cmd_submit(TRB_RESET_EP,0,ctl);
@@ -987,7 +1016,9 @@ static int submit_report(void){
     }
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
-    report_pending=1u; ++diag_transfer_submitted;
+    report_pending=1u;
+    report_wait_frames=0u;
+    ++diag_transfer_submitted;
     return 0;
 }
 
@@ -1411,6 +1442,14 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         ++diag_error_count;
         submit_report();
         return -1;
+    }
+    if(report_pending){
+        /* One HID IN TD is kept outstanding. If a broken controller/ring
+           stops delivering its completion, recover the endpoint instead of
+           leaving the physical mouse dead forever. */
+        if(++report_wait_frames >= 30u){
+            (void)restart_hid_transfer_ring();
+        }
     }
     return 0;
 }
