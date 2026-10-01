@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "lapic.h"
 #include "paging.h"
+#include "io.h"
 
 #define IA32_APIC_BASE_MSR 0x1Bu
 #define APIC_BASE_ENABLE 0x800u
@@ -11,12 +12,17 @@
 #define LAPIC_REG_LVT_TIMER 0x320u
 #define LAPIC_REG_TIMER_INIT 0x380u
 #define LAPIC_REG_TIMER_DIV 0x3E0u
+#define LAPIC_REG_TIMER_CUR 0x390u
 #define LAPIC_SIVR_ENABLE 0x100u
 #define LAPIC_TIMER_PERIODIC (1u << 17)
+#define LAPIC_TIMER_MASKED (1u << 16)
 #define LAPIC_TIMER_DIV_16 0x3u
-/* QEMU's standard x86 LAPIC clock is 1 GHz; divide-by-16 with
-   this count targets a 60 Hz periodic timer for the desktop. */
-#define LAPIC_TIMER_INITIAL 1041667u
+#define LAPIC_TARGET_HZ 60u
+#define PIT_BASE_HZ 1193182u
+#define PIT_CAL_HZ 50u
+#define PIT_CH2 0x42u
+#define PIT_CMD 0x43u
+#define PIT_SPKR 0x61u
 #define ICR_DELIVERY_INIT (5u << 8)
 #define ICR_DELIVERY_STARTUP (6u << 8)
 #define ICR_LEVEL_ASSERT (1u << 14)
@@ -54,6 +60,45 @@ void lapic_send_init(uint32_t apic_id){
     wait_icr();
 }
 void lapic_send_startup(uint32_t apic_id,uint32_t vector){if(!initialized||vector>0xFFu)return;write_reg(0x310u,(apic_id&0xFFu)<<24);write_reg(0x300u,ICR_DELIVERY_STARTUP|(vector&0xFFu));wait_icr();}
-void lapic_timer_init(void){if(!initialized)return;timer_ticks=0u;write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);write_reg(LAPIC_REG_LVT_TIMER,LAPIC_TIMER_PERIODIC|LIONOS_LAPIC_TIMER_VECTOR);write_reg(LAPIC_REG_TIMER_INIT,LAPIC_TIMER_INITIAL);}
+static uint32_t lapic_calibrate_initial(void){
+    /* Calibrate the local APIC timer against PIT channel 2. */
+    uint8_t speaker=inb(PIT_SPKR);
+    uint32_t pit_count=PIT_BASE_HZ/PIT_CAL_HZ;
+    if(pit_count==0u || pit_count>0xFFFFu) return 0u;
+
+    write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);
+    write_reg(LAPIC_REG_LVT_TIMER,LAPIC_TIMER_MASKED|LIONOS_LAPIC_TIMER_VECTOR);
+    write_reg(LAPIC_REG_TIMER_INIT,0xFFFFFFFFu);
+
+    outb(PIT_SPKR,(uint8_t)(speaker|0x01u));
+    outb(PIT_CMD,0xB0u);
+    outb(PIT_CH2,(uint8_t)pit_count);
+    outb(PIT_CH2,(uint8_t)(pit_count>>8));
+
+    uint32_t guard=10000000u;
+    while((inb(PIT_SPKR)&0x20u)!=0u && guard--){__asm__ volatile("pause");}
+    if(!guard){outb(PIT_SPKR,speaker);return 0u;}
+    guard=10000000u;
+    while((inb(PIT_SPKR)&0x20u)==0u && guard--){__asm__ volatile("pause");}
+    if(!guard){outb(PIT_SPKR,speaker);return 0u;}
+
+    uint32_t elapsed=0xFFFFFFFFu-read_reg(LAPIC_REG_TIMER_CUR);
+    outb(PIT_SPKR,speaker);
+    if(elapsed<100u) return 0u;
+
+    uint64_t per_second=(uint64_t)elapsed*PIT_CAL_HZ;
+    uint64_t initial64=per_second/LAPIC_TARGET_HZ;
+    if(initial64<1000u || initial64>0xFFFFFFFFu) return 0u;
+    return (uint32_t)initial64;
+}
+void lapic_timer_init(void){
+    if(!initialized)return;
+    timer_ticks=0u;
+    uint32_t initial=lapic_calibrate_initial();
+    if(!initial) initial=200000u;
+    write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);
+    write_reg(LAPIC_REG_LVT_TIMER,LAPIC_TIMER_PERIODIC|LIONOS_LAPIC_TIMER_VECTOR);
+    write_reg(LAPIC_REG_TIMER_INIT,initial);
+}
 uint32_t lapic_timer_ticks(void){return timer_ticks;}
 void lapic_timer_tick(void){++timer_ticks;lapic_eoi();}
