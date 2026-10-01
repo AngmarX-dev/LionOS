@@ -115,6 +115,14 @@ The project explores operating-system internals through real low-level code: boo
 | xHCI HID USB mouse path | ✅ |
 | Cursor smoothing | ✅ |
 
+
+### 🖥️ Intel Graphics
+
+LionOS now has an **Intel graphics bootstrap layer** inspired by the architecture used by Linux's Intel graphics stack. It performs PCI graphics-function discovery, validates the Intel display function, recognizes current Alder Lake display IDs used by the Linux i915 device table, and preserves the firmware framebuffer handoff provided through Multiboot2.
+
+This is intentionally **not a copy of Linux's i915 driver**. The LionOS implementation is a small original layer that prepares the platform for a future native Intel display engine.
+
+
 ---
 
 ## 🏗️ Architecture
