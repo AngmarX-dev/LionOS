@@ -265,28 +265,6 @@ static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const c
     framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+7u,y+7u,22u);
     if(label&&label[0]) text_line(label,x+35u,y+9u,COL_TEXT,c);
 }
-static void draw_system_widget(void){
-    uint32_t w=framebuffer_width(),h=framebuffer_height();
-    if(w<760u||h<520u)return;
-    uint32_t ww=250u,wh=154u,x=w-ww-22u,y=22u;
-    fill(x+4u,y+4u,ww,wh,0x03070Cu);
-    fill(x,y,ww,wh,COL_PANEL);
-    border(x,y,ww,wh,COL_GOLD_DIM);
-    fill(x,y,ww,3u,COL_GOLD);
-    text_line("LIONOS SYSTEM",x+16u,y+16u,COL_GOLD,COL_PANEL);
-    text_line("DISPLAY",x+16u,y+48u,COL_DIM,COL_PANEL);
-    text_line("ONLINE",x+126u,y+48u,COL_OK,COL_PANEL);
-    text_line("RESOLUTION",x+16u,y+74u,COL_DIM,COL_PANEL);
-    draw_resolution(framebuffer_width(),framebuffer_height(),x+126u,y+74u,COL_TEXT,COL_PANEL);
-    text_line("USB MOUSE",x+16u,y+100u,COL_DIM,COL_PANEL);
-    text_line(mouse_usb_status_text(),x+126u,y+100u,
-              mouse_usb_status_text()[0]=='A'?COL_OK:COL_GOLD,COL_PANEL);
-    text_line("REFRESH",x+16u,y+128u,COL_DIM,COL_PANEL);
-    text_line("60 HZ",x+126u,y+128u,COL_OK,COL_PANEL);
-    fill(x+16u,y+146u,ww-32u,2u,COL_GOLD_DIM);
-    text_line("Small - Fast - Powerful",x+16u,y+152u,COL_TEXT,COL_PANEL);
-}
-
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
     fill(0u,y,w,TASKBAR_H,0x050B13u); fill(0u,y,w,2u,COL_GOLD_DIM);
@@ -361,7 +339,7 @@ static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visi
 static void render_all(void){
     if(browser_is_active()){browser_render();framebuffer_present();return;}
     if(!scene_dirty)return;
-    draw_desktop_background();draw_desktop_icons();draw_system_widget();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);
+    draw_desktop_background();draw_desktop_icons();draw_windows();draw_taskbar();draw_start_menu();draw_cursor(mouse_px_x,mouse_px_y);
     framebuffer_present();scene_dirty=0u;
 }
 
