@@ -51,7 +51,7 @@ static int intel_alder_lake_id(uint16_t id)
         /* Alder Lake-S */
         case 0x4680u: case 0x4682u: case 0x4688u: case 0x468Au:
         case 0x468Bu: case 0x4690u: case 0x4692u: case 0x4693u:
-        /* Alder Lake-P / H class family IDs used by the i915 driver */
+        /* Alder Lake mobile display IDs present in the Linux i915 table */
         case 0x46A0u: case 0x46A1u: case 0x46A2u: case 0x46A3u:
         case 0x46A6u: case 0x46A8u: case 0x46AAu: case 0x462Au:
         case 0x4626u: case 0x4628u: case 0x46B0u: case 0x46B1u:
