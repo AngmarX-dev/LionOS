@@ -413,10 +413,10 @@ static void init_windows(void){
         desktop_icons[i].moved=0u;
     }
     terminal_focus=0u;
-    scene_dirty=1u;
+    dirty_full();
     last_render_tick=0xFFFFFFFFu;
 }
-static void close_gui(void){gui_active=0u;scene_dirty=1u;debug_write("LIONOS:GUI-EXIT\\n");}
+static void close_gui(void){gui_active=0u;dirty_full();debug_write("LIONOS:GUI-EXIT\\n");}
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
@@ -430,7 +430,7 @@ static void handle_window_click(struct ui_window*w){
 }
 
 static void handle_click(void){
-    scene_dirty=1u;
+    dirty_full();
     uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height();
     if(browser_is_active()){browser_mouse_click(x,y);return;}
     if(y>=h-TASKBAR_H){
@@ -591,7 +591,7 @@ void gui_step(void){
     const char *usb_status=mouse_usb_status_text();
     if(usb_status!=last_usb_status){
         last_usb_status=usb_status;
-        scene_dirty=1u;
+        dirty_full();
     }
     uint32_t old_x=mouse_px_x,old_y=mouse_px_y;
     mouse_px_x=px();mouse_px_y=py();
@@ -608,11 +608,11 @@ void gui_step(void){
             desktop_icon_drag=-1;
         }
         drag_active=0u;
-        scene_dirty=1u;
+        dirty_full();
     }
     handle_move();
     if(browser_is_active()){browser_step();previous_buttons=buttons;dirty_full();render_all();return;}
-    while(keyboard_available()){scene_dirty=1u;handle_key(keyboard_getchar());}
+    while(keyboard_available()){dirty_full();handle_key(keyboard_getchar());}
     previous_buttons=buttons;
     render_all();
     if(cursor_overlay&&cursor_moved)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
