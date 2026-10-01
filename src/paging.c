@@ -115,8 +115,8 @@ void paging_init(void) {
     page_root[3] = ((uint64_t)(uintptr_t)kernel_pd[3] & PTE_ADDR_MASK) | PTE_PRESENT;
 
     for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i)current_directory[i]=(uint32_t)(uintptr_t)page_root;
-    paging_runtime_ready=1u;
     enable_pae_paging();
+    paging_runtime_ready=1u;
 }
 
 uint32_t paging_kernel_directory(void) {
