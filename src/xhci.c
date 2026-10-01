@@ -1453,8 +1453,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
                     ++diag_success_count;
                     if(!report_seen){
                         report_seen=1;
-                        usb_log("[ OK ] HID mouse reports active
-");
+                        usb_log("[ OK ] HID mouse reports active\n");
                     }
                     if(buttons) *buttons=diag_last_report[0]&7u;
                     if(dx) *dx=(int32_t)(int8_t)diag_last_report[1];
