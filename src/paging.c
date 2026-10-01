@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "memory.h"
 #include "paging.h"
+#include "cpu.h"
 
 #define PAGE_SIZE 4096u
 #define PAE_ROOT_ENTRIES 4u
@@ -38,7 +39,7 @@ static uint64_t page_root[PAE_ROOT_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t kernel_pd[PAE_ROOT_ENTRIES][PAE_PD_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t identity_pt[IDENTITY_PT_COUNT][PAE_PT_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t kernel_mmio_pt[KERNEL_MMIO_PT_COUNT][PAE_PT_ENTRIES] __attribute__((aligned(4096)));
-static uint32_t current_directory;
+static uint32_t current_directory[LIONOS_MAX_CPUS];
 
 static uint64_t *pdpt_ptr(uint32_t physical) {
     return (uint64_t *)(uintptr_t)physical;
@@ -106,7 +107,7 @@ void paging_init(void) {
     page_root[2] = ((uint64_t)(uintptr_t)kernel_pd[2] & PTE_ADDR_MASK) | PTE_PRESENT;
     page_root[3] = ((uint64_t)(uintptr_t)kernel_pd[3] & PTE_ADDR_MASK) | PTE_PRESENT;
 
-    current_directory = (uint32_t)(uintptr_t)page_root;
+    for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i)current_directory[i]=(uint32_t)(uintptr_t)page_root;
     enable_pae_paging();
 }
 
@@ -131,7 +132,7 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT;
 
-    if (current_directory == paging_kernel_directory())
+    if (current_directory[cpu_current_index() < LIONOS_MAX_CPUS ? cpu_current_index() : 0u] == paging_kernel_directory())
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
@@ -275,11 +276,16 @@ void paging_destroy_address_space(uint32_t pd_physical) {
 }
 
 void paging_switch_address_space(uint32_t pd_physical) {
-    if (!pd_physical || pd_physical == current_directory) return;
-    current_directory = pd_physical;
+    if (!pd_physical) return;
+    uint32_t cpu = cpu_current_index();
+    if (cpu >= LIONOS_MAX_CPUS) cpu = 0u;
+    if (pd_physical == current_directory[cpu]) return;
+    current_directory[cpu] = pd_physical;
     __asm__ volatile ("mov %0, %%cr3" : : "r"(pd_physical) : "memory");
 }
 
 uint32_t paging_current_address_space(void) {
-    return current_directory;
+    uint32_t cpu = cpu_current_index();
+    if (cpu >= LIONOS_MAX_CPUS) cpu = 0u;
+    return current_directory[cpu];
 }
