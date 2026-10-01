@@ -541,7 +541,10 @@ void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint3
         }
         wallpaper_cache_ready=1u;
     }
-    framebuffer_restore_wallpaper();
+    if (clip_enabled)
+        framebuffer_restore_wallpaper_rect(clip_x,clip_y,clip_w,clip_h);
+    else
+        framebuffer_restore_wallpaper();
 }
 void framebuffer_restore_wallpaper_rect(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
     if (!enabled || !desktop_mode || !desktop_buffer || !wallpaper_cache || !wallpaper_cache_ready || !width || !height) return;
