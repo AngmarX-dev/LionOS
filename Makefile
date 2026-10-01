@@ -4,7 +4,7 @@ DISK := $(BUILD)/lionos-disk.img
 KERNEL := $(BUILD)/lionos.bin
 USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o
 
-USER_PROGRAMS := hello process_test ipc_test signal_test net_test echo cat ls pwd uname rm stat ping userland_test
+USER_PROGRAMS := hello process_test ipc_test signal_test net_test vfs_test cow_test echo cat ls pwd uname rm stat ping userland_test
 USER_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 
@@ -73,6 +73,10 @@ $(BUILD)/signal_test.o: user/signal_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/net_test.o: user/net_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/vfs_test.o: user/vfs_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/cow_test.o: user/cow_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 
 $(BUILD)/echo.o: user/bin/echo.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
@@ -104,6 +108,10 @@ $(BUILD)/signal_test.elf: $(USER_COMMON_OBJS) $(BUILD)/signal_test.o user/user.l
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/signal_test.o
 $(BUILD)/net_test.elf: $(USER_COMMON_OBJS) $(BUILD)/net_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/net_test.o
+$(BUILD)/vfs_test.elf: $(USER_COMMON_OBJS) $(BUILD)/vfs_test.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/vfs_test.o
+$(BUILD)/cow_test.elf: $(USER_COMMON_OBJS) $(BUILD)/cow_test.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/cow_test.o
 $(BUILD)/echo.elf: $(USER_COMMON_OBJS) $(BUILD)/echo.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/echo.o
 $(BUILD)/cat.elf: $(USER_COMMON_OBJS) $(BUILD)/cat.o user/user.ld
