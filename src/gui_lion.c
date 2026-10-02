@@ -296,7 +296,7 @@ static void draw_terminal(const struct ui_window*w){
     window_chrome(w,"Terminal");
     uint32_t x=w->x+16u,y=w->y+TITLE_H+10u;
     uint32_t body_h=w->h>TITLE_H+40u?w->h-TITLE_H-38u:40u;
-    fill(x,y,w->w-32u,body_h,COL_INPUT);
+    framebuffer_blend_round_rect(x,y,w->w-32u,body_h,12u,COL_INPUT,175u);
     uint32_t max_lines=(body_h/CHAR_H);if(max_lines>22u)max_lines=22u;
     uint32_t start=term_line_count>max_lines?term_line_count-max_lines:0u;
     uint32_t row=0u;
@@ -311,11 +311,11 @@ static void draw_terminal(const struct ui_window*w){
 static void draw_files(const struct ui_window*w){
     window_chrome(w,"Files");
     uint32_t left=w->x+16u, top=w->y+TITLE_H+10u, side=128u;
-    fill(left,top,side,w->h-TITLE_H-26u,COL_PANEL2);
+    framebuffer_blend_round_rect(left,top,side,w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u,14u,COL_PANEL2,130u);
     text_line("HOME",left+14u,top+14u,COL_GOLD,COL_PANEL2);
     text_line("NOTES",left+14u,top+52u,COL_DIM,COL_PANEL2);
     text_line("PROJECTS",left+14u,top+90u,COL_DIM,COL_PANEL2);
-    fill(left+side+1u,top,w->w-side-34u,w->h-TITLE_H-26u,COL_PANEL);
+    framebuffer_blend_round_rect(left+side+1u,top,w->w>side+35u?w->w-side-34u:1u,w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u,14u,COL_PANEL,120u);
     text_line("/home/pride",left+side+18u,top+14u,COL_DIM,COL_PANEL);
     uint32_t gx=left+side+18u, gy=top+48u;
     uint32_t n=vfs_count();
@@ -360,7 +360,7 @@ static void draw_notepad(const struct ui_window*w){
     uint32_t x=w->x+14u,y=w->y+TITLE_H+10u;
     uint32_t body_w=w->w>28u?w->w-28u:1u;
     uint32_t body_h=w->h>TITLE_H+28u?w->h-TITLE_H-28u:1u;
-    fill(x,y,body_w,body_h,0x050A12u);
+    framebuffer_blend_round_rect(x,y,body_w,body_h,14u,0x050A12u,185u);
     border(x,y,body_w,body_h,COL_GOLD_DIM);
 
     uint32_t line_y=y+10u;
