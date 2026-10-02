@@ -47,17 +47,75 @@ static void push_char(uint8_t c) {
     write_index = next;
 }
 
+static void keyboard_wait_write(void){
+    for(uint32_t i=0u;i<100000u;++i){
+        if(!(inb(PS2_STATUS)&0x02u)) return;
+        io_wait();
+    }
+}
+
+static int keyboard_wait_read(void){
+    for(uint32_t i=0u;i<100000u;++i){
+        if(inb(PS2_STATUS)&0x01u) return 0;
+        io_wait();
+    }
+    return -1;
+}
+
+static void keyboard_flush_output(void){
+    for(uint32_t i=0u;i<64u;++i){
+        if(!(inb(PS2_STATUS)&0x01u)) break;
+        (void)inb(PS2_DATA);
+    }
+}
+
+static int keyboard_controller_config(void){
+    keyboard_wait_write();
+    outb(PS2_STATUS,0x20u);
+    if(keyboard_wait_read()!=0) return -1;
+    uint8_t cfg=inb(PS2_DATA);
+    cfg|=0x01u;
+    cfg&=(uint8_t)~0x10u;
+    keyboard_wait_write();
+    outb(PS2_STATUS,0x60u);
+    keyboard_wait_write();
+    outb(PS2_DATA,cfg);
+    return 0;
+}
+
+static int keyboard_device_command(uint8_t command){
+    keyboard_wait_write();
+    outb(PS2_DATA,command);
+    for(uint32_t i=0u;i<20000u;++i){
+        if(inb(PS2_STATUS)&0x01u){
+            uint8_t st=inb(PS2_STATUS);
+            uint8_t v=inb(PS2_DATA);
+            if(!(st&0x20u) && v==0xFAu) return 0;
+            if(!(st&0x20u) && v==0xFEu) return -2;
+        }
+        io_wait();
+    }
+    return -1;
+}
+
 void keyboard_init(void) {
     read_index = 0;
     write_index = 0;
     shift_down = 0;
     extended_prefix = 0;
 
-    /*
-     * Do not reprogram the PS/2 device itself here. On modern laptops the
-     * embedded controller/firmware owns that state. We only make sure IRQ1
-     * is unmasked and let the normal IRQ/poll paths consume scancodes.
-     */
+    /* Linux's i8042 path explicitly prepares the controller before enabling
+       the keyboard. The old LionOS code only unmasked IRQ1, which leaves
+       firmware-disabled keyboard clocks/scanning untouched on some systems. */
+    keyboard_wait_write();
+    outb(PS2_STATUS,0xADu);
+    keyboard_flush_output();
+    (void)keyboard_controller_config();
+    keyboard_wait_write();
+    outb(PS2_STATUS,0xAEu);
+    keyboard_flush_output();
+    (void)keyboard_device_command(0xF4u);
+
     uint8_t mask = inb(0x21);
     mask &= (uint8_t)~(1u << 1);
     outb(0x21, mask);
@@ -97,17 +155,14 @@ void keyboard_handle_scancode(uint8_t scancode) {
 }
 
 void keyboard_poll(void) {
-    /* Fallback for contexts such as the early graphical UI where relying only
-       on IRQ1 can make injected/held keys appear unresponsive. Never consume
-       controller bytes belonging to the mouse (AUX status bit set). */
-    while (inb(PS2_STATUS) & 0x01u) {
-        uint8_t status = inb(PS2_STATUS);
-        if (status & 0x20u) {
-            /* A stale PS/2 auxiliary byte must not block the keyboard FIFO. */
+    for(uint32_t n=0u;n<64u;++n){
+        uint8_t status=inb(PS2_STATUS);
+        if(!(status&0x01u)) break;
+        if(status&0x20u){
             mouse_irq_handler();
-            continue;
+        }else{
+            keyboard_handle_scancode(inb(PS2_DATA));
         }
-        keyboard_handle_scancode(inb(PS2_DATA));
     }
 }
 
