@@ -34,10 +34,21 @@
 #define LIONOS_SYS_NET_GETIP 30u
 #define LIONOS_SYS_GETFILE 31u
 #define LIONOS_SYS_NET_PING 32u
+#define LIONOS_SYS_MOUSE_READ 33u
+#define LIONOS_SYS_MOUSE_PENDING 34u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
 #define LIONOS_IPC_EMPTY ((uint32_t)-2)
 #define LIONOS_NET_EMPTY ((uint32_t)-2)
+#define LIONOS_MOUSE_BLOCKED ((uint32_t)-2)
+
+struct lion_mouse_event {
+    int32_t dx;
+    int32_t dy;
+    uint8_t buttons;
+    uint8_t source;
+    uint8_t reserved[2];
+};
 
 #endif
