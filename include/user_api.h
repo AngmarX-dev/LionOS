@@ -2,6 +2,13 @@
 #define LIONOS_USER_API_H
 
 #include <stdint.h>
+
+static inline uint32_t lion_mouse_read(struct lion_mouse_event *event){
+    return lion_syscall1(LIONOS_SYS_MOUSE_READ,(uint32_t)(uintptr_t)event);
+}
+static inline uint32_t lion_mouse_pending(void){
+    return lion_syscall0(LIONOS_SYS_MOUSE_PENDING);
+}
 #include "uapi.h"
 
 #define LIONOS_SIG_NONE 0u
