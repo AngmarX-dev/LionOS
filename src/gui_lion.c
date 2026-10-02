@@ -508,14 +508,12 @@ static void draw_start_menu(void){
     uint32_t mw=w>560u?460u:300u;
     uint32_t mh=h>580u?470u:h>480u?410u:350u;
     uint32_t x=12u,y=h-TASKBAR_H-mh-10u;
-    shadow(x,y,mw,mh);
-    fill(x,y,mw,mh,COL_PANEL);
-    border(x,y,mw,mh,COL_GOLD);
-    fill(x,y,mw,58u,COL_PANEL2);
+    glass_panel(x,y,mw,mh,24u,COL_PANEL,55u,1u);
+    framebuffer_blend_round_rect(x+1u,y+1u,mw>2u?mw-2u:1u,58u,20u,0xE8F7FFu,14u);
     text_line("LIONOS",x+20u,y+18u,COL_GOLD,COL_PANEL2);
     text_line("APPLICATIONS",x+mw-116u,y+18u,COL_DIM,COL_PANEL2);
 
-    fill(x+18u,y+70u,mw-36u,34u,COL_INPUT);
+    framebuffer_blend_round_rect(x+18u,y+70u,mw-36u,34u,12u,COL_INPUT,90u);
     border(x+18u,y+70u,mw-36u,34u,COL_GOLD_DIM);
     text_line("Search applications...",x+31u,y+79u,COL_DIM,COL_INPUT);
 
@@ -525,7 +523,7 @@ static void draw_start_menu(void){
         uint32_t by=y+136u+i*42u;
         int hov=hit(x+18u,by,mw-36u,38u,mouse_px_x,mouse_px_y);
         uint32_t bg=hov?COL_SKY_MID:COL_PANEL2;
-        fill(x+18u,by,mw-36u,38u,bg);
+        framebuffer_blend_round_rect(x+18u,by,mw-36u,38u,12u,bg,hov?120u:72u);
         border(x+18u,by,mw-36u,38u,hov?COL_GOLD:COL_GOLD_DIM);
         const char *name=items[i];
         text_line(name,x+30u,by+10u,COL_TEXT,bg);
@@ -681,13 +679,26 @@ static void handle_click(void){
     uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height();
     if(browser_is_active()){browser_mouse_click(x,y);return;}
     if(y>=h-TASKBAR_H){
-        if(x>=16u&&x<180u){start_open=!start_open;return;}
-        if(x>=218u&&x<260u){show(WIN_TERMINAL);terminal_init();return;}
-        if(x>=270u&&x<312u){show(WIN_FILES);return;}
-        if(x>=322u&&x<364u){browser_start();return;}
-        if(x>=374u&&x<416u){show(WIN_SETTINGS);return;}
-        if(x>=426u&&x<468u){show(WIN_ABOUT);return;}
-        if(x>=478u&&x<520u){show(WIN_NOTEPAD);return;}
+        uint32_t dock_w=w>720u?620u:(w>420u?w-40u:320u);
+        uint32_t dock_x=(w-dock_w)/2u;
+        uint32_t step=dock_w>=360u?92u:((dock_w-24u)/6u);
+        if(step<52u)step=52u;
+        uint32_t dock_y=h-TASKBAR_H+8u;
+        for(uint32_t i=0u;i<6u;++i){
+            uint32_t ix=dock_x+(dock_w-step*6u)/2u+4u+i*step;
+            if(x>=ix&&x<ix+52u&&y>=dock_y+9u&&y<dock_y+61u){
+                switch(i){
+                    case 0u: show(WIN_TERMINAL); terminal_init(); return;
+                    case 1u: show(WIN_FILES); return;
+                    case 2u: browser_start(); return;
+                    case 3u: show(WIN_SETTINGS); return;
+                    case 4u: show(WIN_ABOUT); return;
+                    case 5u: show(WIN_NOTEPAD); return;
+                    default: break;
+                }
+            }
+        }
+        if(x<170u&&y>=h-TASKBAR_H){start_open=!start_open;return;}
     }
     if(start_open){
         uint32_t mw=framebuffer_width()>520u?420u:300u;
