@@ -16,6 +16,16 @@ int32_t  mouse_x(void);
 int32_t  mouse_y(void);
 uint8_t  mouse_buttons(void);
 
+struct mouse_event {
+    int32_t dx;
+    int32_t dy;
+    uint8_t buttons;
+    uint8_t source;
+};
+uint32_t mouse_event_available(void);
+int      mouse_read_event(struct mouse_event *out);
+uint32_t mouse_event_dropped(void);
+
 uint32_t    mouse_usb_status(void);
 const char *mouse_usb_status_text(void);
 int         mouse_debug_get(xhci_mouse_debug_info_t *out);
