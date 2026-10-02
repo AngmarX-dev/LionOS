@@ -29,7 +29,7 @@ jobs:
           qemu-system-i386 \
             -smp 1 \
             -device nec-usb-xhci,id=xhci \
-            -device usb-mouse,id=mouse,bus=xhci.0 \
+            -device usb-mouse,bus=xhci.0 \
             -cdrom build/lionos.iso \
             -m 128M \
             -display none \
@@ -63,23 +63,22 @@ jobs:
           if sock is None:
               raise SystemExit("QEMU QMP socket did not become available")
 
-          def send(event):
+          def send(event, sequence):
+              # Omit the optional QMP device selector. This lets QEMU route
+              # the event to the active input backend in headless CI.
               payload = {
                   "execute": "input-send-event",
-                  "arguments": {
-                      "device": "mouse",
-                      "events": event,
-                  },
+                  "arguments": {"events": event},
+                  "id": sequence,
               }
               sock.sendall((json.dumps(payload) + "\r\n").encode())
-              sock.recv(65536)
 
           # Generate more than one complete 256-entry event-ring cycle.
           for i in range(320):
               send([
                   {"type": "rel", "data": {"axis": "x", "value": 1 if i & 1 else -1}},
                   {"type": "rel", "data": {"axis": "y", "value": 1}},
-              ])
+              ], i)
               time.sleep(0.03)
 
           sock.close()
