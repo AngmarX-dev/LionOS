@@ -171,28 +171,24 @@ void mouse_poll(void){
     /* PS/2 state is updated by IRQ12 handler. Nothing to do here. */
 
     if(usb_initialized){
-        for(;;){
-            int32_t dx=0,dy=0;
-            uint8_t btn=0;
-            int r=xhci_mouse_poll(&dx,&dy,&btn);
-            if(r<0){
-                if(usb_recovery_cooldown==0u){
-                    if(xhci_mouse_recover()!=0){
-                        /*
-                         * The endpoint/ring could not be recovered. Drop the
-                         * stale session so the normal retry path can run a
-                         * complete xHCI enumeration again.
-                         */
-                        usb_initialized=0;
-                        usb_status=3u;
-                        usb_retry_frames=0u;
-                    }
+        int32_t dx=0,dy=0;
+        uint8_t btn=0;
+        int r=xhci_mouse_poll(&dx,&dy,&btn);
+        if(r<0){
+            if(usb_recovery_cooldown==0u){
+                if(xhci_mouse_recover()!=0){
+                    /*
+                     * The endpoint/ring could not be recovered. Drop the
+                     * stale session so the normal retry path can run a
+                     * complete xHCI enumeration again.
+                     */
+                    usb_initialized=0;
+                    usb_status=3u;
+                    usb_retry_frames=0u;
                 }
-                usb_recovery_cooldown=30u;
-                break;
             }
-            if(r!=1) break;
-
+            usb_recovery_cooldown=30u;
+        }else if(r==1){
             usb_x+=mouse_scale_delta(dx);
             usb_y+=mouse_scale_delta(dy);
             if(usb_x<0)usb_x=0;
