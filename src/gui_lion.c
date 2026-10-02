@@ -18,7 +18,7 @@
 #define FONT_SCALE 1u
 #define CHAR_W 12u
 #define CHAR_H 16u
-#define TASKBAR_H 60u
+#define TASKBAR_H 92u
 #define TITLE_H 36u
 #define WIN_TERMINAL 1u
 #define WIN_FILES 2u
@@ -64,6 +64,9 @@ static uint8_t scene_dirty;
 static const char *last_usb_status;
 static uint32_t last_render_tick = 0xFFFFFFFFu;
 static uint8_t cursor_overlay;
+static uint32_t glass_tick;
+static uint32_t glass_blob_x[6], glass_blob_y[6];
+static uint8_t glass_blob_ready;
 static uint8_t dirty_valid;
 static uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
 
@@ -252,24 +255,41 @@ static void notepad_save(void){
     (void)vfs_close(fd);
 }
 
+static void glass_panel(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t radius,uint32_t tint,uint8_t alpha,uint8_t focused){
+    if(!w||!h)return;
+    framebuffer_blend_round_rect(x+7u,y+9u,w,h,radius,COL_GROUND,70u);
+    framebuffer_blend_round_rect(x,y,w,h,radius,tint,alpha);
+    framebuffer_blend_round_rect(x+1u,y+1u,w>2u?w-2u:1u,h>2u?h-2u:1u,radius>1u?radius-1u:0u,0xBDEBFFu,focused?13u:8u);
+    if(h>8u)
+        framebuffer_blend_round_rect(x+3u,y+3u,w>6u?w-6u:1u,h/3u,radius>3u?radius-3u:0u,0xFFFFFFu,focused?18u:12u);
+    border(x,y,w,h,focused?COL_GOLD:0x56758Du);
+}
+
+static void glass_specular(uint32_t x,uint32_t y,uint32_t w,uint32_t h){
+    if(!w||!h)return;
+    if(mouse_px_x<x||mouse_px_x>=x+w||mouse_px_y<y||mouse_px_y>=y+h)return;
+    framebuffer_blend_circle(mouse_px_x,mouse_px_y,28u,0xFFFFFFu,18u);
+    framebuffer_blend_circle(mouse_px_x,mouse_px_y,12u,0xD9F6FFu,14u);
+}
+
 static void window_chrome(const struct ui_window*w,const char*title){
     uint32_t active=w->focused?COL_PANEL2:COL_PANEL;
-    shadow(w->x,w->y,w->w,w->h);
-    fill(w->x,w->y,w->w,w->h,COL_PANEL);
-    border(w->x,w->y,w->w,w->h,w->focused?COL_GOLD:COL_GOLD_DIM);
-    fill(w->x,w->y,w->w,TITLE_H,active);
-    fill(w->x,w->y+TITLE_H-1u,w->w,1u,w->focused?COL_GOLD_DIM:COL_PANEL2);
+    glass_panel(w->x,w->y,w->w,w->h,20u,COL_PANEL,42u,w->focused);
+    fill(w->x+1u,w->y+1u,w->w>2u?w->w-2u:1u,TITLE_H,active);
+    framebuffer_blend_round_rect(w->x+1u,w->y+1u,w->w>2u?w->w-2u:1u,TITLE_H,18u,0xFFFFFFu,w->focused?14u:8u);
+    fill(w->x,w->y+TITLE_H-1u,w->w,1u,w->focused?COL_GOLD_DIM:0x56758Du);
     text_line(title,w->x+14u,w->y+10u,COL_TEXT,active);
 
     uint32_t bx=w->x+w->w>84u?w->x+w->w-84u:w->x;
     uint32_t by=w->y+8u;
     widget_button(bx,by,22u,20u,COL_PANEL2,COL_GOLD_DIM,"");
     widget_button(bx+28u,by,22u,20u,COL_PANEL2,COL_GOLD_DIM,"");
-    widget_button(bx+56u,by,22u,20u,COL_PANEL2,COL_DANGER,"");
+    widget_button(bx+56u,by,22u,20u,COL_DANGER,COL_DANGER,"");
     fill(bx+6u,by+9u,10u,2u,COL_DIM);
     border(bx+34u,by+5u,10u,10u,COL_OK);
     fill(bx+62u,by+9u,10u,2u,COL_DANGER);
     fill(bx+66u,by+5u,2u,10u,COL_DANGER);
+    glass_specular(w->x,w->y,w->w,w->h);
 }
 
 static void draw_terminal(const struct ui_window*w){
@@ -517,7 +537,46 @@ static void draw_cursor(uint32_t x,uint32_t y){
         }
     }
 }
-static void draw_desktop_background(void){draw_wallpaper();}
+static void glass_blob_position(uint32_t i,uint32_t tick,uint32_t *x,uint32_t *y){
+    uint32_t w=framebuffer_width(),h=framebuffer_height();
+    static const uint32_t phase_x[6]={0u,211u,487u,733u,971u,1249u};
+    static const uint32_t phase_y[6]={0u,173u,331u,557u,719u,881u};
+    uint32_t sx=w>0u?w:1u,sy=h>TASKBAR_H?h-TASKBAR_H:1u;
+    *x=(phase_x[i%6u]+tick*(2u+i%3u)*3u)%sx;
+    *y=40u+((phase_y[i%6u]+tick*(1u+i%4u)*2u)%(sy>80u?sy-60u:sy));
+}
+static void update_glass_background(void){
+    uint32_t now=interrupt_timer_ticks();
+    if(!glass_blob_ready){
+        glass_tick=now;
+        for(uint32_t i=0u;i<6u;++i)
+            glass_blob_position(i,glass_tick,&glass_blob_x[i],&glass_blob_y[i]);
+        glass_blob_ready=1u;
+        return;
+    }
+    if(now==glass_tick)return;
+    glass_tick=now;
+    for(uint32_t i=0u;i<6u;++i){
+        uint32_t ox=glass_blob_x[i],oy=glass_blob_y[i],nx,ny;
+        glass_blob_position(i,glass_tick,&nx,&ny);
+        uint32_t left=(ox<nx?ox:nx)>90u?(ox<nx?ox:nx)-90u:0u;
+        uint32_t top=(oy<ny?oy:ny)>90u?(oy<ny?oy:ny)-90u:0u;
+        uint32_t right=(ox>nx?ox:nx)+90u, bottom=(oy>ny?oy:ny)+90u;
+        if(right>framebuffer_width())right=framebuffer_width();
+        if(bottom>framebuffer_height()-TASKBAR_H)bottom=framebuffer_height()-TASKBAR_H;
+        if(right>left&&bottom>top)
+            dirty_rect(left,top,right-left,bottom-top);
+        glass_blob_x[i]=nx; glass_blob_y[i]=ny;
+    }
+}
+static void draw_desktop_background(void){
+    draw_wallpaper();
+    static const uint32_t tint[6]={0x6BD7FFu,0xB66BFFu,0xFF7E6Bu,0x58E6B0u,0xFFD166u,0x7D8CFFu};
+    static const uint8_t alpha[6]={22u,20u,18u,18u,16u,18u};
+    for(uint32_t i=0u;i<6u;++i)
+        framebuffer_blend_circle(glass_blob_x[i],glass_blob_y[i],90u,tint[i],alpha[i]);
+    framebuffer_blend_rect(0u,0u,framebuffer_width(),42u,COL_GROUND,18u);
+}
 static void draw_desktop_icons(void){
     for(uint32_t i=0u;i<DESKTOP_ICON_COUNT;++i)
         draw_desktop_icon(&desktop_icons[i]);
