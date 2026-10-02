@@ -4,6 +4,7 @@
 #include "ipc.h"
 #include "keyboard.h"
 #include "memory.h"
+#include "mouse.h"
 #include "net.h"
 #include "process.h"
 #include "signal.h"
@@ -28,6 +29,17 @@ case SYS_YIELD:__asm__ volatile("pause");return SYSCALL_OK;
 case SYS_EXIT:process_exit_current(arg0);return SYSCALL_OK;
 case SYS_GETCHAR:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{int c=keyboard_getchar();return c<0?SYSCALL_ERR:(uint32_t)(uint8_t)c;}
 case SYS_KBD_AVAIL:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;return keyboard_available();
+case SYS_MOUSE_PENDING:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;return mouse_event_available();
+case SYS_MOUSE_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{\
+    struct lion_mouse_event *u=(struct lion_mouse_event*)(uintptr_t)arg0;\
+    if(!user_range_ok(arg0,sizeof(*u)))return SYSCALL_ERR;\
+    struct mouse_event ev;\
+    int r=mouse_read_event(&ev);\
+    if(r==-2)return LIONOS_MOUSE_BLOCKED;\
+    if(r!=0)return SYSCALL_ERR;\
+    u->dx=ev.dx;u->dy=ev.dy;u->buttons=ev.buttons;u->source=ev.source;u->reserved[0]=0;u->reserved[1]=0;\
+    return SYSCALL_OK;\
+}\
 case SYS_WRITE:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg1>USER_COPY_MAX||!user_range_ok(arg0,arg1))return SYSCALL_ERR;console_write_n((const char*)(uintptr_t)arg0,arg1);return arg1;
 case SYS_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{if(arg1>USER_COPY_MAX||!user_range_ok(arg0,arg1))return SYSCALL_ERR;uint32_t n=0;while(n<arg1){int c=keyboard_getchar();if(c<0)break;((char*)(uintptr_t)arg0)[n++]=(char)c;}return n;}
 case SYS_CLEAR:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;console_clear();return SYSCALL_OK;
