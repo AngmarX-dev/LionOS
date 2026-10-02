@@ -173,7 +173,7 @@ void mouse_poll(void){
     /* PS/2 state is updated by IRQ12 handler. Nothing to do here. */
 
     if(usb_initialized){
-        for(uint32_t sample=0u;sample<4u;++sample){
+        for(;;){
             int32_t dx=0,dy=0;
             uint8_t btn=0;
             int r=xhci_mouse_poll(&dx,&dy,&btn);
@@ -204,7 +204,7 @@ void mouse_poll(void){
             if(usb_y>(int32_t)cursor_max_y)usb_y=(int32_t)cursor_max_y;
             usb_buttons=btn;
         }
-    }else if(usb_retry_attempts<3u){
+    }else{
         usb_status=3u;
         if(++usb_retry_frames>=30u){
             usb_retry_frames=0u;
