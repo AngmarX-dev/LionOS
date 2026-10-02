@@ -853,6 +853,7 @@ void gui_start(void){
 }
 void gui_step(void){
     if(!gui_active)return;
+    update_glass_background();
     const char *usb_status=mouse_usb_status_text();
     if(usb_status!=last_usb_status){
         last_usb_status=usb_status;
