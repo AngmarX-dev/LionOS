@@ -46,7 +46,7 @@ static void mouse_event_push(int32_t dx, int32_t dy, uint8_t buttons, uint8_t so
 static int32_t mouse_scale_delta(int32_t d){return d*MOUSE_GAIN;}
 static volatile uint8_t  ps2_cycle = 0;
 static volatile int32_t  ps2_dx = 0;
-static volatile int32_t  ps2_dy = 0;
+static volatile uint8_t   ps2_flags = 0;
 static volatile int       ps2_initialized = 0;
 static volatile int       cursor_visible = 1;
 
@@ -107,39 +107,36 @@ static uint8_t ps2_read(void){
  * we reassemble the 3-byte packet here. */
 void mouse_irq_handler(void){
     uint8_t st = inb(0x64);
-    if(!(st & 0x20u)) return;       /* not from the mouse */
+    if(!(st & 0x20u)) return;
     uint8_t data = inb(0x60);
 
     switch(ps2_cycle){
         case 0:
-            if(data & 0x08u){       /* bit 3 must be 1 in byte 0 */
-                ps2_dx = (data & 0x10u)
-                    ? (int32_t)(data | 0xFFFFFF00u)
-                    : (int32_t)data;
+            if(data & 0x08u){
+                ps2_flags = data;
                 ps2_buttons = data & 0x07u;
                 ps2_cycle = 1;
             }
             break;
         case 1:
-            ps2_dy = (data & 0x20u)
-                ? (int32_t)(data | 0xFFFFFF00u)
-                : (int32_t)data;
+            ps2_dx = data;
             ps2_cycle = 2;
             break;
         case 2:
-            /* overflow bits — discard packet if set */
-            if(!(data & 0xC0u)){
-                ps2_x += mouse_scale_delta(ps2_dx);
-                ps2_y -= mouse_scale_delta(ps2_dy);
-                mouse_event_push(ps2_dx, -ps2_dy, ps2_buttons, 1u);
+            if(!(ps2_flags & 0xC0u)){
+                int32_t dx = (int32_t)ps2_dx
+                           - (int32_t)((ps2_flags << 4) & 0x100u);
+                int32_t dy = (int32_t)data
+                           - (int32_t)((ps2_flags << 3) & 0x100u);
+                ps2_x += mouse_scale_delta(dx);
+                ps2_y -= mouse_scale_delta(dy);
+                mouse_event_push(dx, -dy, ps2_buttons, 1u);
                 if(ps2_x < 0) ps2_x = 0;
                 if(ps2_y < 0) ps2_y = 0;
-                if(cursor_smooth_x > (int32_t)cursor_max_x) cursor_smooth_x = (int32_t)cursor_max_x;
-    if(cursor_smooth_y > (int32_t)cursor_max_y) cursor_smooth_y = (int32_t)cursor_max_y;
-    if(cursor_smooth_x < 0) cursor_smooth_x = 0;
-    if(cursor_smooth_y < 0) cursor_smooth_y = 0;
-    if(ps2_x > (int32_t)cursor_max_x) ps2_x = (int32_t)cursor_max_x;
-                if(ps2_y > (int32_t)cursor_max_y) ps2_y = (int32_t)cursor_max_y;
+                if(ps2_x > (int32_t)cursor_max_x)
+                    ps2_x = (int32_t)cursor_max_x;
+                if(ps2_y > (int32_t)cursor_max_y)
+                    ps2_y = (int32_t)cursor_max_y;
             }
             ps2_cycle = 0;
             break;
@@ -190,12 +187,14 @@ int mouse_usb_init(void){
         return -1;
     }
     usb_initialized = 1;
+    usb_has_report = 0u;
     usb_status = 1u;                            /* READY */
     usb_recovery_cooldown = 0u;
     return 0;
 }
 
 void mouse_usb_retry(void){
+    usb_has_report = 0u;
     usb_retry_frames = 0;
     usb_initialized = 0;
     usb_status = 3u;
@@ -222,6 +221,7 @@ void mouse_poll(void){
                      * complete xHCI enumeration again.
                      */
                     usb_initialized=0;
+                    usb_has_report=0u;
                     usb_status=3u;
                     usb_retry_frames=0u;
                 }
@@ -235,6 +235,7 @@ void mouse_poll(void){
             if(usb_x>(int32_t)cursor_max_x)usb_x=(int32_t)cursor_max_x;
             if(usb_y>(int32_t)cursor_max_y)usb_y=(int32_t)cursor_max_y;
             usb_buttons=btn;
+            usb_has_report=1u;
             mouse_event_push(dx, dy, btn, 2u);
         }
     }else{
