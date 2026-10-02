@@ -452,28 +452,54 @@ static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const c
     if(icon)framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+(w>50u?9u:10u),y+9u,w>50u?24u:22u);
     if(label&&label[0]) text_line(label,x+40u,y+13u,COL_TEXT,bg);
 }
+static void draw_glass_icon(uint32_t x,uint32_t y,const uint32_t *icon,const char*label){
+    framebuffer_blend_round_rect(x,y,52u,52u,16u,0x15283Au,42u);
+    framebuffer_blend_round_rect(x+1u,y+1u,50u,26u,14u,0xFFFFFFu,10u);
+    border(x,y,52u,52u,COL_GOLD_DIM);
+    if(icon)framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+10u,y+10u,32u);
+    if(label)text_line(label,x+7u,y+56u,COL_TEXT,COL_GROUND);
+}
+static void draw_top_menu(void){
+    uint32_t w=framebuffer_width();
+    framebuffer_blend_round_rect(10u,6u,w>20u?w-20u:1u,34u,17u,COL_GROUND,54u);
+    framebuffer_blend_round_rect(11u,7u,w>22u?w-22u:1u,18u,12u,0xFFFFFFu,12u);
+    border(10u,6u,w>20u?w-20u:1u,34u,0x56758Du);
+    text_line("LionOS",22u,15u,COL_TEXT,COL_GROUND);
+    text_line("File   Edit   View   Window   Help",112u,15u,COL_DIM,COL_GROUND);
+    if(w>760u){
+        text_line("LIQUID GLASS",w-190u,15u,COL_GOLD,COL_GROUND);
+        text_line(mouse_usb_status_text(),w-92u,15u,
+                  mouse_usb_status()==1u?COL_OK:COL_GOLD,COL_GROUND);
+    }
+}
+static void draw_notification(void){
+    uint32_t w=framebuffer_width();
+    if(w<700u)return;
+    uint32_t x=w-360u;
+    glass_panel(x,50u,330u,92u,22u,0xEAF7FFu,22u,1u);
+    text_line("Welcome to LionOS",x+20u,66u,COL_TEXT,COL_PANEL);
+    text_line("Liquid glass desktop",x+20u,94u,COL_DIM,COL_PANEL);
+    text_line("Drag windows to move.",x+20u,118u,COL_DIM,COL_PANEL);
+}
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
-    fill(0u,y,w,TASKBAR_H,0x050B13u);
-    fill(0u,y,w,2u,COL_GOLD);
-
-    draw_task_button(16u,y+9u,166u,COL_PANEL,"LionOS",lion_icon_lionos);
-    fill(196u,y+9u,1u,42u,COL_GOLD_DIM);
-    draw_task_button(210u,y+9u,44u,COL_PANEL,"",lion_icon_documents);
-    draw_task_button(262u,y+9u,44u,COL_PANEL,"",lion_icon_terminal);
-    draw_task_button(314u,y+9u,44u,COL_PANEL,"",lion_icon_browser);
-    draw_task_button(366u,y+9u,44u,COL_PANEL,"",lion_icon_tools);
-    draw_task_button(418u,y+9u,44u,COL_PANEL,"",lion_icon_desktop);
-    draw_task_button(470u,y+9u,44u,COL_PANEL,"",lion_icon_documents);
-
-    if(w>760u){
-        fill(w-252u,y+9u,1u,42u,COL_GOLD_DIM);
-        text_line("INPUT",w-232u,y+13u,COL_DIM,COL_PANEL);
-        text_line(mouse_usb_status_text(),w-188u,y+13u,
-                  mouse_usb_status()==1u?COL_OK:COL_GOLD,COL_PANEL);
-        text_line("DISPLAY",w-126u,y+13u,COL_DIM,COL_PANEL);
-        text_line("x86",w-76u,y+13u,COL_TEXT,COL_PANEL);
-    }
+    framebuffer_blend_rect(0u,y,w,TASKBAR_H,COL_GROUND,22u);
+    uint32_t dock_w=w>720u?620u:(w>420u?w-40u:320u);
+    uint32_t dock_h=72u;
+    uint32_t dx=(w-dock_w)/2u,dy=y+8u;
+    glass_panel(dx,dy,dock_w,dock_h,36u,COL_PANEL,38u,1u);
+    const uint32_t *icons[6]={
+        lion_icon_terminal,lion_icon_documents,lion_icon_browser,
+        lion_icon_tools,lion_icon_desktop,lion_icon_documents
+    };
+    const char *labels[6]={"TERM","FILES","BROW","SET","ABOUT","NOTE"};
+    uint32_t step=dock_w>=360u?92u:((dock_w-24u)/6u);
+    if(step<52u)step=52u;
+    uint32_t start=dx+(dock_w-step*6u)/2u+4u;
+    for(uint32_t i=0u;i<6u;++i)
+        draw_glass_icon(start+i*step,dy+9u,icons[i],labels[i]);
+    draw_top_menu();
+    draw_notification();
 }
 
 static void draw_start_menu(void){
