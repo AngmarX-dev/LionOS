@@ -24,7 +24,6 @@ static volatile int       cursor_visible = 1;
  * ============================================================ */
 static volatile int      usb_initialized = 0;
 static volatile uint32_t usb_status = 0;          /* 0=off 1=ready 3=retrying */
-static volatile uint32_t usb_retry_attempts = 0;
 static volatile uint32_t usb_retry_frames = 0;
 static volatile int32_t  usb_x = 400;
 static volatile int32_t  usb_y = 300;
@@ -158,7 +157,6 @@ int mouse_usb_init(void){
 }
 
 void mouse_usb_retry(void){
-    usb_retry_attempts = 0;
     usb_retry_frames = 0;
     usb_initialized = 0;
     usb_status = 3u;
@@ -187,7 +185,6 @@ void mouse_poll(void){
                          */
                         usb_initialized=0;
                         usb_status=3u;
-                        usb_retry_attempts=0u;
                         usb_retry_frames=0u;
                     }
                 }
@@ -208,7 +205,6 @@ void mouse_poll(void){
         usb_status=3u;
         if(++usb_retry_frames>=30u){
             usb_retry_frames=0u;
-            ++usb_retry_attempts;
             (void)mouse_usb_init();
         }
     }
