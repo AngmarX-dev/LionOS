@@ -18,7 +18,7 @@ static volatile uint8_t  ps2_buttons = 0;
 static struct mouse_event mouse_event_buffer[MOUSE_EVENT_BUFFER_SIZE];
 static uint32_t mouse_event_read_idx = 0u;
 static uint32_t mouse_event_write_idx = 0u;
-static uint32_t mouse_event_dropped = 0u;
+static uint32_t mouse_event_drop_count = 0u;
 static struct spinlock mouse_event_lock;
 static volatile uint8_t mouse_event_lock_ready = 0u;
 
@@ -33,7 +33,7 @@ static void mouse_event_push(int32_t dx, int32_t dy, uint8_t buttons, uint8_t so
         mouse_event_buffer[mouse_event_write_idx].source=source;
         mouse_event_write_idx=next;
     }else{
-        ++mouse_event_dropped;
+        ++mouse_event_drop_count;
     }
     spinlock_irqrestore_release(&mouse_event_lock,irq);
 }
@@ -148,7 +148,7 @@ void mouse_init(void){
     spinlock_init(&mouse_event_lock);
     mouse_event_read_idx=0u;
     mouse_event_write_idx=0u;
-    mouse_event_dropped=0u;
+    mouse_event_drop_count=0u;
     mouse_event_lock_ready=1u;
 
     /* Enable auxiliary (mouse) device */
@@ -279,7 +279,7 @@ int mouse_read_event(struct mouse_event *out){
 uint32_t mouse_event_dropped(void){
     if(!mouse_event_lock_ready) return 0u;
     uint32_t irq=spinlock_irqsave_acquire(&mouse_event_lock);
-    uint32_t n=mouse_event_dropped;
+    uint32_t n=mouse_event_drop_count;
     spinlock_irqrestore_release(&mouse_event_lock,irq);
     return n;
 }
