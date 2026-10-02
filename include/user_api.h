@@ -2,13 +2,6 @@
 #define LIONOS_USER_API_H
 
 #include <stdint.h>
-
-static inline uint32_t lion_mouse_read(struct lion_mouse_event *event){
-    return lion_syscall1(LIONOS_SYS_MOUSE_READ,(uint32_t)(uintptr_t)event);
-}
-static inline uint32_t lion_mouse_pending(void){
-    return lion_syscall0(LIONOS_SYS_MOUSE_PENDING);
-}
 #include "uapi.h"
 
 #define LIONOS_SIG_NONE 0u
@@ -24,6 +17,8 @@ static inline uint32_t lion_syscall2(uint32_t n,uint32_t a,uint32_t b){uint32_t 
 static inline uint32_t lion_syscall3(uint32_t n,uint32_t a,uint32_t b,uint32_t c){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c):"esi","edi","memory");return r;}
 static inline uint32_t lion_syscall4(uint32_t n,uint32_t a,uint32_t b,uint32_t c,uint32_t d){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c),"S"(d):"edi","memory");return r;}
 static inline uint32_t lion_syscall5(uint32_t n,uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a),"c"(b),"d"(c),"S"(d),"D"(e):"memory");return r;}
+static inline uint32_t lion_mouse_read(struct lion_mouse_event *event){return lion_syscall1(LIONOS_SYS_MOUSE_READ,(uint32_t)(uintptr_t)event);}
+static inline uint32_t lion_mouse_pending(void){return lion_syscall0(LIONOS_SYS_MOUSE_PENDING);}
 static inline uint32_t lion_putc(char c){return lion_syscall1(LIONOS_SYS_PUTC,(uint32_t)(uint8_t)c);}
 static inline uint32_t lion_getpid(void){return lion_syscall0(LIONOS_SYS_GETPID);}
 static inline uint32_t lion_getppid(void){return lion_syscall0(LIONOS_SYS_GETPPID);}
