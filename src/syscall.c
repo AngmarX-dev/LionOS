@@ -45,7 +45,7 @@ case SYS_CLEAR:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;console_clear
 case SYS_MEMINFO:return memory_free_pages();
 case SYS_EXEC:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;{char name[64];if(copy_user_string(name,sizeof(name),arg0)!=0)return SYSCALL_ERR;int pid=exec_replace_current(name);return pid<0?SYSCALL_ERR:(uint32_t)pid;}
 case SYS_FORK:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;return process_fork_current(0);
-case SYS_WAITPID:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;if(!user_range_ok(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t result=process_waitpid(arg0,arg1);return result==(int32_t)PROCESS_WAIT_BLOCKED?PROCESS_WAIT_BLOCKED:(uint32_t)result;}
+case SYS_WAITPID:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;if(!user_range_ok(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t result=process_waitpid(arg0,arg1);return result==(int32_t)PROCESS_WAIT_BLOCKED?(uint32_t)PROCESS_WAIT_BLOCKED:(uint32_t)result;}
 case LIONOS_SYS_OPEN:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];struct process*p=process_current();if(copy_user_string(path,sizeof(path),arg0)!=0||!p)return SYSCALL_ERR;return(uint32_t)vfs_open_for_process(p,path,arg1);}
 case LIONOS_SYS_CLOSE:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{struct process*p=process_current();return(uint32_t)vfs_close_for_process(p,(int)arg0);}
 case LIONOS_SYS_FREAD:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;if(arg2>USER_COPY_MAX||!user_range_ok(arg1,arg2))return SYSCALL_ERR;return(uint32_t)vfs_read_for_process(process_current(),(int)arg0,(void*)(uintptr_t)arg1,arg2);
