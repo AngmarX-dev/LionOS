@@ -23,6 +23,7 @@ struct mouse_event {
     uint8_t source;
 };
 uint32_t mouse_event_available(void);
+int      mouse_try_read_event(struct mouse_event *out);
 int      mouse_read_event(struct mouse_event *out);
 uint32_t mouse_event_dropped(void);
 
