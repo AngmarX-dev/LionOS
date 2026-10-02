@@ -1463,6 +1463,16 @@ int xhci_mouse_init(void){
 
 int xhci_mouse_recover(void){
     if(!ready||!slot_id||!endpoint_id) return -1;
+
+    /* Do not restart DMA for a controller or port that is no longer
+       healthy.  The caller must fall back and let normal enumeration retry. */
+    if(!hid_controller_healthy()){
+        ready=0u;
+        diag_init_ok=0u;
+        report_pending=0u;
+        return -1;
+    }
+
     report_pending=0u;
     if(restart_hid_transfer_ring()==0) return 0;
 
