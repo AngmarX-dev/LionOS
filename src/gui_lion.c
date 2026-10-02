@@ -759,7 +759,7 @@ void gui_step(void){
     if(!gui_active)return;
     mouse_poll();
     struct mouse_event mouse_ev;
-    while(mouse_read_event(&mouse_ev)==0u) { /* consume queued device events */ }
+    while(mouse_try_read_event(&mouse_ev)==0u) { /* consume queued device events */ }
     const char *usb_status=mouse_usb_status_text();
     if(usb_status!=last_usb_status){
         last_usb_status=usb_status;
