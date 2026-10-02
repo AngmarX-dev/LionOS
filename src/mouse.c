@@ -5,6 +5,7 @@
 #include "console.h"
 #include "debug.h"
 #include "spinlock.h"
+#include "process.h"
 
 /* ============================================================
  * PS/2 mouse state
@@ -21,21 +22,25 @@ static uint32_t mouse_event_write_idx = 0u;
 static uint32_t mouse_event_drop_count = 0u;
 static struct spinlock mouse_event_lock;
 static volatile uint8_t mouse_event_lock_ready = 0u;
+static uint8_t mouse_event_channel;
 
 static void mouse_event_push(int32_t dx, int32_t dy, uint8_t buttons, uint8_t source){
     if(!mouse_event_lock_ready) return;
     uint32_t irq=spinlock_irqsave_acquire(&mouse_event_lock);
     uint32_t next=(mouse_event_write_idx+1u)%MOUSE_EVENT_BUFFER_SIZE;
+    int wake=0;
     if(next!=mouse_event_read_idx){
         mouse_event_buffer[mouse_event_write_idx].dx=dx;
         mouse_event_buffer[mouse_event_write_idx].dy=dy;
         mouse_event_buffer[mouse_event_write_idx].buttons=buttons;
         mouse_event_buffer[mouse_event_write_idx].source=source;
         mouse_event_write_idx=next;
+        wake=1;
     }else{
         ++mouse_event_drop_count;
     }
     spinlock_irqrestore_release(&mouse_event_lock,irq);
+    if(wake)process_wakeup((uintptr_t)&mouse_event_channel);
 }
 #define MOUSE_GAIN 1
 static int32_t mouse_scale_delta(int32_t d){return d*MOUSE_GAIN;}
@@ -150,6 +155,7 @@ void mouse_init(void){
     mouse_event_write_idx=0u;
     mouse_event_drop_count=0u;
     mouse_event_lock_ready=1u;
+    mouse_event_channel=0u;
 
     /* Enable auxiliary (mouse) device */
     ps2_wait_write(); outb(0x64, 0xA8u);
@@ -263,7 +269,7 @@ uint32_t mouse_event_available(void){
     return n;
 }
 
-int mouse_read_event(struct mouse_event *out){
+int mouse_try_read_event(struct mouse_event *out){
     if(!out||!mouse_event_lock_ready) return -1;
     uint32_t irq=spinlock_irqsave_acquire(&mouse_event_lock);
     if(mouse_event_read_idx==mouse_event_write_idx){
@@ -274,6 +280,20 @@ int mouse_read_event(struct mouse_event *out){
     mouse_event_read_idx=(mouse_event_read_idx+1u)%MOUSE_EVENT_BUFFER_SIZE;
     spinlock_irqrestore_release(&mouse_event_lock,irq);
     return 0;
+}
+
+int mouse_read_event(struct mouse_event *out){
+    if(!out||!mouse_event_lock_ready) return -1;
+    uint32_t irq=spinlock_irqsave_acquire(&mouse_event_lock);
+    if(mouse_event_read_idx!=mouse_event_write_idx){
+        *out=mouse_event_buffer[mouse_event_read_idx];
+        mouse_event_read_idx=(mouse_event_read_idx+1u)%MOUSE_EVENT_BUFFER_SIZE;
+        spinlock_irqrestore_release(&mouse_event_lock,irq);
+        return 0;
+    }
+    /* Atomically transition the current user process to WAITING while the
+       event-buffer lock is still held; the producer cannot miss the wake. */
+    return process_sleep_on((uintptr_t)&mouse_event_channel,&mouse_event_lock,irq);
 }
 
 uint32_t mouse_event_dropped(void){
