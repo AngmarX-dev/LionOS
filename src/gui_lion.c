@@ -757,7 +757,7 @@ void gui_start(void){
 }
 void gui_step(void){
     if(!gui_active)return;
-    keyboard_poll();mouse_poll();
+    mouse_poll();
     const char *usb_status=mouse_usb_status_text();
     if(usb_status!=last_usb_status){
         last_usb_status=usb_status;
