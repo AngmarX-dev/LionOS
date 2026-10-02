@@ -592,7 +592,9 @@ static int next_event(trb_t *out){
     trb_t *t=&event_ring[event_index];
     if((t->control&TRB_CYCLE)!=(event_cycle?TRB_CYCLE:0u)) return -1;
     if(out)*out=*t;
-    t->control=0;
+    /* Do not clear the TRB. The cycle bit alone tells us whether the entry
+       belongs to the current producer cycle; clearing it makes stale slots
+       look valid after the ring wraps. */
     ++event_index;
     if(event_index>=EVENT_TRBS){
         event_index=0u;
