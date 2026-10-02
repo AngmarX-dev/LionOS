@@ -11,7 +11,11 @@ static volatile uint8_t buffer[KEYBOARD_BUFFER_SIZE];
 static volatile uint32_t read_index;
 static volatile uint32_t write_index;
 static volatile uint8_t shift_down;
+static volatile uint8_t ctrl_down;
+static volatile uint8_t alt_down;
+static volatile uint8_t caps_lock;
 static volatile uint8_t extended_prefix;
+static volatile uint32_t dropped_chars;
 
 static const char keymap[128] = {
     [0x01] = 27,
@@ -42,7 +46,10 @@ static const char shiftmap[128] = {
 
 static void push_char(uint8_t c) {
     uint32_t next = (write_index + 1u) % KEYBOARD_BUFFER_SIZE;
-    if (next == read_index) return;
+    if (next == read_index) {
+        ++dropped_chars;
+        return;
+    }
     buffer[write_index] = c;
     write_index = next;
 }
@@ -102,7 +109,11 @@ void keyboard_init(void) {
     read_index = 0;
     write_index = 0;
     shift_down = 0;
+    ctrl_down = 0;
+    alt_down = 0;
+    caps_lock = 0;
     extended_prefix = 0;
+    dropped_chars = 0;
 
     /* Linux's i8042 path explicitly prepares the controller before enabling
        the keyboard. The old LionOS code only unmasked IRQ1, which leaves
@@ -122,49 +133,87 @@ void keyboard_init(void) {
 }
 
 void keyboard_handle_scancode(uint8_t scancode) {
-    if (scancode == 0xE0) {
-        extended_prefix = 1;
+    if(scancode==0xE0u){
+        extended_prefix=1u;
+        return;
+    }
+    if(extended_prefix){
+        extended_prefix=0u;
         return;
     }
 
-    if (extended_prefix) {
-        extended_prefix = 0;
-        return;
-    }
+    if(scancode==0x2Au||scancode==0x36u){shift_down=1u;return;}
+    if(scancode==0xAAu||scancode==0xB6u){shift_down=0u;return;}
+    if(scancode==0x1Du){ctrl_down=1u;return;}
+    if(scancode==0x9Du){ctrl_down=0u;return;}
+    if(scancode==0x38u){alt_down=1u;return;}
+    if(scancode==0xB8u){alt_down=0u;return;}
+    if(scancode==0x3Au){caps_lock^=1u;return;}
 
-    if (scancode == 0x2A || scancode == 0x36) {
-        shift_down = 1;
-        return;
-    }
-    if (scancode == 0xAA || scancode == 0xB6) {
-        shift_down = 0;
-        return;
-    }
+    if(scancode&0x80u)return;
 
-    if (scancode & 0x80u) return;
-
-    if (scancode == 0x0E) {
+    if(scancode==0x0Eu){
         push_char('\b');
         return;
     }
+    if(scancode==0x0Fu){
+        push_char('\t');
+        return;
+    }
 
-    if (scancode < 128u) {
-        char c = shift_down ? shiftmap[scancode] : keymap[scancode];
-        if (c) push_char((uint8_t)c);
+    if(scancode<128u){
+        char base=keymap[scancode];
+        char shifted=shiftmap[scancode];
+        char ch;
+
+        if((base>='a'&&base<='z')&&(caps_lock^shift_down))
+            ch=(char)(base-'a'+'A');
+        else
+            ch=shift_down&&shifted?shifted:base;
+
+        /*
+         * Preserve terminal control characters. A foreground-console layer
+         * can later map these to signals; LionOS does not yet have a
+         * foreground-job abstraction, so the driver does not guess an owner.
+         */
+        if(ctrl_down){
+            if(base>='a'&&base<='z'){
+                ch=(char)(base-'a'+1);
+            }else if(scancode==0x2Cu){
+                ch=0x1Cu; /* Ctrl-\ */
+            }else if(scancode==0x0Cu){
+                ch=0x1Fu;
+            }else{
+                ch=0;
+            }
+        }
+
+        if(ch)push_char((uint8_t)ch);
     }
 }
 
-void keyboard_poll(void) {
+void keyboard_irq_handler(void){
+    /*
+     * IRQ 1 is the interrupt-driven producer for the ring buffer. Consume
+     * keyboard bytes already waiting in the i8042 output buffer, but never
+     * steal AUX (mouse) bytes belonging to IRQ 12.
+     */
     for(uint32_t n=0u;n<64u;++n){
         uint8_t status=inb(PS2_STATUS);
-        if(!(status&0x01u)) break;
-        if(status&0x20u){
-            mouse_irq_handler();
-        }else{
-            keyboard_handle_scancode(inb(PS2_DATA));
-        }
+        if(!(status&0x01u))break;
+        if(status&0x20u)break;
+        keyboard_handle_scancode(inb(PS2_DATA));
     }
 }
+
+void keyboard_poll(void){
+    /*
+     * Compatibility entry point for early diagnostics. Normal desktop input
+     * is interrupt-driven through keyboard_irq_handler().
+     */
+    keyboard_irq_handler();
+}
+
 
 int keyboard_getchar(void) {
     if (read_index == write_index) return -1;
