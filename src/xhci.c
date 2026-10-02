@@ -553,6 +553,41 @@ static void cmd_submit(uint32_t type,uint64_t p,uint32_t ctl){
     dma_wmb();
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base)=0u;
 }
+static uint32_t event_available_count(void){
+    uint32_t idx=event_index;
+    uint32_t cycle=event_cycle;
+    uint32_t count=0u;
+
+    /*
+     * Take a snapshot of the events already published by the controller.
+     * This is deliberately bounded by the event-ring capacity: newly
+     * generated events after this snapshot are handled on the next GUI tick.
+     * That prevents a continuously reporting HID mouse from monopolizing
+     * the desktop loop.
+     */
+    while(count<EVENT_TRBS){
+        trb_t *t=&event_ring[idx];
+        if((t->control&TRB_CYCLE)!=(cycle?TRB_CYCLE:0u)) break;
+        ++count;
+        ++idx;
+        if(idx>=EVENT_TRBS){
+            idx=0u;
+            cycle^=1u;
+        }
+    }
+    return count;
+}
+
+static int hid_controller_healthy(void){
+    if(!ready||!op_base||!port_number||port_number>max_ports) return 0;
+    uint32_t sts=r32(op_base+OP_USBSTS);
+    if(sts&(STS_HCH|STS_CNR)) return 0;
+    uint32_t po=op_base+OP_PORT_BASE+(port_number-1u)*OP_PORT_STRIDE;
+    uint32_t ps=r32(po);
+    if(!(ps&PS_CCS)||!(ps&PS_PED)) return 0;
+    return 1;
+}
+
 static int next_event(trb_t *out){
     trb_t *t=&event_ring[event_index];
     if((t->control&TRB_CYCLE)!=(event_cycle?TRB_CYCLE:0u)) return -1;
@@ -1446,10 +1481,24 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dy) *dy = 0;
     if(buttons) *buttons = 0;
     if(!ready) return 0;
+    if(!hid_controller_healthy()) return -1;
     if(hid_endpoint_needs_recovery()) return -1;
 
-    trb_t e;
-    while(next_event(&e)==0){
+    /*
+     * Process only the events that were present when this poll started.
+     * Re-arming the interrupt endpoint can cause the controller to publish
+     * another completion immediately; that newly created event belongs to
+     * the next GUI tick, not this one.
+     */
+    uint32_t budget=event_available_count();
+    int got_report=0;
+    int32_t total_dx=0;
+    int32_t total_dy=0;
+    uint8_t last_buttons=0;
+
+    while(budget--){
+        trb_t e;
+        if(next_event(&e)!=0) break;
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) continue;
         if(((e.control>>24)&0xFFu)!=slot_id) continue;
         if(((e.control>>16)&0x1Fu)!=endpoint_id) continue;
@@ -1475,13 +1524,14 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
                         report_seen=1;
                         usb_log("[ OK ] HID mouse reports active\n");
                     }
-                    if(buttons) *buttons=diag_last_report[0]&7u;
-                    if(dx) *dx=(int32_t)(int8_t)diag_last_report[1];
-                    if(dy) *dy=(int32_t)(int8_t)diag_last_report[2];
+                    total_dx+=(int32_t)(int8_t)diag_last_report[1];
+                    total_dy+=(int32_t)(int8_t)diag_last_report[2];
+                    last_buttons=diag_last_report[0]&7u;
+                    got_report=1;
                 }
             }
             if(submit_report()!=0) return -1;
-            return 1;
+            continue;
         }
 
         ++diag_error_count;
@@ -1491,10 +1541,17 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     /*
      * A pending interrupt-IN transfer with no completion is normal for an
      * idle HID mouse: the endpoint remains armed until the device has data.
-     * Do not reset the endpoint merely because several timer ticks passed.
+     * Do not reset the endpoint merely because the mouse is silent.
      */
     if(!report_pending){
         if(submit_report()!=0) return -1;
+    }
+
+    if(got_report){
+        if(dx) *dx=total_dx;
+        if(dy) *dy=total_dy;
+        if(buttons) *buttons=last_buttons;
+        return 1;
     }
     return 0;
 }
