@@ -59,7 +59,7 @@ static volatile uint32_t usb_retry_frames = 0;
 static volatile int32_t  usb_x = 400;
 static volatile int32_t  usb_y = 300;
 static volatile uint8_t  usb_buttons = 0;
-static volatile uint32_t usb_recovery_cooldown = 0;
+static volatile uint32_t usb_recovery_cooldown = 0;\nstatic volatile uint8_t usb_has_report = 0u;
 static int32_t cursor_smooth_x = 400;
 static int32_t cursor_smooth_y = 300;
 static int32_t smooth_step(int32_t current,int32_t target){
@@ -259,7 +259,7 @@ void mouse_poll(void){
  * ============================================================ */
 int32_t mouse_x(void){ return cursor_smooth_x; }
 int32_t mouse_y(void){ return cursor_smooth_y; }
-uint8_t mouse_buttons(void){ return usb_initialized ? usb_buttons : ps2_buttons; }
+uint8_t mouse_buttons(void){ return (usb_initialized&&usb_has_report) ? usb_buttons : ps2_buttons; }
 
 uint32_t mouse_event_available(void){
     if(!mouse_event_lock_ready) return 0u;
