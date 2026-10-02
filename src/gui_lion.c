@@ -128,11 +128,23 @@ static void glyph(char c, uint16_t rows[FONT_H]) {
 }
 
 static uint32_t label_width(const char*label);
-static int hit(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t px0,uint32_t py0){
-    return px0>=x&&px0<x+w&&py0<y+h&&py0>=y;
-}
 static void fill(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){framebuffer_fill_rect(x,y,w,h,c);}
-static void border(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){if(w<2u||h<2u)return;fill(x,y,w,1u,c);fill(x,y+h-1u,w,1u,c);fill(x,y,1u,h,c);fill(x+w-1u,y,1u,h,c);}
+static void border(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){
+    if(w<2u||h<2u)return;
+    fill(x,y,w,1u,c);fill(x,y+h-1u,w,1u,c);fill(x,y,1u,h,c);fill(x+w-1u,y,1u,h,c);
+}
+static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    (void)bg;
+    uint16_t rows[FONT_H];glyph(c,rows);
+    for(uint32_t gy=0u;gy<FONT_H;++gy)for(uint32_t gx=0u;gx<FONT_W;++gx)
+        if(rows[gy]&(1u<<(FONT_W-1u-gx)))fill(x+gx,y+gy+2u,1u,1u,fg);
+}
+static void text_line(const char*s,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    while(*s&&x+CHAR_W<framebuffer_width()){text(*s,x,y,fg,bg);x+=CHAR_W;++s;}
+}
+static int hit(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t px0,uint32_t py0){
+    return px0>=x&&px0<x+w&&py0>=y&&py0<y+h;
+}
 static void shadow(uint32_t x,uint32_t y,uint32_t w,uint32_t h){
     if(!w||!h)return;
     fill(x+5u,y+5u,w,h,0x02050Au);
@@ -151,14 +163,6 @@ static void widget_button(uint32_t x,uint32_t y,uint32_t w,uint32_t h,
         text_line(label,tx,ty,COL_TEXT,bg);
     }
 }
-static void border(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){if(w<2u||h<2u)return;fill(x,y,w,1u,c);fill(x,y+h-1u,w,1u,c);fill(x,y,1u,h,c);fill(x+w-1u,y,1u,h,c);}
-static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
-    (void)bg;
-    uint16_t rows[FONT_H];glyph(c,rows);
-    for(uint32_t gy=0u;gy<FONT_H;++gy)for(uint32_t gx=0u;gx<FONT_W;++gx)
-        if(rows[gy]&(1u<<(FONT_W-1u-gx)))fill(x+gx,y+gy+2u,1u,1u,fg);
-}
-static void text_line(const char*s,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){while(*s&&x+CHAR_W<framebuffer_width()){text(*s,x,y,fg,bg);x+=CHAR_W;++s;}}
 static uint32_t px(void){return mouse_x();}
 static uint32_t py(void){return mouse_y();}
 static void notepad_init(void);
