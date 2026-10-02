@@ -25,8 +25,8 @@ jobs:
 
       - name: Boot with QEMU xHCI + USB mouse
         run: |
-          set +e
-          timeout 20s qemu-system-i386 \
+          set -e
+          qemu-system-i386 \
             -smp 1 \
             -device nec-usb-xhci,id=xhci \
             -device usb-mouse,bus=xhci.0 \
@@ -34,11 +34,36 @@ jobs:
             -m 128M \
             -display none \
             -serial none \
+            -monitor unix:build/qemu-monitor.sock,server=on,wait=off \
             -debugcon file:build/qemu-xhci-mouse.log \
-            -global isa-debugcon.iobase=0xE9
-          status=$?
-          set -e
+            -global isa-debugcon.iobase=0xE9 &
+          qemu_pid=$!
+
+          python3 - <<'PY'
+          import socket
+          import time
+
+          path = "build/qemu-monitor.sock"
+          for _ in range(100):
+              try:
+                  s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                  s.connect(path)
+                  s.sendall(b"mouse_move 20 10 0\n")
+                  time.sleep(0.2)
+                  s.sendall(b"mouse_move -10 5 0\n")
+                  s.close()
+                  break
+              except (FileNotFoundError, ConnectionRefusedError):
+                  time.sleep(0.1)
+          else:
+              raise SystemExit("QEMU monitor did not become available")
+          PY
+
+          sleep 8
+          kill "$qemu_pid" || true
+          wait "$qemu_pid" || true
+
           cat build/qemu-xhci-mouse.log
-          test "$status" -eq 124
           grep -q 'LIONOS:READY' build/qemu-xhci-mouse.log
           grep -q 'LIONOS:USB-MOUSE-READY' build/qemu-xhci-mouse.log
+          grep -q 'HID mouse reports active' build/qemu-xhci-mouse.log
