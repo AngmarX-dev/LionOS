@@ -15,7 +15,6 @@
 #define USER_MIN 0x00400000u
 #define USER_MAX 0xC0000000u
 #define USER_COPY_MAX 4096u
-#define PROCESS_WAIT_BLOCKED ((uint32_t)-2)
 
 static int user_range_ok(uint32_t ptr,uint32_t len){if(len==0)return ptr>=USER_MIN&&ptr<USER_MAX;if(ptr<USER_MIN||ptr>=USER_MAX)return 0;return len<=USER_MAX-ptr;}
 static int copy_user_string(char*dst,uint32_t dst_size,uint32_t user_ptr){if(!dst||dst_size<2u||!user_range_ok(user_ptr,1u))return-1;for(uint32_t i=0;i<dst_size-1u;++i){uint32_t a=user_ptr+i;if(!user_range_ok(a,1u))return-1;dst[i]=*(const char*)(uintptr_t)a;if(!dst[i])return 0;}dst[dst_size-1u]=0;return-1;}
@@ -30,16 +29,16 @@ case SYS_EXIT:process_exit_current(arg0);return SYSCALL_OK;
 case SYS_GETCHAR:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{int c=keyboard_getchar();return c<0?SYSCALL_ERR:(uint32_t)(uint8_t)c;}
 case SYS_KBD_AVAIL:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;return keyboard_available();
 case SYS_MOUSE_PENDING:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;return mouse_event_available();
-case SYS_MOUSE_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{\
-    struct lion_mouse_event *u=(struct lion_mouse_event*)(uintptr_t)arg0;\
-    if(!user_range_ok(arg0,sizeof(*u)))return SYSCALL_ERR;\
-    struct mouse_event ev;\
-    int r=mouse_read_event(&ev);\
-    if(r==-2)return LIONOS_MOUSE_BLOCKED;\
-    if(r!=0)return SYSCALL_ERR;\
-    u->dx=ev.dx;u->dy=ev.dy;u->buttons=ev.buttons;u->source=ev.source;u->reserved[0]=0;u->reserved[1]=0;\
-    return SYSCALL_OK;\
-}\
+case SYS_MOUSE_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{
+    struct lion_mouse_event *u=(struct lion_mouse_event*)(uintptr_t)arg0;
+    if(!user_range_ok(arg0,sizeof(*u)))return SYSCALL_ERR;
+    struct mouse_event ev;
+    int r=mouse_read_event(&ev);
+    if(r==-2)return LIONOS_MOUSE_BLOCKED;
+    if(r!=0)return SYSCALL_ERR;
+    u->dx=ev.dx;u->dy=ev.dy;u->buttons=ev.buttons;u->source=ev.source;u->reserved[0]=0;u->reserved[1]=0;
+    return SYSCALL_OK;
+}
 case SYS_WRITE:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg1>USER_COPY_MAX||!user_range_ok(arg0,arg1))return SYSCALL_ERR;console_write_n((const char*)(uintptr_t)arg0,arg1);return arg1;
 case SYS_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{if(arg1>USER_COPY_MAX||!user_range_ok(arg0,arg1))return SYSCALL_ERR;uint32_t n=0;while(n<arg1){int c=keyboard_getchar();if(c<0)break;((char*)(uintptr_t)arg0)[n++]=(char)c;}return n;}
 case SYS_CLEAR:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;console_clear();return SYSCALL_OK;
