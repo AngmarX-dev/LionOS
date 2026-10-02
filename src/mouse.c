@@ -15,12 +15,6 @@ static volatile uint8_t  ps2_buttons = 0;
 
 /* OSTEP-style input event queue shared by PS/2 and USB mouse producers. */
 #define MOUSE_EVENT_BUFFER_SIZE 256u
-struct mouse_event {
-    int32_t dx;
-    int32_t dy;
-    uint8_t buttons;
-    uint8_t source; /* 1=PS/2, 2=USB HID */
-};
 static struct mouse_event mouse_event_buffer[MOUSE_EVENT_BUFFER_SIZE];
 static uint32_t mouse_event_read_idx = 0u;
 static uint32_t mouse_event_write_idx = 0u;
