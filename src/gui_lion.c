@@ -863,7 +863,17 @@ void gui_step(void){
     mouse_px_x=px();mouse_px_y=py();
     uint32_t buttons=mouse_buttons();
     uint8_t cursor_moved=(mouse_px_x!=old_x||mouse_px_y!=old_y)?1u:0u;
-    if((cursor_moved&&!cursor_overlay)||buttons!=previous_buttons)dirty_full();
+    if(cursor_moved){
+        uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u;
+        uint32_t top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u;
+        uint32_t right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u;
+        uint32_t bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;
+        if(right>framebuffer_width())right=framebuffer_width();
+        if(bottom>framebuffer_height())bottom=framebuffer_height();
+        if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);
+        if(!cursor_overlay)dirty_full();
+    }
+    if(buttons!=previous_buttons)dirty_full();
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
     if(!(buttons&1u)&&(previous_buttons&1u)){
         if(desktop_icon_drag>=0){
