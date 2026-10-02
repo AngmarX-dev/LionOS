@@ -2,6 +2,7 @@
 #define LIONOS_PROCESS_H
 
 #include <stdint.h>
+#include "spinlock.h"
 
 #define LIONOS_PROCESS_MAX 16u
 #define LIONOS_PROCESS_MAX_USER_PAGES 128u
@@ -10,6 +11,7 @@
 #define PROCESS_RUNNING 2u
 #define PROCESS_ZOMBIE 3u
 #define PROCESS_WAITING 4u
+#define PROCESS_WAIT_BLOCKED (-2)
 #define PROCESS_STOPPED 5u
 #define PROCESS_CONTEXT_WORDS 19u
 #define PROCESS_FD_MAX 32u
@@ -29,6 +31,7 @@ struct process {
     uint32_t exit_code;
     uint32_t wait_pid;
     uint32_t wait_status_ptr;
+    uint32_t wait_channel;
     uint32_t reap_pending;
     uint32_t deferred_kernel_stack;
     uint32_t page_directory;
@@ -73,6 +76,10 @@ int process_set_capabilities(struct process *process, uint32_t capabilities);
 void process_exit_current(uint32_t exit_code);
 uint32_t process_fork_current(uint32_t *parent_frame);
 int32_t process_waitpid(uint32_t pid, uint32_t status_ptr);
+/* sleep_on is called with held_lock already acquired and interrupts disabled.
+ * It atomically publishes PROCESS_WAITING before releasing held_lock. */
+int32_t process_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t irq_flags);
+void    process_wakeup(uintptr_t channel);
 uint32_t process_count(void);
 uint32_t *process_schedule(uint32_t *frame);
 void process_set_saved_frame(struct process *process, uint32_t *frame);
