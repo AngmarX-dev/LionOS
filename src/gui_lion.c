@@ -18,8 +18,8 @@
 #define FONT_SCALE 1u
 #define CHAR_W 12u
 #define CHAR_H 16u
-#define TASKBAR_H 54u
-#define TITLE_H 30u
+#define TASKBAR_H 60u
+#define TITLE_H 36u
 #define WIN_TERMINAL 1u
 #define WIN_FILES 2u
 #define WIN_ABOUT 3u
@@ -127,7 +127,30 @@ static void glyph(char c, uint16_t rows[FONT_H]) {
     for(uint32_t i=0u;i<FONT_H;++i) rows[i]=lion_font[code-LION_FONT_FIRST][i];
 }
 
+static uint32_t label_width(const char*label);
+static int hit(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t px0,uint32_t py0){
+    return px0>=x&&px0<x+w&&py0<y+h&&py0>=y;
+}
 static void fill(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){framebuffer_fill_rect(x,y,w,h,c);}
+static void border(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){if(w<2u||h<2u)return;fill(x,y,w,1u,c);fill(x,y+h-1u,w,1u,c);fill(x,y,1u,h,c);fill(x+w-1u,y,1u,h,c);}
+static void shadow(uint32_t x,uint32_t y,uint32_t w,uint32_t h){
+    if(!w||!h)return;
+    fill(x+5u,y+5u,w,h,0x02050Au);
+}
+static void widget_button(uint32_t x,uint32_t y,uint32_t w,uint32_t h,
+                          uint32_t base,uint32_t accent,const char*label){
+    uint32_t bg=base,edge=accent;
+    if(hit(x,y,w,h,mouse_px_x,mouse_px_y)){bg=COL_PANEL2;edge=COL_GOLD;}
+    if((previous_buttons&1u)&&hit(x,y,w,h,mouse_px_x,mouse_px_y))bg=COL_SKY_MID;
+    fill(x,y,w,h,bg);
+    border(x,y,w,h,edge);
+    if(label&&label[0]){
+        uint32_t lw=label_width(label);
+        uint32_t tx=x+(w>lw?(w-lw)/2u:6u);
+        uint32_t ty=y+(h>CHAR_H?(h-CHAR_H)/2u:0u);
+        text_line(label,tx,ty,COL_TEXT,bg);
+    }
+}
 static void border(uint32_t x,uint32_t y,uint32_t w,uint32_t h,uint32_t c){if(w<2u||h<2u)return;fill(x,y,w,1u,c);fill(x,y+h-1u,w,1u,c);fill(x,y,1u,h,c);fill(x+w-1u,y,1u,h,c);}
 static void text(char c,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
     (void)bg;
@@ -227,20 +250,22 @@ static void notepad_save(void){
 
 static void window_chrome(const struct ui_window*w,const char*title){
     uint32_t active=w->focused?COL_PANEL2:COL_PANEL;
+    shadow(w->x,w->y,w->w,w->h);
     fill(w->x,w->y,w->w,w->h,COL_PANEL);
     border(w->x,w->y,w->w,w->h,w->focused?COL_GOLD:COL_GOLD_DIM);
     fill(w->x,w->y,w->w,TITLE_H,active);
-    text_line(title,w->x+12u,w->y+6u,COL_TEXT,active);
-    fill(w->x+w->w-74u,w->y+7u,18u,16u,COL_PANEL2);
-    fill(w->x+w->w-50u,w->y+7u,18u,16u,COL_PANEL2);
-    fill(w->x+w->w-26u,w->y+7u,18u,16u,COL_PANEL2);
-    border(w->x+w->w-74u,w->y+7u,18u,16u,COL_GOLD_DIM);
-    border(w->x+w->w-50u,w->y+7u,18u,16u,COL_GOLD_DIM);
-    border(w->x+w->w-26u,w->y+7u,18u,16u,COL_GOLD_DIM);
-    fill(w->x+w->w-69u,w->y+14u,8u,2u,COL_DIM);
-    border(w->x+w->w-46u,w->y+11u,8u,8u,COL_OK);
-    fill(w->x+w->w-21u,w->y+14u,8u,2u,COL_DANGER);
-    fill(w->x+w->w-18u,w->y+11u,2u,8u,COL_DANGER);
+    fill(w->x,w->y+TITLE_H-1u,w->w,1u,w->focused?COL_GOLD_DIM:COL_PANEL2);
+    text_line(title,w->x+14u,w->y+10u,COL_TEXT,active);
+
+    uint32_t bx=w->x+w->w>84u?w->x+w->w-84u:w->x;
+    uint32_t by=w->y+8u;
+    widget_button(bx,by,22u,20u,COL_PANEL2,COL_GOLD_DIM,"");
+    widget_button(bx+28u,by,22u,20u,COL_PANEL2,COL_GOLD_DIM,"");
+    widget_button(bx+56u,by,22u,20u,COL_PANEL2,COL_DANGER,"");
+    fill(bx+6u,by+9u,10u,2u,COL_DIM);
+    border(bx+34u,by+5u,10u,10u,COL_OK);
+    fill(bx+62u,by+9u,10u,2u,COL_DANGER);
+    fill(bx+66u,by+5u,2u,10u,COL_DANGER);
 }
 
 static void draw_terminal(const struct ui_window*w){
@@ -396,54 +421,70 @@ static void draw_wallpaper(void){
     framebuffer_blit_rgb565_cover(lion_wallpaper_rgb565,LION_WALLPAPER_W,LION_WALLPAPER_H);
 }
 static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label,const uint32_t*icon){
-    fill(x,y,w,36u,c);
-    framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+7u,y+7u,22u);
-    if(label&&label[0]) text_line(label,x+35u,y+9u,COL_TEXT,c);
+    uint32_t bg=hit(x,y,w,42u,mouse_px_x,mouse_px_y)?COL_PANEL2:c;
+    uint32_t edge=hit(x,y,w,42u,mouse_px_x,mouse_px_y)?COL_GOLD:COL_GOLD_DIM;
+    fill(x,y,w,42u,bg);
+    border(x,y,w,42u,edge);
+    if(icon)framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+(w>50u?9u:10u),y+9u,w>50u?24u:22u);
+    if(label&&label[0]) text_line(label,x+40u,y+13u,COL_TEXT,bg);
 }
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
-    fill(0u,y,w,TASKBAR_H,0x050B13u); fill(0u,y,w,2u,COL_GOLD_DIM);
-    draw_task_button(16u,y+8u,164u,COL_PANEL,"LionOS",lion_icon_lionos);
-    fill(194u,y+7u,2u,38u,COL_GOLD);
-    draw_task_button(218u,y+8u,42u,COL_PANEL,"",lion_icon_documents);
-    draw_task_button(270u,y+8u,42u,COL_PANEL,"",lion_icon_terminal);
-    draw_task_button(322u,y+8u,42u,COL_PANEL,"",lion_icon_browser);
-    draw_task_button(374u,y+8u,42u,COL_PANEL,"",lion_icon_tools);
-    draw_task_button(426u,y+8u,42u,COL_PANEL,"",lion_icon_desktop);
-    draw_task_button(478u,y+8u,42u,COL_PANEL,"",lion_icon_documents);
+    fill(0u,y,w,TASKBAR_H,0x050B13u);
+    fill(0u,y,w,2u,COL_GOLD);
+
+    draw_task_button(16u,y+9u,166u,COL_PANEL,"LionOS",lion_icon_lionos);
+    fill(196u,y+9u,1u,42u,COL_GOLD_DIM);
+    draw_task_button(210u,y+9u,44u,COL_PANEL,"",lion_icon_documents);
+    draw_task_button(262u,y+9u,44u,COL_PANEL,"",lion_icon_terminal);
+    draw_task_button(314u,y+9u,44u,COL_PANEL,"",lion_icon_browser);
+    draw_task_button(366u,y+9u,44u,COL_PANEL,"",lion_icon_tools);
+    draw_task_button(418u,y+9u,44u,COL_PANEL,"",lion_icon_desktop);
+    draw_task_button(470u,y+9u,44u,COL_PANEL,"",lion_icon_documents);
+
     if(w>760u){
-        text_line("WiFi",w-170u,y+9u,COL_TEXT,COL_PANEL);
-        text_line("VOL",w-116u,y+9u,COL_TEXT,COL_PANEL);
-        text_line("10:24 AM",w-86u,y+8u,COL_TEXT,COL_PANEL);
-        text_line("May 25, 2025",w-128u,y+27u,COL_DIM,COL_PANEL);
+        fill(w-252u,y+9u,1u,42u,COL_GOLD_DIM);
+        text_line("INPUT",w-232u,y+13u,COL_DIM,COL_PANEL);
+        text_line(mouse_usb_status_text(),w-188u,y+13u,
+                  mouse_usb_status()==1u?COL_OK:COL_GOLD,COL_PANEL);
+        text_line("DISPLAY",w-126u,y+13u,COL_DIM,COL_PANEL);
+        text_line("x86",w-76u,y+13u,COL_TEXT,COL_PANEL);
     }
 }
 
 static void draw_start_menu(void){
     if(!start_open) return;
     uint32_t w=framebuffer_width(),h=framebuffer_height();
-    uint32_t mw=w>520u?420u:300u;
-    uint32_t mh=h>560u?440u:h>460u?400u:340u;
-    uint32_t x=12u,y=h-TASKBAR_H-mh-8u;
-    fill(x+5u,y+5u,mw,mh,0x03070Cu);
-    fill(x,y,mw,mh,COL_PANEL);border(x,y,mw,mh,COL_GOLD_DIM);fill(x,y,mw,54u,COL_PANEL2);
-    text_line("LIONOS",x+18u,y+18u,COL_GOLD,COL_PANEL2);
-    fill(x+18u,y+62u,mw-36u,32u,COL_INPUT);border(x+18u,y+62u,mw-36u,32u,COL_GOLD_DIM);
-    text_line("Search applications...",x+30u,y+71u,COL_DIM,COL_INPUT);
-    text_line("PINNED APPLICATIONS",x+18u,y+108u,COL_DIM,COL_PANEL);
+    uint32_t mw=w>560u?460u:300u;
+    uint32_t mh=h>580u?470u:h>480u?410u:350u;
+    uint32_t x=12u,y=h-TASKBAR_H-mh-10u;
+    shadow(x,y,mw,mh);
+    fill(x,y,mw,mh,COL_PANEL);
+    border(x,y,mw,mh,COL_GOLD);
+    fill(x,y,mw,58u,COL_PANEL2);
+    text_line("LIONOS",x+20u,y+18u,COL_GOLD,COL_PANEL2);
+    text_line("APPLICATIONS",x+mw-116u,y+18u,COL_DIM,COL_PANEL2);
+
+    fill(x+18u,y+70u,mw-36u,34u,COL_INPUT);
+    border(x+18u,y+70u,mw-36u,34u,COL_GOLD_DIM);
+    text_line("Search applications...",x+31u,y+79u,COL_DIM,COL_INPUT);
+
+    text_line("PINNED",x+20u,y+120u,COL_DIM,COL_PANEL);
     static const char *items[]={"TERMINAL","FILES","ABOUT","SETTINGS","BROWSER","NOTEPAD"};
     for(uint32_t i=0u;i<6u;++i){
-        uint32_t by=y+122u+i*42u;
-        fill(x+18u,by,mw-36u,38u,COL_PANEL2);
-        border(x+18u,by,mw-36u,38u,COL_GOLD_DIM);
+        uint32_t by=y+136u+i*42u;
+        int hov=hit(x+18u,by,mw-36u,38u,mouse_px_x,mouse_px_y);
+        uint32_t bg=hov?COL_SKY_MID:COL_PANEL2;
+        fill(x+18u,by,mw-36u,38u,bg);
+        border(x+18u,by,mw-36u,38u,hov?COL_GOLD:COL_GOLD_DIM);
         const char *name=items[i];
-        text_line(name,x+18u+(mw-36u-label_width(name))/2u,by+10u,COL_TEXT,COL_PANEL2);
+        text_line(name,x+30u,by+10u,COL_TEXT,bg);
+        if(hov) text_line(">",x+mw-48u,by+10u,COL_GOLD,bg);
     }
     if(mh>400u){
-        uint32_t py=y+mh-52u;
-        fill(x+18u,py,140u,34u,COL_DANGER);
-        border(x+18u,py,140u,34u,COL_GOLD_DIM);
-        text_line("POWER",x+32u,py+8u,COL_TEXT,COL_DANGER);
+        uint32_t py0=y+mh-52u;
+        widget_button(x+18u,py0,140u,34u,COL_DANGER,COL_GOLD_DIM,"POWER");
+        text_line("ESC",x+mw-58u,py0+9u,COL_DIM,COL_PANEL);
     }
 }
 
