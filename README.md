@@ -413,6 +413,324 @@ The repository keeps the low-level source, tests, and engineering history visibl
 
 ---
 
+## 🗺️ Future Roadmap
+
+LionOS is intentionally being developed in layers. The following features are planned for later work as the kernel, drivers, userspace, and desktop mature.
+
+### 🧠 Kernel & CPU
+
+| Planned feature | Status |
+|---|:---:|
+| Kernel panic / crash dump framework | ⬜ |
+| Structured kernel logging levels | ⬜ |
+| Runtime kernel diagnostics page | ⬜ |
+| Better APIC / interrupt routing | ⬜ |
+| Per-CPU interrupt statistics | ⬜ |
+| CPU feature management (SSE/AVX detection) | ⬜ |
+| FPU/SSE context switching | ⬜ |
+| Lazy FPU state management | ⬜ |
+| Kernel preemption improvements | ⬜ |
+| Priority-aware scheduling | ⬜ |
+| MLFQ-style interactive scheduling | ⬜ |
+| Scheduler load balancing | ⬜ |
+| Per-CPU run queues | ⬜ |
+| More robust SMP synchronization | ⬜ |
+
+### ⚙️ Processes, Threads & IPC
+
+| Planned feature | Status |
+|---|:---:|
+| Kernel threads | ⬜ |
+| User threads | ⬜ |
+| Thread IDs / thread lifecycle | ⬜ |
+| Generic sleep(channel) / wakeup(channel) API expansion | ✅ |
+| Blocking keyboard reads | ⬜ |
+| Blocking pipe reads/writes | ⬜ |
+| Blocking filesystem operations | ⬜ |
+| Process groups | ⬜ |
+| Sessions / controlling terminal | ⬜ |
+| Foreground/background jobs | ⬜ |
+| Full signal delivery and handling | ⬜ |
+| Signal-safe process termination | ⬜ |
+| Shared memory IPC | ⬜ |
+| Pipes | ⬜ |
+| Named pipes | ⬜ |
+| Unix-style sockets | ⬜ |
+
+### 🧮 Memory Management
+
+| Planned feature | Status |
+|---|:---:|
+| mmap-style virtual memory API | ⬜ |
+| Demand paging | ⬜ |
+| Page-fault driven lazy allocation | ⬜ |
+| Anonymous memory mappings | ⬜ |
+| Shared memory mappings | ⬜ |
+| Guard pages | ⬜ |
+| User/kernel memory accounting | ⬜ |
+| Slab / object allocator | ⬜ |
+| Per-CPU allocation caches | ⬜ |
+| Memory pressure diagnostics | ⬜ |
+| Swap / paging-to-disk architecture | ⬜ |
+
+### 🖱️ Input & Device Drivers
+
+| Planned feature | Status |
+|---|:---:|
+| Generic input-event subsystem | ⬜ |
+| Blocking mouse event reads | ✅ |
+| Blocking keyboard event reads | ⬜ |
+| Keyboard key-event API beyond ASCII | ⬜ |
+| Extended PS/2 keys (arrows/Home/End/Delete) | ⬜ |
+| Mouse wheel support | ⬜ |
+| Mouse extra buttons | ⬜ |
+| Multi-device input routing | ⬜ |
+| Device manager | ⬜ |
+| PCI device enumeration framework | ⬜ |
+| Generic driver registration API | ⬜ |
+| /dev device filesystem | ⬜ |
+| USB HID keyboard | ⬜ |
+| USB HID gamepad | ⬜ |
+| USB mass-storage support | ⬜ |
+| UHCI/OHCI/EHCI support | ⬜ |
+| More complete xHCI framework | ⬜ |
+| Hot-plug device detection | ⬜ |
+
+### 💽 Storage & Filesystems
+
+| Planned feature | Status |
+|---|:---:|
+| LionFS directories | ⬜ |
+| Directory creation/removal syscalls | ⬜ |
+| File permissions and ownership | ⬜ |
+| File timestamps | ⬜ |
+| Symbolic links | ⬜ |
+| Hard links | ⬜ |
+| File locking | ⬜ |
+| Mount/unmount framework | ⬜ |
+| Filesystem driver interface | ⬜ |
+| Read-only filesystem support | ⬜ |
+| ext2 read support | ⬜ |
+| FAT32 support | ⬜ |
+| Improved ATA driver | ⬜ |
+| AHCI/SATA support | ⬜ |
+| NVMe driver | ⬜ |
+| Disk cache / buffer cache | ⬜ |
+| Journaling for persistent storage | ⬜ |
+| Filesystem consistency checker | ⬜ |
+
+### 🌐 Networking
+
+| Planned feature | Status |
+|---|:---:|
+| UDP | ⬜ |
+| TCP | ⬜ |
+| Socket API | ⬜ |
+| DNS resolver | ⬜ |
+| DHCP client | ⬜ |
+| Routing table | ⬜ |
+| Network interface abstraction | ⬜ |
+| Ethernet driver framework | ⬜ |
+| VirtIO-net driver | ⬜ |
+| e1000 driver | ⬜ |
+| IPv6 | ⬜ |
+| TCP retransmission/congestion control | ⬜ |
+| Loopback socket support | ⬜ |
+| Network configuration commands | ⬜ |
+| Packet tracing / diagnostics | ⬜ |
+
+### 🌍 Browser
+
+| Planned feature | Status |
+|---|:---:|
+| DNS URL resolution | ⬜ |
+| HTTPS / TLS | ⬜ |
+| HTTP headers | ⬜ |
+| HTTP redirects | ⬜ |
+| Chunked transfer decoding | ⬜ |
+| HTML parser | ⬜ |
+| Proper document tree | ⬜ |
+| CSS parser | ⬜ |
+| CSS layout engine | ⬜ |
+| Image decoding | ⬜ |
+| Font rendering improvements | ⬜ |
+| Tabs | ⬜ |
+| Bookmarks | ⬜ |
+| Downloads | ⬜ |
+| Browser cache | ⬜ |
+| Cookies/storage | ⬜ |
+| JavaScript engine integration | ⬜ |
+
+### 🎨 Desktop & Window System
+
+| Planned feature | Status |
+|---|:---:|
+| Unified window-manager subsystem | ⬜ |
+| Compositor architecture | ⬜ |
+| Double/triple buffering | ⬜ |
+| Damage tracking improvements | ⬜ |
+| Window resize handles | ⬜ |
+| Window snapping | ⬜ |
+| Window z-order management | ⬜ |
+| Desktop notifications | ⬜ |
+| Context menus | ⬜ |
+| Modal dialogs | ⬜ |
+| Menus / menu bars | ⬜ |
+| Scrollable widgets | ⬜ |
+| Text input widget | ⬜ |
+| Checkbox/radio controls | ⬜ |
+| Clipboard | ⬜ |
+| Drag-and-drop framework | ⬜ |
+| Multiple workspaces | ⬜ |
+| Lock screen | ⬜ |
+| Login/session manager | ⬜ |
+| Theme engine | ⬜ |
+| Font scaling / HiDPI support | ⬜ |
+| Accessibility APIs | ⬜ |
+
+### 🖼️ Graphics
+
+| Planned feature | Status |
+|---|:---:|
+| Native Intel display engine | ⬜ |
+| Display mode setting | ⬜ |
+| Hardware cursor | ⬜ |
+| Multiple display support | ⬜ |
+| EDID parsing | ⬜ |
+| VBlank synchronization | ⬜ |
+| Graphics memory management | ⬜ |
+| 2D acceleration | ⬜ |
+| GPU command submission foundation | ⬜ |
+| Basic software rasterizer | ⬜ |
+| Sprite/image compositing | ⬜ |
+| PNG/BMP image decoding | ⬜ |
+| Better font rasterization | ⬜ |
+
+### 🧰 Userland & POSIX-like Environment
+
+| Planned feature | Status |
+|---|:---:|
+| More complete libc | ⬜ |
+| printf family | ⬜ |
+| Dynamic memory allocation | ⬜ |
+| Environment variables | ⬜ |
+| argv / argc conventions | ⬜ |
+| Standard streams | ⬜ |
+| File descriptor inheritance | ✅ |
+| Pipes / redirection | ⬜ |
+| Shell job control | ⬜ |
+| env command | ⬜ |
+| grep | ⬜ |
+| find | ⬜ |
+| cp / mv | ⬜ |
+| mkdir / rmdir | ⬜ |
+| chmod / chown | ⬜ |
+| ps improvements | ⬜ |
+| top-style system monitor | ⬜ |
+| Text editor improvements | ⬜ |
+| Package/application format | ⬜ |
+| Init/system service manager | ⬜ |
+
+### 🔐 Security & Reliability
+
+| Planned feature | Status |
+|---|:---:|
+| User/group identity model | ⬜ |
+| Permission enforcement in VFS | ⬜ |
+| Capability refinement | ⬜ |
+| Kernel stack protection | ⬜ |
+| User stack guard pages | ⬜ |
+| ASLR research implementation | ⬜ |
+| NX / executable-page policy | ⬜ |
+| Syscall audit logging | ⬜ |
+| Secure process-exec checks | ⬜ |
+| Random number generator | ⬜ |
+| Entropy collection | ⬜ |
+| Secure boot research path | ⬜ |
+| Watchdog / hang detection | ⬜ |
+| Crash recovery diagnostics | ⬜ |
+| Fuzz testing for parsers | ⬜ |
+
+### 🧪 Testing & Developer Tools
+
+| Planned feature | Status |
+|---|:---:|
+| More QEMU hardware profiles | ⬜ |
+| Automated keyboard CI tests | ⬜ |
+| Automated mouse CI tests | ✅ |
+| Automated filesystem corruption tests | ⬜ |
+| Automated process/scheduler tests | ⬜ |
+| Automated syscall ABI tests | ⬜ |
+| Memory allocator stress tests | ⬜ |
+| SMP stress tests | ⬜ |
+| Network integration tests | ⬜ |
+| Browser protocol tests | ⬜ |
+| Kernel unit-test harness | ⬜ |
+| Kernel tracing framework | ⬜ |
+| Serial console diagnostics | ⬜ |
+| GDB remote debugging | ⬜ |
+| QEMU monitor integration | ⬜ |
+| Deterministic boot test mode | ⬜ |
+| Performance benchmarks | ⬜ |
+| Boot-time subsystem timing | ⬜ |
+
+### 🏗️ Build, Release & Project Infrastructure
+
+| Planned feature | Status |
+|---|:---:|
+| Reproducible builds | ⬜ |
+| Versioned kernel ABI | ⬜ |
+| Release artifacts on GitHub | ⬜ |
+| Automated ISO releases | ⬜ |
+| Automated USB image releases | ⬜ |
+| Nightly CI | ⬜ |
+| Hardware compatibility matrix | ⬜ |
+| Documentation site | ⬜ |
+| Developer setup script | ⬜ |
+| Cross-compiler bootstrap script | ⬜ |
+| Coding/style checks in CI | ⬜ |
+| Static analysis in CI | ⬜ |
+| Sanitizer-assisted host tests | ⬜ |
+| Architecture decision records | ⬜ |
+
+### 🦁 Long-Term LionOS Goals
+
+The long-term direction is to evolve LionOS from a small experimental kernel into a coherent, self-hosted operating-system environment:
+
+```text
+Bootloader
+    ↓
+Kernel + Drivers
+    ↓
+Virtual Memory + Scheduler
+    ↓
+Syscalls + IPC
+    ↓
+VFS + Storage
+    ↓
+Networking
+    ↓
+Graphics + Window System
+    ↓
+libc + Shell + Applications
+    ↓
+Self-hosted LionOS development environment
+```
+
+Possible long-term milestones:
+
+- ⬜ Boot LionOS on a wider range of real x86 hardware
+- ⬜ Native USB keyboard and storage
+- ⬜ Native Intel graphics modesetting
+- ⬜ Full TCP/IP socket layer
+- ⬜ Persistent multi-user filesystem
+- ⬜ Complete desktop session manager
+- ⬜ Native development tools
+- ⬜ Self-hosted compiler/toolchain research
+- ⬜ More complete POSIX-like userspace
+- ⬜ Stronger real-hardware test coverage
+---
+
 ## ⚠️ Status
 
 LionOS is an **experimental operating system** intended for learning, kernel development, experimentation, and architecture exploration.
