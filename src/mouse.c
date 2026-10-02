@@ -178,8 +178,19 @@ void mouse_poll(void){
             uint8_t btn=0;
             int r=xhci_mouse_poll(&dx,&dy,&btn);
             if(r<0){
-                if(usb_recovery_cooldown==0u)
-                    (void)xhci_mouse_recover();
+                if(usb_recovery_cooldown==0u){
+                    if(xhci_mouse_recover()!=0){
+                        /*
+                         * The endpoint/ring could not be recovered. Drop the
+                         * stale session so the normal retry path can run a
+                         * complete xHCI enumeration again.
+                         */
+                        usb_initialized=0;
+                        usb_status=3u;
+                        usb_retry_attempts=0u;
+                        usb_retry_frames=0u;
+                    }
+                }
                 usb_recovery_cooldown=30u;
                 break;
             }
