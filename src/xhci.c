@@ -1429,7 +1429,17 @@ int xhci_mouse_init(void){
 int xhci_mouse_recover(void){
     if(!ready||!slot_id||!endpoint_id) return -1;
     report_pending=0u;
-    return restart_hid_transfer_ring();
+    if(restart_hid_transfer_ring()==0) return 0;
+
+    /*
+     * If endpoint recovery itself fails, do not leave the device in the
+     * READY state.  The caller can then drop the stale USB session and
+     * re-enumerate the mouse instead of permanently polling a dead ring.
+     */
+    ready=0u;
+    diag_init_ok=0u;
+    report_pending=0u;
+    return -1;
 }
 int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dx) *dx = 0;
