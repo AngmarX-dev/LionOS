@@ -573,7 +573,9 @@ static void render_all(void){
     uint32_t sw=framebuffer_width(), sh=framebuffer_height();
     uint64_t dirty_pixels=dirty_valid?(uint64_t)dirty_w*dirty_h:(uint64_t)sw*sh;
     uint64_t screen_pixels=(uint64_t)sw*sh;
-    uint32_t min_ticks=(dirty_pixels*2u<screen_pixels)?1u:2u;
+    /* Render on the next PIT tick even for a full-screen change so
+       clicks/window opens do not add an extra frame of latency. */
+    uint32_t min_ticks=1u;
     if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<min_ticks)return;
 
     if(browser_is_active()){
@@ -832,7 +834,6 @@ void gui_step(void){
         if(right>framebuffer_width())right=framebuffer_width();
         if(bottom>framebuffer_height())bottom=framebuffer_height();
         if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);
-        dirty_full();
     }
     if(buttons!=previous_buttons)dirty_full();
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
