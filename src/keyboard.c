@@ -17,6 +17,9 @@ static volatile uint8_t alt_down;
 static volatile uint8_t caps_lock;
 static volatile uint8_t extended_prefix;
 static volatile uint32_t dropped_chars;
+static volatile uint32_t scancode_count;
+static volatile uint8_t last_scancode;
+static volatile uint8_t input_seen;
 
 static const char keymap[128] = {
     [0x01] = 27,
@@ -95,19 +98,41 @@ static int keyboard_controller_config(void){
     return 0;
 }
 
-static int keyboard_device_command(uint8_t command){
+static int keyboard_device_command_once(uint8_t command){
     keyboard_wait_write();
     outb(PS2_DATA,command);
-    for(uint32_t i=0u;i<20000u;++i){
-        if(inb(PS2_STATUS)&0x01u){
-            uint8_t st=inb(PS2_STATUS);
+    for(uint32_t i=0u;i<200000u;++i){
+        uint8_t st=inb(PS2_STATUS);
+        if(st&0x01u){
             uint8_t v=inb(PS2_DATA);
-            if(!(st&0x20u) && v==0xFAu) return 0;
-            if(!(st&0x20u) && v==0xFEu) return -2;
+            /* Never consume an AUX byte while waiting for keyboard ACK. */
+            if(st&0x20u) continue;
+            if(v==0xFAu) return 0;   /* ACK */
+            if(v==0xFEu) return -2;  /* RESEND */
+            /* 0xAA can be emitted by a keyboard reset self-test; do not
+               confuse it with the command's ACK. */
         }
         io_wait();
     }
     return -1;
+}
+
+static int keyboard_device_command(uint8_t command){
+    for(uint32_t retry=0u;retry<3u;++retry){
+        int rc=keyboard_device_command_once(command);
+        if(rc==0) return 0;
+        if(rc!=-2) return rc;
+    }
+    return -2;
+}
+
+static int keyboard_set_scancode_set1(void){
+    /* PS/2 Set Scancode Set command: F0, then set number 1. */
+    int rc=keyboard_device_command(0xF0u);
+    if(rc!=0) return rc;
+    rc=keyboard_device_command(0x01u);
+    if(rc!=0) return rc;
+    return 0;
 }
 
 void keyboard_init(void) {
@@ -119,21 +144,45 @@ void keyboard_init(void) {
     caps_lock = 0;
     extended_prefix = 0;
     dropped_chars = 0;
+    scancode_count = 0u;
+    last_scancode = 0u;
+    input_seen = 0u;
 
-    /* Linux's i8042 path explicitly prepares the controller before enabling
-       the keyboard. The old LionOS code only unmasked IRQ1, which leaves
-       firmware-disabled keyboard clocks/scanning untouched on some systems. */
+    /*
+     * Fully re-arm the i8042 keyboard port. Some laptop firmware leaves the
+     * keyboard clock/scanning disabled after boot, and some machines retain
+     * stale bytes in the controller output FIFO. Keep AUX disabled here;
+     * mouse_init() enables it after the keyboard is ready.
+     */
     keyboard_wait_write();
-    outb(PS2_STATUS,0xADu);
-    keyboard_flush_output();
-    (void)keyboard_controller_config();
+    outb(PS2_STATUS,0xADu); /* disable keyboard */
     keyboard_wait_write();
-    outb(PS2_STATUS,0xAEu);
+    outb(PS2_STATUS,0xA7u); /* disable auxiliary */
     keyboard_flush_output();
-    int scan_rc=keyboard_device_command(0xF4u);
+
+    int cfg_rc=keyboard_controller_config();
+    if(cfg_rc!=0)
+        debug_write("LIONOS:KEYBOARD-CFG-FAIL\n");
+
+    keyboard_wait_write();
+    outb(PS2_STATUS,0xAEu); /* enable keyboard */
     keyboard_flush_output();
-    debug_write(scan_rc==0 ? "LIONOS:KEYBOARD-READY\n"
-                           : "LIONOS:KEYBOARD-NO-ACK\n");
+
+    /*
+     * Make the physical device generate Set-1 codes explicitly. The i8042
+     * translation bit is also enabled above, but programming the keyboard
+     * itself removes another source of laptop/firmware-dependent behavior.
+     */
+    int set_rc=keyboard_set_scancode_set1();
+    int scan_rc=-1;
+    if(set_rc==0)
+        scan_rc=keyboard_device_command(0xF4u); /* enable scanning */
+
+    keyboard_flush_output();
+    if(set_rc==0 && scan_rc==0)
+        debug_write("LIONOS:KEYBOARD-READY\n");
+    else
+        debug_write("LIONOS:KEYBOARD-NO-ACK\n");
 
     uint8_t mask = inb(0x21);
     mask &= (uint8_t)~(1u << 1);
@@ -141,6 +190,13 @@ void keyboard_init(void) {
 }
 
 void keyboard_handle_scancode(uint8_t scancode) {
+    ++scancode_count;
+    last_scancode=scancode;
+    if(!input_seen){
+        input_seen=1u;
+        debug_write("LIONOS:KEYBOARD-INPUT\n");
+    }
+
     if(scancode==0xE0u){
         extended_prefix=1u;
         return;
