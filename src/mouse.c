@@ -42,7 +42,7 @@ static void mouse_event_push(int32_t dx, int32_t dy, uint8_t buttons, uint8_t so
     spinlock_irqrestore_release(&mouse_event_lock,irq);
     if(wake)process_wakeup((uintptr_t)&mouse_event_channel);
 }
-#define MOUSE_GAIN 1
+#define MOUSE_GAIN 2
 static int32_t mouse_scale_delta(int32_t d){return d*MOUSE_GAIN;}
 static volatile uint8_t  ps2_cycle = 0;
 static volatile int32_t  ps2_dx = 0;
