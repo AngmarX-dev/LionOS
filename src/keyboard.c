@@ -81,7 +81,11 @@ static int keyboard_controller_config(void){
     outb(PS2_STATUS,0x20u);
     if(keyboard_wait_read()!=0) return -1;
     uint8_t cfg=inb(PS2_DATA);
-    cfg|=0x01u;
+    /* Enable IRQ1, keep the controller's system flag set, enable the
+       keyboard clock, and force i8042 translation to scan-code Set 1.
+       Laptop firmware commonly leaves translation disabled; LionOS's
+       keymap intentionally consumes Set-1 codes. */
+    cfg|=0x01u|0x04u|0x40u;
     cfg&=(uint8_t)~0x10u;
     keyboard_wait_write();
     outb(PS2_STATUS,0x60u);
@@ -125,7 +129,10 @@ void keyboard_init(void) {
     keyboard_wait_write();
     outb(PS2_STATUS,0xAEu);
     keyboard_flush_output();
-    (void)keyboard_device_command(0xF4u);
+    int scan_rc=keyboard_device_command(0xF4u);
+    keyboard_flush_output();
+    debug_write(scan_rc==0 ? "LIONOS:KEYBOARD-READY\n"
+                           : "LIONOS:KEYBOARD-NO-ACK\n");
 
     uint8_t mask = inb(0x21);
     mask &= (uint8_t)~(1u << 1);
