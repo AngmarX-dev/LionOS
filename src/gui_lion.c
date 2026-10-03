@@ -64,9 +64,6 @@ static uint8_t scene_dirty;
 static const char *last_usb_status;
 static uint32_t last_render_tick = 0xFFFFFFFFu;
 static uint8_t cursor_overlay;
-static uint32_t glass_tick;
-static uint32_t glass_blob_x[6], glass_blob_y[6];
-static uint8_t glass_blob_ready;
 static uint8_t dirty_valid;
 static uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
 
@@ -452,12 +449,11 @@ static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const c
     if(icon)framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+(w>50u?9u:10u),y+9u,w>50u?24u:22u);
     if(label&&label[0]) text_line(label,x+40u,y+13u,COL_TEXT,bg);
 }
-static void draw_glass_icon(uint32_t x,uint32_t y,const uint32_t *icon,const char*label){
+static void draw_glass_icon(uint32_t x,uint32_t y,const uint32_t *icon){
     framebuffer_blend_round_rect(x,y,52u,52u,16u,0x15283Au,42u);
     framebuffer_blend_round_rect(x+1u,y+1u,50u,26u,14u,0xFFFFFFu,10u);
     border(x,y,52u,52u,COL_GOLD_DIM);
     if(icon)framebuffer_blit_rgba32(icon,LION_ICON_SIZE,LION_ICON_SIZE,x+10u,y+10u,32u);
-    if(label)text_line(label,x+7u,y+56u,COL_TEXT,COL_GROUND);
 }
 static void draw_top_menu(void){
     uint32_t w=framebuffer_width();
@@ -492,12 +488,11 @@ static void draw_taskbar(void){
         lion_icon_terminal,lion_icon_documents,lion_icon_browser,
         lion_icon_tools,lion_icon_desktop,lion_icon_documents
     };
-    const char *labels[6]={"TERM","FILES","BROW","SET","ABOUT","NOTE"};
     uint32_t step=dock_w>=360u?92u:((dock_w-24u)/6u);
     if(step<52u)step=52u;
     uint32_t start=dx+(dock_w-step*6u)/2u+4u;
     for(uint32_t i=0u;i<6u;++i)
-        draw_glass_icon(start+i*step,dy+9u,icons[i],labels[i]);
+        draw_glass_icon(start+i*step,dy+9u,icons[i]);
     draw_top_menu();
     draw_notification();
 }
@@ -561,44 +556,9 @@ static void draw_cursor(uint32_t x,uint32_t y){
         }
     }
 }
-static void glass_blob_position(uint32_t i,uint32_t tick,uint32_t *x,uint32_t *y){
-    uint32_t w=framebuffer_width(),h=framebuffer_height();
-    static const uint32_t phase_x[6]={0u,211u,487u,733u,971u,1249u};
-    static const uint32_t phase_y[6]={0u,173u,331u,557u,719u,881u};
-    uint32_t sx=w>0u?w:1u,sy=h>TASKBAR_H?h-TASKBAR_H:1u;
-    *x=(phase_x[i%6u]+tick*(2u+i%3u)*3u)%sx;
-    *y=40u+((phase_y[i%6u]+tick*(1u+i%4u)*2u)%(sy>80u?sy-60u:sy));
-}
-static void update_glass_background(void){
-    uint32_t now=interrupt_timer_ticks();
-    if(!glass_blob_ready){
-        glass_tick=now;
-        for(uint32_t i=0u;i<6u;++i)
-            glass_blob_position(i,glass_tick,&glass_blob_x[i],&glass_blob_y[i]);
-        glass_blob_ready=1u;
-        return;
-    }
-    if(now==glass_tick)return;
-    glass_tick=now;
-    for(uint32_t i=0u;i<6u;++i){
-        uint32_t ox=glass_blob_x[i],oy=glass_blob_y[i],nx,ny;
-        glass_blob_position(i,glass_tick,&nx,&ny);
-        uint32_t left=(ox<nx?ox:nx)>90u?(ox<nx?ox:nx)-90u:0u;
-        uint32_t top=(oy<ny?oy:ny)>90u?(oy<ny?oy:ny)-90u:0u;
-        uint32_t right=(ox>nx?ox:nx)+90u, bottom=(oy>ny?oy:ny)+90u;
-        if(right>framebuffer_width())right=framebuffer_width();
-        if(bottom>framebuffer_height()-TASKBAR_H)bottom=framebuffer_height()-TASKBAR_H;
-        if(right>left&&bottom>top)
-            dirty_rect(left,top,right-left,bottom-top);
-        glass_blob_x[i]=nx; glass_blob_y[i]=ny;
-    }
-}
 static void draw_desktop_background(void){
+    /* Static wallpaper only: no animated background effects. */
     draw_wallpaper();
-    static const uint32_t tint[6]={0x6BD7FFu,0xB66BFFu,0xFF7E6Bu,0x58E6B0u,0xFFD166u,0x7D8CFFu};
-    static const uint8_t alpha[6]={22u,20u,18u,18u,16u,18u};
-    for(uint32_t i=0u;i<6u;++i)
-        framebuffer_blend_circle(glass_blob_x[i],glass_blob_y[i],90u,tint[i],alpha[i]);
     framebuffer_blend_rect(0u,0u,framebuffer_width(),42u,COL_GROUND,18u);
 }
 static void draw_desktop_icons(void){
@@ -619,6 +579,7 @@ static void render_all(void){
     if(browser_is_active()){
         framebuffer_cursor_hide();
         browser_render();
+        if(!cursor_overlay)draw_cursor(mouse_px_x,mouse_px_y);
         framebuffer_present();
         last_render_tick=now;
         dirty_valid=0u;
@@ -847,13 +808,13 @@ void gui_start(void){
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\\n");return;}
     while(keyboard_available())(void)keyboard_getchar();
-    cursor_overlay=(uint8_t)framebuffer_cursor_overlay_supported();
+    /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
+    cursor_overlay=0u;
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
 }
 void gui_step(void){
     if(!gui_active)return;
-    update_glass_background();
     const char *usb_status=mouse_usb_status_text();
     if(usb_status!=last_usb_status){
         last_usb_status=usb_status;
@@ -871,7 +832,7 @@ void gui_step(void){
         if(right>framebuffer_width())right=framebuffer_width();
         if(bottom>framebuffer_height())bottom=framebuffer_height();
         if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);
-        if(!cursor_overlay)dirty_full();
+        dirty_full();
     }
     if(buttons!=previous_buttons)dirty_full();
     if((buttons&1u)&&!(previous_buttons&1u))handle_click();
@@ -891,7 +852,7 @@ void gui_step(void){
     while(keyboard_available()){dirty_full();handle_key(keyboard_getchar());}
     previous_buttons=buttons;
     render_all();
-    if(cursor_overlay&&cursor_moved)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
+
 }
 int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){
