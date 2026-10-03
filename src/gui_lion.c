@@ -676,11 +676,11 @@ static void handle_window_click(struct ui_window*w){
 
 static void handle_click(void){
     dirty_full();
-    uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height();
+    uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height(),sw=framebuffer_width();
     if(browser_is_active()){browser_mouse_click(x,y);return;}
     if(y>=h-TASKBAR_H){
-        uint32_t dock_w=w>720u?620u:(w>420u?w-40u:320u);
-        uint32_t dock_x=(w-dock_w)/2u;
+        uint32_t dock_w=sw>720u?620u:(sw>420u?sw-40u:320u);
+        uint32_t dock_x=(sw-dock_w)/2u;
         uint32_t step=dock_w>=360u?92u:((dock_w-24u)/6u);
         if(step<52u)step=52u;
         uint32_t dock_y=h-TASKBAR_H+8u;
