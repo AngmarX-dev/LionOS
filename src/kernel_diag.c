@@ -64,6 +64,15 @@ void kernel_diag_print(void) {
         console_write_dec(kernel_diag_log_count((enum kernel_log_level)i));
     }
     console_write("\n");
+    console_write("       interrupt counters (BSP): timer=");
+    console_write_dec(kernel_diag_interrupt_count(0u,32u));
+    console_write(" keyboard=");
+    console_write_dec(kernel_diag_interrupt_count(0u,33u));
+    console_write(" mouse=");
+    console_write_dec(kernel_diag_interrupt_count(0u,44u));
+    console_write(" LAPIC=");
+    console_write_dec(kernel_diag_interrupt_count(0u,48u));
+    console_write("\n");
     console_write("       online CPUs=");
     uint32_t online=0u;
     for (uint32_t i=0;i<LIONOS_MAX_CPUS;++i) {
