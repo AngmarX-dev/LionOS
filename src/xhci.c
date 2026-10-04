@@ -21,6 +21,7 @@
 #include "xhci.h"
 #include "debug.h"
 #include "console.h"
+#include "keyboard.h"
 
 #define PAGE_SIZE 4096u
 #define PCI_ADDR 0xCF8u
@@ -209,6 +210,14 @@ static uint32_t event_index, event_cycle;
 static uint32_t ep0_index, ep0_cycle;
 static uint32_t intr_index, intr_cycle, intr_segment;
 static uint32_t report_pending, report_length, report_seen;
+static void *kbd_out_ctx, *kbd_in_ctx;
+static uint8_t *kbd_report_buf;
+static trb_t *kbd_intr_segments[INTR_SEGMENTS];
+static uint32_t kbd_slot_id, kbd_port_number, kbd_device_speed;
+static uint32_t kbd_endpoint_id, kbd_endpoint_packet, kbd_endpoint_interval;
+static uint32_t kbd_intr_index, kbd_intr_cycle, kbd_intr_segment;
+static uint32_t kbd_report_pending, kbd_report_length, kbd_ready;
+static uint8_t hid_wanted_keyboard;
 
 static usb_protocol_t protocols[MAX_PROTOCOLS];
 static uint32_t protocol_count;
@@ -460,6 +469,8 @@ static int alloc_memory(void){
 
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i)
         if(dma_page((void**)&intr_segments[i])) return -1;
+    for(uint32_t i=0u;i<INTR_SEGMENTS;++i)
+        if(dma_page((void**)&kbd_intr_segments[i])) return -1;
 
     intr_ring=intr_segments[0];
 
@@ -473,7 +484,10 @@ static int alloc_memory(void){
     zero_mem(control_buf,PAGE_SIZE);
     zero_mem(config_buf,PAGE_SIZE);
     zero_mem(report_buf,PAGE_SIZE);
+    zero_mem(kbd_out_ctx,PAGE_SIZE); zero_mem(kbd_in_ctx,PAGE_SIZE);
+    zero_mem(kbd_report_buf,PAGE_SIZE);
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i) zero_mem(intr_segments[i],PAGE_SIZE);
+    for(uint32_t i=0u;i<INTR_SEGMENTS;++i) zero_mem(kbd_intr_segments[i],PAGE_SIZE);
 
     scratch_count=read_scratchpads();
     if(scratch_count>MAX_SCRATCH) return -1;
@@ -521,6 +535,11 @@ static int setup_rings(void){
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i)
         link_trb(intr_segments[i],intr_segments[(i+1u)%INTR_SEGMENTS],
                  i==(INTR_SEGMENTS-1u));
+    for(uint32_t i=0u;i<INTR_SEGMENTS;++i)
+        link_trb(kbd_intr_segments[i],kbd_intr_segments[(i+1u)%INTR_SEGMENTS],
+                 i==(INTR_SEGMENTS-1u));
+    kbd_intr_index=0u; kbd_intr_cycle=1u; kbd_intr_segment=0u;
+    kbd_report_pending=0u; kbd_ready=0u;
 
     erst[0].base=(uint64_t)(uintptr_t)event_ring;
     erst[0].size=EVENT_TRBS;
@@ -999,7 +1018,10 @@ static int find_hid(hid_candidate_t *c){
                 uint8_t cls=config_buf[i+5u];
                 uint8_t sub=config_buf[i+6u];
                 uint8_t proto=config_buf[i+7u];
-                sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&proto==2u):(alt==0u&&cls==3u);
+                if(hid_wanted_keyboard)
+                    sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&(proto==1u||proto==0u)):(alt==0u&&cls==3u&&sub==1u);
+                else
+                    sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&proto==2u):(alt==0u&&cls==3u&&sub==1u);
                 if(sel) c->interface_number=config_buf[i+2u];
             } else if(type==5u&&len>=7u&&sel){
                 uint8_t addr=config_buf[i+2u];
@@ -1074,6 +1096,28 @@ static int submit_report(void){
     *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+slot_id*4u)=endpoint_id;
     report_pending=1u;
     ++diag_transfer_submitted;
+    return 0;
+}
+
+static int submit_keyboard_report(void){
+    if(!kbd_ready||!kbd_endpoint_id||kbd_report_pending)return 0;
+    kbd_report_length=kbd_endpoint_packet;
+    if(kbd_report_length<8u)kbd_report_length=8u;
+    if(kbd_report_length>PAGE_SIZE)kbd_report_length=PAGE_SIZE;
+    trb_t *t=&kbd_intr_segments[kbd_intr_segment][kbd_intr_index];
+    t->lo=(uint32_t)(uintptr_t)kbd_report_buf;
+    t->hi=(uint32_t)((uint64_t)(uintptr_t)kbd_report_buf>>32);
+    t->status=kbd_report_length&0x1FFFFu;
+    t->control=(TRB_NORMAL<<10)|TRB_IOC|TRB_ISP|(kbd_intr_cycle?TRB_CYCLE:0u);
+    ++kbd_intr_index;
+    if(kbd_intr_index>=RING_TRBS-1u){
+        advance_link(&kbd_intr_segments[kbd_intr_segment][RING_TRBS-1u],&kbd_intr_cycle);
+        kbd_intr_index=0u; ++kbd_intr_segment;
+        if(kbd_intr_segment>=INTR_SEGMENTS)kbd_intr_segment=0u;
+    }
+    dma_wmb();
+    *(volatile uint32_t *)(uintptr_t)(XHCI_VIRT+db_base+kbd_slot_id*4u)=kbd_endpoint_id;
+    kbd_report_pending=1u;
     return 0;
 }
 
@@ -1334,10 +1378,17 @@ static int enumerate_port(uint32_t p){
     report_pending=0; report_length=0; report_seen=0;
     if(submit_report()) return usb_fail("SUBMIT HID REPORT");
 
-    diag_stage="HID REPORT WAIT"; ready=1; diag_init_ok=1;
-    usb_log("[ OK ] xHCI HID mouse ready on port ");
-    usb_log_dec(port_number); usb_log_nl();
-    debug_write("LIONOS:USB-MOUSE-READY\n");
+    diag_stage="HID REPORT WAIT";
+    if(!hid_wanted_keyboard){ ready=1; diag_init_ok=1; }
+    if(hid_wanted_keyboard){
+        usb_log("[ OK ] xHCI HID keyboard ready on port ");
+        usb_log_dec(port_number); usb_log_nl();
+        debug_write("LIONOS:USB-KEYBOARD-READY\n");
+    }else{
+        usb_log("[ OK ] xHCI HID mouse ready on port ");
+        usb_log_dec(port_number); usb_log_nl();
+        debug_write("LIONOS:USB-MOUSE-READY\n");
+    }
     return 0;
 }
 int xhci_mouse_init(void){
@@ -1463,6 +1514,55 @@ int xhci_mouse_init(void){
     return usb_fail("NO-HID-MOUSE");
 }
 
+int xhci_keyboard_init(void){
+    if(!ready||!slot_id||!endpoint_id)return -1;
+    if(kbd_ready)return 0;
+    uint32_t save_slot=slot_id, save_port=port_number, save_speed=device_speed;
+    uint32_t save_ep=endpoint_id, save_pkt=endpoint_packet, save_int=endpoint_interval;
+    uint32_t save_intr_index=intr_index, save_intr_cycle=intr_cycle, save_intr_segment=intr_segment;
+    uint32_t save_pending=report_pending, save_length=report_length, save_seen=report_seen;
+    uint32_t save_ep0_index=ep0_index, save_ep0_cycle=ep0_cycle;
+    trb_t *save_intr_ring=intr_ring;
+    trb_t *save_intr_ptrs[INTR_SEGMENTS];
+    for(uint32_t i=0u;i<INTR_SEGMENTS;++i)save_intr_ptrs[i]=intr_segments[i];
+    void *save_in_ctx=in_ctx, *save_out_ctx=out_ctx;
+    uint8_t *save_report_buf=report_buf;
+    uint32_t save_ready=ready, save_init=diag_init_ok;
+    in_ctx=kbd_in_ctx; out_ctx=kbd_out_ctx; report_buf=kbd_report_buf;
+    intr_ring=kbd_intr_segments[0];
+    for(uint32_t i=0u;i<INTR_SEGMENTS;++i)intr_segments[i]=kbd_intr_segments[i];
+    intr_index=kbd_intr_index; intr_cycle=kbd_intr_cycle; intr_segment=kbd_intr_segment;
+    report_pending=kbd_report_pending; report_length=kbd_report_length; report_seen=0u;
+    hid_wanted_keyboard=1u;
+    int found=-1;
+    for(uint32_t p=1u;p<=max_ports;++p){
+        if(p==save_port)continue;
+        uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
+        uint32_t ps=r32(po);
+        if(!(ps&PS_CCS))continue;
+        if(enumerate_port(p)==0){found=0;break;}
+    }
+    if(found==0){
+        kbd_slot_id=slot_id; kbd_port_number=port_number; kbd_device_speed=device_speed;
+        kbd_endpoint_id=endpoint_id; kbd_endpoint_packet=endpoint_packet; kbd_endpoint_interval=endpoint_interval;
+        kbd_intr_index=intr_index; kbd_intr_cycle=intr_cycle; kbd_intr_segment=intr_segment;
+        kbd_report_pending=report_pending; kbd_report_length=report_length; kbd_ready=1u;
+    }else{
+        kbd_ready=0u; kbd_report_pending=0u;
+    }
+    hid_wanted_keyboard=0u;
+    slot_id=save_slot; port_number=save_port; device_speed=save_speed;
+    endpoint_id=save_ep; endpoint_packet=save_pkt; endpoint_interval=save_int;
+    intr_ring=save_intr_ring;
+    for(uint32_t i=0u;i<INTR_SEGMENTS;++i)intr_segments[i]=save_intr_ptrs[i];
+    intr_index=save_intr_index; intr_cycle=save_intr_cycle; intr_segment=save_intr_segment;
+    report_pending=save_pending; report_length=save_length; report_seen=save_seen;
+    ep0_index=save_ep0_index; ep0_cycle=save_ep0_cycle;
+    in_ctx=save_in_ctx; out_ctx=save_out_ctx; report_buf=save_report_buf;
+    ready=save_ready; diag_init_ok=save_init;
+    return found;
+}
+
 int xhci_mouse_recover(void){
     if(!ready||!slot_id||!endpoint_id) return -1;
 
@@ -1513,7 +1613,21 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         if(next_event(&e)!=0) break;
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) continue;
         if(((e.control>>24)&0xFFu)!=slot_id) continue;
-        if(((e.control>>16)&0x1Fu)!=endpoint_id) continue;
+        uint32_t event_slot=(e.control>>24)&0xFFu;
+        uint32_t event_ep=(e.control>>16)&0x1Fu;
+        if(kbd_ready && event_slot==kbd_slot_id && event_ep==kbd_endpoint_id){
+            uint32_t kcc=(e.status>>24)&0xFFu;
+            if(kcc==CC_SUCCESS||kcc==CC_SHORT_PKT){
+                uint32_t kres=kbd_report_length>(e.status&0xFFFFFFu)
+                    ?kbd_report_length-(e.status&0xFFFFFFu):0u;
+                if(kres>PAGE_SIZE)kres=PAGE_SIZE;
+                keyboard_handle_usb_report(kbd_report_buf,kres);
+            }
+            kbd_report_pending=0u;
+            submit_keyboard_report();
+            continue;
+        }
+        if(event_slot!=slot_id || event_ep!=endpoint_id) continue;
 
         report_pending=0;
         ++diag_event_count;
@@ -1557,6 +1671,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
      * idle HID mouse: the endpoint remains armed until the device has data.
      * Do not reset the endpoint merely because the mouse is silent.
      */
+    if(kbd_ready && !kbd_report_pending)submit_keyboard_report();
     if(!report_pending){
         if(submit_report()!=0) return -1;
     }
