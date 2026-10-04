@@ -1,6 +1,6 @@
 #include "user_libc.h"
 
 int main(void) {
-    puts("LionOS 0.7 x86 i386");
+    puts("LionOS 1.0.0 x86 i386");
     return 0;
 }
