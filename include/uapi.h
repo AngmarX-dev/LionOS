@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "vfs_uapi.h"
 #include "ipc.h"
+#include "pipe.h"
 #include "net.h"
 
 #define LIONOS_UAPI_VERSION 5u
@@ -36,12 +37,22 @@
 #define LIONOS_SYS_NET_PING 32u
 #define LIONOS_SYS_MOUSE_READ 33u
 #define LIONOS_SYS_MOUSE_PENDING 34u
+#define LIONOS_SYS_GETTID 35u
+#define LIONOS_SYS_THREAD_CREATE 36u
+#define LIONOS_SYS_THREAD_JOIN 37u
+#define LIONOS_SYS_THREAD_EXIT 38u
+#define LIONOS_SYS_PIPE_CREATE 39u
+#define LIONOS_SYS_PIPE_READ 40u
+#define LIONOS_SYS_PIPE_WRITE 41u
+#define LIONOS_SYS_PIPE_CLOSE 42u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
 #define LIONOS_IPC_EMPTY ((uint32_t)-2)
 #define LIONOS_NET_EMPTY ((uint32_t)-2)
 #define LIONOS_MOUSE_BLOCKED ((uint32_t)-2)
+#define LIONOS_THREAD_BLOCKED ((uint32_t)-2)
+#define LIONOS_PIPE_BLOCKED ((uint32_t)-2)
 
 struct lion_mouse_event {
     int32_t dx;
