@@ -832,6 +832,7 @@ void gui_start(void){
     cursor_overlay=0u;
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
+    debug_write("LIONOS:GUI-READY\n");
 }
 void gui_step(void){
     if(!gui_active)return;

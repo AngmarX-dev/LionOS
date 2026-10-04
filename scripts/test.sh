@@ -77,6 +77,7 @@ run_gui_smoke() {
 
     grep -q 'LIONOS:READY' "$log_file"
     grep -q 'LIONOS:GUI-ENTER' "$log_file"
+    grep -q 'LIONOS:GUI-READY' "$log_file"
 
     python3 - "$GUI_MONITOR_SOCKET" <<'PY'
 import socket
