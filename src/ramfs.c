@@ -1,6 +1,6 @@
 #include <stdint.h>
 #include "ramfs.h"
-#define RAMFS_MAX_FILES 16u
+#define RAMFS_MAX_FILES 32u
 #define RAMFS_NAME_MAX 64u
 #define RAMFS_DATA_MAX 256u
 struct ramfs_file { char name[RAMFS_NAME_MAX]; char data[RAMFS_DATA_MAX]; uint32_t size; };
@@ -15,7 +15,7 @@ extern const uint8_t _binary_cow_test_elf_start[],_binary_cow_test_elf_end[];
 static int streq(const char*a,const char*b){while(*a&&*a==*b){++a;++b;}return *a==*b;}
 static struct ramfs_file*find(const char*n){for(uint32_t i=0;i<count;++i)if(streq(files[i].name,n))return &files[i];return 0;}
 static void copy_name(char*d,const char*s){uint32_t i=0;while(s[i]&&i<RAMFS_NAME_MAX-1u){d[i]=s[i];++i;}d[i]=0;}
-void ramfs_init(void){count=0;ramfs_write("readme.txt","Welcome to LionOS.\nBuilt as an experimental 32-bit x86 OS.\n",61u);ramfs_write("version","LionOS 0.7\n",12u);ramfs_write("motd","The LionOS kernel is alive.\n",28u);}
+void ramfs_init(void){count=0;ramfs_write("readme.txt","Welcome to LionOS.\nBuilt as an experimental 32-bit x86 OS.\n",61u);ramfs_write("version","LionOS 1.0.0\n",12u);ramfs_write("motd","The LionOS kernel is alive.\n",28u);}
 uint32_t ramfs_count(void){return count+7u;}
 const char*ramfs_name(uint32_t i){if(i<count)return files[i].name;if(i==count)return "hello.elf";if(i==count+1u)return "process_test.elf";if(i==count+2u)return "ipc_test.elf";if(i==count+3u)return "signal_test.elf";if(i==count+4u)return "net_test.elf";if(i==count+5u)return "vfs_test.elf";if(i==count+6u)return "cow_test.elf";return 0;}
 const char*ramfs_data(const char*n){if(streq(n,"hello.elf"))return(const char*)_binary_hello_elf_start;if(streq(n,"process_test.elf"))return(const char*)_binary_process_test_elf_start;if(streq(n,"ipc_test.elf"))return(const char*)_binary_ipc_test_elf_start;if(streq(n,"signal_test.elf"))return(const char*)_binary_signal_test_elf_start;if(streq(n,"net_test.elf"))return(const char*)_binary_net_test_elf_start;if(streq(n,"vfs_test.elf"))return(const char*)_binary_vfs_test_elf_start;if(streq(n,"cow_test.elf"))return(const char*)_binary_cow_test_elf_start;struct ramfs_file*f=find(n);return f?f->data:0;}
