@@ -15,6 +15,7 @@
 #include "diskfs.h"
 #include "vfs.h"
 #include "ipc.h"
+#include "pipe.h"
 #include "signal.h"
 #include "net.h"
 #include "shell.h"
@@ -336,6 +337,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     vfs_boot_test();
 
     ipc_init();
+    pipe_init();
     console_write("[ OK ] IPC / kernel message queues\n");
     BOOT_STAGE(89u, "FILESYSTEM SERVICES READY");
 
