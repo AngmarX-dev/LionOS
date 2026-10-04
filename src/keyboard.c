@@ -167,7 +167,7 @@ void keyboard_init(void) {
     keyboard_flush_output();
 
     /*
-     * Make the physical device generate Set-1 codes explicitly. The i8042
+     * Make the physical device generate Set-2 codes explicitly. The i8042
      * translation bit is also enabled above, but programming the keyboard
      * itself removes another source of laptop/firmware-dependent behavior.
      */
