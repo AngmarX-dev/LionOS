@@ -27,6 +27,7 @@
 #include "xhci.h"
 #include "intel_gpu.h"
 #include "exec.h"
+#include "kernel_diag.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -273,6 +274,9 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write(" / logical hint ");
     boot_dec(cpu_count_hint());
     console_write("\n");
+    console_write("[ OK ] CPU SIMD features: 0x");
+    console_write_hex(cpu_feature_flags());
+    console_write("\n");
     BOOT_STAGE(46u, "CPU TOPOLOGY READY");
 
     uint32_t lapic_ready = 0;
@@ -301,7 +305,10 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     BOOT_STAGE(62u, "KERNEL SERVICES READY");
 
     process_init();
-    console_write("[ OK ] Process table / scheduler / ring-3 address spaces\n");
+    console_write("[ OK ] Process table / MLFQ scheduler / per-CPU run queues\n");
+    console_write(cpu_fpu_sse_init()==0 ? "[ OK ] FPU / SSE context switching enabled\n" : "[ -- ] FPU / SSE unavailable\n");
+    kernel_log(KLOG_INFO,"kernel services online");
+    kernel_diag_print();
     BOOT_STAGE(68u, "PROCESS MANAGER READY");
 
     if(lapic_ready){
