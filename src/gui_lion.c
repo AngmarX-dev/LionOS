@@ -497,12 +497,17 @@ static void draw_taskbar(void){
     draw_notification();
 }
 
+static void start_geom(uint32_t*x,uint32_t*y,uint32_t*w,uint32_t*h){
+    uint32_t sw=framebuffer_width(),sh=framebuffer_height();
+    *w=sw>560u?460u:300u;
+    *h=sh>580u?470u:sh>480u?410u:350u;
+    *x=12u;
+    *y=sh-TASKBAR_H-*h-10u;
+}
 static void draw_start_menu(void){
     if(!start_open) return;
-    uint32_t w=framebuffer_width(),h=framebuffer_height();
-    uint32_t mw=w>560u?460u:300u;
-    uint32_t mh=h>580u?470u:h>480u?410u:350u;
-    uint32_t x=12u,y=h-TASKBAR_H-mh-10u;
+    uint32_t mw,mh,x,y;
+    start_geom(&x,&y,&mw,&mh);
     glass_panel(x,y,mw,mh,24u,COL_PANEL,55u,1u);
     framebuffer_blend_round_rect(x+1u,y+1u,mw>2u?mw-2u:1u,58u,20u,0xE8F7FFu,14u);
     text_line("LIONOS",x+20u,y+18u,COL_GOLD,COL_PANEL2);
@@ -625,15 +630,15 @@ static void init_windows(void){
     dirty_full();
     last_render_tick=0xFFFFFFFFu;
 }
-static void close_gui(void){gui_active=0u;dirty_full();debug_write("LIONOS:GUI-EXIT\\n");}
+static void close_gui(void){gui_active=0u;framebuffer_end_desktop();dirty_full();debug_write("LIONOS:GUI-EXIT\n");}
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
     focus(w->id);
     if(y<w->y+TITLE_H&&x>=w->x&&x<w->x+w->w){
         if(x>=w->x+w->w-28u){hide(w->id);return;}
-        if(x>=w->x+w->w-52u){toggle_max(w->id);return;}
-        if(x>=w->x+w->w-76u){minimize(w->id);return;}
+        if(x>=w->x+w->w-56u){toggle_max(w->id);return;}
+        if(x>=w->x+w->w-84u){minimize(w->id);return;}
         if(!w->maximized){drag_active=1u;drag_id=w->id;drag_dx=(int)x-(int)w->x;drag_dy=(int)y-(int)w->y;}
     }
 }
@@ -665,16 +670,24 @@ static void handle_click(void){
         if(x<170u&&y>=h-TASKBAR_H){start_open=!start_open;return;}
     }
     if(start_open){
-        uint32_t mw=framebuffer_width()>520u?420u:300u;
-        uint32_t mh=framebuffer_height()>560u?440u:framebuffer_height()>460u?400u:340u;
-        uint32_t sx=12u,sy=h-TASKBAR_H-mh-8u;
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+122u&&y<sy+160u){show(WIN_TERMINAL);terminal_init();return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+164u&&y<sy+202u){show(WIN_FILES);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+206u&&y<sy+244u){show(WIN_ABOUT);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+248u&&y<sy+286u){show(WIN_SETTINGS);return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+290u&&y<sy+328u){browser_start();return;}
-        if(x>=sx+18u&&x<sx+mw-18u&&y>=sy+332u&&y<sy+370u){show(WIN_NOTEPAD);return;}
-        if(mh>330u&&x>=sx+18u&&x<sx+158u&&y>=sy+mh-52u&&y<sy+mh-18u){close_gui();return;}
+        uint32_t sx,sy,mw,mh;
+        start_geom(&sx,&sy,&mw,&mh);
+        for(uint32_t i=0u;i<6u;++i){
+            uint32_t by=sy+136u+i*42u;
+            if(hit(sx+18u,by,mw-36u,38u,x,y)){
+                static const uint8_t act[6]={
+                    ICON_ACTION_TERMINAL,ICON_ACTION_FILES,ICON_ACTION_ABOUT,
+                    ICON_ACTION_SETTINGS,ICON_ACTION_BROWSER,ICON_ACTION_NOTEPAD
+                };
+                activate_desktop_icon(act[i]);
+                start_open=0u;
+                return;
+            }
+        }
+        if(mh>400u&&hit(sx+18u,sy+mh-52u,140u,34u,x,y)){
+            close_gui();
+            return;
+        }
         start_open=0u;
     }
     for(int i=(int)WIN_MAX-1;i>=0;--i){
@@ -806,10 +819,10 @@ static void handle_key(int key){
 }
 
 void gui_start(void){
-    debug_write("LIONOS:GUI-ENTER\\n");
-    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\\n");return;}
+    debug_write("LIONOS:GUI-ENTER\n");
+    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
-    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\\n");return;}
+    if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\n");return;}
     while(keyboard_available())(void)keyboard_getchar();
     /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
     cursor_overlay=0u;
