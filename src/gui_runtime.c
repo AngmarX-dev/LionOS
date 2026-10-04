@@ -59,8 +59,8 @@ static void term_command(void){
     if(streq(term_input,"help"))term_line("help  ls  pwd  uname  version  about  mem  clear  exit");
     else if(streq(term_input,"ls"))term_ls();
     else if(streq(term_input,"pwd"))term_line("/");
-    else if(streq(term_input,"uname"))term_line("LionOS 0.8 x86 i386");
-    else if(streq(term_input,"version"))term_line("LionOS version 0.8");
+    else if(streq(term_input,"uname"))term_line("LionOS 1.0.0 x86 i386");
+    else if(streq(term_input,"version"))term_line("LionOS version 1.0.0");
     else if(streq(term_input,"about"))term_line("Experimental 32-bit OS with SMP, VFS, ELF32 and GUI.");
     else if(streq(term_input,"mem")){char b[48];uint32_t v=memory_free_pages(),p=0;char d[11];if(!v)term_line("free pages: 0");else{while(v&&p<10u){d[p++]=(char)('0'+v%10u);v/=10u;}uint32_t j=0;const char*h="free pages: ";while(h[j]){b[j]=h[j];++j;}while(p)b[j++]=d[--p];b[j]=0;term_line(b);}}
     else if(streq(term_input,"clear"))term_clear();
