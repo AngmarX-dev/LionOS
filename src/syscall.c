@@ -5,6 +5,7 @@
 #include "keyboard.h"
 #include "memory.h"
 #include "mouse.h"
+#include "paging.h"
 #include "net.h"
 #include "process.h"
 #include "signal.h"
@@ -16,7 +17,7 @@
 #define USER_MAX 0xC0000000u
 #define USER_COPY_MAX 4096u
 
-static int user_range_ok(uint32_t ptr,uint32_t len){if(len==0)return ptr>=USER_MIN&&ptr<USER_MAX;if(ptr<USER_MIN||ptr>=USER_MAX)return 0;return len<=USER_MAX-ptr;}
+static int user_range_ok(uint32_t ptr,uint32_t len){if(len==0u)return ptr>=USER_MIN&&ptr<USER_MAX;if(ptr<USER_MIN||ptr>=USER_MAX||len>USER_MAX-ptr)return 0;uint32_t end=ptr+len,addr=ptr&~0xFFFu,pd=paging_current_address_space();if(!pd)return 0;for(;;){if(paging_get_user_page(pd,addr,0,0)!=0)return 0;if(addr+0x1000u>=end)break;addr+=0x1000u;}return 1;}
 static int copy_user_string(char*dst,uint32_t dst_size,uint32_t user_ptr){if(!dst||dst_size<2u||!user_range_ok(user_ptr,1u))return-1;for(uint32_t i=0;i<dst_size-1u;++i){uint32_t a=user_ptr+i;if(!user_range_ok(a,1u))return-1;dst[i]=*(const char*)(uintptr_t)a;if(!dst[i])return 0;}dst[dst_size-1u]=0;return-1;}
 static int process_exists(uint32_t pid){if(!pid)return 0;for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i){struct process*p=process_at(i);if(p&&p->state!=PROCESS_UNUSED&&p->pid==pid)return 1;}return 0;}
 static int has_cap(uint32_t cap){return process_has_capability(process_current(),cap);}

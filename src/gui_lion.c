@@ -119,6 +119,7 @@ static char notepad_text[NOTEPAD_TEXT_MAX+1u];
 static uint32_t notepad_len;
 static uint32_t notepad_cursor;
 static uint8_t notepad_focus;
+static uint8_t notepad_loaded;
 
 static void glyph(char c, uint16_t rows[FONT_H]) {
     for (uint32_t i=0u;i< FONT_H;++i) rows[i]=0u;
@@ -198,7 +199,7 @@ static void show(uint8_t id){
     w->visible=1u; w->minimized=0u; focus(id); start_open=0u;
     terminal_focus=0u; notepad_focus=0u;
     if(id==WIN_TERMINAL)terminal_focus=1u;
-    if(id==WIN_NOTEPAD){notepad_init();}
+    if(id==WIN_NOTEPAD){if(!notepad_loaded){notepad_init();notepad_loaded=1u;}else notepad_focus=1u;}
 }
 static void hide(uint8_t id){
     struct ui_window*w=window_by_id(id);if(!w)return;
@@ -209,6 +210,14 @@ static void hide(uint8_t id){
 }
 static void minimize(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;w->minimized=1u;w->focused=0u;drag_active=0u;if(id==WIN_TERMINAL)terminal_focus=0u;if(id==WIN_NOTEPAD){notepad_save();notepad_focus=0u;}}
 static void toggle_max(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)return;uint32_t dh=framebuffer_height()>TASKBAR_H?framebuffer_height()-TASKBAR_H:framebuffer_height();if(!w->maximized){w->old_x=w->x;w->old_y=w->y;w->old_w=w->w;w->old_h=w->h;w->x=0u;w->y=0u;w->w=framebuffer_width();w->h=dh;w->maximized=1u;}else{w->x=w->old_x;w->y=w->old_y;w->w=w->old_w;w->h=w->old_h;w->maximized=0u;}focus(id);}
+
+static uint32_t ui_signature(void){
+    uint32_t h=start_open*31u+(uint32_t)browser_is_active()+gui_active*7u;
+    for(uint32_t i=0;i<WIN_MAX;++i){const struct ui_window*w=&windows[i];h=h*33u+w->visible+(w->minimized<<1)+(w->focused<<2)+(w->maximized<<3);h=h*33u+w->x;h=h*33u+w->y;h=h*33u+w->w;h=h*33u+w->h;}
+    h=h*33u+(uint32_t)(desktop_icon_drag+1)+term_line_count+term_len;h=h*33u+notepad_len+notepad_cursor;return h;
+}
+static void dirty_around_cursor(void){dirty_rect(mouse_px_x>80u?mouse_px_x-80u:0u,mouse_px_y>80u?mouse_px_y-80u:0u,180u,180u);}
+static void dirty_focused(void){for(uint32_t i=0;i<WIN_MAX;++i){struct ui_window*w=&windows[i];if(w->visible&&!w->minimized&&w->focused){dirty_rect(w->x>8u?w->x-8u:0u,w->y>8u?w->y-8u:0u,w->w+32u,w->h+32u);return;}}dirty_full();}
 
 static void term_clear(void){term_line_count=0u;term_len=0u;term_input[0]=0;}
 static void term_line(const char*s){if(term_line_count<22u){uint32_t i=0;while(s[i]&&i<120u){term_lines[term_line_count][i]=s[i];++i;}term_lines[term_line_count][i]=0;term_line_count++;return;}for(uint32_t r=1u;r<22u;++r)for(uint32_t c=0;c<121u;++c)term_lines[r-1u][c]=term_lines[r][c];uint32_t i=0;while(s[i]&&i<120u){term_lines[21][i]=s[i];++i;}term_lines[21][i]=0;}
@@ -634,7 +643,7 @@ static void close_gui(void){gui_active=0u;framebuffer_end_desktop();dirty_full()
 
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
-    focus(w->id);
+    focus(w->id);terminal_focus=(w->id==WIN_TERMINAL);notepad_focus=(w->id==WIN_NOTEPAD);
     if(y<w->y+TITLE_H&&x>=w->x&&x<w->x+w->w){
         if(x>=w->x+w->w-28u){hide(w->id);return;}
         if(x>=w->x+w->w-56u){toggle_max(w->id);return;}
@@ -644,7 +653,6 @@ static void handle_window_click(struct ui_window*w){
 }
 
 static void handle_click(void){
-    dirty_full();
     uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height(),sw=framebuffer_width();
     if(browser_is_active()){browser_mouse_click(x,y);return;}
     if(y>=h-TASKBAR_H){
@@ -801,11 +809,7 @@ static void handle_key(int key){
         for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].focused){hide(windows[i].id);return;}
         close_gui();return;
     }
-    if(notepad_focus){
-        notepad_insert(key);
-        dirty_full();
-        return;
-    }
+    if(notepad_focus){notepad_insert(key);dirty_focused();return;}
     if(terminal_focus){
         if(key=='\n'||key==13){terminal_command();return;}
         if(key=='\b'||key==127){if(term_len){--term_len;term_input[term_len]=0;}return;}
@@ -831,43 +835,16 @@ void gui_start(void){
 }
 void gui_step(void){
     if(!gui_active)return;
-    const char *usb_status=mouse_usb_status_text();
-    if(usb_status!=last_usb_status){
-        last_usb_status=usb_status;
-        dirty_full();
-    }
-    uint32_t old_x=mouse_px_x,old_y=mouse_px_y;
-    mouse_px_x=px();mouse_px_y=py();
-    uint32_t buttons=mouse_buttons();
-    uint8_t cursor_moved=(mouse_px_x!=old_x||mouse_px_y!=old_y)?1u:0u;
-    if(cursor_moved){
-        uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u;
-        uint32_t top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u;
-        uint32_t right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u;
-        uint32_t bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;
-        if(right>framebuffer_width())right=framebuffer_width();
-        if(bottom>framebuffer_height())bottom=framebuffer_height();
-        if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);
-    }
-    if(buttons!=previous_buttons)dirty_full();
-    if((buttons&1u)&&!(previous_buttons&1u))handle_click();
-    if(!(buttons&1u)&&(previous_buttons&1u)){
-        if(desktop_icon_drag>=0){
-            int icon=desktop_icon_drag;
-            desktop_icons[icon].dragging=0u;
-            if(!desktop_icons[icon].moved)
-                activate_desktop_icon(desktop_icons[icon].action);
-            desktop_icon_drag=-1;
-        }
-        drag_active=0u;
-        dirty_full();
-    }
+    const char *usb_status=mouse_usb_status_text();if(usb_status!=last_usb_status){last_usb_status=usb_status;dirty_full();}
+    uint32_t old_x=mouse_px_x,old_y=mouse_px_y;mouse_px_x=px();mouse_px_y=py();uint32_t buttons=mouse_buttons();
+    if(mouse_px_x!=old_x||mouse_px_y!=old_y){uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u,top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u,right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u,bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;if(right>framebuffer_width())right=framebuffer_width();if(bottom>framebuffer_height())bottom=framebuffer_height();if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);}
+    if(buttons!=previous_buttons)dirty_around_cursor();
+    if((buttons&1u)&&!(previous_buttons&1u)){uint32_t sig=ui_signature();handle_click();if(sig!=ui_signature())dirty_full();}
+    if(!(buttons&1u)&&(previous_buttons&1u)){uint32_t sig=ui_signature();if(desktop_icon_drag>=0){int icon=desktop_icon_drag;desktop_icons[icon].dragging=0u;if(!desktop_icons[icon].moved)activate_desktop_icon(desktop_icons[icon].action);desktop_icon_drag=-1;}drag_active=0u;if(sig!=ui_signature())dirty_full();else dirty_around_cursor();}
     handle_move();
     if(browser_is_active()){browser_step();previous_buttons=buttons;dirty_full();render_all();return;}
-    while(keyboard_available()){dirty_full();handle_key(keyboard_getchar());}
-    previous_buttons=buttons;
-    render_all();
-
+    while(keyboard_available()){handle_key(keyboard_getchar());dirty_focused();}
+    previous_buttons=buttons;render_all();
 }
 int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){

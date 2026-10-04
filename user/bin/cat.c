@@ -1,7 +1,7 @@
 #include "user_libc.h"
 
 static int cat_file(const char *path) {
-    char buffer[4096];
+    char buffer[512];
     int32_t fd = lion_open(path, LIONOS_O_READ);
     if (fd < 0) {
         printf("cat: %s: not found\n", path);

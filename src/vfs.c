@@ -86,7 +86,7 @@ static int write_slot(struct vfs_fd *f,const void *buffer,uint32_t length) {
     if(f->offset!=0 && !(f->flags&VFS_F_APPEND))return -1;
     int r=f->backend==VFS_BACKEND_DISKFS?diskfs_write(f->path,buffer,length):ramfs_write(f->path,buffer,length);
     if(r<0)return -1;
-    f->offset=length;
+    f->offset+=length;
     return (int)length;
 }
 

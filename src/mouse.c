@@ -56,6 +56,7 @@ static volatile int       cursor_visible = 1;
 static volatile int      usb_initialized = 0;
 static volatile uint32_t usb_status = 0;          /* 0=off 1=ready 3=retrying */
 static volatile uint32_t usb_retry_frames = 0;
+static volatile uint32_t usb_retry_count = 0;
 static volatile int32_t  usb_x = 400;
 static volatile int32_t  usb_y = 300;
 static volatile uint8_t  usb_buttons = 0;
@@ -188,6 +189,7 @@ int mouse_usb_init(void){
     }
     usb_initialized = 1;
     usb_has_report = 0u;
+    usb_retry_count = 0u;
     usb_status = 1u;                            /* READY */
     usb_recovery_cooldown = 0u;
     return 0;
@@ -196,6 +198,7 @@ int mouse_usb_init(void){
 void mouse_usb_retry(void){
     usb_has_report = 0u;
     usb_retry_frames = 0;
+    usb_retry_count = 0u;
     usb_initialized = 0;
     usb_status = 3u;
     usb_recovery_cooldown = 0u;
@@ -239,11 +242,10 @@ void mouse_poll(void){
             mouse_event_push(dx, dy, btn, 2u);
         }
     }else{
-        usb_status=3u;
-        if(++usb_retry_frames>=30u){
-            usb_retry_frames=0u;
-            (void)mouse_usb_init();
-        }
+        if(usb_retry_count<3u){
+            usb_status=3u;
+            if(++usb_retry_frames>=500u){usb_retry_frames=0u;++usb_retry_count;(void)mouse_usb_init();}
+        }else usb_status=0u;
     }
 
     if(usb_recovery_cooldown) --usb_recovery_cooldown;

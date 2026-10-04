@@ -17,15 +17,7 @@ void *memset(void *dst, int value, uint32_t length) {
     return dst;
 }
 
-void *memcpy(void *dst, const void *src, uint32_t length) {
-    uint8_t *d = (uint8_t *)dst;
-    const uint8_t *s = (const uint8_t *)src;
-
-    for (uint32_t i = 0; i < length; ++i)
-        d[i] = s[i];
-
-    return dst;
-}
+void *memcpy(void *dst,const void *src,uint32_t length){void*ret=dst;uint32_t words=length>>2,rest=length&3u;__asm__ volatile("rep movsl":"+D"(dst),"+S"(src),"+c"(words)::"memory");__asm__ volatile("rep movsb":"+D"(dst),"+S"(src),"+c"(rest)::"memory");return ret;}
 
 void *memmove(void *dst, const void *src, uint32_t length) {
     uint8_t *d = (uint8_t *)dst;
