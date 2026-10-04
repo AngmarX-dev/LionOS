@@ -16,6 +16,8 @@
 #define PROCESS_CONTEXT_WORDS 19u
 #define PROCESS_FD_MAX 32u
 #define PROCESS_FD_PATH_MAX 64u
+#define PROCESS_PRIORITY_LEVELS 4u
+#define PROCESS_PRIORITY_DEFAULT 2u
 #define PROCESS_CAP_CONSOLE (1u<<0)
 #define PROCESS_CAP_FS      (1u<<1)
 #define PROCESS_CAP_PROCESS (1u<<2)
@@ -47,6 +49,12 @@ struct process {
     uint32_t pending_signals;
     uint32_t capabilities;
     uint32_t cpu_owner;
+    uint32_t priority;
+    uint32_t base_priority;
+    uint32_t time_slice;
+    uint32_t ticks_used;
+    uint8_t fpu_state[512] __attribute__((aligned(16)));
+    uint32_t fpu_valid;
     uint8_t fd_used[PROCESS_FD_MAX];
     uint8_t fd_backend[PROCESS_FD_MAX];
     uint32_t fd_flags[PROCESS_FD_MAX];
@@ -83,6 +91,10 @@ void    process_wakeup(uintptr_t channel);
 uint32_t process_count(void);
 uint32_t *process_schedule(uint32_t *frame);
 void process_set_saved_frame(struct process *process, uint32_t *frame);
+void process_request_reschedule(void);
+int process_set_priority(struct process *process, uint32_t priority);
+uint32_t process_scheduler_ticks(uint32_t cpu);
+uint32_t process_scheduler_steals(uint32_t cpu);
 uint32_t *process_saved_frame(struct process *process);
 uint32_t process_kernel_stack_top(struct process *process);
 int process_is_descendant_or_child(uint32_t pid, uint32_t ancestor_pid);
