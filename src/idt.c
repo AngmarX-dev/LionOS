@@ -34,6 +34,7 @@ uint32_t *interrupt_dispatch(uint32_t *frame){uint32_t vector=frame[12];if(vecto
     console_write("[FATAL] kernel exception; system halted.\n");
     for(;;)__asm__ volatile("cli; hlt");
 }
+}
 return frame;
 
 uint32_t interrupt_timer_ticks(void){ return ticks; }
