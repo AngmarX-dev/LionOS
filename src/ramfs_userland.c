@@ -29,7 +29,7 @@ static int streq(const char*a,const char*b){while(*a&&*a==*b){++a;++b;}return *a
 static struct ramfs_file*find(const char*n){for(uint32_t i=0;i<count;++i)if(streq(files[i].name,n))return &files[i];return 0;}
 static void copy_name(char*d,const char*s){uint32_t i=0;while(s[i]&&i<RAMFS_NAME_MAX-1u){d[i]=s[i];++i;}d[i]=0;}
 static int program_index(const char*n){for(uint32_t i=0;i<RAMFS_PROGRAM_COUNT;++i)if(streq(n,program_names[i]))return(int)i;return-1;}
-void ramfs_init(void){count=0;ramfs_write("readme.txt","Welcome to LionOS.\nBuilt as an experimental 32-bit x86 OS.\n",61u);ramfs_write("version","LionOS 1.0.0\n",12u);ramfs_write("motd","The LionOS kernel is alive.\n",28u);}
+void ramfs_init(void){count=0;ramfs_write("readme.txt","Welcome to LionOS.\nBuilt as an experimental 32-bit x86 OS.\n",61u);ramfs_write("version","LionOS 1.0.0\n",13u);ramfs_write("motd","The LionOS kernel is alive.\n",28u);}
 uint32_t ramfs_count(void){return count+RAMFS_PROGRAM_COUNT;}
 const char*ramfs_name(uint32_t i){if(i<count)return files[i].name;if(i-count<RAMFS_PROGRAM_COUNT)return program_names[i-count];return 0;}
 const char*ramfs_data(const char*n){int p=program_index(n);if(p>=0)return(const char*)program_starts[p];struct ramfs_file*f=find(n);return f?f->data:0;}
