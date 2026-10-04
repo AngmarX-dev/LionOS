@@ -313,6 +313,48 @@ void keyboard_handle_scancode(uint8_t scancode) {
     }
 }
 
+
+static volatile uint8_t usb_prev_keys[6];
+static int usb_key_present(const uint8_t *keys, uint8_t code){
+    for(uint32_t i=0u;i<6u;++i) if(keys[i]==code) return 1;
+    return 0;
+}
+static char usb_key_char(uint8_t usage, uint8_t shifted){
+    static const char normal[]="abcdefghijklmnopqrstuvwxyz1234567890";
+    static const char shifted_map[]="ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()";
+    if(usage>=0x04u&&usage<=0x1Du)
+        return shifted?shifted_map[usage-0x04u]:normal[usage-0x04u];
+    if(usage>=0x1Eu&&usage<=0x27u)
+        return shifted?shifted_map[usage-0x1Eu+26u]:normal[usage-0x1Eu+26u];
+    switch(usage){
+        case 0x28u:return 10; case 0x29u:return 27; case 0x2Au:return 8; case 0x2Bu:return 9;
+        case 0x2Cu:return 32; case 0x2Du:return shifted?95:45; case 0x2Eu:return shifted?43:61;
+        case 0x2Fu:return shifted?123:91; case 0x30u:return shifted?125:93; case 0x31u:return shifted?124:92;
+        case 0x33u:return shifted?58:59; case 0x34u:return shifted?34:39; case 0x35u:return shifted?126:96;
+        case 0x36u:return shifted?60:44; case 0x37u:return shifted?62:46; case 0x38u:return shifted?63:47;
+        default:return 0;
+    }
+}
+void keyboard_handle_usb_report(const uint8_t *report, uint32_t length){
+    if(!report||length<8u)return;
+    uint8_t modifiers=report[0];
+    uint8_t shift=(uint8_t)((modifiers&0x22u)!=0u);
+    uint8_t ctrl=(uint8_t)((modifiers&0x11u)!=0u);
+    uint8_t alt=(uint8_t)((modifiers&0x44u)!=0u);
+    shift_down=shift; ctrl_down=ctrl; alt_down=alt;
+    for(uint32_t i=0u;i<6u;++i){
+        uint8_t code=report[2u+i];
+        if(!code||usb_key_present(usb_prev_keys,code))continue;
+        if(code==0x39u){caps_lock^=1u;continue;}
+        char ch=usb_key_char(code,(uint8_t)(shift^(caps_lock&&code>=0x04u&&code<=0x1Du)));
+        if(ctrl&&ch>='a'&&ch<='z')ch=(char)(ch-'a'+1);
+        if(ch){
+            push_char((uint8_t)ch);
+            if(!input_seen){input_seen=1u;debug_write("LIONOS:KEYBOARD-USB-INPUT\n");}
+        }
+    }
+    for(uint32_t i=0u;i<6u;++i)usb_prev_keys[i]=report[2u+i];
+}
 void keyboard_irq_handler(void){
     /*
      * IRQ 1 is the interrupt-driven producer for the ring buffer. Consume
