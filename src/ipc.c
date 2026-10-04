@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "ipc.h"
 #include "spinlock.h"
+#include "process.h"
 
 static struct ipc_message messages[IPC_QUEUE_MAX];
 static struct spinlock ipc_lock;
@@ -22,6 +23,7 @@ int32_t ipc_send(uint32_t receiver_pid, uint32_t sender_pid, const void *data, u
         messages[i].length = length;
         for (uint32_t j = 0; j < length; ++j) messages[i].data[j] = src[j];
         spinlock_irqrestore_release(&ipc_lock,irq);
+        process_wakeup((uintptr_t)(IPC_WAIT_CHANNEL_BASE+receiver_pid));
         return (int32_t)length;
     }
     spinlock_irqrestore_release(&ipc_lock,irq);
@@ -57,4 +59,16 @@ uint32_t ipc_pending(uint32_t receiver_pid) {
         if (messages[i].used && messages[i].receiver_pid == receiver_pid) ++count;
     spinlock_irqrestore_release(&ipc_lock,irq);
     return count;
+}
+
+int32_t ipc_recv_blocking(uint32_t receiver_pid, void *data, uint32_t capacity, uint32_t *sender_pid){
+    if(!receiver_pid||!data||!capacity)return -1;
+    for(;;){
+        uint32_t irq=spinlock_irqsave_acquire(&ipc_lock);int found=-1;
+        for(uint32_t i=0;i<IPC_QUEUE_MAX;++i)if(messages[i].used&&messages[i].receiver_pid==receiver_pid){found=(int)i;break;}
+        if(found>=0){struct ipc_message*m=&messages[found];uint32_t n=m->length<capacity?m->length:capacity;uint8_t*dst=(uint8_t*)data;for(uint32_t j=0;j<n;++j)dst[j]=m->data[j];if(sender_pid)*sender_pid=m->sender_pid;m->used=0;spinlock_irqrestore_release(&ipc_lock,irq);process_wakeup((uintptr_t)(IPC_WAIT_CHANNEL_BASE+receiver_pid));return (int32_t)n;}
+        int32_t blocked=process_sleep_on((uintptr_t)(IPC_WAIT_CHANNEL_BASE+receiver_pid),&ipc_lock,irq);
+        if(blocked==PROCESS_WAIT_BLOCKED)return PROCESS_WAIT_BLOCKED;
+        if(blocked<0)return blocked;
+    }
 }
