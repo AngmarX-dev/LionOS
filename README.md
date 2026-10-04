@@ -415,7 +415,7 @@ The repository keeps the low-level source, tests, and engineering history visibl
 
 ## 🗺️ Future Roadmap
 
-LionOS is intentionally being developed in layers. The following table tracks the remaining kernel/CPU work after the current scheduler, diagnostics, SIMD, and SMP improvements.
+LionOS is intentionally being developed in layers. The roadmap below tracks remaining work after the scheduler, diagnostics, SIMD, SMP, thread, and IPC foundations now implemented.
 
 ### 🧠 Kernel & CPU
 
@@ -440,12 +440,12 @@ LionOS is intentionally being developed in layers. The following table tracks th
 
 | Planned feature | Status |
 |---|:---:|
-| Kernel threads | ⬜ |
-| User threads | ⬜ |
-| Thread IDs / thread lifecycle | ⬜ |
+| Kernel threads | ✅ |
+| User threads | ✅ |
+| Thread IDs / thread lifecycle | ✅ |
 | Generic sleep(channel) / wakeup(channel) API expansion | ✅ |
 | Blocking keyboard reads | ⬜ |
-| Blocking pipe reads/writes | ⬜ |
+| Blocking pipe reads/writes | ✅ |
 | Blocking filesystem operations | ⬜ |
 | Process groups | ⬜ |
 | Sessions / controlling terminal | ⬜ |
@@ -453,7 +453,7 @@ LionOS is intentionally being developed in layers. The following table tracks th
 | Full signal delivery and handling | ⬜ |
 | Signal-safe process termination | ⬜ |
 | Shared memory IPC | ⬜ |
-| Pipes | ⬜ |
+| Pipes | ✅ |
 | Named pipes | ⬜ |
 | Unix-style sockets | ⬜ |
 
