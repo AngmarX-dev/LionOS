@@ -22,6 +22,6 @@ void pic_init(void) {
     outb(0xA1, 0x01);
     io_wait();
 
-    outb(0x21, master_mask & 0xFC);
-    outb(0xA1, slave_mask | 0x02);
+    outb(0x21, master_mask & 0xF8u); /* IRQ0, IRQ1, IRQ2 cascade */
+    outb(0xA1, (slave_mask | 0x02u) & (uint8_t)~0x10u); /* unmask IRQ12 */
 }
