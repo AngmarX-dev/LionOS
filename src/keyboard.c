@@ -315,7 +315,7 @@ void keyboard_handle_scancode(uint8_t scancode) {
 
 
 static volatile uint8_t usb_prev_keys[6];
-static int usb_key_present(const uint8_t *keys, uint8_t code){
+static int usb_key_present(const volatile uint8_t *keys, uint8_t code){
     for(uint32_t i=0u;i<6u;++i) if(keys[i]==code) return 1;
     return 0;
 }
