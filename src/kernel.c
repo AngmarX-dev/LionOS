@@ -241,6 +241,10 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     /* ---- USB xHCI mouse ---- */
     if(mouse_usb_init() == 0){
         console_write("[ OK ] USB xHCI / HID boot mouse\n");
+        if(xhci_keyboard_init() == 0)
+            console_write("[ OK ] USB xHCI / HID boot keyboard\n");
+        else
+            console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
     } else {
         xhci_mouse_debug_info_t dbg;
         if(xhci_mouse_debug_get(&dbg) == 0){
