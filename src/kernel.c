@@ -229,7 +229,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         BOOT_STAGE(34u, "DISPLAY READY");
     }
 
-    console_write("[ -- ] Intel graphics native driver not active; probing firmware-backed display...\\n");
+    console_write("[ -- ] Intel graphics native driver not active; probing firmware-backed display...\n");
     (void)intel_gpu_init(framebuffer_available() ? 1u : 0u);
 
     console_write("[ OK ] Paging / supervisor kernel mappings\n");
