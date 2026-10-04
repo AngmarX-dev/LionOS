@@ -69,7 +69,7 @@ run_gui_smoke() {
     GUI_QEMU_PID=$!
 
     for _ in $(seq 1 100); do
-        if [ -f "$log_file" ] && grep -q 'LIONOS:READY' "$log_file"; then
+        if [ -f "$log_file" ] && grep -q 'LIONOS:GUI-READY' "$log_file"; then
             break
         fi
         sleep 0.1
