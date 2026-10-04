@@ -311,6 +311,10 @@ uint32_t framebuffer_height(void) { return fb_height_value; }
 int framebuffer_begin_desktop(void) {
     if (!enabled) return -1;
     if (desktop_mode) return 0;
+    if (desktop_buffer) {
+        desktop_mode = 1u;
+        return 0;
+    }
     uint64_t pixels = (uint64_t)fb_width_value * fb_height_value;
     if (pixels > 0xFFFFFFFFu / sizeof(uint32_t)) return -1;
     desktop_buffer = (uint32_t *)kmalloc((size_t)pixels * sizeof(uint32_t));
@@ -321,6 +325,12 @@ int framebuffer_begin_desktop(void) {
     wallpaper_cache_ready = 0u;
     desktop_mode = 1u;
     return 0;
+}
+
+void framebuffer_end_desktop(void) {
+    framebuffer_cursor_hide();
+    clip_enabled = 0u;
+    desktop_mode = 0u;
 }
 
 void framebuffer_set_clip(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
