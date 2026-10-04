@@ -21,6 +21,10 @@ static inline uint32_t lion_mouse_read(struct lion_mouse_event *event){return li
 static inline uint32_t lion_mouse_pending(void){return lion_syscall0(LIONOS_SYS_MOUSE_PENDING);}
 static inline uint32_t lion_putc(char c){return lion_syscall1(LIONOS_SYS_PUTC,(uint32_t)(uint8_t)c);}
 static inline uint32_t lion_getpid(void){return lion_syscall0(LIONOS_SYS_GETPID);}
+static inline uint32_t lion_gettid(void){return lion_syscall0(LIONOS_SYS_GETTID);}
+static inline uint32_t lion_thread_create(void(*entry)(void)){return lion_syscall1(LIONOS_SYS_THREAD_CREATE,(uint32_t)(uintptr_t)entry);}
+static inline int32_t lion_thread_join(uint32_t tid,int32_t*status){return(int32_t)lion_syscall2(LIONOS_SYS_THREAD_JOIN,tid,(uint32_t)(uintptr_t)status);}
+static inline void lion_thread_exit(uint32_t code){(void)lion_syscall1(LIONOS_SYS_THREAD_EXIT,code);for(;;)__asm__ volatile("cli; hlt");}
 static inline uint32_t lion_getppid(void){return lion_syscall0(LIONOS_SYS_GETPPID);}
 static inline uint32_t lion_yield(void){return lion_syscall0(LIONOS_SYS_YIELD);}
 static inline void lion_exit_code(uint32_t c){(void)lion_syscall1(LIONOS_SYS_EXIT,c);for(;;)__asm__ volatile("hlt");}
@@ -42,6 +46,11 @@ static inline int32_t lion_getfile(uint32_t index,char*name,uint32_t capacity){r
 static inline int32_t lion_ipc_send(uint32_t pid,const void*data,uint32_t length){return(int32_t)lion_syscall3(LIONOS_SYS_IPC_SEND,pid,(uint32_t)(uintptr_t)data,length);}
 static inline int32_t lion_ipc_recv(void*data,uint32_t capacity,uint32_t*sender_pid){return(int32_t)lion_syscall3(LIONOS_SYS_IPC_RECV,(uint32_t)(uintptr_t)data,capacity,(uint32_t)(uintptr_t)sender_pid);}
 static inline uint32_t lion_ipc_pending(void){return lion_syscall0(LIONOS_SYS_IPC_PENDING);}
+static inline int32_t lion_ipc_recv_blocking(void*data,uint32_t capacity,uint32_t*sender){return(int32_t)lion_syscall3(LIONOS_SYS_IPC_RECV_BLOCKING,(uint32_t)(uintptr_t)data,capacity,(uint32_t)(uintptr_t)sender);}
+static inline int32_t lion_pipe_create(uint32_t*read_end,uint32_t*write_end){return(int32_t)lion_syscall2(LIONOS_SYS_PIPE_CREATE,(uint32_t)(uintptr_t)read_end,(uint32_t)(uintptr_t)write_end);}
+static inline int32_t lion_pipe_read(uint32_t handle,void*data,uint32_t capacity){return(int32_t)lion_syscall3(LIONOS_SYS_PIPE_READ,handle,(uint32_t)(uintptr_t)data,capacity);}
+static inline int32_t lion_pipe_write(uint32_t handle,const void*data,uint32_t length){return(int32_t)lion_syscall3(LIONOS_SYS_PIPE_WRITE,handle,(uint32_t)(uintptr_t)data,length);}
+static inline int32_t lion_pipe_close(uint32_t handle){return(int32_t)lion_syscall1(LIONOS_SYS_PIPE_CLOSE,handle);}
 static inline int32_t lion_kill(uint32_t pid,uint32_t signal){return(int32_t)lion_syscall2(LIONOS_SYS_KILL,pid,signal);}
 static inline int32_t lion_getstate(uint32_t pid){return(int32_t)lion_syscall1(LIONOS_SYS_GETSTATE,pid);}
 static inline uint32_t lion_sigpending(uint32_t pid){return lion_syscall1(LIONOS_SYS_SIGPENDING,pid);}
