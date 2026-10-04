@@ -73,7 +73,7 @@ void smp_init(void){
         smp_trampoline_stack=ap_stacks[index]+stack_pages*4096u;
         smp_trampoline_cpu=index;
         uint32_t target_apic=cpu_get(index)?cpu_get(index)->apic_id:0xFFFFFFFFu;
-        if(target_apic==0xFFFFFFFFu||target_apic>0xFFu){debug_write("LIONOS:SMP-BAD-APIC-ID\\n");break;}
+        if(target_apic==0xFFFFFFFFu||target_apic>0xFFu){debug_write("LIONOS:SMP-BAD-APIC-ID\n");break;}
         debug_write("LIONOS:SMP-INIT\n");
         lapic_send_init(target_apic);
         debug_write("LIONOS:SMP-INIT-DONE\n");
