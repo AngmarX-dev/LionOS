@@ -1533,7 +1533,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
                     ++diag_report_count;
                     ++diag_success_count;
                     if(diag_report_count==EVENT_TRBS+1u)
-                        usb_log("LIONOS:USB-MOUSE-RING-WRAP-OK\\n");
+                        usb_log("LIONOS:USB-MOUSE-RING-WRAP-OK\n");
                     if(!report_seen){
                         report_seen=1;
                         usb_log("[ OK ] HID mouse reports active\n");
