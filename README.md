@@ -751,3 +751,5 @@ See [LICENSE](LICENSE).
   <strong>🦁 LionOS</strong><br>
   <sub>Build low-level. Learn deeply. Ship the kernel.</sub>
 </p>
+
+> CI verification: Kernel & CPU roadmap upgrade is validated through the full build/test pipeline.
