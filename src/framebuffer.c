@@ -486,6 +486,40 @@ void framebuffer_present(void) {
     framebuffer_present_rect(0u,0u,fb_width_value,fb_height_value);
 }
 
+void framebuffer_copy_to_buffer(uint32_t *dst) {
+    if (!dst || !desktop_mode || !desktop_buffer) return;
+    __builtin_memcpy(dst, desktop_buffer,
+                     (size_t)fb_width_value * fb_height_value * sizeof(uint32_t));
+}
+
+void framebuffer_copy_rect_to_buffer(uint32_t *dst, uint32_t dst_stride,
+                                     uint32_t x, uint32_t y,
+                                     uint32_t width, uint32_t height) {
+    if (!dst || !desktop_mode || !desktop_buffer || !dst_stride ||
+        x >= fb_width_value || y >= fb_height_value || !width || !height) return;
+    if (width > fb_width_value - x) width = fb_width_value - x;
+    if (height > fb_height_value - y) height = fb_height_value - y;
+    for (uint32_t row=0u; row<height; ++row) {
+        __builtin_memcpy(dst + row*dst_stride,
+                         desktop_buffer + (y+row)*fb_width_value + x,
+                         (size_t)width*sizeof(uint32_t));
+    }
+}
+
+void framebuffer_copy_rect_from_buffer(const uint32_t *src, uint32_t src_stride,
+                                       uint32_t x, uint32_t y,
+                                       uint32_t width, uint32_t height) {
+    if (!src || !desktop_mode || !desktop_buffer || !src_stride ||
+        x >= fb_width_value || y >= fb_height_value || !width || !height) return;
+    if (width > fb_width_value - x) width = fb_width_value - x;
+    if (height > fb_height_value - y) height = fb_height_value - y;
+    for (uint32_t row=0u; row<height; ++row) {
+        __builtin_memcpy(desktop_buffer + (y+row)*fb_width_value + x,
+                         src + row*src_stride,
+                         (size_t)width*sizeof(uint32_t));
+    }
+}
+
 void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t height, uint32_t x, uint32_t y, uint32_t size) {
     if (!enabled || !desktop_mode || !desktop_buffer || !pixels || !width || !height || !size) return;
     uint32_t start_x = 0u, end_x = size, start_y = 0u, end_y = size;

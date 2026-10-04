@@ -5,6 +5,7 @@
 #include "keyboard.h"
 #include "mouse.h"
 #include "memory.h"
+#include "heap.h"
 #include "vfs.h"
 #include "lapic.h"
 #include "idt.h"
@@ -66,6 +67,11 @@ static uint32_t last_render_tick = 0xFFFFFFFFu;
 static uint8_t cursor_overlay;
 static uint8_t dirty_valid;
 static uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
+static uint32_t *drag_background;
+static uint32_t *drag_surface;
+static uint32_t drag_surface_w, drag_surface_h;
+static uint8_t drag_cache_active;
+static uint8_t drag_render_skip_id;
 
 struct desktop_icon {
     uint32_t x, y;
@@ -581,7 +587,14 @@ static void draw_desktop_icons(void){
 }
 
 static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;case WIN_NOTEPAD:draw_notepad(w);break;default:draw_settings(w);break;}}
-static void draw_windows(void){for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&!windows[i].focused)draw_window(&windows[i]);for(uint32_t i=0;i<WIN_MAX;++i)if(windows[i].visible&&!windows[i].minimized&&windows[i].focused)draw_window(&windows[i]);}
+static void draw_windows(void){
+    for(uint32_t i=0;i<WIN_MAX;++i)
+        if(windows[i].visible&&windows[i].id!=drag_render_skip_id&&!windows[i].minimized&&!windows[i].focused)
+            draw_window(&windows[i]);
+    for(uint32_t i=0;i<WIN_MAX;++i)
+        if(windows[i].visible&&windows[i].id!=drag_render_skip_id&&!windows[i].minimized&&windows[i].focused)
+            draw_window(&windows[i]);
+}
 static void render_all(void){
     uint32_t now=interrupt_timer_ticks();
     uint32_t sw=framebuffer_width(), sh=framebuffer_height();
@@ -641,6 +654,66 @@ static void init_windows(void){
 }
 static void close_gui(void){gui_active=0u;framebuffer_end_desktop();dirty_full();debug_write("LIONOS:GUI-EXIT\n");}
 
+static void drag_cache_free(void){
+    if(drag_background){kfree(drag_background);drag_background=0;}
+    if(drag_surface){kfree(drag_surface);drag_surface=0;}
+    drag_surface_w=drag_surface_h=0u;
+    drag_cache_active=0u;
+    drag_render_skip_id=0u;
+}
+
+static int drag_cache_begin(struct ui_window*w){
+    if(!w||!framebuffer_cursor_overlay_supported()) return -1;
+    uint64_t screen_pixels=(uint64_t)framebuffer_width()*framebuffer_height();
+    uint64_t surface_pixels=(uint64_t)w->w*w->h;
+    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t) ||
+       surface_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
+
+    drag_background=(uint32_t*)kmalloc((size_t)screen_pixels*sizeof(uint32_t));
+    drag_surface=(uint32_t*)kmalloc((size_t)surface_pixels*sizeof(uint32_t));
+    if(!drag_background||!drag_surface){drag_cache_free();return -1;}
+
+    framebuffer_copy_rect_to_buffer(drag_surface,w->w,w->x,w->y,w->w,w->h);
+
+    /*
+     * Build one static scene without the dragged window. Every subsequent
+     * mouse sample can then restore/copy rectangles instead of rerendering
+     * fonts, rounded panels and every other window.
+     */
+    drag_render_skip_id=w->id;
+    dirty_full();
+    scene_dirty=1u;
+    last_render_tick=0xFFFFFFFFu;
+    render_all();
+    framebuffer_copy_to_buffer(drag_background);
+
+    drag_render_skip_id=0u;
+    framebuffer_copy_rect_from_buffer(drag_surface,w->w,w->x,w->y,w->w,w->h);
+    drag_surface_w=w->w;
+    drag_surface_h=w->h;
+    drag_cache_active=1u;
+    scene_dirty=0u;
+    dirty_valid=0u;
+    return 0;
+}
+
+static void drag_cache_move(struct ui_window*w,uint32_t old_x,uint32_t old_y){
+    if(!drag_cache_active||!w)return;
+    uint32_t left=old_x<w->x?old_x:w->x;
+    uint32_t top=old_y<w->y?old_y:w->y;
+    uint32_t old_right=old_x+w->w,new_right=w->x+w->w;
+    uint32_t old_bottom=old_y+w->h,new_bottom=w->y+w->h;
+    uint32_t right=old_right>new_right?old_right:new_right;
+    uint32_t bottom=old_bottom>new_bottom?old_bottom:new_bottom;
+    if(right>left&&bottom>top){
+        framebuffer_copy_rect_from_buffer(drag_background,framebuffer_width(),
+                                           left,top,right-left,bottom-top);
+        framebuffer_copy_rect_from_buffer(drag_surface,drag_surface_w,
+                                           w->x,w->y,drag_surface_w,drag_surface_h);
+        framebuffer_present_rect(left,top,right-left,bottom-top);
+    }
+}
+
 static void handle_window_click(struct ui_window*w){
     uint32_t x=mouse_px_x,y=mouse_px_y;
     focus(w->id);terminal_focus=(w->id==WIN_TERMINAL);notepad_focus=(w->id==WIN_NOTEPAD);
@@ -648,7 +721,13 @@ static void handle_window_click(struct ui_window*w){
         if(x>=w->x+w->w-28u){hide(w->id);return;}
         if(x>=w->x+w->w-56u){toggle_max(w->id);return;}
         if(x>=w->x+w->w-84u){minimize(w->id);return;}
-        if(!w->maximized){drag_active=1u;drag_id=w->id;drag_dx=(int)x-(int)w->x;drag_dy=(int)y-(int)w->y;}
+        if(!w->maximized){
+            drag_active=1u;
+            drag_id=w->id;
+            drag_dx=(int)x-(int)w->x;
+            drag_dy=(int)y-(int)w->y;
+            (void)drag_cache_begin(w);
+        }
     }
 }
 
@@ -800,6 +879,10 @@ static void handle_move(void){
     }
     w->x=(uint32_t)nx;
     w->y=(uint32_t)ny;
+    if(drag_cache_active){
+        drag_cache_move(w,old_x,old_y);
+        return;
+    }
 }
 
 static void handle_key(int key){
@@ -829,7 +912,7 @@ void gui_start(void){
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\n");return;}
     while(keyboard_available())(void)keyboard_getchar();
     /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
-    cursor_overlay=0u;
+    cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
     debug_write("LIONOS:GUI-READY\n");
@@ -841,11 +924,11 @@ void gui_step(void){
     if(mouse_px_x!=old_x||mouse_px_y!=old_y){uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u,top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u,right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u,bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;if(right>framebuffer_width())right=framebuffer_width();if(bottom>framebuffer_height())bottom=framebuffer_height();if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);}
     if(buttons!=previous_buttons)dirty_around_cursor();
     if((buttons&1u)&&!(previous_buttons&1u)){uint32_t sig=ui_signature();handle_click();if(sig!=ui_signature())dirty_full();}
-    if(!(buttons&1u)&&(previous_buttons&1u)){uint32_t sig=ui_signature();if(desktop_icon_drag>=0){int icon=desktop_icon_drag;desktop_icons[icon].dragging=0u;if(!desktop_icons[icon].moved)activate_desktop_icon(desktop_icons[icon].action);desktop_icon_drag=-1;}drag_active=0u;if(sig!=ui_signature())dirty_full();else dirty_around_cursor();}
+    if(!(buttons&1u)&&(previous_buttons&1u)){uint32_t sig=ui_signature();if(desktop_icon_drag>=0){int icon=desktop_icon_drag;desktop_icons[icon].dragging=0u;if(!desktop_icons[icon].moved)activate_desktop_icon(desktop_icons[icon].action);desktop_icon_drag=-1;}drag_active=0u;drag_cache_free();if(sig!=ui_signature())dirty_full();else dirty_full();}
     handle_move();
     if(browser_is_active()){browser_step();previous_buttons=buttons;dirty_full();render_all();return;}
     while(keyboard_available()){handle_key(keyboard_getchar());dirty_focused();}
-    previous_buttons=buttons;render_all();
+    previous_buttons=buttons;render_all();if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
 }
 int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){

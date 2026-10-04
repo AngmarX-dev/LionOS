@@ -126,11 +126,14 @@ static int keyboard_device_command(uint8_t command){
     return -2;
 }
 
-static int keyboard_set_scancode_set2(void){
-    /* PS/2 Set Scancode Set command: F0, then Set 2. */
-    int rc=keyboard_device_command(0xF0u);
-    if(rc!=0) return rc;
-    return keyboard_device_command(0x02u);
+static int keyboard_enable_scanning(void){
+    /*
+     * LionOS consumes controller-translated Set-1 codes. Do not force a
+     * device scancode-set transition here: some laptop/i8042 firmware
+     * emulations do not ACK F0 and will leave scanning disabled if the
+     * transition is treated as mandatory.
+     */
+    return keyboard_device_command(0xF4u);
 }
 
 void keyboard_init(void) {
@@ -167,17 +170,13 @@ void keyboard_init(void) {
     keyboard_flush_output();
 
     /*
-     * Make the physical device generate Set-2 codes explicitly. The i8042
-     * translation bit is also enabled above, but programming the keyboard
-     * itself removes another source of laptop/firmware-dependent behavior.
+     * Enable device scanning after the controller is configured for
+     * translated Set-1 input. F4 is the only mandatory device command.
      */
-    int set_rc=keyboard_set_scancode_set2();
-    int scan_rc=-1;
-    if(set_rc==0)
-        scan_rc=keyboard_device_command(0xF4u); /* enable scanning */
+    int scan_rc=keyboard_enable_scanning();
 
     keyboard_flush_output();
-    if(set_rc==0 && scan_rc==0)
+    if(scan_rc==0)
         debug_write("LIONOS:KEYBOARD-READY\n");
     else
         debug_write("LIONOS:KEYBOARD-NO-ACK\n");
