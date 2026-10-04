@@ -20,6 +20,8 @@ static volatile uint32_t dropped_chars;
 static volatile uint32_t scancode_count;
 static volatile uint8_t last_scancode;
 static volatile uint8_t input_seen;
+static volatile uint8_t scancode_set = 1u;
+static volatile uint8_t set2_break_pending = 0u;
 
 static const char keymap[128] = {
     [0x01] = 27,
@@ -126,6 +128,23 @@ static int keyboard_device_command(uint8_t command){
     return -2;
 }
 
+static int keyboard_reset_device(void){
+    keyboard_wait_write();
+    outb(PS2_DATA,0xFFu);
+    for(uint32_t i=0u;i<300000u;++i){
+        uint8_t st=inb(PS2_STATUS);
+        if(st&0x01u){
+            uint8_t v=inb(PS2_DATA);
+            if(st&0x20u) continue;
+            if(v==0xFAu) continue;
+            if(v==0xAAu) return 0;
+            if(v==0xFCu||v==0xFDu) return -2;
+        }
+        io_wait();
+    }
+    return -1;
+}
+
 static int keyboard_enable_scanning(void){
     /*
      * LionOS consumes controller-translated Set-1 codes. Do not force a
@@ -148,6 +167,8 @@ void keyboard_init(void) {
     scancode_count = 0u;
     last_scancode = 0u;
     input_seen = 0u;
+    scancode_set = 1u;
+    set2_break_pending = 0u;
 
     /*
      * Fully re-arm the i8042 keyboard port. Some laptop firmware leaves the
@@ -173,7 +194,10 @@ void keyboard_init(void) {
      * Enable device scanning after the controller is configured for
      * translated Set-1 input. F4 is the only mandatory device command.
      */
+    int reset_rc=keyboard_reset_device();
     int scan_rc=keyboard_enable_scanning();
+    if(reset_rc==0) debug_write("LIONOS:KEYBOARD-RESET-OK\\n");
+    else debug_write("LIONOS:KEYBOARD-RESET-SKIPPED\\n");
 
     keyboard_flush_output();
     if(scan_rc==0)
@@ -186,7 +210,43 @@ void keyboard_init(void) {
     outb(0x21, mask);
 }
 
+static uint8_t set2_make_to_set1(uint8_t code){
+    switch(code){
+        case 0x1Cu:return 0x1Eu; case 0x32u:return 0x30u; case 0x21u:return 0x2Eu;
+        case 0x23u:return 0x20u; case 0x24u:return 0x12u; case 0x2Bu:return 0x21u;
+        case 0x34u:return 0x22u; case 0x33u:return 0x23u; case 0x43u:return 0x17u;
+        case 0x3Bu:return 0x24u; case 0x42u:return 0x35u; case 0x4Bu:return 0x25u;
+        case 0x3Au:return 0x26u; case 0x31u:return 0x2Cu; case 0x44u:return 0x18u;
+        case 0x4Du:return 0x19u; case 0x15u:return 0x10u; case 0x2Du:return 0x11u;
+        case 0x1Bu:return 0x2Du; case 0x2Cu:return 0x2Fu; case 0x3Cu:return 0x14u;
+        case 0x2Au:return 0x1Fu; case 0x1Du:return 0x1Eu; case 0x35u:return 0x31u;
+        case 0x3Du:return 0x13u; case 0x45u:return 0x0Bu; case 0x16u:return 0x02u;
+        case 0x1Eu:return 0x03u; case 0x26u:return 0x04u; case 0x25u:return 0x05u;
+        case 0x2Eu:return 0x06u; case 0x36u:return 0x07u; case 0x3Eu:return 0x08u;
+        case 0x46u:return 0x09u; case 0x3Fu:return 0x0Au; case 0x47u:return 0x0Cu;
+        case 0x4Fu:return 0x0Du; case 0x55u:return 0x0Du; case 0x54u:return 0x1Au;
+        case 0x5Bu:return 0x1Bu; case 0x5Au:return 0x1Cu; case 0x66u:return 0x0Eu;
+        case 0x0Du:return 0x0Fu; case 0x29u:return 0x39u;
+        case 0x12u:return 0x2Au; case 0x59u:return 0x36u; case 0x14u:return 0x1Du;
+        case 0x11u:return 0x38u; case 0x58u:return 0x3Au; case 0x76u:return 0x01u;
+        default:return 0u;
+    }
+}
+
 void keyboard_handle_scancode(uint8_t scancode) {
+    if(scancode_set==2u){
+        if(scancode==0xF0u){set2_break_pending=1u;return;}
+        uint8_t make=set2_make_to_set1(scancode);
+        if(!make)return;
+        if(set2_break_pending){
+            set2_break_pending=0u;
+            if(make==0x2Au||make==0x36u)shift_down=0u;
+            else if(make==0x1Du)ctrl_down=0u;
+            else if(make==0x38u)alt_down=0u;
+            return;
+        }
+        scancode=make;
+    }
     ++scancode_count;
     last_scancode=scancode;
     if(!input_seen){
@@ -269,6 +329,22 @@ void keyboard_irq_handler(void){
         }
         keyboard_handle_scancode(inb(PS2_DATA));
     }
+}
+
+void keyboard_rearm_after_mouse_init(void){
+    /* mouse_init() rewrites the i8042 command byte; restore the keyboard
+       clock/IRQ/translation bits and leave AUX enabled for the mouse. */
+    keyboard_wait_write();
+    outb(PS2_STATUS,0x20u);
+    if(keyboard_wait_read()!=0) return;
+    uint8_t cfg=inb(PS2_DATA);
+    cfg|=0x01u|0x04u|0x40u;
+    cfg&=(uint8_t)~0x10u;
+    keyboard_wait_write(); outb(PS2_STATUS,0x60u);
+    keyboard_wait_write(); outb(PS2_DATA,cfg);
+    keyboard_wait_write(); outb(PS2_STATUS,0xAEu);
+    (void)keyboard_enable_scanning();
+    debug_write("LIONOS:KEYBOARD-REARMED\\n");
 }
 
 void keyboard_poll(void){

@@ -7,6 +7,7 @@ void keyboard_init(void);
 void keyboard_handle_scancode(uint8_t scancode);
 void keyboard_irq_handler(void);
 void keyboard_poll(void);
+void keyboard_rearm_after_mouse_init(void);
 int keyboard_getchar(void);
 uint32_t keyboard_available(void);
 
