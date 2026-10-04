@@ -415,26 +415,26 @@ The repository keeps the low-level source, tests, and engineering history visibl
 
 ## 🗺️ Future Roadmap
 
-LionOS is intentionally being developed in layers. The following features are planned for later work as the kernel, drivers, userspace, and desktop mature.
+LionOS is intentionally being developed in layers. The following table tracks the remaining kernel/CPU work after the current scheduler, diagnostics, SIMD, and SMP improvements.
 
 ### 🧠 Kernel & CPU
 
 | Planned feature | Status |
 |---|:---:|
-| Kernel panic / crash dump framework | ⬜ |
-| Structured kernel logging levels | ⬜ |
-| Runtime kernel diagnostics page | ⬜ |
+| Kernel panic / crash dump framework | ✅ |
+| Structured kernel logging levels | ✅ |
+| Runtime kernel diagnostics report | ✅ |
 | Better APIC / interrupt routing | ⬜ |
-| Per-CPU interrupt statistics | ⬜ |
-| CPU feature management (SSE/AVX detection) | ⬜ |
-| FPU/SSE context switching | ⬜ |
+| Per-CPU interrupt statistics | ✅ |
+| CPU feature management (SSE/AVX detection) | ✅ |
+| FPU/SSE context switching | ✅ |
 | Lazy FPU state management | ⬜ |
-| Kernel preemption improvements | ⬜ |
-| Priority-aware scheduling | ⬜ |
-| MLFQ-style interactive scheduling | ⬜ |
-| Scheduler load balancing | ⬜ |
-| Per-CPU run queues | ⬜ |
-| More robust SMP synchronization | ⬜ |
+| Kernel preemption improvements | ✅ |
+| Priority-aware scheduling | ✅ |
+| MLFQ-style interactive scheduling | ✅ |
+| Scheduler load balancing | ✅ |
+| Per-CPU run queues | ✅ |
+| More robust SMP synchronization | ✅ |
 
 ### ⚙️ Processes, Threads & IPC
 
