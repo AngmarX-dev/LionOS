@@ -464,8 +464,9 @@ static int alloc_memory(void){
     if(dma_page((void**)&dcbaa)||dma_page((void**)&cmd_ring)||
        dma_page((void**)&event_ring)||dma_page((void**)&erst)||
        dma_page((void**)&ep0_ring)||dma_page(&out_ctx)||dma_page(&in_ctx)||
+       dma_page(&kbd_out_ctx)||dma_page(&kbd_in_ctx)||
        dma_page((void**)&control_buf)||dma_page((void**)&config_buf)||
-       dma_page((void**)&report_buf)) return -1;
+       dma_page((void**)&report_buf)||dma_page((void**)&kbd_report_buf)) return -1;
 
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i)
         if(dma_page((void**)&intr_segments[i])) return -1;
@@ -1612,7 +1613,6 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         trb_t e;
         if(next_event(&e)!=0) break;
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) continue;
-        if(((e.control>>24)&0xFFu)!=slot_id) continue;
         uint32_t event_slot=(e.control>>24)&0xFFu;
         uint32_t event_ep=(e.control>>16)&0x1Fu;
         if(kbd_ready && event_slot==kbd_slot_id && event_ep==kbd_endpoint_id){
