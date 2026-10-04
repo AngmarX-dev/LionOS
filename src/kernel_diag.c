@@ -9,6 +9,7 @@
 
 static volatile uint32_t log_counts[KLOG_LEVELS];
 static volatile uint32_t panic_active;
+static volatile uint32_t interrupt_counts[LIONOS_MAX_CPUS][KLOG_VECTORS];
 
 static const char *level_name(enum kernel_log_level level) {
     switch(level) {
@@ -72,7 +73,11 @@ void kernel_diag_print(void) {
     console_write_dec(online);
     console_write("\n");
 }
+void kernel_diag_record_interrupt(uint32_t cpu, uint32_t vector) {
+    if (cpu < LIONOS_MAX_CPUS && vector < KLOG_VECTORS)
+        __atomic_fetch_add(&interrupt_counts[cpu][vector], 1u, __ATOMIC_RELAXED);
+}
 uint32_t kernel_diag_interrupt_count(uint32_t cpu, uint32_t vector) {
-    (void)cpu; (void)vector;
-    return 0u;
+    if (cpu >= LIONOS_MAX_CPUS || vector >= KLOG_VECTORS) return 0u;
+    return __atomic_load_n(&interrupt_counts[cpu][vector], __ATOMIC_RELAXED);
 }
