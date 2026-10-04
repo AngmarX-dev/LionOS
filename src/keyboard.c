@@ -126,13 +126,11 @@ static int keyboard_device_command(uint8_t command){
     return -2;
 }
 
-static int keyboard_set_scancode_set1(void){
-    /* PS/2 Set Scancode Set command: F0, then set number 1. */
+static int keyboard_set_scancode_set2(void){
+    /* PS/2 Set Scancode Set command: F0, then Set 2. */
     int rc=keyboard_device_command(0xF0u);
     if(rc!=0) return rc;
-    rc=keyboard_device_command(0x01u);
-    if(rc!=0) return rc;
-    return 0;
+    return keyboard_device_command(0x02u);
 }
 
 void keyboard_init(void) {
@@ -173,7 +171,7 @@ void keyboard_init(void) {
      * translation bit is also enabled above, but programming the keyboard
      * itself removes another source of laptop/firmware-dependent behavior.
      */
-    int set_rc=keyboard_set_scancode_set1();
+    int set_rc=keyboard_set_scancode_set2();
     int scan_rc=-1;
     if(set_rc==0)
         scan_rc=keyboard_device_command(0xF4u); /* enable scanning */
@@ -265,7 +263,11 @@ void keyboard_irq_handler(void){
     for(uint32_t n=0u;n<64u;++n){
         uint8_t status=inb(PS2_STATUS);
         if(!(status&0x01u))break;
-        if(status&0x20u)break;
+        if(status&0x20u){
+            /* The i8042 output buffer is shared by keyboard and mouse. */
+            mouse_irq_handler();
+            continue;
+        }
         keyboard_handle_scancode(inb(PS2_DATA));
     }
 }
