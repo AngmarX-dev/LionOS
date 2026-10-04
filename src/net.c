@@ -109,6 +109,10 @@ static uint32_t pci_read32(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg)
     pci_write_addr(bus, slot, func, reg);
     return inl(0xCFC);
 }
+static void pci_write32(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg, uint32_t value) {
+    pci_write_addr(bus, slot, func, reg);
+    outl(0xCFC, value);
+}
 
 static int rtl_find(void) {
     for (uint32_t bus = 0; bus < 256u; ++bus) {
@@ -117,6 +121,8 @@ static int rtl_find(void) {
             if ((id & 0xFFFFu) != RTL8139_VENDOR || (id >> 16) != RTL8139_DEVICE) continue;
             uint32_t bar = pci_read32((uint8_t)bus, (uint8_t)slot, 0, 0x10);
             if (!(bar & 1u)) return -1;
+            uint32_t command=pci_read32((uint8_t)bus,(uint8_t)slot,0,0x04u);
+            pci_write32((uint8_t)bus,(uint8_t)slot,0,0x04u,command|0x00000004u);
             rtl_base = (uint16_t)(bar & 0xFFFCu);
             return 0;
         }
