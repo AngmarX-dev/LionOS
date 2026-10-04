@@ -217,7 +217,7 @@ uint32_t process_create_user_thread(uint32_t entry){
     uint32_t slot=process_index(p),va=thread_stack_va_for_slot(slot);
     if(paging_map_user_page_in(parent->page_directory,va,(uint32_t)(uintptr_t)kp,3u)!=0){page_free(kp);page_free(ks);spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
     for(uint32_t i=0;i<4096u;++i)((uint8_t*)kp)[i]=0;
-    uint32_t top=va+4096u;uint32_t*sp=(uint32_t*)(uintptr_t)top;--sp;*sp=(uint32_t)(uintptr_t)&process_exit_thread;
+    uint32_t top=va+4096u;uint32_t*sp=(uint32_t*)(uintptr_t)top;--sp;*sp=0u;
     clear_process(p);p->pid=0;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=parent->thread_group_pid;p->is_thread=1;p->owns_address_space=0;p->state=PROCESS_READY;p->cpu_owner=cpu_current_index();p->page_directory=parent->page_directory;p->entry=entry;p->user_stack=(uint32_t)(uintptr_t)sp;p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u;p->thread_stack_page=(uint32_t)(uintptr_t)kp;p->thread_stack_va=va;p->capabilities=parent->capabilities;p->priority=parent->priority;p->base_priority=parent->base_priority;p->time_slice=quantum_for_priority(p->priority);p->fpu_valid=0;
     uint32_t*f=(uint32_t*)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u);for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i)f[i]=0;f[14]=entry;f[15]=USER_CODE_SEL;f[16]=0x202u;f[17]=p->user_stack;f[18]=USER_DATA_SEL;p->saved_frame=(uint32_t)(uintptr_t)f;
     spinlock_irqrestore_release(&process_lock,flags);return p->tid;
