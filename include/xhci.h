@@ -47,5 +47,6 @@ int xhci_mouse_init(void);
 int xhci_mouse_poll(int32_t *dx, int32_t *dy, uint8_t *buttons);
 int xhci_mouse_recover(void);
 int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out);
+int xhci_keyboard_init(void);
 
 #endif
