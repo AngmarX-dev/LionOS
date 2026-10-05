@@ -183,7 +183,29 @@ typedef struct {
     uint16_t packet_size;
     uint8_t interval;
     uint8_t config_value;
+    uint8_t boot_protocol;
 } hid_candidate_t;
+
+typedef struct {
+    uint8_t enabled;
+    uint8_t report_id;
+    uint16_t buttons_bit;
+    uint16_t x_bit;
+    uint16_t y_bit;
+    uint8_t buttons_size;
+    uint8_t x_size;
+    uint8_t y_size;
+} hid_mouse_layout_t;
+
+typedef struct {
+    uint8_t enabled;
+    uint8_t report_id;
+    uint16_t modifier_bit;
+    uint16_t key_bit;
+    uint8_t modifier_size;
+    uint8_t key_size;
+    uint8_t key_count;
+} hid_keyboard_layout_t;
 
 static uint32_t cap_len, op_base, db_base, rt_base;
 static uint32_t hci_version;
@@ -218,6 +240,8 @@ static uint32_t kbd_endpoint_id, kbd_endpoint_packet, kbd_endpoint_interval;
 static uint32_t kbd_intr_index, kbd_intr_cycle, kbd_intr_segment;
 static uint32_t kbd_report_pending, kbd_report_length, kbd_ready;
 static uint8_t hid_wanted_keyboard;
+static hid_mouse_layout_t mouse_hid_layout;
+static hid_keyboard_layout_t keyboard_hid_layout;
 
 static usb_protocol_t protocols[MAX_PROTOCOLS];
 static uint32_t protocol_count;
@@ -1019,10 +1043,14 @@ static int find_hid(hid_candidate_t *c){
                 uint8_t cls=config_buf[i+5u];
                 uint8_t sub=config_buf[i+6u];
                 uint8_t proto=config_buf[i+7u];
-                if(hid_wanted_keyboard)
-                    sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&(proto==1u||proto==0u)):(alt==0u&&cls==3u&&sub==1u);
+                        if(hid_wanted_keyboard)
+                    sel=(pass==0u)
+                        ?(alt==0u&&cls==3u&&sub==1u&&(proto==1u||proto==0u))
+                        :(alt==0u&&cls==3u&&(sub==1u||sub==0u));
                 else
-                    sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&proto==2u):(alt==0u&&cls==3u&&sub==1u);
+                    sel=(pass==0u)
+                        ?(alt==0u&&cls==3u&&sub==1u&&proto==2u)
+                        :(alt==0u&&cls==3u&&(sub==1u||sub==0u));
                 if(sel) c->interface_number=config_buf[i+2u];
             } else if(type==5u&&len>=7u&&sel){
                 uint8_t addr=config_buf[i+2u];
@@ -1041,6 +1069,168 @@ static int find_hid(hid_candidate_t *c){
     return -1;
 }
 
+static uint32_t hid_item_value(const uint8_t *p,uint32_t size){
+    uint32_t v=0u;
+    for(uint32_t i=0u;i<size&&i<4u;++i)v|=(uint32_t)p[i]<<(8u*i);
+    return v;
+}
+static int hid_layout_read_descriptor(hid_candidate_t *c){
+    if(!c)return -1;
+    uint16_t desc_len=0u;
+    uint16_t total=(uint16_t)config_buf[2]|((uint16_t)config_buf[3]<<8);
+    if(total>4096u)total=4096u;
+    uint32_t i=0u, active=0u;
+    while(i+2u<=total){
+        uint8_t len=config_buf[i],type=config_buf[i+1u];
+        if(len<2u||i+len>total)break;
+        if(type==4u&&len>=9u){
+            active=(config_buf[i+2u]==c->interface_number && config_buf[i+3u]==0u)?1u:0u;
+        }else if(active&&type==0x21u&&len>=9u&&config_buf[i+6u]==1u&&config_buf[i+7u]==0x22u){
+            desc_len=(uint16_t)config_buf[i+7u]|((uint16_t)config_buf[i+8u]<<8);
+            break;
+        }
+        i+=len;
+    }
+    /*
+     * The HID descriptor may contain multiple subordinate descriptors, so
+     * accept any 0x22 report descriptor entry rather than assuming it is
+     * immediately adjacent to the interface descriptor.
+     */
+    if(!desc_len){
+        i=0u; active=0u;
+        while(i+2u<=total){
+            uint8_t len=config_buf[i],type=config_buf[i+1u];
+            if(len<2u||i+len>total)break;
+            if(type==4u&&len>=9u)
+                active=(config_buf[i+2u]==c->interface_number && config_buf[i+3u]==0u)?1u:0u;
+            else if(active&&type==0x21u&&len>=9u){
+                uint32_t p=i+6u;
+                uint8_t n=config_buf[p];
+                if(n>=1u&&p+1u< i+len && config_buf[p+1u]==0x22u){
+                    desc_len=(uint16_t)config_buf[p+1u]|((uint16_t)config_buf[p+2u]<<8);
+                    break;
+                }
+            }
+            i+=len;
+        }
+    }
+    if(!desc_len||desc_len>PAGE_SIZE)return -1;
+    if(ctrl(0x81u,6u,0x2200u,c->interface_number,config_buf,desc_len,1,4)!=0)return -1;
+
+    if(hid_wanted_keyboard){
+        keyboard_hid_layout=(hid_keyboard_layout_t){0u,0u,0u,0u,0u,0u,0u};
+    }else{
+        mouse_hid_layout=(hid_mouse_layout_t){0u,0u,0u,0u,0u,0u,0u,0u};
+    }
+
+    uint32_t pos=0u, bit=0u;
+    uint8_t report_size=0u,report_count=0u,report_id=0u;
+    uint8_t page=0u;
+    uint32_t usage=0u,usage_min=0u,usage_max=0u;
+    while(pos<desc_len){
+        uint8_t prefix=config_buf[pos++];
+        if(prefix==0xFEu){
+            if(pos+1u>=desc_len)break;
+            uint8_t long_len=config_buf[pos++];
+            ++pos;
+            if(pos+long_len>desc_len)break;
+            continue;
+        }
+        uint32_t size=prefix&3u;
+        if(size==3u)size=4u;
+        if(pos+size>desc_len)break;
+        uint8_t type=(prefix>>2)&3u,tag=(prefix>>4)&0xFu;
+        const uint8_t *data=&config_buf[pos];
+        uint32_t value=hid_item_value(data,size);
+        if(type==1u){
+            if(tag==0u)page=(uint8_t)value;
+            else if(tag==7u)report_size=(uint8_t)value;
+            else if(tag==8u){
+                report_id=(uint8_t)value;
+                bit=8u;
+            }else if(tag==9u)report_count=(uint8_t)value;
+        }else if(type==2u){
+            if(tag==0u)usage=value;
+            else if(tag==1u)usage_min=value;
+            else if(tag==2u)usage_max=value;
+        }else if(type==0u&&tag==8u){
+            uint32_t field_bits=(uint32_t)report_size*(uint32_t)report_count;
+            uint32_t field_bit=bit;
+            if(report_size&&report_count){
+                if(hid_wanted_keyboard){
+                    if(page==0x07u && (usage==0xE0u || (usage_min<=0xE0u&&usage_max>=0xE7u))){
+                        if(!keyboard_hid_layout.enabled){
+                            keyboard_hid_layout.enabled=1u;
+                            keyboard_hid_layout.report_id=report_id;
+                            keyboard_hid_layout.modifier_bit=(uint16_t)field_bit;
+                            keyboard_hid_layout.modifier_size=report_size;
+                        }
+                    }
+                    if(page==0x07u && report_size==8u &&
+                       ((usage_min>=0x04u&&usage_min<=0xE7u) ||
+                        (usage>=0x04u&&usage<=0xE7u))){
+                        if(keyboard_hid_layout.enabled &&
+                           keyboard_hid_layout.report_id==report_id &&
+                           !keyboard_hid_layout.key_size){
+                            keyboard_hid_layout.key_bit=(uint16_t)field_bit;
+                            keyboard_hid_layout.key_size=report_size;
+                            keyboard_hid_layout.key_count=(uint8_t)(report_count>8u?8u:report_count);
+                        }
+                    }
+                }else{
+                    if(page==0x09u && !mouse_hid_layout.buttons_size &&
+                       (usage_min==1u||usage==1u||usage_max>=1u)){
+                        mouse_hid_layout.buttons_bit=(uint16_t)field_bit;
+                        mouse_hid_layout.buttons_size=(uint8_t)((field_bits>8u)?8u:field_bits);
+                        mouse_hid_layout.report_id=report_id;
+                    }
+                    if(page==0x01u){
+                        if(usage==0x30u && !mouse_hid_layout.x_size){
+                            mouse_hid_layout.x_bit=(uint16_t)field_bit;
+                            mouse_hid_layout.x_size=report_size;
+                            mouse_hid_layout.report_id=report_id;
+                        }else if(usage==0x31u && !mouse_hid_layout.y_size &&
+                                 mouse_hid_layout.report_id==report_id){
+                            mouse_hid_layout.y_bit=(uint16_t)field_bit;
+                            mouse_hid_layout.y_size=report_size;
+                        }else if(usage==0x30u && report_count>=2u && !mouse_hid_layout.x_size){
+                            mouse_hid_layout.x_bit=(uint16_t)field_bit;
+                            mouse_hid_layout.y_bit=(uint16_t)(field_bit+report_size);
+                            mouse_hid_layout.x_size=report_size;
+                            mouse_hid_layout.y_size=report_size;
+                            mouse_hid_layout.report_id=report_id;
+                        }
+                    }
+                }
+            }
+            bit+=field_bits;
+            usage=usage_min=usage_max=0u;
+        }
+        pos+=size;
+    }
+
+    if(hid_wanted_keyboard){
+        return keyboard_hid_layout.enabled&&keyboard_hid_layout.key_size?0:-1;
+    }
+    return mouse_hid_layout.x_size&&mouse_hid_layout.y_size?0:-1;
+}
+static uint32_t hid_bits(const uint8_t *data,uint32_t length,uint16_t bit,uint8_t size){
+    if(!data||!size||size>24u)return 0u;
+    uint32_t value=0u;
+    for(uint32_t i=0u;i<size;++i){
+        uint32_t p=(uint32_t)bit+i;
+        if(p/8u>=length)break;
+        if(data[p/8u]&(1u<<(p&7u)))value|=1u<<i;
+    }
+    return value;
+}
+static int32_t hid_signed(const uint8_t *data,uint32_t length,uint16_t bit,uint8_t size){
+    uint32_t v=hid_bits(data,length,bit,size);
+    if(size==0u||size>=32u)return (int32_t)v;
+    uint32_t sign=1u<<(size-1u);
+    if(v&sign)v|=~((1u<<size)-1u);
+    return (int32_t)v;
+}
 static uint32_t interval_encode(uint32_t v){
     if(!v) v=1;
     if(device_speed>=SPEED_HIGH){
@@ -1360,9 +1550,13 @@ static int enumerate_port(uint32_t p){
     if(cmd_configure_hid(&c)) return usb_fail("CONFIGURE HID EP");
 
     diag_stage="HID CLASS SETUP";
-    if(ctrl(0x21u,0x0Bu,0u,c.interface_number,0,0,0,1)){
-        usb_log("[ USB ] SET_PROTOCOL failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
+    if(c.boot_protocol==1u||c.boot_protocol==2u){
+        if(ctrl(0x21u,0x0Bu,(uint16_t)(hid_wanted_keyboard?1u:2u),c.interface_number,0,0,0,1)){
+            usb_log("[ USB ] SET_PROTOCOL failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
+        }
     }
+    if(hid_layout_read_descriptor(&c)!=0 && c.boot_protocol==0u)
+        return usb_fail("HID REPORT DESCRIPTOR");
     if(ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1)){
         usb_log("[ USB ] SET_IDLE failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
     }
@@ -1655,7 +1849,27 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
                 uint32_t kres=kbd_report_length>(e.status&0xFFFFFFu)
                     ?kbd_report_length-(e.status&0xFFFFFFu):0u;
                 if(kres>PAGE_SIZE)kres=PAGE_SIZE;
-                keyboard_handle_usb_report(kbd_report_buf,kres);
+                if(keyboard_hid_layout.enabled&&keyboard_hid_layout.key_size){
+                    uint8_t boot[8]={0u,0u,0u,0u,0u,0u,0u,0u};
+                    if(keyboard_hid_layout.report_id){
+                        if(kres<1u||kbd_report_buf[0]!=keyboard_hid_layout.report_id) {
+                            kbd_report_pending=0u;
+                            submit_keyboard_report();
+                            continue;
+                        }
+                    }
+                    if(keyboard_hid_layout.modifier_size)
+                        boot[0]=(uint8_t)hid_bits(kbd_report_buf,kres,
+                            keyboard_hid_layout.modifier_bit,keyboard_hid_layout.modifier_size);
+                    for(uint32_t ki=0u;ki<keyboard_hid_layout.key_count&&ki<6u;++ki)
+                        boot[2u+ki]=(uint8_t)hid_bits(kbd_report_buf,kres,
+                            (uint16_t)(keyboard_hid_layout.key_bit+
+                                       ki*keyboard_hid_layout.key_size),
+                            keyboard_hid_layout.key_size);
+                    keyboard_handle_usb_report(boot,8u);
+                }else{
+                    keyboard_handle_usb_report(kbd_report_buf,kres);
+                }
             }
             kbd_report_pending=0u;
             submit_keyboard_report();
@@ -1686,9 +1900,19 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
                         report_seen=1;
                         usb_log("[ OK ] HID mouse reports active\n");
                     }
-                    total_dx+=(int32_t)(int8_t)diag_last_report[1];
-                    total_dy+=(int32_t)(int8_t)diag_last_report[2];
-                    last_buttons=diag_last_report[0]&7u;
+                    if(mouse_hid_layout.x_size&&mouse_hid_layout.y_size){
+                        uint32_t rid_bytes=mouse_hid_layout.report_id?1u:0u;
+                        if(rid_bytes&&actual<2u) continue;
+                        if(rid_bytes&&report_buf[0]!=mouse_hid_layout.report_id) continue;
+                        total_dx+=hid_signed(report_buf,actual,mouse_hid_layout.x_bit,mouse_hid_layout.x_size);
+                        total_dy+=hid_signed(report_buf,actual,mouse_hid_layout.y_bit,mouse_hid_layout.y_size);
+                        if(mouse_hid_layout.buttons_size)
+                            last_buttons=(uint8_t)hid_bits(report_buf,actual,mouse_hid_layout.buttons_bit,mouse_hid_layout.buttons_size);
+                    }else{
+                        total_dx+=(int32_t)(int8_t)diag_last_report[1];
+                        total_dy+=(int32_t)(int8_t)diag_last_report[2];
+                        last_buttons=diag_last_report[0]&7u;
+                    }
                     got_report=1;
                 }
             }
