@@ -753,3 +753,6 @@ See [LICENSE](LICENSE).
 </p>
 
 > CI verification: Kernel/CPU plus Processes/Threads/IPC foundations are validated through the full build/test pipeline.
+
+
+CI verification marker: kernel audit validation.
