@@ -12,6 +12,7 @@ int elf32_validate(const uint8_t *image, uint32_t size, uint32_t *entry) {
     if (h->ident[0] != 0x7F || h->ident[1] != 'E' ||
         h->ident[2] != 'L' || h->ident[3] != 'F') return -1;
     if (h->ident[4] != ELFCLASS32 || h->ident[5] != ELFDATA2LSB) return -1;
+    if (h->type != 2u) return -1; /* ET_EXEC only; reject relocatable/shared objects. */
     if (h->machine != EM_386 || h->version != 1u) return -1;
     if (h->ehsize < sizeof(struct elf32_header) ||
         h->phentsize < sizeof(struct elf32_phdr) || h->phnum == 0) return -1;
