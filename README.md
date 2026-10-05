@@ -610,19 +610,19 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 
 | Planned feature | Status |
 |---|:---:|
-| More complete libc | ⬜ |
-| printf family | ⬜ |
-| Dynamic memory allocation | ⬜ |
-| Environment variables | ⬜ |
-| argv / argc conventions | ⬜ |
+| More complete libc | ✅ |
+| printf family | ✅ |
+| Dynamic memory allocation | ✅ |
+| Environment variables | ✅ |
+| argv / argc conventions | ✅ |
 | Standard streams | ⬜ |
 | File descriptor inheritance | ✅ |
 | Pipes / redirection | ⬜ |
 | Shell job control | ⬜ |
-| env command | ⬜ |
-| grep | ⬜ |
-| find | ⬜ |
-| cp / mv | ⬜ |
+| env command | ✅ |
+| grep | ✅ |
+| find | ✅ |
+| cp / mv | ✅ |
 | mkdir / rmdir | ⬜ |
 | chmod / chown | ⬜ |
 | ps improvements | ⬜ |
