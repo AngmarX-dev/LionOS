@@ -39,9 +39,12 @@ void smp_ap_main(void){
     uint32_t stack_top=ap_stacks[index]+LIONOS_SMP_STACK_PAGES*4096u;
     debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
     tss_init_cpu(index,stack_top);
+    paging_switch_address_space(paging_kernel_directory());
+    (void)cpu_fpu_sse_init();
     debug_write("LIONOS:SMP-AP-TSS-OK\n");
     idt_load_current();
     debug_write("LIONOS:SMP-AP-IDT-OK\n");
+    lapic_enable();
     lapic_timer_init();
     debug_write("LIONOS:SMP-AP-TIMER-OK\n");
     __asm__ volatile("sti");
