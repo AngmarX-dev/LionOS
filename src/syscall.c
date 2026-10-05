@@ -28,7 +28,8 @@ static int user_range_ok_write(uint32_t ptr,uint32_t len){
         if(!(flags&0x2u)){
             if(!(flags&0x200u)||paging_resolve_cow(pd,addr)!=0)return 0;
         }
-        if(addr+0x1000u>=end)break;addr+=0x1000u;
+        if(addr+0x1000u>=end)break;
+        addr+=0x1000u;
     }
     return 1;
 }
