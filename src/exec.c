@@ -71,7 +71,7 @@ static int build_initial_stack(uint8_t *page, const char *name,
     while (name[len] && len < 32u) ++len;
     if (name[len] != 0 || len + 1u > 64u) return -1;
 
-    uint32_t string_va = USER_STACK_TOP - len - 1u;
+    uint32_t string_va = USER_STACK_TOP - 20u - len - 1u;
     uint32_t argv0_va = USER_STACK_TOP - 12u;
     uint32_t argc_va = USER_STACK_TOP - 20u;
     uint32_t os = string_va - USER_STACK_PAGE;
