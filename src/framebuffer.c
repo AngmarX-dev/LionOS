@@ -574,14 +574,17 @@ void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint3
     }
     uint32_t sw=fb_width_value, sh=fb_height_value;
     if (!wallpaper_cache_ready) {
-        uint32_t lhs=sw*height, rhs=sh*width, out_w,out_h,ox,oy;
-        if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;ox=0u;oy=(sh-out_h)/2u;}
-        else{out_h=sh;out_w=(sh*width)/height;ox=(sw-out_w)/2u;oy=0u;}
-        for(uint32_t y=0u;y<out_h;++y){
-            uint32_t sy=(y*height)/out_h;
-            uint32_t *dst=wallpaper_cache+(oy+y)*sw+ox;
-            for(uint32_t x=0u;x<out_w;++x){
-                uint32_t sx=(x*width)/out_w;
+        for(uint64_t i=0u;i<(uint64_t)sw*sh;++i) wallpaper_cache[i]=pack_rgb(0u);
+        uint64_t lhs=(uint64_t)sw*height, rhs=(uint64_t)sh*width;
+        uint32_t out_w,out_h;
+        if(lhs>=rhs){out_w=sw;out_h=(uint32_t)(lhs/width);}
+        else{out_h=sh;out_w=(uint32_t)(rhs/height);}
+        uint32_t crop_x=out_w>sw?(out_w-sw)/2u:0u, crop_y=out_h>sh?(out_h-sh)/2u:0u;
+        for(uint32_t y=0u;y<sh;++y){
+            uint32_t sy=((uint64_t)(y+crop_y)*height)/out_h;
+            uint32_t *dst=wallpaper_cache+y*sw;
+            for(uint32_t x=0u;x<sw;++x){
+                uint32_t sx=((uint64_t)(x+crop_x)*width)/out_w;
                 uint16_t p=pixels[sy*width+sx];
                 uint32_t r=((p>>11)&31u)*255u/31u, g=((p>>5)&63u)*255u/63u, b=(p&31u)*255u/31u;
                 dst[x]=pack_rgb((r<<16)|(g<<8)|b);
