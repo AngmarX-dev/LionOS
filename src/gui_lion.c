@@ -126,6 +126,9 @@ static uint32_t notepad_len;
 static uint32_t notepad_cursor;
 static uint8_t notepad_focus;
 static uint8_t notepad_loaded;
+static uint32_t file_selected = 0xFFFFFFFFu;
+static uint32_t file_last_clicked = 0xFFFFFFFFu;
+static uint32_t file_last_click_tick;
 
 static void glyph(char c, uint16_t rows[FONT_H]) {
     for (uint32_t i=0u;i< FONT_H;++i) rows[i]=0u;
@@ -220,7 +223,7 @@ static void toggle_max(uint8_t id){struct ui_window*w=window_by_id(id);if(!w)ret
 static uint32_t ui_signature(void){
     uint32_t h=start_open*31u+(uint32_t)browser_is_active()+gui_active*7u;
     for(uint32_t i=0;i<WIN_MAX;++i){const struct ui_window*w=&windows[i];h=h*33u+w->visible+(w->minimized<<1)+(w->focused<<2)+(w->maximized<<3);h=h*33u+w->x;h=h*33u+w->y;h=h*33u+w->w;h=h*33u+w->h;}
-    h=h*33u+(uint32_t)(desktop_icon_drag+1)+term_line_count+term_len;h=h*33u+notepad_len+notepad_cursor;return h;
+    h=h*33u+(uint32_t)(desktop_icon_drag+1)+term_line_count+term_len;h=h*33u+notepad_len+notepad_cursor;h=h*33u+file_selected;return h;
 }
 static void dirty_around_cursor(void){dirty_rect(mouse_px_x>80u?mouse_px_x-80u:0u,mouse_px_y>80u?mouse_px_y-80u:0u,180u,180u);}
 static void dirty_focused(void){for(uint32_t i=0;i<WIN_MAX;++i){struct ui_window*w=&windows[i];if(w->visible&&!w->minimized&&w->focused){dirty_rect(w->x>8u?w->x-8u:0u,w->y>8u?w->y-8u:0u,w->w+32u,w->h+32u);return;}}dirty_full();}
@@ -320,19 +323,75 @@ static void draw_terminal(const struct ui_window*w){
     text_line(term_input,x+10u+16u*CHAR_W,py0+4u,COL_TEXT,COL_PANEL2);
 }
 
+static int file_manager_hit(const struct ui_window*w,uint32_t x,uint32_t y,uint32_t *index){
+    if(!w||!index)return 0;
+    uint32_t left=w->x+16u, top=w->y+TITLE_H+10u, side=128u;
+    uint32_t gx=left+side+18u, gy=top+48u;
+    uint32_t col_w=96u,row_h=70u;
+    if(x<gx||y<gy)return 0;
+    uint32_t col=(x-gx)/col_w,row=(y-gy)/row_h;
+    if(col>=3u||row>=4u)return 0;
+    uint32_t bx=gx+col*col_w,by=gy+row*row_h;
+    if(x<bx||x>=bx+84u||y<by||y>=by+60u)return 0;
+    uint32_t idx=row*3u+col;
+    if(idx>=vfs_count()||idx>=12u)return 0;
+    *index=idx;
+    return 1;
+}
+static void file_manager_open_selected(void){
+    if(file_selected==0xFFFFFFFFu)return;
+    const char *name=vfs_name(file_selected);
+    if(!name)return;
+    int fd=vfs_open(name,1u);
+    if(fd<0)return;
+    int n=vfs_read(fd,notepad_text,NOTEPAD_TEXT_MAX);
+    (void)vfs_close(fd);
+    if(n<0)return;
+    notepad_len=(uint32_t)n;
+    if(notepad_len>NOTEPAD_TEXT_MAX)notepad_len=NOTEPAD_TEXT_MAX;
+    for(uint32_t i=0u;i<notepad_len;++i){
+        unsigned char c=(unsigned char)notepad_text[i];
+        if(c<32u&&c!='\\n'&&c!='\\r'&&c!='\\t')notepad_text[i]='.';
+        else if(c=='\\t')notepad_text[i]=' ';
+    }
+    notepad_text[notepad_len]=0;
+    notepad_cursor=notepad_len;
+    notepad_loaded=1u;
+    show(WIN_NOTEPAD);
+}
 static void draw_files(const struct ui_window*w){
     window_chrome(w,"Files");
     uint32_t left=w->x+16u, top=w->y+TITLE_H+10u, side=128u;
-    framebuffer_blend_round_rect(left,top,side,w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u,14u,COL_PANEL2,130u);
+    uint32_t body_h=w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u;
+    framebuffer_blend_round_rect(left,top,side,body_h,14u,COL_PANEL2,130u);
     text_line("HOME",left+14u,top+14u,COL_GOLD,COL_PANEL2);
-    text_line("NOTES",left+14u,top+52u,COL_DIM,COL_PANEL2);
-    text_line("PROJECTS",left+14u,top+90u,COL_DIM,COL_PANEL2);
-    framebuffer_blend_round_rect(left+side+1u,top,w->w>side+35u?w->w-side-34u:1u,w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u,14u,COL_PANEL,120u);
-    text_line("/home/pride",left+side+18u,top+14u,COL_DIM,COL_PANEL);
+    text_line("ALL FILES",left+14u,top+52u,COL_DIM,COL_PANEL2);
+    text_line("DISKS",left+14u,top+90u,COL_DIM,COL_PANEL2);
+
+    uint32_t right_w=w->w>side+35u?w->w-side-34u:1u;
+    framebuffer_blend_round_rect(left+side+1u,top,right_w,body_h,14u,COL_PANEL,120u);
+    text_line("/",left+side+18u,top+14u,COL_TEXT,COL_PANEL);
+    text_line("DOUBLE-CLICK TO OPEN",left+side+44u,top+14u,COL_DIM,COL_PANEL);
+
     uint32_t gx=left+side+18u, gy=top+48u;
     uint32_t n=vfs_count();
     if(n==0u){text_line("Folder is empty",gx,gy,COL_DIM,COL_PANEL);return;}
-    for(uint32_t i=0;i<n && i<12u;++i){const char*nme=vfs_name(i);if(!nme)continue;uint32_t col=i%4u,row=i/4u;uint32_t bx=gx+col*100u,by=gy+row*70u;fill(bx,by,46u,40u,COL_PANEL2);border(bx,by,46u,40u,COL_GOLD_DIM);text_line("FILE",bx+7u,by+12u,COL_GOLD,COL_PANEL2);text_line(nme,bx,by+46u,COL_TEXT,COL_PANEL);}
+    for(uint32_t i=0u;i<n&&i<12u;++i){
+        const char*nme=vfs_name(i);if(!nme)continue;
+        uint32_t col=i%3u,row=i/3u;
+        uint32_t bx=gx+col*96u,by=gy+row*70u;
+        uint32_t selected=(file_selected==i);
+        fill(bx,by,84u,60u,selected?COL_SKY_MID:COL_PANEL2);
+        border(bx,by,84u,60u,selected?COL_GOLD:COL_GOLD_DIM);
+        if(bx+56u<=framebuffer_width()&&by+52u<=framebuffer_height())
+            framebuffer_blit_rgba32(lion_icon_documents,LION_ICON_SIZE,LION_ICON_SIZE,bx+2u,by+2u,48u);
+        text_line(nme,bx+52u,by+12u,COL_TEXT,selected?COL_SKY_MID:COL_PANEL2);
+        text_line(selected?"SELECTED":"FILE",bx+52u,by+34u,selected?COL_GOLD:COL_DIM,selected?COL_SKY_MID:COL_PANEL2);
+    }
+    if(file_selected!=0xFFFFFFFFu&&file_selected<n){
+        const char*name=vfs_name(file_selected);
+        if(name){text_line("OPEN WITH NOTEPAD",gx,gy+4u*70u+8u,COL_OK,COL_PANEL);}
+    }
 }
 
 static void draw_about(const struct ui_window*w){
@@ -649,6 +708,9 @@ static void init_windows(void){
         desktop_icons[i].moved=0u;
     }
     terminal_focus=0u;
+    file_selected=0xFFFFFFFFu;
+    file_last_clicked=0xFFFFFFFFu;
+    file_last_click_tick=0u;
     dirty_full();
     last_render_tick=0xFFFFFFFFu;
 }
@@ -727,6 +789,24 @@ static void handle_window_click(struct ui_window*w){
             drag_dx=(int)x-(int)w->x;
             drag_dy=(int)y-(int)w->y;
             (void)drag_cache_begin(w);
+        }
+        return;
+    }
+    if(w->id==WIN_FILES&&!w->maximized){
+        uint32_t idx;
+        if(file_manager_hit(w,x,y,&idx)){
+            uint32_t now=interrupt_timer_ticks();
+            if(file_selected==idx&&file_last_clicked==idx&&
+               (uint32_t)(now-file_last_click_tick)<=50u){
+                file_manager_open_selected();
+                file_last_clicked=0xFFFFFFFFu;
+            }else{
+                file_selected=idx;
+                file_last_clicked=idx;
+                file_last_click_tick=now;
+            }
+        }else{
+            file_last_clicked=0xFFFFFFFFu;
         }
     }
 }

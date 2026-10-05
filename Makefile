@@ -14,7 +14,7 @@ NASM := nasm
 CFLAGS := -m32 -MMD -MP -fno-strict-aliasing -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
 ICON_HEADER := $(BUILD)/lion_icons.h
 WALLPAPER_HEADER := $(BUILD)/lion_wallpaper.h
-ICON_SOURCES := Icons/lionos-icon.png Icons/Terminal-icon.png Icons/Browser-icon.png Icons/Desktop-icon.png Icons/DocumentsFolder-icon.png Icons/Tools-icon.png Icons/OldComputer-icon.png Icons/Home-icon.png Icons/Trash-icon.png
+ICON_SOURCES := Icons-Sorted/01_Core/lionos.png Icons-Sorted/13_Terminal/terminal.png Icons-Sorted/05_Network/browser.png Icons-Sorted/01_Core/desktop.png Icons-Sorted/02_Files/documents-folder.png Icons-Sorted/01_Core/tools.png Icons-Sorted/01_Core/legacy-computer.png Icons-Sorted/01_Core/home.png Icons-Sorted/04_System/trash.png
 GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation -I$(BUILD)
 GUI_DESKTOP_CFLAGS := $(CFLAGS)
 USER_CFLAGS := -m32 -fno-strict-aliasing -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude

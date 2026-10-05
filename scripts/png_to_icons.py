@@ -11,15 +11,15 @@ from pathlib import Path
 
 SIZE = 48
 ICONS = {
-    "lionos": "Icons/lionos-icon.png",
-    "terminal": "Icons/Terminal-icon.png",
-    "browser": "Icons/Browser-icon.png",
-    "desktop": "Icons/Desktop-icon.png",
-    "documents": "Icons/DocumentsFolder-icon.png",
-    "tools": "Icons/Tools-icon.png",
-    "computer": "Icons/OldComputer-icon.png",
-    "home": "Icons/Home-icon.png",
-    "trash": "Icons/Trash-icon.png",
+    "lionos": "Icons-Sorted/01_Core/lionos.png",
+    "terminal": "Icons-Sorted/13_Terminal/terminal.png",
+    "browser": "Icons-Sorted/05_Network/browser.png",
+    "desktop": "Icons-Sorted/01_Core/desktop.png",
+    "documents": "Icons-Sorted/02_Files/documents-folder.png",
+    "tools": "Icons-Sorted/01_Core/tools.png",
+    "computer": "Icons-Sorted/01_Core/legacy-computer.png",
+    "home": "Icons-Sorted/01_Core/home.png",
+    "trash": "Icons-Sorted/04_System/trash.png",
 }
 
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
