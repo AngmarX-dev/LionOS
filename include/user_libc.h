@@ -13,6 +13,7 @@ int strcmp(const char *a, const char *b);
 int strncmp(const char *a, const char *b, uint32_t length);
 char *strchr(const char *s, int c);
 char *strrchr(const char *s, int c);
+char *strstr(const char *haystack, const char *needle);
 int atoi(const char *s);
 void *malloc(uint32_t size);
 void free(void *ptr);
