@@ -13,7 +13,7 @@
  * 0xF0000000..0xF7FFFFFF is 128 MiB. Each page-directory entry covers
  * 2 MiB, so only 32 page tables are needed here.
  */
-#define KERNEL_MMIO_PT_COUNT 64u
+#define KERNEL_MMIO_PT_COUNT 128u
 #define USER_LIMIT 0xC0000000u
 #define PROCESS_PAGING_PAGES 5u /* PDPT + four page-directory pages */
 
