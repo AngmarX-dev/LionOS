@@ -3,7 +3,7 @@
 #define RAMFS_MAX_FILES 32u
 #define RAMFS_NAME_MAX 64u
 #define RAMFS_DATA_MAX 256u
-#define RAMFS_PROGRAM_COUNT 16u
+#define RAMFS_PROGRAM_COUNT 21u
 struct ramfs_file { char name[RAMFS_NAME_MAX]; char data[RAMFS_DATA_MAX]; uint32_t size; };
 static struct ramfs_file files[RAMFS_MAX_FILES]; static uint32_t count;
 extern const uint8_t _binary_hello_elf_start[],_binary_hello_elf_end[];
@@ -22,9 +22,14 @@ extern const uint8_t _binary_uname_elf_start[],_binary_uname_elf_end[];
 extern const uint8_t _binary_rm_elf_start[],_binary_rm_elf_end[];
 extern const uint8_t _binary_stat_elf_start[],_binary_stat_elf_end[];
 extern const uint8_t _binary_userland_test_elf_start[],_binary_userland_test_elf_end[];
-static const char *program_names[RAMFS_PROGRAM_COUNT]={"hello.elf","process_test.elf","ipc_test.elf","signal_test.elf","net_test.elf","ping.elf","vfs_test.elf","cow_test.elf","echo.elf","cat.elf","ls.elf","pwd.elf","uname.elf","rm.elf","stat.elf","userland_test.elf"};
-static const uint8_t *program_starts[RAMFS_PROGRAM_COUNT]={_binary_hello_elf_start,_binary_process_test_elf_start,_binary_ipc_test_elf_start,_binary_signal_test_elf_start,_binary_net_test_elf_start,_binary_ping_elf_start,_binary_vfs_test_elf_start,_binary_cow_test_elf_start,_binary_echo_elf_start,_binary_cat_elf_start,_binary_ls_elf_start,_binary_pwd_elf_start,_binary_uname_elf_start,_binary_rm_elf_start,_binary_stat_elf_start,_binary_userland_test_elf_start};
-static const uint8_t *program_ends[RAMFS_PROGRAM_COUNT]={_binary_hello_elf_end,_binary_process_test_elf_end,_binary_ipc_test_elf_end,_binary_signal_test_elf_end,_binary_net_test_elf_end,_binary_ping_elf_end,_binary_vfs_test_elf_end,_binary_cow_test_elf_end,_binary_echo_elf_end,_binary_cat_elf_end,_binary_ls_elf_end,_binary_pwd_elf_end,_binary_uname_elf_end,_binary_rm_elf_end,_binary_stat_elf_end,_binary_userland_test_elf_end};
+extern const uint8_t _binary_env_elf_start[],_binary_env_elf_end[];
+extern const uint8_t _binary_grep_elf_start[],_binary_grep_elf_end[];
+extern const uint8_t _binary_find_elf_start[],_binary_find_elf_end[];
+extern const uint8_t _binary_cp_elf_start[],_binary_cp_elf_end[];
+extern const uint8_t _binary_mv_elf_start[],_binary_mv_elf_end[];
+static const char *program_names[RAMFS_PROGRAM_COUNT]={"hello.elf","process_test.elf","ipc_test.elf","signal_test.elf","net_test.elf","ping.elf","vfs_test.elf","cow_test.elf","echo.elf","cat.elf","ls.elf","pwd.elf","uname.elf","rm.elf","stat.elf","env.elf","grep.elf","find.elf","cp.elf","mv.elf","userland_test.elf"};
+static const uint8_t *program_starts[RAMFS_PROGRAM_COUNT]={_binary_hello_elf_start,_binary_process_test_elf_start,_binary_ipc_test_elf_start,_binary_signal_test_elf_start,_binary_net_test_elf_start,_binary_ping_elf_start,_binary_vfs_test_elf_start,_binary_cow_test_elf_start,_binary_echo_elf_start,_binary_cat_elf_start,_binary_ls_elf_start,_binary_pwd_elf_start,_binary_uname_elf_start,_binary_rm_elf_start,_binary_stat_elf_start,_binary_env_elf_start,_binary_grep_elf_start,_binary_find_elf_start,_binary_cp_elf_start,_binary_mv_elf_start,_binary_userland_test_elf_start};
+static const uint8_t *program_ends[RAMFS_PROGRAM_COUNT]={_binary_hello_elf_end,_binary_process_test_elf_end,_binary_ipc_test_elf_end,_binary_signal_test_elf_end,_binary_net_test_elf_end,_binary_ping_elf_end,_binary_vfs_test_elf_end,_binary_cow_test_elf_end,_binary_echo_elf_end,_binary_cat_elf_end,_binary_ls_elf_end,_binary_pwd_elf_end,_binary_uname_elf_end,_binary_rm_elf_end,_binary_stat_elf_end,_binary_env_elf_end,_binary_grep_elf_end,_binary_find_elf_end,_binary_cp_elf_end,_binary_mv_elf_end,_binary_userland_test_elf_end};
 static int streq(const char*a,const char*b){while(*a&&*a==*b){++a;++b;}return *a==*b;}
 static struct ramfs_file*find(const char*n){for(uint32_t i=0;i<count;++i)if(streq(files[i].name,n))return &files[i];return 0;}
 static void copy_name(char*d,const char*s){uint32_t i=0;while(s[i]&&i<RAMFS_NAME_MAX-1u){d[i]=s[i];++i;}d[i]=0;}
