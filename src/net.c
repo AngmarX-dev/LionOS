@@ -227,7 +227,7 @@ static int arp_resolve(uint32_t ip, uint8_t mac[6]) {
     for (uint32_t attempt = 0; attempt < 3u; ++attempt) {
         if (arp_request(ip) != 0) return -1;
         for (uint32_t wait = 0; wait < 200000u; ++wait) {
-            uint8_t frame[1600];
+            static uint8_t frame[1600];
             uint32_t n = rtl_poll(frame, sizeof(frame));
             if (n < ETH_HDR_LEN + sizeof(struct arp_packet)) continue;
             struct eth_hdr *eth = (struct eth_hdr *)frame;
@@ -259,7 +259,7 @@ static int send_icmp(uint32_t target_ip, const uint8_t dst_mac[6], uint16_t id, 
 
 static int wait_icmp_reply(uint32_t target_ip, uint16_t id, uint16_t seq) {
     for (uint32_t wait = 0; wait < 300000u; ++wait) {
-        uint8_t frame[1600];
+        static uint8_t frame[1600];
         uint32_t n = rtl_poll(frame, sizeof(frame));
         if (n < ETH_HDR_LEN + sizeof(struct ipv4_hdr) + sizeof(struct icmp_hdr)) continue;
         struct eth_hdr *eth = (struct eth_hdr *)frame;
@@ -372,7 +372,7 @@ static int send_tcp(uint32_t dst_ip,const uint8_t dst_mac[6],uint16_t src_port,u
     uint32_t tcp_len=sizeof(struct tcp_hdr)+payload_len;
     uint32_t total=ETH_HDR_LEN+sizeof(struct ipv4_hdr)+tcp_len;
     if(total>RTL_TX_SIZE)return -1;
-    uint8_t frame[RTL_TX_SIZE];
+    static uint8_t frame[RTL_TX_SIZE];
     struct eth_hdr *eth=(struct eth_hdr*)frame;
     struct ipv4_hdr *ip=(struct ipv4_hdr*)(frame+ETH_HDR_LEN);
     struct tcp_hdr *tcp=(struct tcp_hdr*)(frame+ETH_HDR_LEN+sizeof(struct ipv4_hdr));
@@ -413,7 +413,7 @@ static int tcp_packet(uint32_t target_ip,uint16_t local_port,uint16_t remote_por
 static int tcp_wait(uint32_t target_ip,const uint8_t dst_mac[6],uint16_t local_port,uint16_t remote_port,
                     uint32_t want_seq,uint32_t *next_seq,uint32_t *next_ack,uint8_t *out,uint32_t capacity,uint32_t *received){
     for(uint32_t wait=0;wait<500000u;++wait){
-        uint8_t frame[1600];
+        static uint8_t frame[1600];
         uint32_t n=rtl_poll(frame,sizeof(frame));
         uint32_t seq=0,ack=0,payload_len=0;uint8_t flags=0;uint8_t *payload=0;
         if(!tcp_packet(target_ip,local_port,remote_port,frame,n,&seq,&ack,&flags,&payload,&payload_len))continue;
@@ -446,7 +446,7 @@ int32_t net_http_get(uint32_t target_ip,const char *path,void *out,uint32_t capa
     uint32_t seq=0x12000000u+(process_current_pid()&0x00FFFFFFu);
     uint32_t ack=0;
     if(send_tcp(target_ip,mac,local_port,remote_port,seq,0,TCP_SYN,0,0)!=0)return -1;
-    uint8_t frame[1600];uint32_t synseq=0,synack=0,plen=0;uint8_t flags=0;uint8_t *payload=0;
+    static uint8_t frame[1600];uint32_t synseq=0,synack=0,plen=0;uint8_t flags=0;uint8_t *payload=0;
     for(uint32_t wait=0;wait<500000u;++wait){
         uint32_t n=rtl_poll(frame,sizeof(frame));
         if(!tcp_packet(target_ip,local_port,remote_port,frame,n,&synseq,&synack,&flags,&payload,&plen))continue;
