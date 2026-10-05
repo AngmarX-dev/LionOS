@@ -196,8 +196,8 @@ void keyboard_init(void) {
      */
     int reset_rc=keyboard_reset_device();
     int scan_rc=keyboard_enable_scanning();
-    if(reset_rc==0) debug_write("LIONOS:KEYBOARD-RESET-OK\\n");
-    else debug_write("LIONOS:KEYBOARD-RESET-SKIPPED\\n");
+    if(reset_rc==0) debug_write("LIONOS:KEYBOARD-RESET-OK\n");
+    else debug_write("LIONOS:KEYBOARD-RESET-SKIPPED\n");
 
     keyboard_flush_output();
     if(scan_rc==0)
