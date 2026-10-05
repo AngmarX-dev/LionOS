@@ -67,7 +67,7 @@ static void enable_pae_paging(void) {
 
     uint32_t cr0;
     __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
-    cr0 |= 0x80000000u; /* CR0.PG */
+    cr0 |= 0x80010000u; /* CR0.PG | CR0.WP: kernel cannot bypass user read-only/COW pages. */
     __asm__ volatile ("mov %0, %%cr0" : : "r"(cr0) : "memory");
 }
 
