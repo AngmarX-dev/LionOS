@@ -15,6 +15,7 @@ void     mouse_set_bounds(uint32_t max_x, uint32_t max_y);
 int32_t  mouse_x(void);
 int32_t  mouse_y(void);
 uint8_t  mouse_buttons(void);
+int      mouse_ps2_available(void);
 
 struct mouse_event {
     int32_t dx;

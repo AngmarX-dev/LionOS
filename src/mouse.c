@@ -48,6 +48,7 @@ static volatile uint8_t  ps2_cycle = 0;
 static volatile int32_t  ps2_dx = 0;
 static volatile uint8_t   ps2_flags = 0;
 static volatile int       ps2_initialized = 0;
+static volatile uint8_t    ps2_controller_present = 0u;
 static volatile int       cursor_visible = 1;
 
 /* ============================================================
@@ -80,12 +81,14 @@ static uint32_t cursor_max_y = 767u;
  * PS/2 low-level helpers
  * ============================================================ */
 static void ps2_wait_write(void){
+    if(!ps2_controller_present) return;
     for(uint32_t i = 0; i < 100000u; ++i){
         if((inb(0x64) & 2u) == 0u) return;
     }
 }
 
 static void ps2_wait_read(void){
+    if(!ps2_controller_present) return;
     for(uint32_t i = 0; i < 100000u; ++i){
         if(inb(0x64) & 1u) return;
     }
@@ -107,6 +110,7 @@ static uint8_t ps2_read(void){
  * The firmware/PIC delivers byte 0 of the PS/2 packet to us;
  * we reassemble the 3-byte packet here. */
 void mouse_irq_handler(void){
+    if(!ps2_controller_present) return;
     uint8_t st = inb(0x64);
     if(!(st & 0x20u)) return;
     uint8_t data = inb(0x60);
@@ -149,6 +153,11 @@ void mouse_irq_handler(void){
  * ============================================================ */
 void mouse_init(void){
     if(ps2_initialized) return;
+    if(!keyboard_ps2_available()){
+        debug_write("LIONOS:MOUSE-PS2-SKIPPED-NO-I8042\n");
+        return;
+    }
+    ps2_controller_present=1u;
     spinlock_init(&mouse_event_lock);
     mouse_event_read_idx=0u;
     mouse_event_write_idx=0u;
@@ -258,6 +267,8 @@ void mouse_poll(void){
 int32_t mouse_x(void){ return cursor_smooth_x; }
 int32_t mouse_y(void){ return cursor_smooth_y; }
 uint8_t mouse_buttons(void){ return (usb_initialized&&usb_has_report) ? usb_buttons : ps2_buttons; }
+
+int mouse_ps2_available(void){ return ps2_controller_present!=0u; }
 
 uint32_t mouse_event_available(void){
     if(!mouse_event_lock_ready) return 0u;

@@ -1392,6 +1392,11 @@ static int enumerate_port(uint32_t p){
     }
     return 0;
 }
+int xhci_host_controller_present(void){
+    pci_dev_t d;
+    return pci_find_xhci(&d)==0;
+}
+
 int xhci_mouse_init(void){
     if(ready) return 0;
     diag_stage="SCANNING PCI";

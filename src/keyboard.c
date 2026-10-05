@@ -22,6 +22,22 @@ static volatile uint8_t last_scancode;
 static volatile uint8_t input_seen;
 static volatile uint8_t scancode_set = 1u;
 static volatile uint8_t set2_break_pending = 0u;
+static volatile uint8_t ps2_controller_present = 0u;
+
+static int keyboard_probe_controller(void){
+    uint8_t status=inb(PS2_STATUS);
+    /*
+     * A completely absent legacy controller commonly reads as 0xFF on the
+     * status port. Do not write to 0x64/0x60 in that case: modern systems
+     * without an i8042 should continue directly to USB HID input.
+     */
+    if(status==0xFFu) return -1;
+    keyboard_wait_write();
+    outb(PS2_STATUS,0x20u);
+    if(keyboard_wait_read()!=0) return -1;
+    (void)inb(PS2_DATA);
+    return 0;
+}
 
 static const char keymap[128] = {
     [0x01] = 27,
@@ -169,6 +185,13 @@ void keyboard_init(void) {
     input_seen = 0u;
     scancode_set = 1u;
     set2_break_pending = 0u;
+    ps2_controller_present = 0u;
+
+    if(keyboard_probe_controller()!=0){
+        debug_write("LIONOS:KEYBOARD-PS2-ABSENT\n");
+        return;
+    }
+    ps2_controller_present = 1u;
 
     /*
      * Fully re-arm the i8042 keyboard port. Some laptop firmware leaves the
@@ -356,6 +379,7 @@ void keyboard_handle_usb_report(const uint8_t *report, uint32_t length){
     for(uint32_t i=0u;i<6u;++i)usb_prev_keys[i]=report[2u+i];
 }
 void keyboard_irq_handler(void){
+    if(!ps2_controller_present) return;
     /*
      * IRQ 1 is the interrupt-driven producer for the ring buffer. Consume
      * keyboard bytes already waiting in the i8042 output buffer, but never
@@ -374,6 +398,7 @@ void keyboard_irq_handler(void){
 }
 
 void keyboard_rearm_after_mouse_init(void){
+    if(!ps2_controller_present) return;
     /* mouse_init() rewrites the i8042 command byte; restore the keyboard
        clock/IRQ/translation bits and leave AUX enabled for the mouse. */
     keyboard_wait_write();
@@ -404,6 +429,8 @@ int keyboard_getchar(void) {
     read_index = (read_index + 1u) % KEYBOARD_BUFFER_SIZE;
     return (int)c;
 }
+
+int keyboard_ps2_available(void){ return ps2_controller_present!=0u; }
 
 uint32_t keyboard_available(void) {
     if (write_index >= read_index) return write_index - read_index;
