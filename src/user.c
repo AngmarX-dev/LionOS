@@ -20,11 +20,11 @@ static void enter_user_mode(uint32_t entry, uint32_t stack) {
         "mov %%ax, %%es\n"
         "mov %%ax, %%fs\n"
         "mov %%ax, %%gs\n"
-        "pushl $0x2B\n"
+        "pushl $0x33\n"
         "pushl %[user_stack]\n"
         "pushfl\n"
         "orl $0x200, (%%esp)\n"
-        "pushl $0x23\n"
+        "pushl $0x2B\n"
         "pushl %[user_entry]\n"
         "iret\n"
         :
