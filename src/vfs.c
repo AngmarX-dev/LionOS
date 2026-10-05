@@ -85,6 +85,25 @@ static int read_slot(struct vfs_fd *f,void *buffer,uint32_t length) {
 static int write_slot(struct vfs_fd *f,const void *buffer,uint32_t length) {
     if(!fd_valid(f)||!buffer||length>VFS_IO_MAX||(f->flags&VFS_F_WRITE)==0)return -1;
     if(f->offset!=0 && !(f->flags&VFS_F_APPEND))return -1;
+    if(f->flags&VFS_F_APPEND){
+        uint32_t old_size=file_size(f->backend,f->path);
+        uint32_t max_size=f->backend==VFS_BACKEND_DISKFS?DISKFS_MAX_FILE_SIZE:256u;
+        if(old_size>max_size||length>max_size-old_size)return -1;
+        uint8_t *tmp=(uint8_t*)kmalloc(max_size);
+        if(!tmp)return -1;
+        int old_read=f->backend==VFS_BACKEND_DISKFS?diskfs_read(f->path,tmp,max_size):(int)old_size;
+        if(f->backend==VFS_BACKEND_RAMFS){
+            const uint8_t *old=(const uint8_t*)ramfs_data(f->path);
+            if(old)for(uint32_t i=0;i<old_size;++i)tmp[i]=old[i];
+        }
+        if(old_read<0){kfree(tmp);return -1;}
+        for(uint32_t i=0;i<length;++i)tmp[old_size+i]=((const uint8_t*)buffer)[i];
+        int r=f->backend==VFS_BACKEND_DISKFS?diskfs_write(f->path,tmp,old_size+length):ramfs_write(f->path,(const char*)tmp,old_size+length);
+        kfree(tmp);
+        if(r<0)return -1;
+        f->offset=old_size+length;
+        return (int)length;
+    }
     int r=f->backend==VFS_BACKEND_DISKFS?diskfs_write(f->path,buffer,length):ramfs_write(f->path,buffer,length);
     if(r<0)return -1;
     f->offset+=length;
