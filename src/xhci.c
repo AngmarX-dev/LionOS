@@ -1085,7 +1085,7 @@ static int hid_layout_read_descriptor(hid_candidate_t *c){
         if(len<2u||i+len>total)break;
         if(type==4u&&len>=9u){
             active=(config_buf[i+2u]==c->interface_number && config_buf[i+3u]==0u)?1u:0u;
-        }else if(active&&type==0x21u&&len>=9u&&config_buf[i+6u]==1u&&config_buf[i+7u]==0x22u){
+        }else if(active&&type==0x21u&&len>=9u&&config_buf[i+5u]>=1u&&config_buf[i+6u]==0x22u){
             desc_len=(uint16_t)config_buf[i+7u]|((uint16_t)config_buf[i+8u]<<8);
             break;
         }
@@ -1104,10 +1104,10 @@ static int hid_layout_read_descriptor(hid_candidate_t *c){
             if(type==4u&&len>=9u)
                 active=(config_buf[i+2u]==c->interface_number && config_buf[i+3u]==0u)?1u:0u;
             else if(active&&type==0x21u&&len>=9u){
-                uint32_t p=i+6u;
+                uint32_t p=i+5u;
                 uint8_t n=config_buf[p];
-                if(n>=1u&&p+1u< i+len && config_buf[p+1u]==0x22u){
-                    desc_len=(uint16_t)config_buf[p+1u]|((uint16_t)config_buf[p+2u]<<8);
+                if(n>=1u&&p+2u< i+len && config_buf[p+1u]==0x22u){
+                    desc_len=(uint16_t)config_buf[p+2u]|((uint16_t)config_buf[p+3u]<<8);
                     break;
                 }
             }
@@ -1748,11 +1748,13 @@ int xhci_keyboard_init(void){
     if(find_hid(&c)==0 && c.config_value &&
        c.interface_number!=0xFFu &&
        cmd_configure_hid(&c)==0){
-        (void)ctrl(0x21u,0x0Bu,0u,c.interface_number,0,0,0,1);
+        if(c.boot_protocol==1u)
+            (void)ctrl(0x21u,0x0Bu,1u,c.interface_number,0,0,0,1);
         (void)ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1);
         endpoint_packet=c.packet_size;
         if(endpoint_packet>PAGE_SIZE) endpoint_packet=PAGE_SIZE;
-        if(submit_keyboard_report()==0){
+        report_pending=0u;
+        if(submit_report()==0){
             kbd_slot_id=slot_id; kbd_port_number=port_number; kbd_device_speed=device_speed;
             kbd_endpoint_id=endpoint_id; kbd_endpoint_packet=endpoint_packet;
             kbd_endpoint_interval=endpoint_interval;
