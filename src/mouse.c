@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "io.h"
 #include "mouse.h"
+#include "keyboard.h"
 #include "xhci.h"
 #include "console.h"
 #include "debug.h"

@@ -24,6 +24,9 @@ static volatile uint8_t scancode_set = 1u;
 static volatile uint8_t set2_break_pending = 0u;
 static volatile uint8_t ps2_controller_present = 0u;
 
+static void keyboard_wait_write(void);
+static int keyboard_wait_read(void);
+
 static int keyboard_probe_controller(void){
     uint8_t status=inb(PS2_STATUS);
     /*
