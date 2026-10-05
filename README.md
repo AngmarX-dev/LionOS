@@ -18,6 +18,18 @@
 
 ---
 
+## Portable HID input
+
+LionOS input is selected by hardware capability rather than by a laptop model:
+
+- Legacy **i8042/PS/2** keyboard and mouse are probed only when the controller is present.
+- **USB HID keyboards and mice** run through the xHCI controller path.
+- USB HID boot devices and compatible **non-boot HID report descriptors** are parsed.
+- Composite USB devices can expose keyboard and mouse interfaces on the same USB address.
+- Missing PS/2 hardware no longer prevents USB input initialization.
+
+Modern laptops may expose their internal keyboard/touchpad through **I²C-HID** rather than PS/2 or USB HID. That transport requires a separate I²C/ACPI HID driver and is not yet covered by the current input stack.
+
 ## 🦁 Overview
 
 **LionOS** is an experimental educational operating system for **32-bit x86** machines.
