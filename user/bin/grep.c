@@ -1,0 +1,3 @@
+#include "user_libc.h"
+static int one(const char*p,const char*f){int32_t d=lion_open(f,LIONOS_O_READ);if(d<0){printf("grep: %s: not found\n",f);return 2;}char b[512],l[256];uint32_t nline=0;int hit=0;for(;;){int32_t n=lion_fread(d,b,sizeof(b));if(n<0){lion_close(d);return 2;}if(!n)break;for(int32_t i=0;i<n;++i){char c=b[i];if(c=='\n'||nline+1u>=sizeof(l)){l[nline]=0;if(strstr(l,p)){puts(l);hit=1;}nline=0;}else l[nline++]=c;}}if(nline){l[nline]=0;if(strstr(l,p)){puts(l);hit=1;}}lion_close(d);return hit?0:1;}
+int main(int argc,char**argv){if(argc<3){puts("usage: grep <pattern> <file>...");return 2;}int r=1;for(int i=2;i<argc;++i){int x=one(argv[1],argv[i]);if(x==0)r=0;else if(x==2)r=2;}return r;}
