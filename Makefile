@@ -11,7 +11,7 @@ USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 CC := gcc
 LD := ld
 NASM := nasm
-CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
+CFLAGS := -m32 -MMD -MP -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
 ICON_HEADER := $(BUILD)/lion_icons.h
 WALLPAPER_HEADER := $(BUILD)/lion_wallpaper.h
 ICON_SOURCES := Icons/lionos-icon.png Icons/Terminal-icon.png Icons/Browser-icon.png Icons/Desktop-icon.png Icons/DocumentsFolder-icon.png Icons/Tools-icon.png Icons/OldComputer-icon.png Icons/Home-icon.png Icons/Trash-icon.png
@@ -51,7 +51,7 @@ $(WALLPAPER_HEADER): scripts/png_to_wallpaper.py LionOS-Wallpaper.png | $(BUILD)
 $(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) $(WALLPAPER_HEADER) | $(BUILD)
 	$(CC) $(GUI_CFLAGS) -I$(BUILD) -c $< -o $@
 
-$(BUILD)/kernel_runtime.o: src/kernel_runtime.c | $(BUILD)
+$(BUILD)/kernel_runtime.o: src/kernel_runtime.c src/kernel.c $(wildcard include/*.h) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
@@ -160,3 +160,5 @@ run: $(KERNEL) disk
 
 clean:
 	rm -rf $(BUILD)
+
+-include $(C_OBJECTS:.o=.d) $(BUILD)/kernel_runtime.d $(BUILD)/gui_lion.d
