@@ -752,4 +752,4 @@ See [LICENSE](LICENSE).
   <sub>Build low-level. Learn deeply. Ship the kernel.</sub>
 </p>
 
-> CI verification: Kernel/CPU plus Processes/Threads/IPC foundations are validated through the full build/test pipeline.
+> CI verification: Kernel/CPU, Processes/Threads/IPC, and post-audit memory/USB/build fixes are validated through the full build/test pipeline.
