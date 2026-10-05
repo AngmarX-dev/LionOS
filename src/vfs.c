@@ -73,8 +73,8 @@ static int read_slot(struct vfs_fd *f,void *buffer,uint32_t length) {
     uint32_t size=file_size(f->backend,f->path); if(f->offset>=size)return 0;
     uint32_t wanted=length; if(wanted>size-f->offset)wanted=size-f->offset;
     if(f->backend==VFS_BACKEND_DISKFS) {
-        uint8_t temp[VFS_IO_MAX]; if(diskfs_read(f->path,temp,sizeof(temp))<0)return -1;
-        for(uint32_t i=0;i<wanted;++i)((uint8_t*)buffer)[i]=temp[f->offset+i];
+        uint8_t *temp=(uint8_t*)kmalloc(VFS_IO_MAX); if(!temp)return -1; int rr=diskfs_read(f->path,temp,VFS_IO_MAX); if(rr<0){kfree(temp);return -1;}
+        for(uint32_t i=0;i<wanted;++i)((uint8_t*)buffer)[i]=temp[f->offset+i]; kfree(temp);
     } else {
         const uint8_t *src=(const uint8_t*)ramfs_data(f->path); if(!src)return -1;
         for(uint32_t i=0;i<wanted;++i)((uint8_t*)buffer)[i]=src[f->offset+i];
