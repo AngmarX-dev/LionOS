@@ -186,7 +186,7 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT | PTE_USER;
 
-    if (current_directory == pd_physical)
+    if (*current_directory_slot() == pd_physical)
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
