@@ -4,6 +4,7 @@
 #include "vfs.h"
 #include "process.h"
 #include "spinlock.h"
+#include "heap.h"
 
 #define VFS_F_READ 1u
 #define VFS_F_WRITE 2u
