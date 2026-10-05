@@ -1523,6 +1523,7 @@ int xhci_mouse_init(void){
 int xhci_keyboard_init(void){
     if(!ready||!slot_id||!endpoint_id)return -1;
     if(kbd_ready)return 0;
+
     uint32_t save_slot=slot_id, save_port=port_number, save_speed=device_speed;
     uint32_t save_ep=endpoint_id, save_pkt=endpoint_packet, save_int=endpoint_interval;
     uint32_t save_intr_index=intr_index, save_intr_cycle=intr_cycle, save_intr_segment=intr_segment;
@@ -1534,28 +1535,57 @@ int xhci_keyboard_init(void){
     void *save_in_ctx=in_ctx, *save_out_ctx=out_ctx;
     uint8_t *save_report_buf=report_buf;
     uint32_t save_ready=ready, save_init=diag_init_ok;
+    int found=-1;
+
     in_ctx=kbd_in_ctx; out_ctx=kbd_out_ctx; report_buf=kbd_report_buf;
     intr_ring=kbd_intr_segments[0];
     for(uint32_t i=0u;i<INTR_SEGMENTS;++i)intr_segments[i]=kbd_intr_segments[i];
     intr_index=kbd_intr_index; intr_cycle=kbd_intr_cycle; intr_segment=kbd_intr_segment;
     report_pending=kbd_report_pending; report_length=kbd_report_length; report_seen=0u;
     hid_wanted_keyboard=1u;
-    int found=-1;
-    for(uint32_t p=1u;p<=max_ports;++p){
-        if(p==save_port)continue;
-        uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
-        uint32_t ps=r32(po);
-        if(!(ps&PS_CCS))continue;
-        if(enumerate_port(p)==0){found=0;break;}
+
+    /*
+     * Composite HID devices are common in laptops and USB receivers:
+     * keyboard and mouse interfaces can share one USB address/slot.
+     * The old implementation skipped save_port unconditionally, so it
+     * could never discover the keyboard interface on that same device.
+     */
+    hid_candidate_t c;
+    if(find_hid(&c)==0 && c.config_value &&
+       c.interface_number!=0xFFu &&
+       cmd_configure_hid(&c)==0){
+        (void)ctrl(0x21u,0x0Bu,0u,c.interface_number,0,0,0,1);
+        (void)ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1);
+        endpoint_packet=c.packet_size;
+        if(endpoint_packet>PAGE_SIZE) endpoint_packet=PAGE_SIZE;
+        if(submit_keyboard_report()==0){
+            kbd_slot_id=slot_id; kbd_port_number=port_number; kbd_device_speed=device_speed;
+            kbd_endpoint_id=endpoint_id; kbd_endpoint_packet=endpoint_packet;
+            kbd_endpoint_interval=endpoint_interval;
+            kbd_intr_index=intr_index; kbd_intr_cycle=intr_cycle; kbd_intr_segment=intr_segment;
+            kbd_report_pending=report_pending; kbd_report_length=report_length; kbd_ready=1u;
+            found=0;
+        }
     }
-    if(found==0){
-        kbd_slot_id=slot_id; kbd_port_number=port_number; kbd_device_speed=device_speed;
-        kbd_endpoint_id=endpoint_id; kbd_endpoint_packet=endpoint_packet; kbd_endpoint_interval=endpoint_interval;
-        kbd_intr_index=intr_index; kbd_intr_cycle=intr_cycle; kbd_intr_segment=intr_segment;
-        kbd_report_pending=report_pending; kbd_report_length=report_length; kbd_ready=1u;
-    }else{
+
+    /*
+     * If the active device was not composite, enumerate every other
+     * connected port. Do not stop at the first non-keyboard HID device.
+     */
+    if(found<0){
+        for(uint32_t p=1u;p<=max_ports;++p){
+            if(p==save_port)continue;
+            uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
+            uint32_t ps=r32(po);
+            if(!(ps&PS_CCS))continue;
+            if(enumerate_port(p)==0){found=0;break;}
+        }
+    }
+
+    if(found<0){
         kbd_ready=0u; kbd_report_pending=0u;
     }
+
     hid_wanted_keyboard=0u;
     slot_id=save_slot; port_number=save_port; device_speed=save_speed;
     endpoint_id=save_ep; endpoint_packet=save_pkt; endpoint_interval=save_int;
@@ -1568,7 +1598,6 @@ int xhci_keyboard_init(void){
     ready=save_ready; diag_init_ok=save_init;
     return found;
 }
-
 int xhci_mouse_recover(void){
     if(!ready||!slot_id||!endpoint_id) return -1;
 
