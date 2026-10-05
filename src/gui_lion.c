@@ -351,8 +351,8 @@ static void file_manager_open_selected(void){
     if(notepad_len>NOTEPAD_TEXT_MAX)notepad_len=NOTEPAD_TEXT_MAX;
     for(uint32_t i=0u;i<notepad_len;++i){
         unsigned char c=(unsigned char)notepad_text[i];
-        if(c<32u&&c!='\\n'&&c!='\\r'&&c!='\\t')notepad_text[i]='.';
-        else if(c=='\\t')notepad_text[i]=' ';
+        if(c<32u&&c!='\n'&&c!='\r'&&c!='\t')notepad_text[i]='.';
+        else if(c=='\t')notepad_text[i]=' ';
     }
     notepad_text[notepad_len]=0;
     notepad_cursor=notepad_len;
