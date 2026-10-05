@@ -390,7 +390,10 @@ static void draw_files(const struct ui_window*w){
     }
     if(file_selected!=0xFFFFFFFFu&&file_selected<n){
         const char*name=vfs_name(file_selected);
-        if(name){text_line("OPEN WITH NOTEPAD",gx,gy+4u*70u+8u,COL_OK,COL_PANEL);}
+        if(name){
+            uint32_t status_y=top+body_h>24u?top+body_h-24u:top;
+            text_line("OPEN WITH NOTEPAD",gx,status_y,COL_OK,COL_PANEL);
+        }
     }
 }
 
@@ -792,7 +795,7 @@ static void handle_window_click(struct ui_window*w){
         }
         return;
     }
-    if(w->id==WIN_FILES&&!w->maximized){
+    if(w->id==WIN_FILES){
         uint32_t idx;
         if(file_manager_hit(w,x,y,&idx)){
             uint32_t now=interrupt_timer_ticks();

@@ -182,6 +182,7 @@ LionOS/
 ├── include/              # Kernel headers and UAPI
 ├── src/                  # Kernel, drivers, VFS, GUI, SMP
 ├── user/                 # Ring-3 programs, libc, tests
+├── Icons-Sorted/         # Renamed desktop/system icon library
 ├── scripts/              # Automated test scripts
 ├── docs/                 # Design and feature documentation
 ├── .github/workflows/    # GitHub Actions CI
