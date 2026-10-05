@@ -659,8 +659,8 @@ static int cmd_wait(uint32_t want_slot){
 }
 
 #define ICC_SIZE 32u
-static uint8_t *in_slot(void){ return (uint8_t*)in_ctx+ICC_SIZE; }
-static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx+ICC_SIZE+ctx_size*dci; }
+static uint8_t *in_slot(void){ return (uint8_t*)in_ctx+ctx_size; }
+static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx+ctx_size+ctx_size*dci; }
 static uint8_t *dev_ep(uint32_t dci){ return (uint8_t*)out_ctx+ctx_size*dci; }
 static void ctx_set64(void *c,uint32_t dw,uint64_t v){
     uint32_t *p=(uint32_t*)c; p[dw]=(uint32_t)v; p[dw+1]=(uint32_t)(v>>32);
@@ -694,7 +694,7 @@ static void fill_ep_context(void *ep,uint32_t ep_type,uint32_t mps,
      */
     e[1]=(3u<<1)|((ep_type&0x7u)<<3)|((mps&0xFFFFu)<<16);
     ctx_set64(ep,2u,dequeue);
-    e[4]=avg_len&0xFFFFu;
+    e[4]=(avg_len&0xFFFFu)|((avg_len&0xFFFFu)<<16);
 }
 
 static int cmd_enable_slot(void){
