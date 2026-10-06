@@ -303,8 +303,10 @@ void framebuffer_boot_splash(uint32_t progress, const char *status) {
     percent[2] = (char)('0' + (p % 10u)); p /= 10u;
     percent[1] = (char)('0' + (p % 10u)); p /= 10u;
     percent[0] = (char)('0' + (p % 10u));
-    boot_text_center(percent, bar_y + 20u, 0x91A4BCu, 0x050A12u);
-    boot_text_center(status ? status : "Starting LionOS", bar_y + 42u, 0xF2F5FAu, 0x050A12u);
+    /* Keep the loading screen clean: kernel diagnostics remain on
+       debugcon, while the framebuffer shows only the visual loader. */
+    (void)percent;
+    (void)status;
 }
 
 int framebuffer_available(void) { return enabled != 0u; }
