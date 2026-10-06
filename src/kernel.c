@@ -241,18 +241,18 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     heap_init();
     console_write("[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n");
 
-    /* ---- USB xHCI mouse ---- */
-    if(mouse_usb_init() == 0){
+    /* ---- USB xHCI HID input ----
+     * Mouse and keyboard initialization are independent. A mouse failure
+     * must never prevent USB keyboard discovery on another port/device.
+     */
+    int usb_mouse_ready=(mouse_usb_init()==0);
+    if(usb_mouse_ready){
         console_write("[ OK ] USB xHCI / HID boot mouse\n");
-        if(xhci_keyboard_init() == 0)
-            console_write("[ OK ] USB xHCI / HID boot keyboard\n");
-        else
-            console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
-    } else {
+    }else{
         xhci_mouse_debug_info_t dbg;
-        if(xhci_mouse_debug_get(&dbg) == 0){
+        if(xhci_mouse_debug_get(&dbg)==0){
             console_write("[ -- ] USB xHCI stage: ");
-            console_write(dbg.stage ? dbg.stage : "?");
+            console_write(dbg.stage?dbg.stage:"?");
             console_write(" (vid=0x");
             console_write_hex(dbg.vid);
             console_write(" pid=0x");
@@ -265,8 +265,13 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             console_write_hex(dbg.portsc);
             console_write(")\n");
         }
-        console_write("[ -- ] USB xHCI / HID mouse unavailable; PS/2 fallback active\n");
+        console_write("[ -- ] USB xHCI / HID mouse unavailable; continuing with other input devices\n");
     }
+
+    if(xhci_keyboard_init()==0)
+        console_write("[ OK ] USB xHCI / HID boot keyboard\n");
+    else
+        console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
     BOOT_STAGE(42u, "HEAP READY");
 
     /* ---- CPU topology / APIC ---- */

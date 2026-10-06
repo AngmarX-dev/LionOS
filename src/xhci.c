@@ -214,6 +214,7 @@ static uint32_t slot_id, port_number, device_speed, endpoint_id;
 static uint32_t endpoint_packet, endpoint_interval;
 static uint32_t ep0_mps;
 static uint32_t ready;
+static uint32_t controller_ready;
 static uint32_t ppc_enabled;
 static uint16_t xhci_vendor_id;   /* PCI vendor of the xHCI controller */
 
@@ -1675,6 +1676,8 @@ int xhci_mouse_init(void){
 
     diag_stage="STARTING xHCI";
     if(start_controller()) return usb_fail("RUN");
+    controller_ready=1u;
+    debug_write("LIONOS:XHCI-CONTROLLER-READY\n");
 
     diag_stage="NOOP VERIFY";
     cmd_submit(TRB_NOOP_CMD,0,0);
@@ -1715,7 +1718,8 @@ int xhci_mouse_init(void){
 }
 
 int xhci_keyboard_init(void){
-    if(!ready||!slot_id||!endpoint_id)return -1;
+    if(!controller_ready||!max_ports)return -1;
+    if(kbd_ready)return 0;
     if(kbd_ready)return 0;
 
     uint32_t save_slot=slot_id, save_port=port_number, save_speed=device_speed;
@@ -1745,7 +1749,8 @@ int xhci_keyboard_init(void){
      * could never discover the keyboard interface on that same device.
      */
     hid_candidate_t c;
-    if(find_hid(&c)==0 && c.config_value &&
+    if(save_ready && save_slot && save_ep &&
+       find_hid(&c)==0 && c.config_value &&
        c.interface_number!=0xFFu &&
        cmd_configure_hid(&c)==0){
         if(c.boot_protocol==1u)
@@ -1823,9 +1828,14 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dx) *dx = 0;
     if(dy) *dy = 0;
     if(buttons) *buttons = 0;
-    if(!ready) return 0;
-    if(!hid_controller_healthy()) return -1;
-    if(hid_endpoint_needs_recovery()) return -1;
+
+    /* The event ring is shared by HID endpoints. Continue servicing it when
+       only the USB keyboard is active; a mouse failure must not freeze keys. */
+    if(!ready && !kbd_ready) return 0;
+    if(ready){
+        if(!hid_controller_healthy()) return -1;
+        if(hid_endpoint_needs_recovery()) return -1;
+    }
 
     /*
      * Process only the events that were present when this poll started.
