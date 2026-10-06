@@ -27,7 +27,6 @@
 #include "mouse.h"
 #include "xhci.h"
 #include "intel_gpu.h"
-#include "opencl.h"
 #include "exec.h"
 #include "kernel_diag.h"
 
@@ -241,18 +240,18 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     heap_init();
     console_write("[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n");
 
-    /* ---- USB xHCI HID input ----
-     * Mouse and keyboard initialization are independent. A mouse failure
-     * must never prevent USB keyboard discovery on another port/device.
-     */
-    int usb_mouse_ready=(mouse_usb_init()==0);
-    if(usb_mouse_ready){
+    /* ---- USB xHCI mouse ---- */
+    if(mouse_usb_init() == 0){
         console_write("[ OK ] USB xHCI / HID boot mouse\n");
-    }else{
+        if(xhci_keyboard_init() == 0)
+            console_write("[ OK ] USB xHCI / HID boot keyboard\n");
+        else
+            console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
+    } else {
         xhci_mouse_debug_info_t dbg;
-        if(xhci_mouse_debug_get(&dbg)==0){
+        if(xhci_mouse_debug_get(&dbg) == 0){
             console_write("[ -- ] USB xHCI stage: ");
-            console_write(dbg.stage?dbg.stage:"?");
+            console_write(dbg.stage ? dbg.stage : "?");
             console_write(" (vid=0x");
             console_write_hex(dbg.vid);
             console_write(" pid=0x");
@@ -265,13 +264,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             console_write_hex(dbg.portsc);
             console_write(")\n");
         }
-        console_write("[ -- ] USB xHCI / HID mouse unavailable; continuing with other input devices\n");
+        console_write("[ -- ] USB xHCI / HID mouse unavailable; PS/2 fallback active\n");
     }
-
-    if(xhci_keyboard_init()==0)
-        console_write("[ OK ] USB xHCI / HID boot keyboard\n");
-    else
-        console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
     BOOT_STAGE(42u, "HEAP READY");
 
     /* ---- CPU topology / APIC ---- */
@@ -285,21 +279,6 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write_hex(cpu_feature_flags());
     console_write("\n");
     BOOT_STAGE(46u, "CPU TOPOLOGY READY");
-
-    /* ---- OpenCL compute ---- */
-    if(opencl_init()==0 && opencl_self_test()==0){
-        opencl_device_info_t cl_info;
-        if(opencl_get_device_info(&cl_info)==0){
-            console_write("[ OK ] OpenCL compute / ");
-            console_write(cl_info.backend_name);
-            console_write(" backend\n");
-        }
-        debug_write("LIONOS:OPENCL-READY\n");
-        debug_write("LIONOS:OPENCL-SELFTEST-OK\n");
-    } else {
-        console_write("[ -- ] OpenCL compute backend unavailable\n");
-        debug_write("LIONOS:OPENCL-SELFTEST-FAIL\n");
-    }
 
     uint32_t lapic_ready = 0;
     if(lapic_init() == 0){

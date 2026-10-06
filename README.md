@@ -30,14 +30,6 @@ LionOS input is selected by hardware capability rather than by a laptop model:
 
 Modern laptops may expose their internal keyboard/touchpad through **I²C-HID** rather than PS/2 or USB HID. That transport requires a separate I²C/ACPI HID driver and is not yet covered by the current input stack.
 
-### 🧮 OpenCL Compute
-
-LionOS now contains a small, dependency-free **OpenCL execution layer** named LionCL. It provides a stable 1-D work-item execution model and vector-buffer primitives inside the kernel, with a **CPU backend** that is safe on x86 machines without a GPU driver.
-
-The implementation intentionally does **not** claim full Khronos OpenCL conformance or native GPU execution. The Intel UHD graphics layer currently preserves the firmware framebuffer and does not expose a compute command engine yet. A future Intel/NVIDIA backend can attach to the same execution interface once native GPU command submission and memory management exist.
-
-Boot and CI execute the OpenCL self-test, performing a real 32-element vector-add through the LionCL backend and checking every result.
-
 ## 🦁 Overview
 
 **LionOS** is an experimental educational operating system for **32-bit x86** machines.
@@ -448,7 +440,6 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 | Better APIC / interrupt routing | ⬜ |
 | Per-CPU interrupt statistics | ✅ |
 | CPU feature management (SSE/AVX detection) | ✅ |
-| OpenCL compute execution layer (CPU backend) | ✅ |
 | FPU/SSE context switching | ✅ |
 | Lazy FPU state management | ⬜ |
 | Kernel preemption improvements | ✅ |
@@ -623,7 +614,6 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 | Graphics memory management | ⬜ |
 | 2D acceleration | ⬜ |
 | GPU command submission foundation | ⬜ |
-| Native GPU OpenCL backend | ⬜ |
 | Basic software rasterizer | ⬜ |
 | Sprite/image compositing | ⬜ |
 | PNG/BMP image decoding | ⬜ |
