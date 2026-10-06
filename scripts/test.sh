@@ -133,18 +133,22 @@ for elf in build/*.elf; do
     readelf -l "$elf" | grep -q 'LOAD'
 done
 
-echo "[3/5] First SMP boot / filesystem initialization"
+echo "[3/5] First SMP boot / OpenCL / filesystem initialization"
 run_qemu build/qemu-first.log
 grep -q 'LIONOS:READY' build/qemu-first.log
+grep -q 'LIONOS:OPENCL-READY' build/qemu-first.log
+grep -q 'LIONOS:OPENCL-SELFTEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PERSIST-INIT' build/qemu-first.log
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-first.log
 
-echo "[4/5] Second SMP boot / persistence verification"
+echo "[4/5] Second SMP boot / OpenCL persistence verification"
 run_qemu build/qemu-second.log
 grep -q 'LIONOS:READY' build/qemu-second.log
+grep -q 'LIONOS:OPENCL-READY' build/qemu-second.log
+grep -q 'LIONOS:OPENCL-SELFTEST-OK' build/qemu-second.log
 grep -q 'LIONOS:PERSIST-OK' build/qemu-second.log
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-second.log

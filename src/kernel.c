@@ -27,6 +27,7 @@
 #include "mouse.h"
 #include "xhci.h"
 #include "intel_gpu.h"
+#include "opencl.h"
 #include "exec.h"
 #include "kernel_diag.h"
 
@@ -279,6 +280,21 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write_hex(cpu_feature_flags());
     console_write("\n");
     BOOT_STAGE(46u, "CPU TOPOLOGY READY");
+
+    /* ---- OpenCL compute ---- */
+    if(opencl_init()==0 && opencl_self_test()==0){
+        opencl_device_info_t cl_info;
+        if(opencl_get_device_info(&cl_info)==0){
+            console_write("[ OK ] OpenCL compute / ");
+            console_write(cl_info.backend_name);
+            console_write(" backend\n");
+        }
+        debug_write("LIONOS:OPENCL-READY\n");
+        debug_write("LIONOS:OPENCL-SELFTEST-OK\n");
+    } else {
+        console_write("[ -- ] OpenCL compute backend unavailable\n");
+        debug_write("LIONOS:OPENCL-SELFTEST-FAIL\n");
+    }
 
     uint32_t lapic_ready = 0;
     if(lapic_init() == 0){
