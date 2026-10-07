@@ -30,13 +30,14 @@ jobs:
             -smp 1 \
             -device nec-usb-xhci,id=xhci \
             -device usb-mouse,bus=xhci.0 \
+            -device usb-kbd,bus=xhci.0 \
             -cdrom build/lionos.iso \
             -m 128M \
             -display none \
             -serial none \
             -qmp unix:build/qmp.sock,server=on,wait=off \
-            -debugcon file:build/qemu-xhci-mouse.log \
-            -global isa-debugcon.iobase=0xE9 &
+            -debugcon stdio \
+            -global isa-debugcon.iobase=0xE9 >build/qemu-xhci-mouse.log 2>&1 &
           qemu_pid=$!
 
           echo "Waiting for LionOS xHCI HID mouse readiness..."
@@ -52,6 +53,20 @@ jobs:
             sleep 0.1
           done
           grep -q 'LIONOS:USB-MOUSE-READY' build/qemu-xhci-mouse.log
+
+          echo "Waiting for LionOS xHCI HID keyboard readiness..."
+          for _ in $(seq 1 300); do
+            if grep -q 'LIONOS:USB-KEYBOARD-READY' build/qemu-xhci-mouse.log; then
+              break
+            fi
+            if ! kill -0 "$qemu_pid" 2>/dev/null; then
+              echo "QEMU exited before USB keyboard became ready" >&2
+              cat build/qemu-xhci-mouse.log || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+          grep -q 'LIONOS:USB-KEYBOARD-READY' build/qemu-xhci-mouse.log
 
           python3 - <<'PY'
           import json
@@ -87,6 +102,23 @@ jobs:
               }
               sock.sendall((json.dumps(payload) + "\r\n").encode())
 
+          # Verify keyboard input reaches the LionOS USB HID layer.
+          for down in (True, False):
+              payload = {
+                  "execute": "input-send-event",
+                  "arguments": {
+                      "events": [{
+                          "type": "key",
+                          "data": {
+                              "down": down,
+                              "key": {"type": "qcode", "data": "a"},
+                          },
+                      }]
+                  },
+              }
+              sock.sendall((json.dumps(payload) + "\r\n").encode())
+              time.sleep(0.05)
+
           # Generate more than one complete 256-entry event-ring cycle.
           for i in range(320):
               send([
@@ -117,3 +149,4 @@ jobs:
           grep -q 'LIONOS:USB-MOUSE-READY' build/qemu-xhci-mouse.log
           grep -q 'HID mouse reports active' build/qemu-xhci-mouse.log
           grep -q 'LIONOS:USB-MOUSE-RING-WRAP-OK' build/qemu-xhci-mouse.log
+          grep -q 'LIONOS:KEYBOARD-USB-INPUT' build/qemu-xhci-mouse.log
