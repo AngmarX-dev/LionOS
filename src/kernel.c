@@ -240,14 +240,11 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     heap_init();
     console_write("[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n");
 
-    /* ---- USB xHCI mouse ---- */
-    if(mouse_usb_init() == 0){
+    /* ---- USB xHCI HID input ---- */
+    int usb_mouse_rc = mouse_usb_init();
+    if(usb_mouse_rc == 0){
         console_write("[ OK ] USB xHCI / HID boot mouse\n");
-        if(xhci_keyboard_init() == 0)
-            console_write("[ OK ] USB xHCI / HID boot keyboard\n");
-        else
-            console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
-    } else {
+    }else{
         xhci_mouse_debug_info_t dbg;
         if(xhci_mouse_debug_get(&dbg) == 0){
             console_write("[ -- ] USB xHCI stage: ");
@@ -264,8 +261,17 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             console_write_hex(dbg.portsc);
             console_write(")\n");
         }
-        console_write("[ -- ] USB xHCI / HID mouse unavailable; PS/2 fallback active\n");
+        console_write("[ -- ] USB xHCI / HID mouse unavailable; keyboard/input paths continue\n");
     }
+
+    /* Keyboard discovery is independent of mouse discovery. This is
+       important on machines with a USB keyboard but no usable USB mouse,
+       and for composite HID devices where both interfaces share a slot. */
+    if(xhci_keyboard_init() == 0)
+        console_write("[ OK ] USB xHCI / HID boot keyboard\n");
+    else
+        console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
+
     BOOT_STAGE(42u, "HEAP READY");
 
     /* ---- CPU topology / APIC ---- */
