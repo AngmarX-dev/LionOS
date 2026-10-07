@@ -1458,6 +1458,7 @@ static void clear_change_bits(uint32_t p,uint32_t ps){
     if(chg) w32(po,port_state_neutral(ps)|chg);
 }
 
+static int enumerate_port(uint32_t p);
 static int enumerate_hid_ports(void){
     for(uint32_t pass=0u;pass<2u;++pass){
         uint32_t saw_ccs=0u;
