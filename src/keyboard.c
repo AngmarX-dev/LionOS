@@ -269,35 +269,34 @@ void keyboard_init(void) {
      * Enable device scanning after the controller is configured for
      * translated Set-1 input. F4 is the only mandatory device command.
      */
-    int reset_rc=keyboard_reset_device();
-
     /*
-     * Prefer the keyboard's reported scan-code set. This covers firmware
-     * that does not actually enable i8042 translation even when the command
-     * byte requests it. Set 3 is not decoded; retain Set 1 as the safe
-     * translated fallback.
+     * Do not reset the internal laptop keyboard during normal boot. On some
+     * EC/i8042 implementations a device reset can leave the keyboard in an
+     * intermediate state or delay the first scan stream long enough for the
+     * desktop to start with input apparently dead.
+     *
+     * Explicitly select Set 1 instead. The i8042 is also configured for
+     * translation, so both the normal translated path and firmware that
+     * starts the device in another set converge on the decoder used below.
+     * If F0/01 is not accepted by a particular EC, keep the controller
+     * translation path and continue with F4.
      */
-    uint8_t detected_set=1u;
-    if(ps2_translation_enabled){
-        /* The i8042 converts the keyboard's native stream to Set 1. */
-        scancode_set=1u;
-        debug_write("LIONOS:KEYBOARD-SET1-TRANSLATED\n");
-    }else if(keyboard_query_scancode_set(&detected_set)==0 &&
-             (detected_set==1u || detected_set==2u)){
-        scancode_set=detected_set;
-        debug_write(detected_set==2u
-            ? "LIONOS:KEYBOARD-SET2-NATIVE\n"
-            : "LIONOS:KEYBOARD-SET1-NATIVE\n");
-    }else{
-        scancode_set=1u;
-        debug_write("LIONOS:KEYBOARD-SET-DETECT-FAILED\n");
-    }
+    scancode_set=1u;
+    set2_break_pending=0u;
+
+    int set1_rc=keyboard_device_command(0xF0u);
+    if(set1_rc==0)
+        set1_rc=keyboard_device_command(0x01u);
 
     int scan_rc=keyboard_enable_scanning();
-    if(reset_rc==0) debug_write("LIONOS:KEYBOARD-RESET-OK\n");
-    else debug_write("LIONOS:KEYBOARD-RESET-SKIPPED\n");
 
     keyboard_flush_output();
+
+    if(set1_rc==0)
+        debug_write("LIONOS:KEYBOARD-SET1-FORCED\n");
+    else
+        debug_write("LIONOS:KEYBOARD-SET1-FORCE-SKIPPED\n");
+
     if(scan_rc==0)
         debug_write("LIONOS:KEYBOARD-READY\n");
     else
@@ -487,8 +486,13 @@ void keyboard_rearm_after_mouse_init(void){
     keyboard_wait_write(); outb(PS2_STATUS,0x60u);
     keyboard_wait_write(); outb(PS2_DATA,cfg);
     ps2_translation_enabled=(uint8_t)((cfg&0x40u)!=0u);
+    scancode_set=1u;
+    set2_break_pending=0u;
     keyboard_wait_write(); outb(PS2_STATUS,0xAEu);
+    (void)keyboard_device_command(0xF0u);
+    (void)keyboard_device_command(0x01u);
     (void)keyboard_enable_scanning();
+    keyboard_flush_output();
     debug_write("LIONOS:KEYBOARD-REARMED\\n");
 }
 
