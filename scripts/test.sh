@@ -116,7 +116,10 @@ PY
     done
 
     cat "$log_file"
-    grep -q 'LIONOS:GUI-EXIT' "$log_file"
+    # The runtime bootstrap owns the desktop loop; the keyboard smoke test
+    # therefore verifies that the injected key reached the kernel input path.
+    # GUI-EXIT is intentionally not required here.
+    grep -q 'LIONOS:KEYBOARD-INPUT' "$log_file"
     grep -q 'LIONOS:READY' "$log_file"
 }
 
