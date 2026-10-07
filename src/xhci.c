@@ -1046,13 +1046,21 @@ static int find_hid(hid_candidate_t *c){
                 uint8_t proto=config_buf[i+7u];
                         if(hid_wanted_keyboard)
                     sel=(pass==0u)
-                        ?(alt==0u&&cls==3u&&sub==1u&&(proto==1u||proto==0u))
-                        :(alt==0u&&cls==3u&&(sub==1u||sub==0u));
+                        ?(alt==0u&&cls==3u&&sub==1u&&proto==1u)
+                        :(alt==0u&&cls==3u&&
+                          ((sub==1u&&(proto==0u||proto==1u))||sub==0u));
                 else
                     sel=(pass==0u)
                         ?(alt==0u&&cls==3u&&sub==1u&&proto==2u)
-                        :(alt==0u&&cls==3u&&(sub==1u||sub==0u));
-                if(sel) c->interface_number=config_buf[i+2u];
+                        :(alt==0u&&cls==3u&&
+                          ((sub==1u&&(proto==0u||proto==2u))||sub==0u));
+                if(sel){
+                    c->interface_number=config_buf[i+2u];
+                    /* Boot protocol 1/2 is already a normalized HID
+                       keyboard/mouse report.  Subclass 0 or protocol 0
+                       requires the report descriptor parser below. */
+                    c->boot_protocol=(sub==1u && (proto==1u||proto==2u))?proto:0u;
+                }
             } else if(type==5u&&len>=7u&&sel){
                 uint8_t addr=config_buf[i+2u];
                 uint8_t attr=config_buf[i+3u];
