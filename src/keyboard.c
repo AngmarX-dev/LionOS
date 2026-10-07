@@ -164,13 +164,48 @@ static int keyboard_reset_device(void){
     return -1;
 }
 
-static int keyboard_enable_scanning(void){
+static int keyboard_query_scancode_set(uint8_t *set){
     /*
-     * LionOS consumes controller-translated Set-1 codes. Do not force a
-     * device scancode-set transition here: some laptop/i8042 firmware
-     * emulations do not ACK F0 and will leave scanning disabled if the
-     * transition is treated as mandatory.
+     * PS/2 F0,00 asks the keyboard for its current scan-code set.
+     * Responses are 0x41 (Set 1), 0x43 (Set 2), or 0x3F (Set 3).
      */
+    if(!set)return -1;
+
+    keyboard_wait_write();
+    outb(PS2_DATA,0xF0u);
+    int ack=0;
+    for(uint32_t i=0u;i<200000u;++i){
+        uint8_t st=inb(PS2_STATUS);
+        if(st&0x01u){
+            uint8_t v=inb(PS2_DATA);
+            if(st&0x20u)continue;
+            if(v==0xFAu){ack=1;break;}
+            if(v==0xFEu)continue;
+        }
+        io_wait();
+    }
+    if(!ack)return -1;
+
+    keyboard_wait_write();
+    outb(PS2_DATA,0x00u);
+    for(uint32_t i=0u;i<300000u;++i){
+        uint8_t st=inb(PS2_STATUS);
+        if(st&0x01u){
+            uint8_t v=inb(PS2_DATA);
+            if(st&0x20u)continue;
+            if(v==0xFAu||v==0xFEu)continue;
+            if(v==0x41u){*set=1u;return 0;}
+            if(v==0x43u){*set=2u;return 0;}
+            if(v==0x3Fu){*set=3u;return 0;}
+        }
+        io_wait();
+    }
+    return -1;
+}
+
+static int keyboard_enable_scanning(void){
+    /* Enable device scanning after controller setup. The decoder accepts
+       both Set-1 controller-translated data and native Set-2 data. */
     return keyboard_device_command(0xF4u);
 }
 
@@ -221,6 +256,25 @@ void keyboard_init(void) {
      * translated Set-1 input. F4 is the only mandatory device command.
      */
     int reset_rc=keyboard_reset_device();
+
+    /*
+     * Prefer the keyboard's reported scan-code set. This covers firmware
+     * that does not actually enable i8042 translation even when the command
+     * byte requests it. Set 3 is not decoded; retain Set 1 as the safe
+     * translated fallback.
+     */
+    uint8_t detected_set=1u;
+    if(keyboard_query_scancode_set(&detected_set)==0 &&
+       (detected_set==1u || detected_set==2u)){
+        scancode_set=detected_set;
+        debug_write(detected_set==2u
+            ? "LIONOS:KEYBOARD-SET2\n"
+            : "LIONOS:KEYBOARD-SET1\n");
+    }else{
+        scancode_set=1u;
+        debug_write("LIONOS:KEYBOARD-SET-DETECT-FAILED\n");
+    }
+
     int scan_rc=keyboard_enable_scanning();
     if(reset_rc==0) debug_write("LIONOS:KEYBOARD-RESET-OK\n");
     else debug_write("LIONOS:KEYBOARD-RESET-SKIPPED\n");
