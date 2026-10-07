@@ -1862,15 +1862,16 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dy) *dy = 0;
     if(buttons) *buttons = 0;
     if(!ready && !kbd_ready) return 0;
-    if(ready && !hid_controller_healthy()) return -1;
-    if(hid_endpoint_needs_recovery()) return -1;
 
     /*
-     * Process only the events that were present when this poll started.
-     * Re-arming the interrupt endpoint can cause the controller to publish
-     * another completion immediately; that newly created event belongs to
-     * the next GUI tick, not this one.
+     * Keyboard and mouse use separate transfer rings, but their completions
+     * share the xHCI event ring. A mouse endpoint can legitimately enter a
+     * recovery state while the keyboard remains healthy. Never let that
+     * mouse-only fault short-circuit keyboard event processing.
      */
+    uint32_t mouse_fault = ready &&
+        (!hid_controller_healthy() || hid_endpoint_needs_recovery());
+
     uint32_t budget=event_available_count();
     int got_report=0;
     int32_t total_dx=0;
@@ -1883,6 +1884,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) continue;
         uint32_t event_slot=(e.control>>24)&0xFFu;
         uint32_t event_ep=(e.control>>16)&0x1Fu;
+
         if(kbd_ready && event_slot==kbd_slot_id && event_ep==kbd_endpoint_id){
             uint32_t kcc=(e.status>>24)&0xFFu;
             if(kcc==CC_SUCCESS||kcc==CC_SHORT_PKT){
@@ -1912,12 +1914,18 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
                 }
             }
             kbd_report_pending=0u;
-            submit_keyboard_report();
+            (void)submit_keyboard_report();
             continue;
         }
-        if(event_slot!=slot_id || event_ep!=endpoint_id) continue;
 
-        report_pending=0;
+        /*
+         * Mouse completions are ignored while the mouse endpoint is unhealthy.
+         * This preserves the keyboard path while the mouse recovery logic in
+         * mouse_poll() marks the USB mouse for reinitialization.
+         */
+        if(event_slot!=slot_id || event_ep!=endpoint_id || mouse_fault) continue;
+
+        report_pending=0u;
         ++diag_event_count;
         uint32_t cc=(e.status>>24)&0xFFu;
         diag_last_cc=cc;
@@ -1961,18 +1969,19 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         }
 
         ++diag_error_count;
-        return -1;
+        if(ready) mouse_fault=1u;
     }
 
-    /*
-     * A pending interrupt-IN transfer with no completion is normal for an
-     * idle HID mouse: the endpoint remains armed until the device has data.
-     * Do not reset the endpoint merely because the mouse is silent.
-     */
-    if(kbd_ready && !kbd_report_pending)submit_keyboard_report();
-    if(ready && !report_pending){
+    /* Keep a keyboard interrupt-IN transfer continuously armed even when the
+       mouse is stopped or being recovered. */
+    if(kbd_ready && !kbd_report_pending)
+        (void)submit_keyboard_report();
+
+    if(ready && !mouse_fault && !report_pending){
         if(submit_report()!=0) return -1;
     }
+
+    if(mouse_fault) return -1;
 
     if(got_report){
         if(dx) *dx=total_dx;
