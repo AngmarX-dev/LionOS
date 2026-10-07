@@ -183,6 +183,9 @@ void mouse_init(void){
     ps2_cmd(0xF4u); (void)ps2_read();           /* enable data */
 
     ps2_initialized = 1;
+    /* mouse setup rewrites the shared i8042 command byte; restore keyboard
+       IRQ/clock/translation state before returning to normal input. */
+    keyboard_rearm_after_mouse_init();
     console_write("[ OK ] PS/2 mouse initialized\n");
     debug_write("LIONOS:MOUSE-PS2-OK\n");
 }
