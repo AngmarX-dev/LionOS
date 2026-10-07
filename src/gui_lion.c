@@ -205,10 +205,21 @@ static struct ui_window*window_by_id(uint8_t id){return id>=1u&&id<=WIN_MAX?&win
 static void focus(uint8_t id){for(uint32_t i=0;i<WIN_MAX;++i)windows[i].focused=(windows[i].id==id&&windows[i].visible&&!windows[i].minimized)?1u:0u;}
 static void show(uint8_t id){
     struct ui_window*w=window_by_id(id); if(!w)return;
-    w->visible=1u; w->minimized=0u; focus(id); start_open=0u;
-    terminal_focus=0u; notepad_focus=0u;
-    if(id==WIN_TERMINAL)terminal_focus=1u;
-    if(id==WIN_NOTEPAD){if(!notepad_loaded){notepad_init();notepad_loaded=1u;}else notepad_focus=1u;}
+    uint8_t was_visible=w->visible;
+    w->visible=1u;
+    w->minimized=0u;
+    focus(id);
+    start_open=0u;
+    terminal_focus=(id==WIN_TERMINAL);
+    notepad_focus=(id==WIN_NOTEPAD);
+    /* Existing windows are reused. Opening an app again only brings its
+       current window to the front; it must not clear/recreate the surface. */
+    if(id==WIN_NOTEPAD && !notepad_loaded){
+        notepad_init();
+        notepad_loaded=1u;
+        notepad_focus=1u;
+    }
+    if(!was_visible) dirty_full();
 }
 static void hide(uint8_t id){
     struct ui_window*w=window_by_id(id);if(!w)return;
@@ -827,7 +838,7 @@ static void handle_click(void){
             uint32_t ix=dock_x+(dock_w-step*6u)/2u+4u+i*step;
             if(x>=ix&&x<ix+52u&&y>=dock_y+9u&&y<dock_y+61u){
                 switch(i){
-                    case 0u: show(WIN_TERMINAL); terminal_init(); return;
+                    case 0u: show(WIN_TERMINAL); return;
                     case 1u: show(WIN_FILES); return;
                     case 2u: browser_start(); return;
                     case 3u: show(WIN_SETTINGS); return;
@@ -911,7 +922,7 @@ static void move_desktop_icon(struct desktop_icon *icon,uint32_t x,uint32_t y){
 static void activate_desktop_icon(uint8_t action){
     switch(action){
         case ICON_ACTION_FILES: show(WIN_FILES); break;
-        case ICON_ACTION_TERMINAL: show(WIN_TERMINAL); terminal_init(); break;
+        case ICON_ACTION_TERMINAL: show(WIN_TERMINAL); break;
         case ICON_ACTION_BROWSER: browser_start(); break;
         case ICON_ACTION_SETTINGS: show(WIN_SETTINGS); break;
         case ICON_ACTION_ABOUT: show(WIN_ABOUT); break;
@@ -982,7 +993,7 @@ static void handle_key(int key){
         if(key>=32&&key<127&&term_len<120u){term_input[term_len++]=(char)key;term_input[term_len]=0;}
         return;
     }
-    if(key=='t'||key=='T'){show(WIN_TERMINAL);terminal_init();}
+    if(key=='t'||key=='T')show(WIN_TERMINAL);
     else if(key=='f'||key=='F')show(WIN_FILES);
     else if(key=='a'||key=='A')show(WIN_ABOUT);
     else if(key=='s'||key=='S')show(WIN_SETTINGS);
@@ -1002,6 +1013,12 @@ void gui_start(void){
 }
 void gui_step(void){
     if(!gui_active)return;
+    /*
+     * Some firmware/i8042 combinations do not deliver IRQ1 reliably after
+     * graphics/APIC setup. Poll the already-nonblocking handler once per
+     * desktop tick as a safety net; the normal IRQ path remains active.
+     */
+    keyboard_poll();
     const char *usb_status=mouse_usb_status_text();if(usb_status!=last_usb_status){last_usb_status=usb_status;dirty_full();}
     uint32_t old_x=mouse_px_x,old_y=mouse_px_y;mouse_px_x=px();mouse_px_y=py();uint32_t buttons=mouse_buttons();
     if(mouse_px_x!=old_x||mouse_px_y!=old_y){uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u,top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u,right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u,bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;if(right>framebuffer_width())right=framebuffer_width();if(bottom>framebuffer_height())bottom=framebuffer_height();if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);}
