@@ -23,6 +23,7 @@ static volatile uint8_t input_seen;
 static volatile uint8_t scancode_set = 1u;
 static volatile uint8_t set2_break_pending = 0u;
 static volatile uint8_t ps2_controller_present = 0u;
+static volatile uint8_t ps2_translation_enabled = 1u;
 
 static void keyboard_wait_write(void);
 static int keyboard_wait_read(void);
@@ -116,6 +117,18 @@ static int keyboard_controller_config(void){
     outb(PS2_STATUS,0x60u);
     keyboard_wait_write();
     outb(PS2_DATA,cfg);
+
+    /* Read the applied command byte back. Some laptop EC/i8042
+       implementations can ignore configuration writes, so use the actual
+       translation state when selecting the scan-code decoder. */
+    keyboard_wait_write();
+    outb(PS2_STATUS,0x20u);
+    if(keyboard_wait_read()==0){
+        uint8_t applied=inb(PS2_DATA);
+        ps2_translation_enabled=(uint8_t)((applied&0x40u)!=0u);
+    }else{
+        ps2_translation_enabled=(uint8_t)((cfg&0x40u)!=0u);
+    }
     return 0;
 }
 
@@ -224,6 +237,7 @@ void keyboard_init(void) {
     scancode_set = 1u;
     set2_break_pending = 0u;
     ps2_controller_present = 0u;
+    ps2_translation_enabled = 1u;
 
     if(keyboard_probe_controller()!=0){
         debug_write("LIONOS:KEYBOARD-PS2-ABSENT\n");
@@ -264,12 +278,16 @@ void keyboard_init(void) {
      * translated fallback.
      */
     uint8_t detected_set=1u;
-    if(keyboard_query_scancode_set(&detected_set)==0 &&
-       (detected_set==1u || detected_set==2u)){
+    if(ps2_translation_enabled){
+        /* The i8042 converts the keyboard's native stream to Set 1. */
+        scancode_set=1u;
+        debug_write("LIONOS:KEYBOARD-SET1-TRANSLATED\n");
+    }else if(keyboard_query_scancode_set(&detected_set)==0 &&
+             (detected_set==1u || detected_set==2u)){
         scancode_set=detected_set;
         debug_write(detected_set==2u
-            ? "LIONOS:KEYBOARD-SET2\n"
-            : "LIONOS:KEYBOARD-SET1\n");
+            ? "LIONOS:KEYBOARD-SET2-NATIVE\n"
+            : "LIONOS:KEYBOARD-SET1-NATIVE\n");
     }else{
         scancode_set=1u;
         debug_write("LIONOS:KEYBOARD-SET-DETECT-FAILED\n");
@@ -468,6 +486,7 @@ void keyboard_rearm_after_mouse_init(void){
     cfg&=(uint8_t)~0x10u;
     keyboard_wait_write(); outb(PS2_STATUS,0x60u);
     keyboard_wait_write(); outb(PS2_DATA,cfg);
+    ps2_translation_enabled=(uint8_t)((cfg&0x40u)!=0u);
     keyboard_wait_write(); outb(PS2_STATUS,0xAEu);
     (void)keyboard_enable_scanning();
     debug_write("LIONOS:KEYBOARD-REARMED\\n");
