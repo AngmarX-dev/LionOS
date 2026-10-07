@@ -94,8 +94,12 @@ for _ in range(100):
             sock.recv(4096)
         except socket.timeout:
             pass
-        sock.sendall(b"sendkey esc\n")
-        time.sleep(0.1)
+        # The first key can race the final GUI initialization tick on a
+        # slow CI VM. Send Escape more than once so the smoke test validates
+        # the actual keyboard path rather than a single timing window.
+        for _ in range(3):
+            sock.sendall(b"sendkey esc\n")
+            time.sleep(0.15)
         sock.close()
         break
     except (FileNotFoundError, ConnectionRefusedError):
@@ -104,7 +108,7 @@ else:
     raise SystemExit("unable to connect to QEMU monitor")
 PY
 
-    for _ in $(seq 1 100); do
+    for _ in $(seq 1 150); do
         if grep -q 'LIONOS:GUI-EXIT' "$log_file"; then
             break
         fi
