@@ -219,13 +219,15 @@ void mouse_usb_retry(void){
  * Poll — called every frame by the GUI loop
  * ============================================================ */
 void mouse_poll(void){
-    /* PS/2 state is updated by IRQ12 handler. Nothing to do here. */
+    /* PS/2 state is updated by IRQ12. The shared xHCI event ring also
+       carries USB keyboard reports, so service xHCI on every GUI tick even
+       when no USB mouse is currently active. */
+    int32_t dx=0,dy=0;
+    uint8_t btn=0;
+    int xhci_r=xhci_mouse_poll(&dx,&dy,&btn);
 
     if(usb_initialized){
-        int32_t dx=0,dy=0;
-        uint8_t btn=0;
-        int r=xhci_mouse_poll(&dx,&dy,&btn);
-        if(r<0){
+        if(xhci_r<0){
             /* Timer IRQs must remain bounded: xHCI recovery performs
              * controller reset/enumeration and is deferred to the normal
              * retry path instead of spinning inside an interrupt. */
@@ -234,7 +236,7 @@ void mouse_poll(void){
             usb_status=3u;
             usb_retry_frames=0u;
             usb_recovery_cooldown=500u;
-        }else if(r==1){
+        }else if(xhci_r==1){
             usb_x+=mouse_scale_delta(dx);
             usb_y+=mouse_scale_delta(dy);
             if(usb_x<0)usb_x=0;
