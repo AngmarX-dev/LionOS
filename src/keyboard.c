@@ -228,7 +228,8 @@ void keyboard_init(void) {
     scancode_set = 1u;
     set2_break_pending = 0u;
     ps2_controller_present = 0u;
-    ps2_translation_enabled = 1u;
+    /* Native AT/PS-2 keyboards normally speak Set 2 when translation is off. */
+    ps2_translation_enabled = 0u;
 
     if(keyboard_probe_controller()!=0){
         debug_write("LIONOS:KEYBOARD-PS2-ABSENT\n");
@@ -270,7 +271,13 @@ void keyboard_init(void) {
            (detected==1u || detected==2u)){
             scancode_set=detected;
         }else{
-            scancode_set=1u;
+            /*
+             * Detection failure is not permission to pretend the stream is
+             * Set 1. Native AT keyboards overwhelmingly use Set 2; selecting
+             * it lets ordinary letter/number keys work even on ECs that do
+             * not answer the F0,00 query during early boot.
+             */
+            scancode_set=2u;
         }
     }
 
