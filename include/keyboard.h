@@ -5,6 +5,7 @@
 
 void keyboard_init(void);
 void keyboard_handle_scancode(uint8_t scancode);
+void keyboard_ps2_service(void);
 void keyboard_irq_handler(void);
 void keyboard_poll(void);
 void keyboard_rearm_after_mouse_init(void);
