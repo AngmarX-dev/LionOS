@@ -20,6 +20,7 @@ static volatile uint32_t dropped_chars;
 static volatile uint32_t scancode_count;
 static volatile uint8_t last_scancode;
 static volatile uint8_t input_seen;
+static volatile uint8_t raw_input_seen;
 static volatile uint8_t scancode_set = 1u;
 static volatile uint8_t set2_break_pending = 0u;
 static volatile uint8_t ps2_controller_present = 0u;
@@ -29,14 +30,12 @@ static void keyboard_wait_write(void);
 static int keyboard_wait_read(void);
 static void keyboard_flush_output(void);
 
-
 static int keyboard_probe_controller(void){
     uint8_t status=inb(PS2_STATUS);
     /*
-     * On systems without a legacy i8042, 0x64 commonly reads 0xFF.
-     * Do not require a command-byte transaction here: laptop embedded
-     * controllers can expose the PS/2 interface while delaying command
-     * responses during early boot.
+     * A completely absent legacy controller commonly reads as 0xff.
+     * Do not perform destructive probe transactions here; laptop embedded
+     * controllers can share the i8042 with firmware/EC services.
      */
     return status==0xFFu ? -1 : 0;
 }
@@ -94,6 +93,10 @@ static int keyboard_wait_read(void){
 }
 
 static void keyboard_flush_output(void){
+    /*
+     * Linux flushes stale KBD/AUX bytes while establishing the controller.
+     * After device setup, live data is never discarded blindly.
+     */
     for(uint32_t i=0u;i<64u;++i){
         if(!(inb(PS2_STATUS)&0x01u)) break;
         (void)inb(PS2_DATA);
@@ -107,12 +110,11 @@ static int keyboard_controller_config(void){
     uint8_t cfg=inb(PS2_DATA);
 
     /*
-     * Preserve firmware-selected translation mode. Laptop ECs can depend on
-     * that mode and may stop reporting keys when the kernel changes it.
-     * Only make the first port usable and request IRQ1.
+     * Preserve firmware-selected translation mode. Linux leaves notebook
+     * firmware's translation choice intact unless explicitly requested.
      */
     cfg|=0x01u|0x04u;       /* IRQ1 + system flag */
-    cfg&=(uint8_t)~0x10u;   /* keyboard clock enabled */
+    cfg&=(uint8_t)~0x10u;   /* keyboard interface enabled */
 
     keyboard_wait_write();
     outb(PS2_STATUS,0x60u);
@@ -126,16 +128,21 @@ static int keyboard_controller_config(void){
 static int keyboard_device_command_once(uint8_t command){
     keyboard_wait_write();
     outb(PS2_DATA,command);
+
     for(uint32_t i=0u;i<200000u;++i){
         uint8_t st=inb(PS2_STATUS);
         if(st&0x01u){
             uint8_t v=inb(PS2_DATA);
-            /* Never consume an AUX byte while waiting for keyboard ACK. */
-            if(st&0x20u) continue;
-            if(v==0xFAu) return 0;   /* ACK */
-            if(v==0xFEu) return -2;  /* RESEND */
-            /* 0xAA can be emitted by a keyboard reset self-test; do not
-               confuse it with the command's ACK. */
+            /*
+             * The i8042 output register is shared. Route AUX bytes instead of
+             * dropping them while waiting for a keyboard response.
+             */
+            if(st&0x20u){
+                mouse_handle_ps2_byte(v);
+                continue;
+            }
+            if(v==0xFAu) return 0;
+            if(v==0xFEu) return -2;
         }
         io_wait();
     }
@@ -158,7 +165,10 @@ static int keyboard_reset_device(void){
         uint8_t st=inb(PS2_STATUS);
         if(st&0x01u){
             uint8_t v=inb(PS2_DATA);
-            if(st&0x20u) continue;
+            if(st&0x20u){
+                mouse_handle_ps2_byte(v);
+                continue;
+            }
             if(v==0xFAu) continue;
             if(v==0xAAu) return 0;
             if(v==0xFCu||v==0xFDu) return -2;
@@ -169,10 +179,6 @@ static int keyboard_reset_device(void){
 }
 
 static int keyboard_query_scancode_set(uint8_t *set){
-    /*
-     * PS/2 F0,00 asks the keyboard for its current scan-code set.
-     * Responses are 0x41 (Set 1), 0x43 (Set 2), or 0x3F (Set 3).
-     */
     if(!set)return -1;
 
     keyboard_wait_write();
@@ -182,7 +188,10 @@ static int keyboard_query_scancode_set(uint8_t *set){
         uint8_t st=inb(PS2_STATUS);
         if(st&0x01u){
             uint8_t v=inb(PS2_DATA);
-            if(st&0x20u)continue;
+            if(st&0x20u){
+                mouse_handle_ps2_byte(v);
+                continue;
+            }
             if(v==0xFAu){ack=1;break;}
             if(v==0xFEu)continue;
         }
@@ -196,7 +205,10 @@ static int keyboard_query_scancode_set(uint8_t *set){
         uint8_t st=inb(PS2_STATUS);
         if(st&0x01u){
             uint8_t v=inb(PS2_DATA);
-            if(st&0x20u)continue;
+            if(st&0x20u){
+                mouse_handle_ps2_byte(v);
+                continue;
+            }
             if(v==0xFAu||v==0xFEu)continue;
             if(v==0x41u){*set=1u;return 0;}
             if(v==0x43u){*set=2u;return 0;}
@@ -208,8 +220,6 @@ static int keyboard_query_scancode_set(uint8_t *set){
 }
 
 static int keyboard_enable_scanning(void){
-    /* Enable device scanning after controller setup. The decoder accepts
-       both Set-1 controller-translated data and native Set-2 data. */
     return keyboard_device_command(0xF4u);
 }
 
@@ -225,10 +235,10 @@ void keyboard_init(void) {
     scancode_count = 0u;
     last_scancode = 0u;
     input_seen = 0u;
+    raw_input_seen = 0u;
     scancode_set = 1u;
     set2_break_pending = 0u;
     ps2_controller_present = 0u;
-    /* Native AT/PS-2 keyboards normally speak Set 2 when translation is off. */
     ps2_translation_enabled = 0u;
 
     if(keyboard_probe_controller()!=0){
@@ -238,10 +248,7 @@ void keyboard_init(void) {
     ps2_controller_present = 1u;
 
     /*
-     * Do not reset or temporarily disable the laptop keyboard port. The EC
-     * already initialized the embedded keyboard before GRUB handed control
-     * to LionOS, and some LOQ firmware treats 0xAD/0xAA as an EC state change.
-     * Preserve that state and only drain stale bytes before configuration.
+     * Establish a clean controller stream without resetting the laptop EC.
      */
     keyboard_flush_output();
 
@@ -250,18 +257,9 @@ void keyboard_init(void) {
         debug_write("LIONOS:KEYBOARD-CFG-FAIL\n");
 
     keyboard_wait_write();
-    outb(PS2_STATUS,0xAEu); /* enable keyboard */
+    outb(PS2_STATUS,0xAEu);
     keyboard_flush_output();
 
-    /* Enable device scanning without changing the firmware-selected scan mode. */
-    /*
-     * Do not force a scan-code set on the internal laptop keyboard.
-     * The i8042 translation bit is enabled above, so the normal path is
-     * already Set-1. If firmware ignores translation, query the device and
-     * let the decoder consume native Set-2 instead of sending F0/01 blindly.
-     * This avoids changing keyboard state on EC implementations that expose
-     * a non-standard PS/2 transport.
-     */
     set2_break_pending=0u;
     if(ps2_translation_enabled){
         scancode_set=1u;
@@ -271,18 +269,14 @@ void keyboard_init(void) {
            (detected==1u || detected==2u)){
             scancode_set=detected;
         }else{
-            /*
-             * Detection failure is not permission to pretend the stream is
-             * Set 1. Native AT keyboards overwhelmingly use Set 2; selecting
-             * it lets ordinary letter/number keys work even on ECs that do
-             * not answer the F0,00 query during early boot.
-             */
             scancode_set=2u;
         }
     }
 
+    /*
+     * Do not flush after F4. From this point on output bytes are real input.
+     */
     int scan_rc=keyboard_enable_scanning();
-    keyboard_flush_output();
 
     debug_write(scancode_set==2u
         ? "LIONOS:KEYBOARD-SET2\n"
@@ -293,9 +287,9 @@ void keyboard_init(void) {
     else
         debug_write("LIONOS:KEYBOARD-NO-ACK\n");
 
-    uint8_t mask = inb(0x21);
-    mask &= (uint8_t)~(1u << 1);
-    outb(0x21, mask);
+    uint8_t mask=inb(0x21);
+    mask&=(uint8_t)~(1u<<1);
+    outb(0x21,mask);
 }
 
 static uint8_t set2_make_to_set1(uint8_t code){
@@ -323,35 +317,49 @@ static uint8_t set2_make_to_set1(uint8_t code){
         default:return 0u;
     }
 }
+
 void keyboard_handle_scancode(uint8_t scancode) {
     if(scancode_set==2u){
+        if(scancode==0xE0u){extended_prefix=1u;return;}
         if(scancode==0xF0u){set2_break_pending=1u;return;}
+
         uint8_t make=set2_make_to_set1(scancode);
-        if(!make)return;
+        if(!make){
+            set2_break_pending=0u;
+            extended_prefix=0u;
+            return;
+        }
+
         if(set2_break_pending){
             set2_break_pending=0u;
+            extended_prefix=0u;
             if(make==0x2Au||make==0x36u)shift_down=0u;
             else if(make==0x1Du)ctrl_down=0u;
             else if(make==0x38u)alt_down=0u;
             return;
         }
+
+        if(extended_prefix){
+            extended_prefix=0u;
+            return;
+        }
         scancode=make;
     }
+
     ++scancode_count;
     last_scancode=scancode;
+
+    if(!raw_input_seen){
+        raw_input_seen=1u;
+        debug_write("LIONOS:KEYBOARD-RAW-INPUT\n");
+    }
     if(!input_seen){
         input_seen=1u;
         debug_write("LIONOS:KEYBOARD-INPUT\n");
     }
 
-    if(scancode==0xE0u){
-        extended_prefix=1u;
-        return;
-    }
-    if(extended_prefix){
-        extended_prefix=0u;
-        return;
-    }
+    if(scancode==0xE0u){extended_prefix=1u;return;}
+    if(extended_prefix){extended_prefix=0u;return;}
 
     if(scancode==0x2Au||scancode==0x36u){shift_down=1u;return;}
     if(scancode==0xAAu||scancode==0xB6u){shift_down=0u;return;}
@@ -363,14 +371,8 @@ void keyboard_handle_scancode(uint8_t scancode) {
 
     if(scancode&0x80u)return;
 
-    if(scancode==0x0Eu){
-        push_char('\b');
-        return;
-    }
-    if(scancode==0x0Fu){
-        push_char('\t');
-        return;
-    }
+    if(scancode==0x0Eu){push_char('\b');return;}
+    if(scancode==0x0Fu){push_char('\t');return;}
 
     if(scancode<128u){
         char base=keymap[scancode];
@@ -382,34 +384,23 @@ void keyboard_handle_scancode(uint8_t scancode) {
         else
             ch=shift_down&&shifted?shifted:base;
 
-        /*
-         * Preserve terminal control characters. A foreground-console layer
-         * can later map these to signals; LionOS does not yet have a
-         * foreground-job abstraction, so the driver does not guess an owner.
-         */
         if(ctrl_down){
-            if(base>='a'&&base<='z'){
-                ch=(char)(base-'a'+1);
-            }else if(scancode==0x2Cu){
-                ch=0x1Cu; /* Ctrl-\ */
-            }else if(scancode==0x0Cu){
-                ch=0x1Fu;
-            }else{
-                ch=0;
-            }
+            if(base>='a'&&base<='z') ch=(char)(base-'a'+1);
+            else if(scancode==0x2Cu) ch=0x1Cu;
+            else if(scancode==0x0Cu) ch=0x1Fu;
+            else ch=0;
         }
 
         if(ch)push_char((uint8_t)ch);
     }
 }
 
-
 static volatile uint8_t usb_prev_keys[6];
-static int usb_key_present(const volatile uint8_t *keys, uint8_t code){
-    for(uint32_t i=0u;i<6u;++i) if(keys[i]==code) return 1;
+static int usb_key_present(const volatile uint8_t *keys,uint8_t code){
+    for(uint32_t i=0u;i<6u;++i) if(keys[i]==code)return 1;
     return 0;
 }
-static char usb_key_char(uint8_t usage, uint8_t shifted){
+static char usb_key_char(uint8_t usage,uint8_t shifted){
     static const char normal[]="abcdefghijklmnopqrstuvwxyz1234567890";
     static const char shifted_map[]="ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()";
     if(usage>=0x04u&&usage<=0x1Du)
@@ -425,13 +416,15 @@ static char usb_key_char(uint8_t usage, uint8_t shifted){
         default:return 0;
     }
 }
-void keyboard_handle_usb_report(const uint8_t *report, uint32_t length){
+
+void keyboard_handle_usb_report(const uint8_t *report,uint32_t length){
     if(!report||length<8u)return;
     uint8_t modifiers=report[0];
     uint8_t shift=(uint8_t)((modifiers&0x22u)!=0u);
     uint8_t ctrl=(uint8_t)((modifiers&0x11u)!=0u);
     uint8_t alt=(uint8_t)((modifiers&0x44u)!=0u);
     shift_down=shift; ctrl_down=ctrl; alt_down=alt;
+
     for(uint32_t i=0u;i<6u;++i){
         uint8_t code=report[2u+i];
         if(!code||usb_key_present(usb_prev_keys,code))continue;
@@ -445,67 +438,54 @@ void keyboard_handle_usb_report(const uint8_t *report, uint32_t length){
     }
     for(uint32_t i=0u;i<6u;++i)usb_prev_keys[i]=report[2u+i];
 }
-void keyboard_irq_handler(void){
-    if(!ps2_controller_present) return;
-    /*
-     * IRQ 1 is the interrupt-driven producer for the ring buffer. Consume
-     * keyboard bytes already waiting in the i8042 output buffer, but never
-     * steal AUX (mouse) bytes belonging to IRQ 12.
-     */
+
+/*
+ * Linux-style shared i8042 service routine.
+ * Read one byte together with the status that describes its source, then
+ * dispatch it to KBD or AUX. IRQ1, IRQ12, and the timer poll use this path.
+ */
+void keyboard_ps2_service(void){
+    if(!ps2_controller_present)return;
+
     for(uint32_t n=0u;n<64u;++n){
         uint8_t status=inb(PS2_STATUS);
         if(!(status&0x01u))break;
-        if(status&0x20u){
-            /* The i8042 output buffer is shared by keyboard and mouse. */
-            mouse_irq_handler();
-            continue;
-        }
-        keyboard_handle_scancode(inb(PS2_DATA));
+        uint8_t data=inb(PS2_DATA);
+        if(status&0x20u)mouse_handle_ps2_byte(data);
+        else keyboard_handle_scancode(data);
     }
+}
+
+void keyboard_irq_handler(void){
+    keyboard_ps2_service();
 }
 
 void keyboard_rearm_after_mouse_init(void){
-    if(!ps2_controller_present) return;
+    if(!ps2_controller_present)return;
 
     /*
-     * mouse_init() modifies only the i8042 command byte needed for AUX.
-     * Do not read/write the shared command byte again here: doing so races
-     * with queued AUX/keyboard bytes and can overwrite the EC configuration.
-     * Just make sure the keyboard device is scanning.
+     * AUX initialization no longer rewrites KBD configuration. Keep this
+     * compatibility hook non-destructive: do not flush or re-query the port.
      */
-    keyboard_flush_output();
     set2_break_pending=0u;
-    if(ps2_translation_enabled){
-        scancode_set=1u;
-    }else{
-        uint8_t detected=0u;
-        scancode_set=(keyboard_query_scancode_set(&detected)==0 &&
-                      (detected==1u || detected==2u)) ? detected : 1u;
-    }
+    extended_prefix=0u;
     (void)keyboard_enable_scanning();
-    keyboard_flush_output();
-    debug_write("LIONOS:KEYBOARD-REARMED\n");
 }
 
 void keyboard_poll(void){
-    /*
-     * Compatibility entry point for early diagnostics. Normal desktop input
-     * is interrupt-driven through keyboard_irq_handler().
-     */
-    keyboard_irq_handler();
+    keyboard_ps2_service();
 }
 
-
-int keyboard_getchar(void) {
-    if (read_index == write_index) return -1;
-    uint8_t c = buffer[read_index];
-    read_index = (read_index + 1u) % KEYBOARD_BUFFER_SIZE;
+int keyboard_getchar(void){
+    if(read_index==write_index)return -1;
+    uint8_t c=buffer[read_index];
+    read_index=(read_index+1u)%KEYBOARD_BUFFER_SIZE;
     return (int)c;
 }
 
-int keyboard_ps2_available(void){ return ps2_controller_present!=0u; }
+int keyboard_ps2_available(void){return ps2_controller_present!=0u;}
 
-uint32_t keyboard_available(void) {
-    if (write_index >= read_index) return write_index - read_index;
-    return KEYBOARD_BUFFER_SIZE - read_index + write_index;
+uint32_t keyboard_available(void){
+    if(write_index>=read_index)return write_index-read_index;
+    return KEYBOARD_BUFFER_SIZE-read_index+write_index;
 }
