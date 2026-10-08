@@ -27,6 +27,7 @@ static volatile uint8_t ps2_translation_enabled = 1u;
 
 static void keyboard_wait_write(void);
 static int keyboard_wait_read(void);
+static void keyboard_flush_output(void);
 
 static int keyboard_probe_controller(void){
     uint8_t status=inb(PS2_STATUS);
