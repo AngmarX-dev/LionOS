@@ -6,6 +6,7 @@
 
 void mouse_init(void);
 void mouse_irq_handler(void);
+void mouse_handle_ps2_byte(uint8_t data);
 int  mouse_usb_init(void);
 void mouse_usb_retry(void);
 void mouse_poll(void);
