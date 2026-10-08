@@ -1269,9 +1269,19 @@ static int cmd_configure_hid(hid_candidate_t *c){
     endpoint_packet=c->packet_size;
     if(endpoint_packet>1024u) endpoint_packet=1024u;
     endpoint_interval=interval_encode(c->interval);
+
+    /*
+     * Configure Endpoint is used both for a fresh device and for adding a
+     * second HID interface to an already-addressed composite device. Keep
+     * the currently active EP0 context in the input context; physical xHCI
+     * controllers are stricter about this than QEMU.
+     */
     zero_mem(in_ctx,PAGE_SIZE);
     ((uint32_t*)in_ctx)[1]=1u|(1u<<endpoint_id);
     fill_slot_context(in_slot(),endpoint_id);
+    for(uint32_t i=0u;i<ctx_size;++i)
+        in_ep(1u)[i]=dev_ep(1u)[i];
+
     uint64_t deq=(uint64_t)(uintptr_t)intr_ring|(intr_cycle?1ull:0ull);
     fill_ep_context(in_ep(endpoint_id),7u,endpoint_packet,endpoint_interval,deq,endpoint_packet);
     cmd_submit(TRB_CONFIGURE_EP,(uint64_t)(uintptr_t)in_ctx,slot_id<<24);
