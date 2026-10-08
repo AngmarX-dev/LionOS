@@ -102,6 +102,21 @@ static void keyboard_flush_output(void){
     }
 }
 
+static int keyboard_controller_command(uint8_t command,uint8_t expected){
+    keyboard_wait_write();
+    outb(PS2_STATUS,command);
+    if(keyboard_wait_read()!=0) return -1;
+    return inb(PS2_DATA)==expected ? 0 : -2;
+}
+
+static int keyboard_test_first_port(void){
+    keyboard_wait_write();
+    outb(PS2_STATUS,0xABu); /* i8042 test first PS/2 port */
+    if(keyboard_wait_read()!=0) return -1;
+    uint8_t result=inb(PS2_DATA);
+    return result==0x00u ? 0 : -2;
+}
+
 static int keyboard_controller_config(void){
     keyboard_wait_write();
     outb(PS2_STATUS,0x20u);
@@ -246,15 +261,31 @@ void keyboard_init(void) {
     ps2_controller_present = 1u;
 
     /*
-     * Fully re-arm the i8042 keyboard port. Some laptop firmware leaves the
-     * keyboard clock/scanning disabled after boot, and some machines retain
-     * stale bytes in the controller output FIFO. Keep AUX disabled here;
-     * mouse_init() enables it after the keyboard is ready.
+     * Reinitialize the legacy controller using the standard i8042 sequence.
+     * Do not reset the keyboard device itself: laptop EC firmware can treat
+     * the 0xFF reset as a power-management event and leave the internal
+     * keyboard disconnected until a firmware-level recovery.
      */
     keyboard_wait_write();
-    outb(PS2_STATUS,0xADu); /* disable keyboard */
+    outb(PS2_STATUS,0xADu); /* disable first port */
     keyboard_wait_write();
-    outb(PS2_STATUS,0xA7u); /* disable auxiliary */
+    outb(PS2_STATUS,0xA7u); /* disable auxiliary port */
+    keyboard_flush_output();
+
+    /* Controller self-test is diagnostic on some laptop ECs; continue when
+       firmware does not implement it, but never treat its reply as a key. */
+    keyboard_wait_write();
+    outb(PS2_STATUS,0xAAu);
+    if(keyboard_wait_read()==0){
+        uint8_t selftest=inb(PS2_DATA);
+        if(selftest!=0x55u)
+            debug_write("LIONOS:KEYBOARD-I8042-SELFTEST-NONSTANDARD\n");
+    }
+
+    /* Verify that the first PS/2 port is actually routable. */
+    if(keyboard_test_first_port()!=0)
+        debug_write("LIONOS:KEYBOARD-PORT-TEST-NONSTANDARD\n");
+
     keyboard_flush_output();
 
     int cfg_rc=keyboard_controller_config();
