@@ -32,14 +32,20 @@ static int keyboard_probe_controller(void){
     uint8_t status=inb(PS2_STATUS);
     /*
      * A completely absent legacy controller commonly reads as 0xFF on the
-     * status port. Do not write to 0x64/0x60 in that case: modern systems
-     * without an i8042 should continue directly to USB HID input.
+     * status port. Do not write to 0x64/0x60 in that case.
      */
     if(status==0xFFu) return -1;
+
+    /*
+     * The i8042 output buffer is shared by keyboard and auxiliary data.
+     * Never interpret an old byte as the command-byte reply.
+     */
+    keyboard_flush_output();
     keyboard_wait_write();
     outb(PS2_STATUS,0x20u);
     if(keyboard_wait_read()!=0) return -1;
-    (void)inb(PS2_DATA);
+    uint8_t cfg=inb(PS2_DATA);
+    (void)cfg;
     return 0;
 }
 
@@ -100,21 +106,6 @@ static void keyboard_flush_output(void){
         if(!(inb(PS2_STATUS)&0x01u)) break;
         (void)inb(PS2_DATA);
     }
-}
-
-static int keyboard_controller_command(uint8_t command,uint8_t expected){
-    keyboard_wait_write();
-    outb(PS2_STATUS,command);
-    if(keyboard_wait_read()!=0) return -1;
-    return inb(PS2_DATA)==expected ? 0 : -2;
-}
-
-static int keyboard_test_first_port(void){
-    keyboard_wait_write();
-    outb(PS2_STATUS,0xABu); /* i8042 test first PS/2 port */
-    if(keyboard_wait_read()!=0) return -1;
-    uint8_t result=inb(PS2_DATA);
-    return result==0x00u ? 0 : -2;
 }
 
 static int keyboard_controller_config(void){
@@ -271,20 +262,6 @@ void keyboard_init(void) {
     keyboard_wait_write();
     outb(PS2_STATUS,0xA7u); /* disable auxiliary port */
     keyboard_flush_output();
-
-    /* Controller self-test is diagnostic on some laptop ECs; continue when
-       firmware does not implement it, but never treat its reply as a key. */
-    keyboard_wait_write();
-    outb(PS2_STATUS,0xAAu);
-    if(keyboard_wait_read()==0){
-        uint8_t selftest=inb(PS2_DATA);
-        if(selftest!=0x55u)
-            debug_write("LIONOS:KEYBOARD-I8042-SELFTEST-NONSTANDARD\n");
-    }
-
-    /* Verify that the first PS/2 port is actually routable. */
-    if(keyboard_test_first_port()!=0)
-        debug_write("LIONOS:KEYBOARD-PORT-TEST-NONSTANDARD\n");
 
     keyboard_flush_output();
 
@@ -506,17 +483,14 @@ void keyboard_irq_handler(void){
 
 void keyboard_rearm_after_mouse_init(void){
     if(!ps2_controller_present) return;
-    /* mouse_init() rewrites the i8042 command byte; restore the keyboard
-       clock/IRQ/translation bits and leave AUX enabled for the mouse. */
-    keyboard_wait_write();
-    outb(PS2_STATUS,0x20u);
-    if(keyboard_wait_read()!=0) return;
-    uint8_t cfg=inb(PS2_DATA);
-    cfg|=0x01u|0x04u|0x40u;
-    cfg&=(uint8_t)~0x10u;
-    keyboard_wait_write(); outb(PS2_STATUS,0x60u);
-    keyboard_wait_write(); outb(PS2_DATA,cfg);
-    ps2_translation_enabled=(uint8_t)((cfg&0x40u)!=0u);
+
+    /*
+     * mouse_init() modifies only the i8042 command byte needed for AUX.
+     * Do not read/write the shared command byte again here: doing so races
+     * with queued AUX/keyboard bytes and can overwrite the EC configuration.
+     * Just make sure the keyboard device is scanning.
+     */
+    keyboard_flush_output();
     set2_break_pending=0u;
     if(ps2_translation_enabled){
         scancode_set=1u;
@@ -525,10 +499,9 @@ void keyboard_rearm_after_mouse_init(void){
         scancode_set=(keyboard_query_scancode_set(&detected)==0 &&
                       (detected==1u || detected==2u)) ? detected : 1u;
     }
-    keyboard_wait_write(); outb(PS2_STATUS,0xAEu);
     (void)keyboard_enable_scanning();
     keyboard_flush_output();
-    debug_write("LIONOS:KEYBOARD-REARMED\\n");
+    debug_write("LIONOS:KEYBOARD-REARMED\n");
 }
 
 void keyboard_poll(void){
