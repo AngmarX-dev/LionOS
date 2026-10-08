@@ -29,25 +29,16 @@ static void keyboard_wait_write(void);
 static int keyboard_wait_read(void);
 static void keyboard_flush_output(void);
 
+
 static int keyboard_probe_controller(void){
     uint8_t status=inb(PS2_STATUS);
     /*
-     * A completely absent legacy controller commonly reads as 0xFF on the
-     * status port. Do not write to 0x64/0x60 in that case.
+     * On systems without a legacy i8042, 0x64 commonly reads 0xFF.
+     * Do not require a command-byte transaction here: laptop embedded
+     * controllers can expose the PS/2 interface while delaying command
+     * responses during early boot.
      */
-    if(status==0xFFu) return -1;
-
-    /*
-     * The i8042 output buffer is shared by keyboard and auxiliary data.
-     * Never interpret an old byte as the command-byte reply.
-     */
-    keyboard_flush_output();
-    keyboard_wait_write();
-    outb(PS2_STATUS,0x20u);
-    if(keyboard_wait_read()!=0) return -1;
-    uint8_t cfg=inb(PS2_DATA);
-    (void)cfg;
-    return 0;
+    return status==0xFFu ? -1 : 0;
 }
 
 static const char keymap[128] = {
