@@ -105,28 +105,21 @@ static int keyboard_controller_config(void){
     outb(PS2_STATUS,0x20u);
     if(keyboard_wait_read()!=0) return -1;
     uint8_t cfg=inb(PS2_DATA);
-    /* Enable IRQ1, keep the controller's system flag set, enable the
-       keyboard clock, and force i8042 translation to scan-code Set 1.
-       Laptop firmware commonly leaves translation disabled; LionOS's
-       keymap intentionally consumes Set-1 codes. */
-    cfg|=0x01u|0x04u|0x40u;
-    cfg&=(uint8_t)~0x10u;
+
+    /*
+     * Preserve firmware-selected translation mode. Laptop ECs can depend on
+     * that mode and may stop reporting keys when the kernel changes it.
+     * Only make the first port usable and request IRQ1.
+     */
+    cfg|=0x01u|0x04u;       /* IRQ1 + system flag */
+    cfg&=(uint8_t)~0x10u;   /* keyboard clock enabled */
+
     keyboard_wait_write();
     outb(PS2_STATUS,0x60u);
     keyboard_wait_write();
     outb(PS2_DATA,cfg);
 
-    /* Read the applied command byte back. Some laptop EC/i8042
-       implementations can ignore configuration writes, so use the actual
-       translation state when selecting the scan-code decoder. */
-    keyboard_wait_write();
-    outb(PS2_STATUS,0x20u);
-    if(keyboard_wait_read()==0){
-        uint8_t applied=inb(PS2_DATA);
-        ps2_translation_enabled=(uint8_t)((applied&0x40u)!=0u);
-    }else{
-        ps2_translation_enabled=(uint8_t)((cfg&0x40u)!=0u);
-    }
+    ps2_translation_enabled=(uint8_t)((cfg&0x40u)!=0u);
     return 0;
 }
 
@@ -244,17 +237,11 @@ void keyboard_init(void) {
     ps2_controller_present = 1u;
 
     /*
-     * Reinitialize the legacy controller using the standard i8042 sequence.
-     * Do not reset the keyboard device itself: laptop EC firmware can treat
-     * the 0xFF reset as a power-management event and leave the internal
-     * keyboard disconnected until a firmware-level recovery.
+     * Do not reset or temporarily disable the laptop keyboard port. The EC
+     * already initialized the embedded keyboard before GRUB handed control
+     * to LionOS, and some LOQ firmware treats 0xAD/0xAA as an EC state change.
+     * Preserve that state and only drain stale bytes before configuration.
      */
-    keyboard_wait_write();
-    outb(PS2_STATUS,0xADu); /* disable first port */
-    keyboard_wait_write();
-    outb(PS2_STATUS,0xA7u); /* disable auxiliary port */
-    keyboard_flush_output();
-
     keyboard_flush_output();
 
     int cfg_rc=keyboard_controller_config();
@@ -265,10 +252,7 @@ void keyboard_init(void) {
     outb(PS2_STATUS,0xAEu); /* enable keyboard */
     keyboard_flush_output();
 
-    /*
-     * Enable device scanning after the controller is configured for
-     * translated Set-1 input. F4 is the only mandatory device command.
-     */
+    /* Enable device scanning without changing the firmware-selected scan mode. */
     /*
      * Do not force a scan-code set on the internal laptop keyboard.
      * The i8042 translation bit is enabled above, so the normal path is
