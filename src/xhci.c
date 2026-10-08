@@ -1175,9 +1175,17 @@ static int hid_layout_read_descriptor(hid_candidate_t *c){
                             keyboard_hid_layout.modifier_size=report_size;
                         }
                     }
+                    /*
+                     * Keyboard key arrays are often declared with
+                     * Usage Minimum 0 / Usage Maximum 0x65. The previous
+                     * test only accepted Usage Minimum >= 0x04, which
+                     * rejected the standard "array of 6 keycodes" field.
+                     */
                     if(page==0x07u && report_size==8u &&
-                       ((usage_min>=0x04u&&usage_min<=0xE7u) ||
-                        (usage>=0x04u&&usage<=0xE7u))){
+                       ((usage_min<=0x04u && usage_max>=0x65u) ||
+                        (usage>=0x04u && usage<=0xE7u) ||
+                        (usage_min>=0x04u && usage_min<=0xE7u &&
+                         usage_max>=usage_min))){
                         if(keyboard_hid_layout.enabled &&
                            keyboard_hid_layout.report_id==report_id &&
                            !keyboard_hid_layout.key_size){
@@ -1593,8 +1601,13 @@ static int enumerate_port(uint32_t p){
             usb_log("[ USB ] SET_PROTOCOL failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
         }
     }
-    if(hid_layout_read_descriptor(&c)!=0 && c.boot_protocol==0u)
-        return usb_fail("HID REPORT DESCRIPTOR");
+    /*
+     * A HID keyboard is usable with its boot report even when a vendor
+     * descriptor is unusual or cannot be parsed. Keep enumeration alive;
+     * xhci_mouse_poll() already has a boot-report decoder and will use the
+     * parsed layout when one is available.
+     */
+    (void)hid_layout_read_descriptor(&c);
     if(ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1)){
         usb_log("[ USB ] SET_IDLE failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
     }
