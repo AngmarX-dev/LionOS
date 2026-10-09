@@ -655,7 +655,7 @@ static int next_event(trb_t *out){
 static int defer_transfer_event(const trb_t *event){
     if(!event || ((event->control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) return 0;
     if(deferred_event_count>=EVENT_TRBS){
-        debug_write("LIONOS:XHCI-DEFERRED-EVENT-OVERFLOW\\n");
+        debug_write("LIONOS:XHCI-DEFERRED-EVENT-OVERFLOW\n");
         return -1;
     }
     deferred_events[deferred_event_write]=*event;
