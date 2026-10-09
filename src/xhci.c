@@ -99,6 +99,7 @@ static uint32_t port_state_neutral(uint32_t ps){
 #define TRB_STATUS 4u
 #define TRB_LINK 6u
 #define TRB_ENABLE_SLOT 9u
+#define TRB_DISABLE_SLOT 10u
 #define TRB_ADDRESS_DEVICE 11u
 #define TRB_CONFIGURE_EP 12u
 #define TRB_EVAL_CONTEXT 13u
@@ -211,6 +212,7 @@ static uint32_t cap_len, op_base, db_base, rt_base;
 static uint32_t hci_version;
 static uint32_t max_ports, max_slots, ctx_size;
 static uint32_t slot_id, port_number, device_speed, endpoint_id;
+static uint32_t enum_slot_id;
 static uint32_t endpoint_packet, endpoint_interval;
 static uint32_t ep0_mps;
 static uint32_t ready;
@@ -763,6 +765,16 @@ static int cmd_enable_slot(void){
         return slot_id?0:-1;
     }
     cmd_recover(); return -1;
+}
+static int cmd_disable_slot(uint32_t target_slot){
+    if(!target_slot) return 0;
+    cmd_submit(TRB_DISABLE_SLOT,0,target_slot<<24);
+    int rc=cmd_wait(0u);
+    if(rc==0 && dcbaa){
+        dcbaa[target_slot]=0u;
+        dma_wmb();
+    }
+    return rc;
 }
 static int cmd_address_device(uint32_t bsr){
     zero_mem(in_ctx,PAGE_SIZE);
@@ -1515,6 +1527,7 @@ static void clear_change_bits(uint32_t p,uint32_t ps){
 }
 
 static int enumerate_port(uint32_t p);
+static int enumerate_port_impl(uint32_t p);
 static int enumerate_hid_ports(void){
     for(uint32_t pass=0u;pass<2u;++pass){
         uint32_t saw_ccs=0u;
@@ -1545,7 +1558,7 @@ static int enumerate_hid_ports(void){
     return usb_fail(hid_wanted_keyboard ? "NO-PORT-KEYBOARD" : "NO-PORT-MOUSE");
 }
 
-static int enumerate_port(uint32_t p){
+static int enumerate_port_impl(uint32_t p){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t ps=r32(po);
     if(!(ps&PS_CCS)) return -1;
@@ -1580,6 +1593,7 @@ static int enumerate_port(uint32_t p){
 
     diag_stage="ENABLE SLOT";
     if(cmd_enable_slot()) return usb_fail("ENABLE SLOT");
+    enum_slot_id=slot_id;
     xhci_delay_ms(20u);
 
     int is_usb3=(device_speed>=SPEED_SUPER);
@@ -1694,6 +1708,20 @@ static int enumerate_port(uint32_t p){
         debug_write("LIONOS:USB-MOUSE-READY\n");
     }
     return 0;
+}
+static int enumerate_port(uint32_t p){
+    uint32_t saved_slot=slot_id;
+    enum_slot_id=0u;
+    int rc=enumerate_port_impl(p);
+    uint32_t failed_slot=enum_slot_id;
+    enum_slot_id=0u;
+    if(rc!=0){
+        /* A failed probe must release its slot before this port is retried
+           by the other HID class (for example mouse probe then keyboard). */
+        if(failed_slot) (void)cmd_disable_slot(failed_slot);
+        slot_id=saved_slot;
+    }
+    return rc;
 }
 int xhci_host_controller_present(void){
     pci_dev_t d;
