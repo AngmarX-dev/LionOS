@@ -53,6 +53,8 @@ static volatile int usb_initialized=0;
 static volatile uint32_t usb_status=0;
 static volatile uint32_t usb_retry_frames=0;
 static volatile uint32_t usb_retry_count=0;
+static volatile uint32_t usb_retry_pending=0u;
+static volatile uint32_t usb_retry_service_busy=0u;
 static volatile int32_t usb_x=400;
 static volatile int32_t usb_y=300;
 static volatile uint8_t usb_buttons=0;
@@ -244,16 +246,28 @@ void mouse_usb_retry(void){
     usb_has_report=0u;
     usb_retry_frames=0u;
     usb_retry_count=0u;
+    usb_retry_pending=0u;
     usb_initialized=0;
     usb_status=3u;
     usb_recovery_cooldown=0u;
+    usb_retry_service_busy=1u;
     (void)mouse_usb_init();
+    usb_retry_service_busy=0u;
+}
+
+void mouse_retry_service(void){
+    if(!usb_retry_pending || usb_retry_service_busy) return;
+    usb_retry_pending=0u;
+    usb_retry_service_busy=1u;
+    (void)mouse_usb_init();
+    usb_retry_service_busy=0u;
 }
 
 void mouse_poll(void){
     int32_t dx=0,dy=0;
     uint8_t btn=0;
-    int xhci_r=xhci_mouse_poll(&dx,&dy,&btn);
+    /* A foreground retry temporarily owns the xHCI event ring. */
+    int xhci_r=usb_retry_service_busy ? 0 : xhci_mouse_poll(&dx,&dy,&btn);
 
     if(usb_initialized){
         if(xhci_r<0){
@@ -276,10 +290,11 @@ void mouse_poll(void){
     }else{
         if(usb_retry_count<3u){
             usb_status=3u;
-            if(++usb_retry_frames>=500u){
+            if(!usb_retry_pending && !usb_retry_service_busy &&
+               ++usb_retry_frames>=500u){
                 usb_retry_frames=0u;
                 ++usb_retry_count;
-                (void)mouse_usb_init();
+                usb_retry_pending=1u;
             }
         }else usb_status=0u;
     }

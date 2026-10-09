@@ -10,6 +10,7 @@ void mouse_handle_ps2_byte(uint8_t data);
 int  mouse_usb_init(void);
 void mouse_usb_retry(void);
 void mouse_poll(void);
+void mouse_retry_service(void);
 
 void     mouse_set_cursor_visible(int visible);
 void     mouse_set_bounds(uint32_t max_x, uint32_t max_y);

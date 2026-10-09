@@ -1013,6 +1013,7 @@ void gui_start(void){
 }
 void gui_step(void){
     if(!gui_active)return;
+    mouse_retry_service();
     /*
      * Some firmware/i8042 combinations do not deliver IRQ1 reliably after
      * graphics/APIC setup. Poll the already-nonblocking handler once per

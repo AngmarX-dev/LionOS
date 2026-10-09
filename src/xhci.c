@@ -230,6 +230,9 @@ static uint32_t scratch_count;
 
 static uint32_t cmd_index, cmd_cycle;
 static uint32_t event_index, event_cycle;
+static trb_t deferred_events[EVENT_TRBS];
+static uint32_t deferred_event_read, deferred_event_write, deferred_event_count;
+static volatile uint32_t poll_busy;
 static uint32_t ep0_index, ep0_cycle;
 static uint32_t intr_index, intr_cycle, intr_segment;
 static uint32_t report_pending, report_length, report_seen;
@@ -649,12 +652,34 @@ static int next_event(trb_t *out){
         (uint64_t)(uintptr_t)&event_ring[event_index]|8u);
     return 0;
 }
+static int defer_transfer_event(const trb_t *event){
+    if(!event || ((event->control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) return 0;
+    if(deferred_event_count>=EVENT_TRBS){
+        debug_write("LIONOS:XHCI-DEFERRED-EVENT-OVERFLOW\\n");
+        return -1;
+    }
+    deferred_events[deferred_event_write]=*event;
+    deferred_event_write=(deferred_event_write+1u)%EVENT_TRBS;
+    ++deferred_event_count;
+    return 0;
+}
+static int next_poll_event(trb_t *out){
+    if(deferred_event_count){
+        if(out) *out=deferred_events[deferred_event_read];
+        deferred_event_read=(deferred_event_read+1u)%EVENT_TRBS;
+        --deferred_event_count;
+        return 0;
+    }
+    return next_event(out);
+}
 static int cmd_abort(void){
     w32(op_base+OP_USBCMD,r32(op_base+OP_USBCMD)|CMD_INTE);
     for(uint32_t i=0;i<2000000u;++i){ if(!(r32(op_base+OP_USBCMD)&CMD_INTE)) break; __asm__ volatile("pause"); }
     for(uint32_t n=0;n<5000000u;++n){
         trb_t e; if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
-        if(((e.control>>10)&0x3Fu)!=TRB_CMD_EVT) continue;
+        uint32_t type=(e.control>>10)&0x3Fu;
+        if(type==TRB_TRANSFER_EVT){ (void)defer_transfer_event(&e); continue; }
+        if(type!=TRB_CMD_EVT) continue;
         if(((e.status>>24)&0xFFu)==CC_CMD_STOPPED) return 0;
     }
     return -1;
@@ -673,6 +698,7 @@ static int cmd_wait(uint32_t want_slot){
         uint32_t type=(e.control>>10)&0x3Fu;
         if(type==TRB_PORT_EVT) continue;
         if(type==TRB_BW_EVT) continue;
+        if(type==TRB_TRANSFER_EVT){ (void)defer_transfer_event(&e); continue; }
         if(type!=TRB_CMD_EVT) continue;
         if(want_slot&&((e.control>>24)&0xFFu)!=want_slot) continue;
         uint32_t cc=(e.status>>24)&0xFFu;
@@ -729,6 +755,7 @@ static int cmd_enable_slot(void){
         if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
         uint32_t type=(e.control>>10)&0x3Fu;
         if(type==TRB_PORT_EVT) continue;
+        if(type==TRB_TRANSFER_EVT){ (void)defer_transfer_event(&e); continue; }
         if(type!=TRB_CMD_EVT) continue;
         uint32_t cc=(e.status>>24)&0xFFu;
         if(cc!=CC_SUCCESS){ cmd_recover(); return -1; }
@@ -864,8 +891,11 @@ static int ep0_xfer(uint8_t bm,uint8_t req,uint16_t val,uint16_t idx,
         trb_t e;
         if(next_event(&e)!=0){ __asm__ volatile("pause"); continue; }
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) continue;
-        if(((e.control>>24)&0xFFu)!=slot_id) continue;
-        if(((e.control>>16)&0x1Fu)!=1u) continue;
+        if(((e.control>>24)&0xFFu)!=slot_id ||
+           ((e.control>>16)&0x1Fu)!=1u){
+            (void)defer_transfer_event(&e);
+            continue;
+        }
         uint32_t cc=(e.status>>24)&0xFFu;
         diag_last_cc=cc;
         if(cc==CC_SUCCESS||cc==CC_SHORT_PKT) return 0;
@@ -1493,6 +1523,8 @@ static int enumerate_hid_ports(void){
             uint32_t ps=r32(po);
             diag_last_portsc=ps;
             if(!(ps&PS_CCS)) continue;
+            /* A mouse retry must never reset the working USB keyboard. */
+            if(!hid_wanted_keyboard && kbd_ready && p==kbd_port_number) continue;
             saw_ccs=1u;
             diag_stage="USB PORT CONNECTED";
             usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
@@ -1826,12 +1858,14 @@ int xhci_keyboard_init(void){
     }
 
     /*
-     * If the active device was not composite, enumerate every other
-     * connected port. Do not stop at the first non-keyboard HID device.
+     * If the active device was not composite, enumerate other connected
+     * ports. Only skip the mouse port if the mouse probe really succeeded;
+     * enumerate_port() also updates port_number for failed probes.
      */
+    uint32_t mouse_port = save_ready ? save_port : 0u;
     if(found<0){
         for(uint32_t p=1u;p<=max_ports;++p){
-            if(p==save_port)continue;
+            if(mouse_port && p==mouse_port)continue;
             uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
             uint32_t ps=r32(po);
             if(!(ps&PS_CCS))continue;
@@ -1880,7 +1914,7 @@ int xhci_mouse_recover(void){
     report_pending=0u;
     return -1;
 }
-int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
+static int xhci_mouse_poll_impl(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dx) *dx = 0;
     if(dy) *dy = 0;
     if(buttons) *buttons = 0;
@@ -1895,7 +1929,8 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     uint32_t mouse_fault = ready &&
         (!hid_controller_healthy() || hid_endpoint_needs_recovery());
 
-    uint32_t budget=event_available_count();
+    uint32_t budget=event_available_count()+deferred_event_count;
+    if(budget>EVENT_TRBS) budget=EVENT_TRBS;
     int got_report=0;
     int32_t total_dx=0;
     int32_t total_dy=0;
@@ -1903,7 +1938,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
 
     while(budget--){
         trb_t e;
-        if(next_event(&e)!=0) break;
+        if(next_poll_event(&e)!=0) break;
         if(((e.control>>10)&0x3Fu)!=TRB_TRANSFER_EVT) continue;
         uint32_t event_slot=(e.control>>24)&0xFFu;
         uint32_t event_ep=(e.control>>16)&0x1Fu;
@@ -2013,6 +2048,17 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
         return 1;
     }
     return 0;
+}
+int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
+    if(__sync_lock_test_and_set(&poll_busy,1u)){
+        if(dx) *dx=0;
+        if(dy) *dy=0;
+        if(buttons) *buttons=0;
+        return 0;
+    }
+    int result=xhci_mouse_poll_impl(dx,dy,buttons);
+    __sync_lock_release(&poll_busy);
+    return result;
 }
 int xhci_mouse_debug_get(xhci_mouse_debug_info_t *out){
     if(!out) return -1;
