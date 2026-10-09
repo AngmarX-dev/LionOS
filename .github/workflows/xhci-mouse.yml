@@ -117,3 +117,75 @@ jobs:
           grep -q 'HID mouse reports active' build/qemu-xhci-mouse.log
           grep -q 'LIONOS:USB-MOUSE-RING-WRAP-OK' build/qemu-xhci-mouse.log
           grep -q 'LIONOS:KEYBOARD-USB-INPUT' build/qemu-xhci-mouse.log
+
+
+      - name: Regress USB keyboard discovery with no USB mouse attached
+        run: |
+          set -e
+          qemu-system-i386 \
+            -smp 1 \
+            -device nec-usb-xhci,id=xhci \
+            -device usb-kbd,bus=xhci.0 \
+            -cdrom build/lionos.iso \
+            -m 128M \
+            -display none \
+            -serial none \
+            -qmp unix:build/qmp-keyboard.sock,server=on,wait=off \
+            -debugcon file:build/qemu-xhci-keyboard-only.log \
+            -global isa-debugcon.iobase=0xE9 &
+          qemu_pid=$!
+
+          sleep 8
+          python3 - <<'PY'
+          import json
+          import socket
+          import time
+
+          path = "build/qmp-keyboard.sock"
+          sock = None
+          for _ in range(150):
+              try:
+                  sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                  sock.settimeout(1.0)
+                  sock.connect(path)
+                  sock.recv(65536)
+                  sock.sendall((json.dumps({"execute": "qmp_capabilities"}) + "\r\n").encode())
+                  sock.recv(65536)
+                  break
+              except (FileNotFoundError, ConnectionRefusedError, TimeoutError):
+                  if sock:
+                      sock.close()
+                  sock = None
+                  time.sleep(0.1)
+          if sock is None:
+              raise SystemExit("QEMU QMP socket did not become available")
+
+          # There is deliberately no usb-mouse in this guest. The mouse
+          # discovery pass must fail without causing keyboard discovery
+          # to skip the same connected port.
+          for down in (True, False):
+              payload = {
+                  "execute": "input-send-event",
+                  "arguments": {
+                      "events": [{
+                          "type": "key",
+                          "data": {
+                              "down": down,
+                              "key": {"type": "qcode", "data": "a"},
+                          },
+                      }]
+                  },
+              }
+              sock.sendall((json.dumps(payload) + "\r\n").encode())
+              time.sleep(0.05)
+
+          sock.close()
+          PY
+
+          sleep 2
+          kill "$qemu_pid" || true
+          wait "$qemu_pid" || true
+
+          cat build/qemu-xhci-keyboard-only.log
+          grep -q 'LIONOS:READY' build/qemu-xhci-keyboard-only.log
+          grep -q 'LIONOS:KEYBOARD-USB-INPUT' build/qemu-xhci-keyboard-only.log
