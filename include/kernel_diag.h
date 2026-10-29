@@ -14,6 +14,7 @@ enum kernel_log_level {
 void kernel_log(enum kernel_log_level level, const char *message);
 /* Initialize persistent /var/log/lionos.log after VFS is ready. */
 int kernel_log_persistence_init(void);
+void kernel_log_persistence_write(enum kernel_log_level level, const char *message);
 void kernel_log_ring_record(enum kernel_log_level level, const char *message);
 uint32_t kernel_log_entry_count(void);
 int kernel_log_read(uint32_t index, enum kernel_log_level *level,
