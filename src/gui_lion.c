@@ -103,6 +103,7 @@ void kernel_log_ring_record(enum kernel_log_level level, const char *message) {
     }
     entry->message[i] = 0;
     __atomic_store_n(&entry->sequence, sequence, __ATOMIC_RELEASE);
+    kernel_log_persistence_write(level, message);
 }
 
 uint32_t kernel_log_entry_count(void) {
