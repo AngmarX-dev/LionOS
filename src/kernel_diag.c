@@ -37,6 +37,13 @@ uint32_t kernel_diag_log_count(enum kernel_log_level level) {
     return __atomic_load_n(&log_counts[(uint32_t)level], __ATOMIC_RELAXED);
 }
 
+static void debug_hex32(uint32_t value) {
+    static const char digits[] = "0123456789ABCDEF";
+    debug_write("0x");
+    for (int shift=28; shift>=0; shift-=4)
+        debug_putc(digits[(value >> (uint32_t)shift) & 0xFu]);
+}
+
 void kernel_panic(uint32_t vector, uint32_t error, uint32_t eip, uint32_t cs, uint32_t eflags) {
     uint32_t expected = 0u;
     if (!__atomic_compare_exchange_n(&panic_active, &expected, 1u, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
@@ -50,7 +57,17 @@ void kernel_panic(uint32_t vector, uint32_t error, uint32_t eip, uint32_t cs, ui
     console_write(" cs=0x"); console_write_hex(cs);
     console_write(" eflags=0x"); console_write_hex(eflags);
     console_write("\nSystem halted.\n");
-    debug_write("LIONOS:PANIC\n");
+    debug_write("LIONOS:PANIC vector=");
+    debug_hex32(vector);
+    debug_write(" error=");
+    debug_hex32(error);
+    debug_write(" eip=");
+    debug_hex32(eip);
+    debug_write(" cs=");
+    debug_hex32(cs);
+    debug_write(" eflags=");
+    debug_hex32(eflags);
+    debug_write("\n");
     for (;;) __asm__ volatile("cli; hlt");
 }
 
