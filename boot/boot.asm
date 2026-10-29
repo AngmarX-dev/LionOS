@@ -62,7 +62,12 @@ smp_protected_entry:
     mov al, 'C'
     out dx, al
     mov eax, [smp_trampoline_entry]
-    jmp eax
+    ; Enter the C AP entry using CALL so its stack follows the i386 ABI.
+    call eax
+.ap_halt:
+    cli
+    hlt
+    jmp .ap_halt
 align 8
 smp_gdt:
     dq 0x0000000000000000
