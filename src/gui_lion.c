@@ -590,7 +590,7 @@ static void draw_logs(const struct ui_window*w){
     uint32_t body_h=w->h>TITLE_H+28u?w->h-TITLE_H-28u:1u;
     framebuffer_blend_round_rect(left,top,body_w,body_h,12u,COL_INPUT,175u);
     border(left,top,body_w,body_h,COL_GOLD_DIM);
-    text_line("LIVE KERNEL HISTORY  |  IN-MEMORY SYSTEM SERVICE",
+    text_line("RAM HISTORY + /var/log/lionos.log",
               left+10u,top+8u,COL_GOLD,COL_INPUT);
 
     uint32_t count=kernel_log_entry_count();
