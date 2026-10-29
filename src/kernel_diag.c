@@ -6,6 +6,17 @@
 
 #define KLOG_LEVELS 5u
 #define KLOG_VECTORS 256u
+#define KLOG_RING_CAPACITY 64u
+#define KLOG_MESSAGE_MAX 96u
+
+struct kernel_log_entry {
+    volatile uint32_t sequence;
+    enum kernel_log_level level;
+    char message[KLOG_MESSAGE_MAX];
+};
+
+static struct kernel_log_entry log_ring[KLOG_RING_CAPACITY];
+static volatile uint32_t log_sequence;
 
 static volatile uint32_t log_counts[KLOG_LEVELS];
 static volatile uint32_t panic_active;
@@ -25,11 +36,57 @@ static const char *level_name(enum kernel_log_level level) {
 void kernel_log(enum kernel_log_level level, const char *message) {
     if ((uint32_t)level >= KLOG_LEVELS) level = KLOG_ERROR;
     __atomic_fetch_add(&log_counts[(uint32_t)level], 1u, __ATOMIC_RELAXED);
+
+    /* Bounded, allocation-free history for the built-in desktop log viewer. */
+    uint32_t sequence = __atomic_add_fetch(&log_sequence, 1u, __ATOMIC_RELAXED);
+    struct kernel_log_entry *entry = &log_ring[sequence % KLOG_RING_CAPACITY];
+    __atomic_store_n(&entry->sequence, 0u, __ATOMIC_RELEASE);
+    entry->level = level;
+    uint32_t i = 0u;
+    if (message) {
+        while (message[i] && i + 1u < KLOG_MESSAGE_MAX) {
+            entry->message[i] = message[i];
+            ++i;
+        }
+    }
+    entry->message[i] = 0;
+    __atomic_store_n(&entry->sequence, sequence, __ATOMIC_RELEASE);
+
     debug_write("LIONOS:LOG:");
     debug_write(level_name(level));
     debug_write(":");
     if (message) debug_write(message);
     debug_write("\n");
+}
+
+uint32_t kernel_log_entry_count(void) {
+    uint32_t count = __atomic_load_n(&log_sequence, __ATOMIC_ACQUIRE);
+    return count > KLOG_RING_CAPACITY ? KLOG_RING_CAPACITY : count;
+}
+
+int kernel_log_read(uint32_t index, enum kernel_log_level *level,
+                    char *message, uint32_t capacity) {
+    if (!level || !message || capacity == 0u) return -1;
+    uint32_t head = __atomic_load_n(&log_sequence, __ATOMIC_ACQUIRE);
+    uint32_t count = head > KLOG_RING_CAPACITY ? KLOG_RING_CAPACITY : head;
+    if (index >= count) return -1;
+
+    uint32_t sequence = (head > KLOG_RING_CAPACITY
+        ? head - KLOG_RING_CAPACITY + 1u : 1u) + index;
+    struct kernel_log_entry *entry = &log_ring[sequence % KLOG_RING_CAPACITY];
+    if (__atomic_load_n(&entry->sequence, __ATOMIC_ACQUIRE) != sequence)
+        return -1;
+    *level = entry->level;
+    uint32_t i = 0u;
+    while (i + 1u < capacity && i + 1u < KLOG_MESSAGE_MAX &&
+           entry->message[i]) {
+        message[i] = entry->message[i];
+        ++i;
+    }
+    message[i] = 0;
+    if (__atomic_load_n(&entry->sequence, __ATOMIC_ACQUIRE) != sequence)
+        return -1;
+    return 0;
 }
 
 uint32_t kernel_diag_log_count(enum kernel_log_level level) {
