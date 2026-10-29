@@ -379,6 +379,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     debug_write("LIONOS:READY\n");
     BOOT_STAGE(100u, "STARTING LIONOS DESKTOP");
 
+    /* Boot splash is finished; enable framebuffer console for runtime diagnostics. */
+    console_use_framebuffer();
     __asm__ volatile("sti");
     gui_run();
     shell_run();
