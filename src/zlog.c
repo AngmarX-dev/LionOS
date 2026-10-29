@@ -30,7 +30,7 @@ static const char *persistent_level_name(enum kernel_log_level level) {
 static void report_persistence_failure(void) {
     if (__atomic_exchange_n(&persistence_failure_reported, 1u,
                             __ATOMIC_ACQ_REL) == 0u)
-        debug_write("LIONOS:PERSIST-LOG-WRITE-FAILED\\n");
+        debug_write("LIONOS:PERSIST-LOG-WRITE-FAILED\n");
 }
 
 static uint32_t format_log_line(enum kernel_log_level level,
