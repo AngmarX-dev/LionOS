@@ -1,30 +1,5 @@
 BITS 32
 
-%macro TRACE_HEX 2
-    mov ebx, %2
-    mov dx, 0xE9
-    mov al, %1
-    out dx, al
-    mov al, '='
-    out dx, al
-    mov ecx, 8
-%%hex:
-    rol ebx, 4
-    mov al, bl
-    and al, 0x0F
-    cmp al, 9
-    jbe %%digit
-    add al, 'A' - 10
-    jmp %%emit
-%%digit:
-    add al, '0'
-%%emit:
-    mov dx, 0xE9
-    out dx, al
-    loop %%hex
-    mov al, 10
-    out dx, al
-%endmacro
 
 section .multiboot
 align 8
