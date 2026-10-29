@@ -171,6 +171,7 @@ run_qemu build/qemu-second.log
 grep -q 'LIONOS:READY' build/qemu-second.log
 grep -q 'LIONOS:PERSIST-OK' build/qemu-second.log
 grep -q 'LIONOS:PERSIST-LOG-OK' build/qemu-second.log
+python3 scripts/check_disk_log.py build/lionos-disk.img
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-second.log
