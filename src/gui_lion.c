@@ -13,6 +13,8 @@
 #include "lion_icons.h"
 #include "lion_font.h"
 #include "lion_wallpaper.h"
+#include "lion_wallpaper_minimal.h"
+#include "lion_wallpaper_sunrise.h"
 
 #define FONT_W LION_FONT_W
 #define FONT_H LION_FONT_H
@@ -56,6 +58,7 @@ struct ui_window {
 static struct ui_window windows[WIN_MAX];
 static uint8_t gui_active;
 static uint8_t start_open;
+static uint8_t wallpaper_choice;
 static uint8_t terminal_focus;
 static uint8_t drag_active;
 static uint8_t drag_id;
@@ -102,7 +105,7 @@ static struct desktop_icon desktop_icons[DESKTOP_ICON_COUNT] = {
     {24u, 324u, ICON_ACTION_BROWSER,  0u, 0u, 0u, lion_icon_browser,  "BROWSER"},
     {24u, 424u, ICON_ACTION_SETTINGS, 0u, 0u, 0u, lion_icon_tools,    "SETTINGS"},
     {24u, 524u, ICON_ACTION_ABOUT,    0u, 0u, 0u, lion_icon_desktop,  "ABOUT"},
-    {24u, 624u, ICON_ACTION_NOTEPAD,    0u, 0u, 0u, lion_icon_documents, "NOTEPAD"}
+    {24u, 624u, ICON_ACTION_NOTEPAD,    0u, 0u, 0u, lion_icon_notepad, "NOTEPAD"}
 };
 
 static int desktop_icon_drag = -1;
@@ -370,6 +373,32 @@ static void file_manager_open_selected(void){
     notepad_loaded=1u;
     show(WIN_NOTEPAD);
 }
+static int filename_has_suffix(const char *name, const char *suffix){
+    uint32_t n=0u,s=0u;
+    if(!name||!suffix)return 0;
+    while(name[n])++n;
+    while(suffix[s])++s;
+    if(s>n)return 0;
+    for(uint32_t i=0u;i<s;++i){
+        char a=name[n-s+i],b=suffix[i];
+        if(a>='A'&&a<='Z')a=(char)(a-'A'+'a');
+        if(b>='A'&&b<='Z')b=(char)(b-'A'+'a');
+        if(a!=b)return 0;
+    }
+    return 1;
+}
+static const uint32_t *file_icon_for_name(const char *name){
+    if(filename_has_suffix(name,".pdf"))return lion_icon_file_pdf;
+    if(filename_has_suffix(name,".png")||filename_has_suffix(name,".jpg")||
+       filename_has_suffix(name,".jpeg")||filename_has_suffix(name,".bmp")||
+       filename_has_suffix(name,".webp"))return lion_icon_file_image;
+    if(filename_has_suffix(name,".mp3")||filename_has_suffix(name,".wav")||
+       filename_has_suffix(name,".ogg")||filename_has_suffix(name,".flac"))return lion_icon_file_audio;
+    if(filename_has_suffix(name,".c")||filename_has_suffix(name,".h")||
+       filename_has_suffix(name,".asm")||filename_has_suffix(name,".sh"))return lion_icon_file_code;
+    return lion_icon_file;
+}
+
 static void draw_files(const struct ui_window*w){
     window_chrome(w,"Files");
     uint32_t left=w->x+16u, top=w->y+TITLE_H+10u, side=128u;
@@ -395,7 +424,7 @@ static void draw_files(const struct ui_window*w){
         fill(bx,by,84u,60u,selected?COL_SKY_MID:COL_PANEL2);
         border(bx,by,84u,60u,selected?COL_GOLD:COL_GOLD_DIM);
         if(bx+56u<=framebuffer_width()&&by+52u<=framebuffer_height())
-            framebuffer_blit_rgba32(lion_icon_documents,LION_ICON_SIZE,LION_ICON_SIZE,bx+2u,by+2u,48u);
+            framebuffer_blit_rgba32(file_icon_for_name(nme),LION_ICON_SIZE,LION_ICON_SIZE,bx+2u,by+2u,48u);
         text_line(nme,bx+52u,by+12u,COL_TEXT,selected?COL_SKY_MID:COL_PANEL2);
         text_line(selected?"SELECTED":"FILE",bx+52u,by+34u,selected?COL_GOLD:COL_DIM,selected?COL_SKY_MID:COL_PANEL2);
     }
@@ -410,12 +439,15 @@ static void draw_files(const struct ui_window*w){
 
 static void draw_about(const struct ui_window*w){
     window_chrome(w,"About LionOS");
-    text_line("LionOS",w->x+24u,w->y+64u,COL_GOLD,w->focused?COL_PANEL2:COL_PANEL);
-    text_line("Experimental 32-bit operating system",w->x+24u,w->y+104u,COL_TEXT,COL_PANEL);
-    text_line("SMP / paging / processes / VFS",w->x+24u,w->y+142u,COL_DIM,COL_PANEL);
-    text_line("Framebuffer desktop / keyboard / mouse",w->x+24u,w->y+180u,COL_DIM,COL_PANEL);
-    text_line("Theme: LionOS sunset",w->x+24u,w->y+218u,COL_GOLD,COL_PANEL);
-    fill(w->x+24u,w->y+258u,190u,34u,COL_PANEL2);border(w->x+24u,w->y+258u,190u,34u,COL_GOLD_DIM);text_line("GUI ONLINE",w->x+40u,w->y+266u,COL_OK,COL_PANEL2);
+    framebuffer_blit_rgba32(lion_icon_logo,LION_ICON_SIZE,LION_ICON_SIZE,
+                            w->x+18u,w->y+42u,132u);
+    text_line("32-bit x86 operating system",w->x+24u,w->y+142u,COL_TEXT,COL_PANEL);
+    text_line("SMP / paging / processes / VFS",w->x+24u,w->y+174u,COL_DIM,COL_PANEL);
+    text_line("Framebuffer desktop / keyboard / mouse",w->x+24u,w->y+206u,COL_DIM,COL_PANEL);
+    text_line("Theme: selectable LionOS wallpapers",w->x+24u,w->y+238u,COL_GOLD,COL_PANEL);
+    fill(w->x+24u,w->y+270u,190u,34u,COL_PANEL2);
+    border(w->x+24u,w->y+270u,190u,34u,COL_GOLD_DIM);
+    text_line("GUI ONLINE",w->x+40u,w->y+278u,COL_OK,COL_PANEL2);
 }
 
 static void draw_uint(uint32_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
@@ -436,9 +468,26 @@ static void draw_settings(const struct ui_window*w){
     draw_resolution(framebuffer_width(),framebuffer_height(),w->x+190u,w->y+126u,COL_GOLD,COL_PANEL);
     text_line("SOURCE",w->x+24u,w->y+158u,COL_DIM,COL_PANEL);
     text_line("GRUB / FIRMWARE FRAMEBUFFER",w->x+190u,w->y+158u,COL_TEXT,COL_PANEL);
-    text_line("LionOS does not change display modes at runtime.",w->x+24u,w->y+204u,COL_DIM,COL_PANEL);
-    text_line("The bootloader selects the best available mode.",w->x+24u,w->y+230u,COL_DIM,COL_PANEL);
+    text_line("Display mode is selected by the bootloader.",w->x+24u,w->y+204u,COL_DIM,COL_PANEL);
+    text_line("Desktop wallpaper",w->x+24u,w->y+238u,COL_TEXT,COL_PANEL);
+    uint32_t available=w->w>48u?w->w-48u:168u;
+    uint32_t button_w=available>10u?(available-10u)/3u:54u;
+    if(button_w>92u)button_w=92u;
+    if(button_w<54u)button_w=54u;
+    uint32_t step=button_w+5u,button_y=w->y+268u;
+    const char *long_labels[3]={"DEFAULT","MINIMAL","SUNRISE"};
+    const char *short_labels[3]={"DEF","MIN","SUN"};
+    for(uint32_t i=0u;i<3u;++i){
+        uint32_t bx=w->x+24u+i*step;
+        uint32_t selected=(wallpaper_choice==i);
+        uint32_t bg=selected?COL_SKY_MID:COL_PANEL2;
+        framebuffer_blend_round_rect(bx,button_y,button_w,32u,9u,bg,selected?145u:76u);
+        border(bx,button_y,button_w,32u,selected?COL_GOLD:COL_GOLD_DIM);
+        text_line(button_w<84u?short_labels[i]:long_labels[i],bx+4u,button_y+9u,
+                  selected?COL_GOLD:COL_TEXT,bg);
+    }
 }
+
 static uint32_t label_width(const char*label){uint32_t n=0u;while(label[n])++n;return n*CHAR_W;}
 static void draw_notepad(const struct ui_window*w){
     window_chrome(w,"Notepad");
@@ -527,7 +576,12 @@ static void draw_lion_logo(uint32_t cx,uint32_t cy,uint32_t s){
     fill(cx+m*2u,cy+m*4u,m,m,COL_GOLD);
 }
 static void draw_wallpaper(void){
-    framebuffer_blit_rgb565_cover(lion_wallpaper_rgb565,LION_WALLPAPER_W,LION_WALLPAPER_H);
+    if(wallpaper_choice==1u)
+        framebuffer_blit_rgb565_cover(lion_wallpaper_minimal_rgb565,LION_WALLPAPER_MINIMAL_W,LION_WALLPAPER_MINIMAL_H);
+    else if(wallpaper_choice==2u)
+        framebuffer_blit_rgb565_cover(lion_wallpaper_sunrise_rgb565,LION_WALLPAPER_SUNRISE_W,LION_WALLPAPER_SUNRISE_H);
+    else
+        framebuffer_blit_rgb565_cover(lion_wallpaper_rgb565,LION_WALLPAPER_W,LION_WALLPAPER_H);
 }
 static void draw_task_button(uint32_t x,uint32_t y,uint32_t w,uint32_t c,const char*label,const uint32_t*icon){
     uint32_t bg=hit(x,y,w,42u,mouse_px_x,mouse_px_y)?COL_PANEL2:c;
@@ -548,14 +602,18 @@ static void draw_top_menu(void){
     framebuffer_blend_round_rect(10u,6u,w>20u?w-20u:1u,34u,17u,COL_GROUND,54u);
     framebuffer_blend_round_rect(11u,7u,w>22u?w-22u:1u,18u,12u,0xFFFFFFu,12u);
     border(10u,6u,w>20u?w-20u:1u,34u,0x56758Du);
-    text_line("LionOS",22u,15u,COL_TEXT,COL_GROUND);
-    text_line("File   Edit   View   Window   Help",112u,15u,COL_DIM,COL_GROUND);
+    framebuffer_blit_rgba32(lion_icon_wordmark,LION_ICON_SIZE,LION_ICON_SIZE,18u,4u,34u);
+    text_line("File   Edit   View   Window   Help",80u,15u,COL_DIM,COL_GROUND);
     if(w>760u){
-        text_line("LIQUID GLASS",w-190u,15u,COL_GOLD,COL_GROUND);
-        text_line(mouse_usb_status_text(),w-92u,15u,
+        text_line("LIQUID GLASS",w-340u,15u,COL_GOLD,COL_GROUND);
+        framebuffer_blit_rgba32(lion_icon_wifi,LION_ICON_SIZE,LION_ICON_SIZE,w-196u,8u,22u);
+        framebuffer_blit_rgba32(lion_icon_volume,LION_ICON_SIZE,LION_ICON_SIZE,w-166u,8u,22u);
+        framebuffer_blit_rgba32(lion_icon_battery,LION_ICON_SIZE,LION_ICON_SIZE,w-136u,8u,22u);
+        text_line(mouse_usb_status_text(),w-96u,15u,
                   mouse_usb_status()==1u?COL_OK:COL_GOLD,COL_GROUND);
     }
 }
+
 static void draw_notification(void){
     uint32_t w=framebuffer_width();
     if(w<700u)return;
@@ -574,7 +632,7 @@ static void draw_taskbar(void){
     glass_panel(dx,dy,dock_w,dock_h,36u,COL_PANEL,38u,1u);
     const uint32_t *icons[6]={
         lion_icon_terminal,lion_icon_documents,lion_icon_browser,
-        lion_icon_tools,lion_icon_desktop,lion_icon_documents
+        lion_icon_tools,lion_icon_lionos,lion_icon_notepad
     };
     uint32_t step=dock_w>=360u?92u:((dock_w-24u)/6u);
     if(step<52u)step=52u;
@@ -598,7 +656,8 @@ static void draw_start_menu(void){
     start_geom(&x,&y,&mw,&mh);
     glass_panel(x,y,mw,mh,24u,COL_PANEL,55u,1u);
     framebuffer_blend_round_rect(x+1u,y+1u,mw>2u?mw-2u:1u,58u,20u,0xE8F7FFu,14u);
-    text_line("LIONOS",x+20u,y+18u,COL_GOLD,COL_PANEL2);
+    framebuffer_blit_rgba32(lion_icon_lionos,LION_ICON_SIZE,LION_ICON_SIZE,x+18u,y+13u,30u);
+    text_line("LIONOS",x+54u,y+18u,COL_GOLD,COL_PANEL2);
     text_line("APPLICATIONS",x+mw-116u,y+18u,COL_DIM,COL_PANEL2);
 
     framebuffer_blend_round_rect(x+18u,y+70u,mw-36u,34u,12u,COL_INPUT,90u);
@@ -614,12 +673,19 @@ static void draw_start_menu(void){
         framebuffer_blend_round_rect(x+18u,by,mw-36u,38u,12u,bg,hov?120u:72u);
         border(x+18u,by,mw-36u,38u,hov?COL_GOLD:COL_GOLD_DIM);
         const char *name=items[i];
-        text_line(name,x+30u,by+10u,COL_TEXT,bg);
+        static const uint32_t *item_icons[6]={
+            lion_icon_terminal,lion_icon_documents,lion_icon_lionos,
+            lion_icon_tools,lion_icon_browser,lion_icon_notepad
+        };
+        framebuffer_blit_rgba32(item_icons[i],LION_ICON_SIZE,LION_ICON_SIZE,x+26u,by+6u,26u);
+        text_line(name,x+62u,by+10u,COL_TEXT,bg);
         if(hov) text_line(">",x+mw-48u,by+10u,COL_GOLD,bg);
     }
     if(mh>400u){
         uint32_t py0=y+mh-52u;
-        widget_button(x+18u,py0,140u,34u,COL_DANGER,COL_GOLD_DIM,"POWER");
+        widget_button(x+18u,py0,140u,34u,COL_DANGER,COL_GOLD_DIM,"");
+        framebuffer_blit_rgba32(lion_icon_power,LION_ICON_SIZE,LION_ICON_SIZE,x+25u,py0+5u,24u);
+        text_line("POWER",x+56u,py0+9u,COL_TEXT,COL_DANGER);
         text_line("ESC",x+mw-58u,py0+9u,COL_DIM,COL_PANEL);
     }
 }
@@ -805,6 +871,22 @@ static void handle_window_click(struct ui_window*w){
             (void)drag_cache_begin(w);
         }
         return;
+    }
+    if(w->id==WIN_SETTINGS){
+        uint32_t available=w->w>48u?w->w-48u:168u;
+        uint32_t button_w=available>10u?(available-10u)/3u:54u;
+        if(button_w>92u)button_w=92u;
+        if(button_w<54u)button_w=54u;
+        uint32_t step=button_w+5u,button_y=w->y+268u;
+        for(uint32_t i=0u;i<3u;++i){
+            if(hit(w->x+24u+i*step,button_y,button_w,32u,x,y)){
+                if(wallpaper_choice!=(uint8_t)i){
+                    wallpaper_choice=(uint8_t)i;
+                    dirty_full();
+                }
+                return;
+            }
+        }
     }
     if(w->id==WIN_FILES){
         uint32_t idx;

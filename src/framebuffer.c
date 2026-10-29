@@ -2,6 +2,7 @@
 #include "framebuffer.h"
 #include "paging.h"
 #include "heap.h"
+#include "lion_boot_splash.h"
 
 #define FB_VIRTUAL_BASE 0xF4000000u
 #define FB_MAX_MAPPED_SIZE 0x04000000u
@@ -55,6 +56,8 @@ static struct mb2_fb_tag saved_fb_tag;
 static uint32_t saved_fb_valid;
 static uint32_t *desktop_buffer;
 static uint32_t *wallpaper_cache;
+static const uint16_t *wallpaper_source;
+static uint32_t boot_splash_asset_drawn;
 static uint32_t wallpaper_cache_width;
 static uint32_t wallpaper_cache_height;
 static uint32_t wallpaper_cache_ready;
@@ -65,6 +68,8 @@ static uint32_t clip_x, clip_y, clip_w, clip_h;
 /* GRUB/firmware selects the framebuffer mode before the kernel starts.
  * LionOS consumes the Multiboot2 framebuffer tag and has no runtime
  * display-mode switching interface. */
+static uint32_t framebuffer_div_u64_u32(uint64_t numerator, uint32_t denominator);
+
 static uint32_t channel(uint8_t value, uint8_t size, uint8_t position) {
     if (!size) return 0u;
     uint32_t max = (1u << size) - 1u;
@@ -257,6 +262,29 @@ static void boot_text_center(const char *s, uint32_t y, uint32_t fg, uint32_t bg
     }
 }
 
+static void framebuffer_boot_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint32_t height) {
+    if(!enabled||!pixels||!width||!height)return;
+    uint32_t sw=fb_width_value,sh=fb_height_value;
+    if(!sw||!sh)return;
+    uint64_t lhs=(uint64_t)sw*height,rhs=(uint64_t)sh*width;
+    uint32_t out_w,out_h;
+    if(lhs>=rhs){out_w=sw;out_h=framebuffer_div_u64_u32(lhs,width);}
+    else{out_h=sh;out_w=framebuffer_div_u64_u32(rhs,height);}
+    uint32_t crop_x=out_w>sw?(out_w-sw)/2u:0u;
+    uint32_t crop_y=out_h>sh?(out_h-sh)/2u:0u;
+    for(uint32_t y=0u;y<sh;++y){
+        uint32_t sy=framebuffer_div_u64_u32((uint64_t)(y+crop_y)*height,out_h);
+        for(uint32_t x=0u;x<sw;++x){
+            uint32_t sx=framebuffer_div_u64_u32((uint64_t)(x+crop_x)*width,out_w);
+            uint16_t p=pixels[sy*width+sx];
+            uint32_t r=((p>>11)&31u)*255u/31u;
+            uint32_t g=((p>>5)&63u)*255u/63u;
+            uint32_t b=(p&31u)*255u/31u;
+            put_pixel(x,y,(r<<16)|(g<<8)|b);
+        }
+    }
+}
+
 void framebuffer_boot_splash(uint32_t progress, const char *status) {
     if (!enabled) return;
     if (progress > 100u) progress = 100u;
@@ -264,37 +292,24 @@ void framebuffer_boot_splash(uint32_t progress, const char *status) {
     if (!w || !h) return;
 
     ++boot_animation_frame;
-    framebuffer_fill_rect(0u, 0u, w, h, 0x050A12u);
-    framebuffer_fill_rect(0u, 0u, w, 4u, 0xF2C94Cu);
+    if(!boot_splash_asset_drawn){
+        framebuffer_boot_blit_rgb565_cover(lion_boot_splash_rgb565,LION_BOOT_SPLASH_W,LION_BOOT_SPLASH_H);
+        boot_splash_asset_drawn=1u;
+    }
 
-    uint32_t cx = w / 2u;
-    uint32_t logo_y = h > 560u ? h / 2u - 150u : h / 2u - 120u;
-    if (logo_y < 40u) logo_y = 40u;
+    /* The uploaded splash remains visible above a freshly redrawn progress panel. */
+    uint32_t panel_y=h>164u?h-164u:0u;
+    framebuffer_fill_rect(0u,panel_y,w,h-panel_y,0x050A12u);
+    framebuffer_fill_rect(0u,0u,w,4u,0xF2C94Cu);
 
-    /* Compact gold LionOS mark built from the same geometry as the desktop theme. */
-    uint32_t s = h > 560u ? 10u : 8u;
-    uint32_t m = s * 2u + 1u;
-    framebuffer_fill_rect(cx - m * 3u, logo_y, m * 2u, m, 0xF2C94Cu);
-    framebuffer_fill_rect(cx + m, logo_y, m * 2u, m, 0xF2C94Cu);
-    framebuffer_fill_rect(cx - m * 4u, logo_y + m, m * 8u, m * 5u, 0xF2C94Cu);
-    framebuffer_fill_rect(cx - m * 3u, logo_y + m * 2u, m * 6u, m * 4u, 0x0B1422u);
-    framebuffer_fill_rect(cx - m * 2u, logo_y + m * 2u, m, m, 0xF2C94Cu);
-    framebuffer_fill_rect(cx + m, logo_y + m * 2u, m, m, 0xF2C94Cu);
-    framebuffer_fill_rect(cx - m * 2u, logo_y + m * 5u, m * 4u, m * 2u, 0xF2C94Cu);
-    framebuffer_fill_rect(cx - m, logo_y + m * 7u, m * 2u, m, 0xF2C94Cu);
-
-    boot_text_center("LIONOS", logo_y + m * 9u, 0xF2C94Cu, 0x050A12u);
-    boot_text_center("EXPERIMENTAL OPERATING SYSTEM", logo_y + m * 11u, 0x91A4BCu, 0x050A12u);
-
-    uint32_t bar_w = w > 720u ? 560u : (w > 480u ? w - 120u : w - 64u);
+    uint32_t bar_w = w > 720u ? 560u : (w > 480u ? w - 120u : (w>80u?w-64u:w));
     uint32_t bar_h = 10u;
     uint32_t bar_x = (w - bar_w) / 2u;
-    uint32_t bar_y = h > 560u ? h - 120u : h - 90u;
+    uint32_t bar_y = h > 560u ? h - 120u : (h>90u?h-90u:panel_y+10u);
     framebuffer_fill_rect(bar_x, bar_y, bar_w, bar_h, 0x13233Au);
     uint32_t fill_w = (bar_w * progress) / 100u;
     if (fill_w) framebuffer_fill_rect(bar_x, bar_y, fill_w, bar_h, 0xF2C94Cu);
 
-    /* Moving highlight gives the loader a subtle animation without a backbuffer. */
     uint32_t marker = (boot_animation_frame * 6u) % (bar_w ? bar_w : 1u);
     if (marker + 12u < bar_w) framebuffer_fill_rect(bar_x + marker, bar_y, 12u, bar_h, 0xFFF1A8u);
 
@@ -578,13 +593,13 @@ static uint32_t framebuffer_div_u64_u32(uint64_t numerator, uint32_t denominator
 
 void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint32_t height) {
     if (!enabled || !desktop_mode || !desktop_buffer || !pixels || !width || !height) return;
-    if (!wallpaper_cache || wallpaper_cache_width != fb_width_value || wallpaper_cache_height != fb_height_value) {
+    if (!wallpaper_cache || wallpaper_cache_width != fb_width_value || wallpaper_cache_height != fb_height_value || wallpaper_source != pixels) {
         uint64_t pixels_count=(uint64_t)fb_width_value*fb_height_value;
         if (pixels_count > 0xFFFFFFFFu/sizeof(uint32_t)) return;
         if (wallpaper_cache) kfree(wallpaper_cache);
         wallpaper_cache=(uint32_t*)kmalloc((size_t)pixels_count*sizeof(uint32_t));
         if (!wallpaper_cache) { wallpaper_cache_ready=0u; return; }
-        wallpaper_cache_width=fb_width_value; wallpaper_cache_height=fb_height_value; wallpaper_cache_ready=0u;
+        wallpaper_cache_width=fb_width_value; wallpaper_cache_height=fb_height_value; wallpaper_source=pixels; wallpaper_cache_ready=0u;
     }
     uint32_t sw=fb_width_value, sh=fb_height_value;
     if (!wallpaper_cache_ready) {

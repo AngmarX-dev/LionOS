@@ -14,7 +14,16 @@ NASM := nasm
 CFLAGS := -m32 -MMD -MP -fno-strict-aliasing -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
 ICON_HEADER := $(BUILD)/lion_icons.h
 WALLPAPER_HEADER := $(BUILD)/lion_wallpaper.h
-ICON_SOURCES := Icons-Sorted/01_Core/lionos.png Icons-Sorted/13_Terminal/terminal.png Icons-Sorted/05_Network/browser.png Icons-Sorted/01_Core/desktop.png Icons-Sorted/02_Files/documents-folder.png Icons-Sorted/01_Core/tools.png Icons-Sorted/01_Core/legacy-computer.png Icons-Sorted/01_Core/home.png Icons-Sorted/04_System/trash.png
+WALLPAPER_MINIMAL_HEADER := $(BUILD)/lion_wallpaper_minimal.h
+WALLPAPER_SUNRISE_HEADER := $(BUILD)/lion_wallpaper_sunrise.h
+BOOT_SPLASH_HEADER := $(BUILD)/lion_boot_splash.h
+ICON_SOURCES := assets/branding/lionos-emblem.png assets/branding/lionos-logo.png assets/branding/lionos-wordmark.png \
+    assets/icons/applications/file-manager.png assets/icons/applications/image-viewer.png \
+    assets/icons/applications/settings.png assets/icons/applications/terminal.png assets/icons/applications/text-editor.png \
+    assets/icons/desktop/computer.png assets/icons/desktop/file.png assets/icons/desktop/folder.png assets/icons/desktop/trash.png \
+    assets/icons/filetypes/file-audio.png assets/icons/filetypes/file-code.png assets/icons/filetypes/file-image.png assets/icons/filetypes/file-pdf.png \
+    assets/icons/system/battery.png assets/icons/system/help.png assets/icons/system/network.png assets/icons/system/power.png \
+    assets/icons/system/security.png assets/icons/system/update.png assets/icons/system/volume.png assets/icons/system/wifi.png
 GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation -I$(BUILD)
 GUI_DESKTOP_CFLAGS := $(CFLAGS)
 USER_CFLAGS := -m32 -fno-strict-aliasing -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
@@ -45,11 +54,23 @@ $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
 $(ICON_HEADER): scripts/png_to_icons.py $(ICON_SOURCES) | $(BUILD)
 	python3 scripts/png_to_icons.py $(ICON_HEADER)
 
-$(WALLPAPER_HEADER): scripts/png_to_wallpaper.py LionOS-Wallpaper.png | $(BUILD)
-	python3 scripts/png_to_wallpaper.py $(WALLPAPER_HEADER)
+$(WALLPAPER_HEADER): scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-default.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-default.png $@ LION_WALLPAPER lion_wallpaper_rgb565
 
-$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) $(WALLPAPER_HEADER) | $(BUILD)
+$(WALLPAPER_MINIMAL_HEADER): scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-minimal.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-minimal.png $@ LION_WALLPAPER_MINIMAL lion_wallpaper_minimal_rgb565
+
+$(WALLPAPER_SUNRISE_HEADER): scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-sunrise.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-sunrise.png $@ LION_WALLPAPER_SUNRISE lion_wallpaper_sunrise_rgb565
+
+$(BOOT_SPLASH_HEADER): scripts/png_to_wallpaper.py assets/boot/boot-splash.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py assets/boot/boot-splash.png $@ LION_BOOT_SPLASH lion_boot_splash_rgb565
+
+$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) $(WALLPAPER_HEADER) $(WALLPAPER_MINIMAL_HEADER) $(WALLPAPER_SUNRISE_HEADER) | $(BUILD)
 	$(CC) $(GUI_CFLAGS) -I$(BUILD) -c $< -o $@
+
+$(BUILD)/framebuffer.o: src/framebuffer.c $(BOOT_SPLASH_HEADER) | $(BUILD)
+	$(CC) $(CFLAGS) -I$(BUILD) -c $< -o $@
 
 $(BUILD)/kernel_runtime.o: src/kernel_runtime.c src/kernel.c $(wildcard include/*.h) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@

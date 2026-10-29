@@ -194,7 +194,11 @@ LionOS/
 ├── include/              # Kernel headers and UAPI
 ├── src/                  # Kernel, drivers, VFS, GUI, SMP
 ├── user/                 # Ring-3 programs, libc, tests
-├── Icons-Sorted/         # Renamed desktop/system icon library
+├── assets/
+│   ├── boot/             # Boot splash artwork
+│   ├── branding/         # LionOS logo, emblem and wordmark
+│   ├── icons/            # Application, desktop, file-type and system icons
+│   └── wallpapers/       # Default, minimal and sunrise backgrounds
 ├── scripts/              # Automated test scripts
 ├── docs/                 # Design and feature documentation
 ├── .github/workflows/    # GitHub Actions CI
@@ -202,6 +206,8 @@ LionOS/
 ├── LICENSE
 └── README.md
 ```
+
+Boot splash art, branding, application/file-type icons, and wallpapers are now built from `assets/`. Open **Settings** in the desktop to switch between the default, minimal, and sunrise wallpapers.
 
 ---
 
