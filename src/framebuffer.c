@@ -576,12 +576,12 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
             uint32_t b00 = (p00 & 255u) * a00, b10 = (p10 & 255u) * a10;
             uint32_t b01 = (p01 & 255u) * a01, b11 = (p11 & 255u) * a11;
             uint32_t rt = (r00 * (256u - fx) + r10 * fx + 128u) >> 8;
-            uint32_t rb = (r01 * (256u - fx) + r11 * fx + 128u) >> 8;
+            uint32_t r_bottom = (r01 * (256u - fx) + r11 * fx + 128u) >> 8;
             uint32_t gt = (g00 * (256u - fx) + g10 * fx + 128u) >> 8;
             uint32_t gb = (g01 * (256u - fx) + g11 * fx + 128u) >> 8;
             uint32_t bt = (b00 * (256u - fx) + b10 * fx + 128u) >> 8;
             uint32_t bb = (b01 * (256u - fx) + b11 * fx + 128u) >> 8;
-            uint32_t sr = ((rt * (256u - fy) + rb * fy + 128u) >> 8) / alpha;
+            uint32_t sr = ((rt * (256u - fy) + r_bottom * fy + 128u) >> 8) / alpha;
             uint32_t sg = ((gt * (256u - fy) + gb * fy + 128u) >> 8) / alpha;
             uint32_t sb = ((bt * (256u - fy) + bb * fy + 128u) >> 8) / alpha;
             uint32_t rgb = (sr << 16) | (sg << 8) | sb;
