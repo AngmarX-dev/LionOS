@@ -66,12 +66,7 @@ smp_protected_entry:
     mov dx, 0xE9
     mov al, 'C'
     out dx, al
-    ; Trace the target, configured stack, live ESP, and active page table.
-    TRACE_HEX 'T', [smp_trampoline_entry]
-    TRACE_HEX 'S', [smp_trampoline_stack]
-    TRACE_HEX 'E', esp
-    mov eax, cr3
-    TRACE_HEX 'P', eax
+    ; The AP entry never returns; jump directly to the initialized C entry.
     mov eax, [smp_trampoline_entry]
     jmp eax
 .ap_halt:
