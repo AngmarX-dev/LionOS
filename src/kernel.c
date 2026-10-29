@@ -343,6 +343,12 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     vfs_init();
     console_write("[ OK ] VFS / unified file descriptor layer\n");
+    if (kernel_log_persistence_init() == 0) {
+        console_write("[ OK ] System Log / RAM history + /var/log/lionos.log\n");
+    } else {
+        console_write("[ -- ] Persistent System Log unavailable; RAM history remains active\n");
+        debug_write("LIONOS:PERSIST-LOG-INIT-FAIL\n");
+    }
     kernel_log(KLOG_INFO, "Virtual filesystem initialized");
     vfs_boot_test();
 
