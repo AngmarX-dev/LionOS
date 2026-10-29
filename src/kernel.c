@@ -201,6 +201,10 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     keyboard_init();
     console_write("[ OK ] PS/2 keyboard / scancode input buffer\n");
+    kernel_log(keyboard_ps2_available() ? KLOG_INFO : KLOG_WARN,
+        keyboard_ps2_available()
+            ? "PS/2 keyboard controller detected"
+            : "PS/2 keyboard controller unavailable");
     BOOT_STAGE(22u, "INPUT READY");
 
     mouse_init();
@@ -227,7 +231,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_putc('x');
         boot_dec(framebuffer_height());
         console_write(" desktop mode\n");
-        console_use_framebuffer();
+        /* Keep boot diagnostics on VGA so they do not erase the framebuffer splash. */
         BOOT_STAGE(34u, "DISPLAY READY");
     }
 
@@ -267,10 +271,14 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     /* Keyboard discovery is independent of mouse discovery. This is
        important on machines with a USB keyboard but no usable USB mouse,
        and for composite HID devices where both interfaces share a slot. */
-    if(xhci_keyboard_init() == 0)
+    int usb_kbd_rc = xhci_keyboard_init();
+    if(usb_kbd_rc == 0){
         console_write("[ OK ] USB xHCI / HID boot keyboard\n");
-    else
+        kernel_log(KLOG_INFO, "USB HID keyboard initialized");
+    }else{
         console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
+        kernel_log(KLOG_WARN, "USB HID keyboard unavailable; PS/2 fallback active");
+    }
 
     BOOT_STAGE(42u, "HEAP READY");
 
