@@ -227,7 +227,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_putc('x');
         boot_dec(framebuffer_height());
         console_write(" desktop mode\n");
-        console_use_framebuffer();
+        /* Keep boot diagnostics on VGA while the full-screen splash remains visible. */
         BOOT_STAGE(34u, "DISPLAY READY");
     }
 
@@ -362,6 +362,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     debug_write("LIONOS:READY\n");
     BOOT_STAGE(100u, "STARTING LIONOS DESKTOP");
 
+    /* Switch to the graphical console only after the splash has finished. */
+    console_use_framebuffer();
     __asm__ volatile("sti");
     gui_run();
     shell_run();
