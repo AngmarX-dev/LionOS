@@ -191,7 +191,7 @@ usb: iso
 	cp $(ISO) $(BUILD)/lionos-usb.img
 
 disk: | $(BUILD)
-	if [ ! -f $(DISK) ]; then truncate -s 8M $(DISK); fi
+	python3 scripts/init_disk_image.py $(DISK)
 
 check: iso disk
 	grub-file --is-x86-multiboot2 $(KERNEL)

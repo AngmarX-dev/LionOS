@@ -13,6 +13,7 @@
 
 static struct spinlock persistence_lock;
 static volatile uint32_t persistence_ready;
+static volatile uint32_t persistence_failure_reported;
 static uint8_t persistence_io_buffer[DISKFS_MAX_FILE_SIZE];
 
 static const char *persistent_level_name(enum kernel_log_level level) {
@@ -24,6 +25,12 @@ static const char *persistent_level_name(enum kernel_log_level level) {
         case KLOG_PANIC: return "PANIC";
         default: return "UNKNOWN";
     }
+}
+
+static void report_persistence_failure(void) {
+    if (__atomic_exchange_n(&persistence_failure_reported, 1u,
+                            __ATOMIC_ACQ_REL) == 0u)
+        debug_write("LIONOS:PERSIST-LOG-WRITE-FAILED\n");
 }
 
 static uint32_t format_log_line(enum kernel_log_level level,
@@ -128,8 +135,9 @@ void kernel_log_persistence_write(enum kernel_log_level level,
     if (!length) return;
 
     uint32_t flags = spinlock_irqsave_acquire(&persistence_lock);
-    if (__atomic_load_n(&persistence_ready, __ATOMIC_ACQUIRE))
-        (void)append_log_file_locked(line, length);
+    if (__atomic_load_n(&persistence_ready, __ATOMIC_ACQUIRE) &&
+        append_log_file_locked(line, length) != 0)
+        report_persistence_failure();
     spinlock_irqrestore_release(&persistence_lock, flags);
 }
 
@@ -161,8 +169,9 @@ int kernel_log_persistence_init(void) {
     __atomic_store_n(&persistence_ready, 1u, __ATOMIC_RELEASE);
 
     static const char session_line[] = "\n----- LionOS boot session -----\n";
-    (void)append_log_file_locked(session_line,
-                                  (uint32_t)(sizeof(session_line) - 1u));
+    if (append_log_file_locked(session_line,
+                               (uint32_t)(sizeof(session_line) - 1u)) != 0)
+        report_persistence_failure();
 
     for (uint32_t i = 0u; i < count; ++i) {
         enum kernel_log_level entry_level = KLOG_INFO;
@@ -172,7 +181,8 @@ int kernel_log_persistence_init(void) {
             continue;
         uint32_t length = format_log_line(entry_level, message,
                                            line, sizeof(line));
-        if (length) (void)append_log_file_locked(line, length);
+        if (length && append_log_file_locked(line, length) != 0)
+            report_persistence_failure();
     }
     spinlock_irqrestore_release(&persistence_lock, flags);
 
