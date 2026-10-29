@@ -327,19 +327,23 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     /* ---- Filesystems ---- */
     ramfs_init();
     console_write("[ OK ] RAM filesystem / embedded programs\n");
+    kernel_log(KLOG_INFO, "RAM filesystem initialized");
     BOOT_STAGE(78u, "RAM FILESYSTEM READY");
 
     if(diskfs_init() == 0){
         console_write("[ OK ] ATA PIO / persistent LionFS\n");
+        kernel_log(KLOG_INFO, "Persistent LionFS available");
         diskfs_boot_test();
     } else {
         console_write("[ -- ] Persistent disk unavailable (RAMFS only)\n");
         debug_write("LIONOS:NO-DISK\n");
+        kernel_log(KLOG_WARN, "Persistent disk unavailable; using RAMFS");
     }
     BOOT_STAGE(84u, "STORAGE READY");
 
     vfs_init();
     console_write("[ OK ] VFS / unified file descriptor layer\n");
+    kernel_log(KLOG_INFO, "Virtual filesystem initialized");
     vfs_boot_test();
 
     ipc_init();
@@ -351,14 +355,18 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ OK ] Signals / process control\n");
 
     net_init();
-    if(net_physical_ready())
+    if(net_physical_ready()){
         console_write("[ OK ] RTL8139 Ethernet / IPv4 / ARP / ICMP\n");
-    else
+        kernel_log(KLOG_INFO, "Physical network interface initialized");
+    }else{
         console_write("[ -- ] Physical NIC unavailable; loopback only\n");
+        kernel_log(KLOG_WARN, "No physical NIC; loopback only");
+    }
     BOOT_STAGE(94u, "NETWORK READY");
 
     /* ---- Desktop ---- */
     console_write("\nLionOS is ready.\n");
+    kernel_log(KLOG_INFO, "LionOS boot completed; starting desktop");
     debug_write("LIONOS:READY\n");
     BOOT_STAGE(100u, "STARTING LIONOS DESKTOP");
 
