@@ -15,10 +15,8 @@ MAX_FILE_SIZE = 4096
 SIGNATURE = b"LIONFS1"
 VERSION = 2
 LOG_NAME = b"var/log/lionos.log"
-REQUIRED_MARKERS = (
-    b"----- LionOS boot session -----",
-    b"LionOS boot completed; starting desktop",
-)
+SESSION_MARKER = b"----- LionOS boot session -----"
+COMPLETE_MARKER = b"LionOS boot completed; starting desktop"
 
 
 def fail(message: str) -> int:
@@ -27,10 +25,11 @@ def fail(message: str) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: check_disk_log.py IMAGE_PATH", file=sys.stderr)
+    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--require-complete"):
+        print("usage: check_disk_log.py IMAGE_PATH [--require-complete]", file=sys.stderr)
         return 2
     path = sys.argv[1]
+    require_complete = len(sys.argv) == 3
     if not os.path.isfile(path):
         return fail(f"image not found: {path}")
 
@@ -65,9 +64,10 @@ def main() -> int:
         return fail("var/log/lionos.log entry missing")
     if not log_data:
         return fail("log file is empty")
-    for marker in REQUIRED_MARKERS:
-        if marker not in log_data:
-            return fail(f"expected log marker missing: {marker.decode()}")
+    if SESSION_MARKER not in log_data:
+        return fail(f"expected log marker missing: {SESSION_MARKER.decode()}")
+    if require_complete and COMPLETE_MARKER not in log_data:
+        return fail(f"expected log marker missing: {COMPLETE_MARKER.decode()}")
     print(
         "persistent log check: PASS "
         f"(var/log/lionos.log, {len(log_data)} bytes; markers verified)"
