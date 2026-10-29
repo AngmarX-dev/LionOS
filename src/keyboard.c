@@ -94,7 +94,23 @@ static void keyboard_flush_output(void){
 static int keyboard_controller_config(void){
     keyboard_wait_write();
     outb(PS2_STATUS,0x20u);
-    if(keyboard_wait_read()!=0)return -1;
+    if(keyboard_wait_read()!=0){
+        /*
+         * A few laptop i8042 implementations fail the command-byte read
+         * after firmware handoff even though the data port still accepts
+         * commands.  Do not leave IRQ1/translation disabled in that case:
+         * use the conservative PC/AT command byte (IRQ1, IRQ12, set-1
+         * translation, both PS/2 clocks enabled) as a recovery fallback.
+         */
+        const uint8_t fallback_cfg=0x47u;
+        keyboard_wait_write();
+        outb(PS2_STATUS,0x60u);
+        keyboard_wait_write();
+        outb(PS2_DATA,fallback_cfg);
+        ps2_translation_enabled=1u;
+        debug_write("LIONOS:KEYBOARD-CFG-FORCED-SET1\n");
+        return 1;
+    }
     uint8_t cfg=inb(PS2_DATA);
 
     cfg|=0x01u|0x04u;
@@ -199,7 +215,7 @@ void keyboard_init(void){
     keyboard_flush_output();
 
     int cfg_rc=keyboard_controller_config();
-    if(cfg_rc!=0)
+    if(cfg_rc<0)
         debug_write("LIONOS:KEYBOARD-CFG-FAIL\n");
 
     /*
