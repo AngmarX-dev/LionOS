@@ -1201,7 +1201,7 @@ void gui_start(void){
     cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
-    kernel_log_ring_record(KLOG_INFO, "Graphical desktop ready");
+    kernel_log(KLOG_INFO, "Graphical desktop ready");
     debug_write("LIONOS:GUI-READY\n");
 }
 void gui_step(void){
