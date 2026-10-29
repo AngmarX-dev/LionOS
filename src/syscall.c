@@ -14,7 +14,7 @@
 #include "vfs.h"
 #include "vfs_uapi.h"
 
-#define USER_MIN 0x00400000u
+#define USER_MIN 0x10000000u
 #define USER_MAX 0xC0000000u
 #define USER_COPY_MAX 4096u
 

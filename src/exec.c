@@ -7,7 +7,7 @@
 #include "ramfs.h"
 #include "debug.h"
 
-#define USER_BASE 0x00400000u
+#define USER_BASE 0x10000000u
 #define USER_LIMIT 0xC0000000u
 #define USER_STACK_PAGE 0xBFFFF000u
 #define USER_STACK_TOP 0xC0000000u

@@ -6,9 +6,9 @@
 #include "tss.h"
 #include "user.h"
 
-#define USER_CODE_VA   0x00400000u
-#define USER_STACK_VA  0x00401000u
-#define USER_STACK_TOP 0x00402000u
+#define USER_CODE_VA   0x10000000u
+#define USER_STACK_VA  0x10001000u
+#define USER_STACK_TOP 0x10002000u
 
 static void enter_user_mode(uint32_t entry, uint32_t stack) __attribute__((noreturn));
 

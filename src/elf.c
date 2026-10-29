@@ -28,12 +28,12 @@ int elf32_validate(const uint8_t *image, uint32_t size, uint32_t *entry) {
         if (p->type != PT_LOAD) continue;
         ++load_count;
         if (p->memsz < p->filesz || !range_ok(p->offset, p->filesz, size)) return -1;
-        if (p->vaddr < 0x00400000u) return -1;
+        if (p->vaddr < 0x10000000u) return -1;
         if (p->vaddr >= 0xC0000000u || p->memsz > 0xC0000000u - p->vaddr) return -1;
         if ((p->flags & 0x7u) == 0) return -1;
     }
 
-    if (!load_count || h->entry < 0x00400000u || h->entry >= 0xC0000000u) return -1;
+    if (!load_count || h->entry < 0x10000000u || h->entry >= 0xC0000000u) return -1;
     *entry = h->entry;
     return 0;
 }
