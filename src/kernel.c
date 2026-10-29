@@ -202,10 +202,6 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     keyboard_init();
     console_write("[ OK ] PS/2 keyboard / scancode input buffer\n");
-    kernel_log(keyboard_ps2_available() ? KLOG_INFO : KLOG_WARN,
-        keyboard_ps2_available()
-            ? "PS/2 keyboard controller detected"
-            : "PS/2 keyboard controller unavailable");
     BOOT_STAGE(22u, "INPUT READY");
 
     mouse_init();
@@ -275,10 +271,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     int usb_kbd_rc = xhci_keyboard_init();
     if(usb_kbd_rc == 0){
         console_write("[ OK ] USB xHCI / HID boot keyboard\n");
-        kernel_log(KLOG_INFO, "USB HID keyboard initialized");
     }else{
         console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
-        kernel_log(KLOG_WARN, "USB HID keyboard unavailable; PS/2 fallback active");
     }
 
     BOOT_STAGE(42u, "HEAP READY");
@@ -302,6 +296,14 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         BOOT_STAGE(50u, "PROCESSORS STARTING");
 
         smp_init();
+        kernel_log(keyboard_ps2_available() ? KLOG_INFO : KLOG_WARN,
+            keyboard_ps2_available()
+                ? "PS/2 keyboard controller detected"
+                : "PS/2 keyboard controller unavailable");
+        kernel_log(usb_kbd_rc == 0 ? KLOG_INFO : KLOG_WARN,
+            usb_kbd_rc == 0
+                ? "USB HID keyboard initialized"
+                : "USB HID keyboard unavailable; PS/2 fallback active");
         console_write("[ OK ] SMP online CPUs: ");
         boot_dec(smp_online_count());
         console_write("\n");
