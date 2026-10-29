@@ -53,17 +53,22 @@ smp_protected_entry:
     mov eax, cr4
     or eax, 0x20
     mov cr4, eax
+    ; Cache the C entry before paging changes, while low-memory trampoline
+    ; data is unquestionably addressable in real/protected-mode identity space.
+    mov edi, [smp_trampoline_entry]
     mov eax, [smp_trampoline_cr3]
     mov cr3, eax
     mov eax, cr0
     or eax, 0x80000000
     mov cr0, eax
+    ; The trampoline is identity-mapped, so execution continues at 0x8000.
+    jmp short .paging_enabled
+.paging_enabled:
     mov dx, 0xE9
     mov al, 'C'
     out dx, al
-    mov eax, [smp_trampoline_entry]
     ; Enter the C AP entry using CALL so its stack follows the i386 ABI.
-    call eax
+    call edi
 .ap_halt:
     cli
     hlt
