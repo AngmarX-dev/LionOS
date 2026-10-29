@@ -30,7 +30,6 @@ static int write_entry_sectors(uint32_t index){
     return 0;
 }
 static int save_super(void){zero(sector,ATA_SECTOR_SIZE);sector[0]='L';sector[1]='I';sector[2]='O';sector[3]='N';sector[4]='F';sector[5]='S';sector[6]='1';*(uint32_t*)&sector[8]=DISKFS_VERSION;*(uint32_t*)&sector[12]=file_count;return ata_write_sector(DISKFS_SUPER_LBA,sector);}
-static int format(void){zero(entries,sizeof(entries));file_count=0;if(save_super()<0)return-1;for(uint32_t i=0;i<DISKFS_DIR_SECTORS;++i)if(write_directory_sector(i)<0)return-1;return 0;}
 
 /* Never format an unknown ATA device from kernel startup. The host-side
  * QEMU image initializer creates LionFS metadata in the dedicated test image.
