@@ -548,19 +548,48 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
     if (end_x > fb_width_value - x) end_x = fb_width_value - x;
     if (end_y > fb_height_value - y) end_y = fb_height_value - y;
     for (uint32_t dy = start_y; dy < end_y; ++dy) {
-        uint32_t sy = (dy * height) / size;
+        int32_t sy_fp = (int32_t)(((2u * dy + 1u) * height * 128u) / size) - 128;
+        if (sy_fp < 0) sy_fp = 0;
+        uint32_t max_sy = (height - 1u) << 8;
+        if ((uint32_t)sy_fp > max_sy) sy_fp = (int32_t)max_sy;
+        uint32_t sy0 = (uint32_t)sy_fp >> 8, sy1 = sy0 + 1u < height ? sy0 + 1u : sy0;
+        uint32_t fy = (uint32_t)sy_fp & 255u;
         for (uint32_t dx = start_x; dx < end_x; ++dx) {
-            uint32_t sx = (dx * width) / size;
-            uint32_t src = pixels[sy * width + sx];
-            uint32_t alpha = src >> 24;
-            if (alpha == 0u) continue;
-            uint32_t rgb = src & 0x00FFFFFFu;
+            int32_t sx_fp = (int32_t)(((2u * dx + 1u) * width * 128u) / size) - 128;
+            if (sx_fp < 0) sx_fp = 0;
+            uint32_t max_sx = (width - 1u) << 8;
+            if ((uint32_t)sx_fp > max_sx) sx_fp = (int32_t)max_sx;
+            uint32_t sx0 = (uint32_t)sx_fp >> 8, sx1 = sx0 + 1u < width ? sx0 + 1u : sx0;
+            uint32_t fx = (uint32_t)sx_fp & 255u;
+            uint32_t p00 = pixels[sy0 * width + sx0], p10 = pixels[sy0 * width + sx1];
+            uint32_t p01 = pixels[sy1 * width + sx0], p11 = pixels[sy1 * width + sx1];
+            uint32_t a00 = p00 >> 24, a10 = p10 >> 24, a01 = p01 >> 24, a11 = p11 >> 24;
+            uint32_t at = (a00 * (256u - fx) + a10 * fx + 128u) >> 8;
+            uint32_t ab = (a01 * (256u - fx) + a11 * fx + 128u) >> 8;
+            uint32_t alpha = (at * (256u - fy) + ab * fy + 128u) >> 8;
+            if (!alpha) continue;
+
+            uint32_t r00 = ((p00 >> 16) & 255u) * a00, r10 = ((p10 >> 16) & 255u) * a10;
+            uint32_t r01 = ((p01 >> 16) & 255u) * a01, r11 = ((p11 >> 16) & 255u) * a11;
+            uint32_t g00 = ((p00 >> 8) & 255u) * a00, g10 = ((p10 >> 8) & 255u) * a10;
+            uint32_t g01 = ((p01 >> 8) & 255u) * a01, g11 = ((p11 >> 8) & 255u) * a11;
+            uint32_t b00 = (p00 & 255u) * a00, b10 = (p10 & 255u) * a10;
+            uint32_t b01 = (p01 & 255u) * a01, b11 = (p11 & 255u) * a11;
+            uint32_t rt = (r00 * (256u - fx) + r10 * fx + 128u) >> 8;
+            uint32_t rb = (r01 * (256u - fx) + r11 * fx + 128u) >> 8;
+            uint32_t gt = (g00 * (256u - fx) + g10 * fx + 128u) >> 8;
+            uint32_t gb = (g01 * (256u - fx) + g11 * fx + 128u) >> 8;
+            uint32_t bt = (b00 * (256u - fx) + b10 * fx + 128u) >> 8;
+            uint32_t bb = (b01 * (256u - fx) + b11 * fx + 128u) >> 8;
+            uint32_t sr = ((rt * (256u - fy) + rb * fy + 128u) >> 8) / alpha;
+            uint32_t sg = ((gt * (256u - fy) + gb * fy + 128u) >> 8) / alpha;
+            uint32_t sb = ((bt * (256u - fy) + bb * fy + 128u) >> 8) / alpha;
+            uint32_t rgb = (sr << 16) | (sg << 8) | sb;
             if (alpha >= 255u) {
                 desktop_buffer[(y + dy) * fb_width_value + (x + dx)] = pack_rgb(rgb);
                 continue;
             }
             uint32_t dst = desktop_buffer[(y + dy) * fb_width_value + (x + dx)];
-            uint32_t sr = (rgb >> 16) & 0xFFu, sg = (rgb >> 8) & 0xFFu, sb = rgb & 0xFFu;
             uint32_t dr = (dst >> red_pos) & ((1u << red_size) - 1u);
             uint32_t dg = (dst >> green_pos) & ((1u << green_size) - 1u);
             uint32_t db = (dst >> blue_pos) & ((1u << blue_size) - 1u);
@@ -595,12 +624,34 @@ void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint3
         else{out_h=sh;out_w=(sh*width)/height;}
         uint32_t crop_x=out_w>sw?(out_w-sw)/2u:0u, crop_y=out_h>sh?(out_h-sh)/2u:0u;
         for(uint32_t y=0u;y<sh;++y){
-            uint32_t sy=((y+crop_y)*height)/out_h;
+            int32_t sy_fp=(int32_t)(((2u*(y+crop_y)+1u)*height*128u)/out_h)-128;
+            if(sy_fp<0)sy_fp=0;
+            uint32_t max_sy=(height-1u)<<8;
+            if((uint32_t)sy_fp>max_sy)sy_fp=(int32_t)max_sy;
+            uint32_t sy0=(uint32_t)sy_fp>>8, sy1=sy0+1u<height?sy0+1u:sy0;
+            uint32_t fy=(uint32_t)sy_fp&255u;
             uint32_t *dst=wallpaper_cache+y*sw;
             for(uint32_t x=0u;x<sw;++x){
-                uint32_t sx=((x+crop_x)*width)/out_w;
-                uint16_t p=pixels[sy*width+sx];
-                uint32_t r=((p>>11)&31u)*255u/31u, g=((p>>5)&63u)*255u/63u, b=(p&31u)*255u/31u;
+                int32_t sx_fp=(int32_t)(((2u*(x+crop_x)+1u)*width*128u)/out_w)-128;
+                if(sx_fp<0)sx_fp=0;
+                uint32_t max_sx=(width-1u)<<8;
+                if((uint32_t)sx_fp>max_sx)sx_fp=(int32_t)max_sx;
+                uint32_t sx0=(uint32_t)sx_fp>>8, sx1=sx0+1u<width?sx0+1u:sx0;
+                uint32_t fx=(uint32_t)sx_fp&255u;
+                uint16_t p00=pixels[sy0*width+sx0], p10=pixels[sy0*width+sx1];
+                uint16_t p01=pixels[sy1*width+sx0], p11=pixels[sy1*width+sx1];
+                uint32_t r00=((p00>>11)&31u)*255u/31u, r10=((p10>>11)&31u)*255u/31u;
+                uint32_t r01=((p01>>11)&31u)*255u/31u, r11=((p11>>11)&31u)*255u/31u;
+                uint32_t g00=((p00>>5)&63u)*255u/63u, g10=((p10>>5)&63u)*255u/63u;
+                uint32_t g01=((p01>>5)&63u)*255u/63u, g11=((p11>>5)&63u)*255u/63u;
+                uint32_t b00=(p00&31u)*255u/31u, b10=(p10&31u)*255u/31u;
+                uint32_t b01=(p01&31u)*255u/31u, b11=(p11&31u)*255u/31u;
+                uint32_t rt=(r00*(256u-fx)+r10*fx+128u)>>8, rb=(r01*(256u-fx)+r11*fx+128u)>>8;
+                uint32_t gt=(g00*(256u-fx)+g10*fx+128u)>>8, gb=(g01*(256u-fx)+g11*fx+128u)>>8;
+                uint32_t bt=(b00*(256u-fx)+b10*fx+128u)>>8, bb=(b01*(256u-fx)+b11*fx+128u)>>8;
+                uint32_t r=(rt*(256u-fy)+rb*fy+128u)>>8;
+                uint32_t g=(gt*(256u-fy)+gb*fy+128u)>>8;
+                uint32_t b=(bt*(256u-fy)+bb*fy+128u)>>8;
                 dst[x]=pack_rgb((r<<16)|(g<<8)|b);
             }
         }

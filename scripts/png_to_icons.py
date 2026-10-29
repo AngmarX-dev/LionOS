@@ -9,7 +9,7 @@ import sys
 import zlib
 from pathlib import Path
 
-SIZE = 48
+SIZE = 64
 ICONS = {
     "lionos": "assets/branding/lionos-emblem.png",
     "logo": "assets/branding/lionos-logo.png",
@@ -136,19 +136,61 @@ def read_png(path):
 
 
 def resize_rgba(width, height, pixels):
-    # Fit the source into the square icon canvas without stretching wide logos.
+    # Fit the art without stretching and filter it instead of nearest-neighbour sampling.
     scale = min(SIZE / width, SIZE / height)
     draw_w = max(1, min(SIZE, int(width * scale + 0.5)))
     draw_h = max(1, min(SIZE, int(height * scale + 0.5)))
     offset_x = (SIZE - draw_w) // 2
     offset_y = (SIZE - draw_h) // 2
     out = [0] * (SIZE * SIZE)
-    for y in range(draw_h):
-        sy = min(height - 1, (y * height) // draw_h)
-        for x in range(draw_w):
-            sx = min(width - 1, (x * width) // draw_w)
-            r, g, b, alpha = pixels[sy][sx]
-            out[(offset_y + y) * SIZE + offset_x + x] = (r << 16) | (g << 8) | b | (alpha << 24)
+
+    def pack(samples):
+        total_w = sum(weight for _, weight in samples)
+        alpha_sum = sum(px[3] * weight for px, weight in samples)
+        if total_w <= 0.0:
+            return 0
+        alpha = max(0, min(255, int(alpha_sum / total_w + 0.5)))
+        if alpha_sum <= 0.0:
+            return alpha << 24
+        r = int(sum(px[0] * px[3] * weight for px, weight in samples) / alpha_sum + 0.5)
+        g = int(sum(px[1] * px[3] * weight for px, weight in samples) / alpha_sum + 0.5)
+        b = int(sum(px[2] * px[3] * weight for px, weight in samples) / alpha_sum + 0.5)
+        return (alpha << 24) | (r << 16) | (g << 8) | b
+
+    if scale >= 1.0:
+        # Bilinear interpolation for small source images.
+        for y in range(draw_h):
+            sy = max(0.0, min(height - 1.0, (y + 0.5) * height / draw_h - 0.5))
+            y0, y1 = int(sy), min(height - 1, int(sy) + 1)
+            fy = sy - int(sy)
+            for x in range(draw_w):
+                sx = max(0.0, min(width - 1.0, (x + 0.5) * width / draw_w - 0.5))
+                x0, x1 = int(sx), min(width - 1, int(sx) + 1)
+                fx = sx - int(sx)
+                samples = [
+                    (pixels[y0][x0], (1.0 - fx) * (1.0 - fy)),
+                    (pixels[y0][x1], fx * (1.0 - fy)),
+                    (pixels[y1][x0], (1.0 - fx) * fy),
+                    (pixels[y1][x1], fx * fy),
+                ]
+                out[(offset_y + y) * SIZE + offset_x + x] = pack(samples)
+    else:
+        # Area averaging removes high-frequency detail that would alias at icon size.
+        for y in range(draw_h):
+            top, bottom = y * height / draw_h, (y + 1) * height / draw_h
+            sy0, sy1 = int(top), min(height, int(bottom + 0.999999))
+            for x in range(draw_w):
+                left, right = x * width / draw_w, (x + 1) * width / draw_w
+                sx0, sx1 = int(left), min(width, int(right + 0.999999))
+                samples = []
+                for sy in range(sy0, sy1):
+                    wy = max(0.0, min(bottom, sy + 1.0) - max(top, float(sy)))
+                    for sx in range(sx0, sx1):
+                        wx = max(0.0, min(right, sx + 1.0) - max(left, float(sx)))
+                        weight = wx * wy
+                        if weight:
+                            samples.append((pixels[sy][sx], weight))
+                out[(offset_y + y) * SIZE + offset_x + x] = pack(samples)
     return out
 
 def emit_array(name, values):

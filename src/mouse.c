@@ -213,18 +213,21 @@ void mouse_init(void){
     ps2_cmd(0xF6u);
     if(ps2_read_aux_byte(&response)!=0 || response!=0xFAu){
         debug_write("LIONOS:MOUSE-PS2-DEFAULTS-FAIL\n");
+        keyboard_rearm_after_mouse_init();
         return;
     }
 
     ps2_cmd(0xF4u);
     if(ps2_read_aux_byte(&response)!=0 || response!=0xFAu){
         debug_write("LIONOS:MOUSE-PS2-ENABLE-FAIL\n");
+        keyboard_rearm_after_mouse_init();
         return;
     }
 
     ps2_initialized=1;
     console_write("[ OK ] PS/2 mouse initialized\n");
     debug_write("LIONOS:MOUSE-PS2-OK\n");
+    keyboard_rearm_after_mouse_init();
 }
 
 int mouse_usb_init(void){

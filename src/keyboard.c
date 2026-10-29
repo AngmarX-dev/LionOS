@@ -203,9 +203,12 @@ void keyboard_init(void){
         debug_write("LIONOS:KEYBOARD-CFG-FAIL\n");
 
     /*
-     * keyboard_controller_config() clears KBDDIS itself, matching Linux's
-     * separate port-enable stage without sending a redundant 0xAE command.
+     * Clear the disable bit in the command byte and explicitly enable port 1.
+     * Some laptop i8042 implementations need 0xAE after firmware handoff.
      */
+    keyboard_wait_write();
+    outb(PS2_STATUS, 0xAEu);
+    keyboard_wait_write();
     keyboard_flush_output();
 
     set2_break_pending=0u;

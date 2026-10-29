@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a PNG into a compact RGB565 framebuffer image, with cover-cropping."""
+"""Convert PNG assets to a high-quality RGB565 image with centered cover-cropping."""
 import struct
 import sys
 import zlib
@@ -7,8 +7,9 @@ from pathlib import Path
 
 DEFAULT_SRC = Path("assets/wallpapers/lionos-wallpaper-default.png")
 DEFAULT_OUT = Path("build/lion_wallpaper.h")
-W, H = 640, 360
+W, H = 1280, 720
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
+BG_RGB = (10, 13, 22)
 
 
 def paeth(a, b, c):
@@ -16,7 +17,7 @@ def paeth(a, b, c):
     pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
     if pa <= pc and pa <= pb:
         return a
-    if pb <= pc:
+    if pb <= pc and pb <= pc:
         return b
     return c
 
@@ -29,6 +30,7 @@ def read_png(path):
     ihdr = None
     idat = bytearray()
     palette = None
+    transparency = None
     while pos < len(data):
         if pos + 8 > len(data):
             raise ValueError(f"{path}: truncated PNG chunk")
@@ -42,6 +44,8 @@ def read_png(path):
             ihdr = struct.unpack(">IIBBBBB", chunk)
         elif typ == b"PLTE":
             palette = [tuple(chunk[i:i + 3]) for i in range(0, len(chunk), 3)]
+        elif typ == b"tRNS":
+            transparency = bytes(chunk)
         elif typ == b"IDAT":
             idat.extend(chunk)
         elif typ == b"IEND":
@@ -55,7 +59,7 @@ def read_png(path):
         raise ValueError(f"{path}: indexed PNG is missing PLTE")
     channels = {2: 3, 3: 1, 6: 4}[ctype]
     raw = zlib.decompress(bytes(idat))
-    return sw, sh, ctype, channels, palette, raw
+    return sw, sh, ctype, channels, palette, transparency, raw
 
 
 def decode_row(raw, pos, channels, stride, previous):
@@ -86,42 +90,76 @@ def rgb565(r, g, b):
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
 
 
+def source_axis(source_size, output_size, offset, scale):
+    result = []
+    for i in range(output_size):
+        coord = max(0.0, min(source_size - 1.0, offset + (i + 0.5) / scale - 0.5))
+        lo = int(coord)
+        result.append((lo, min(source_size - 1, lo + 1), coord - lo))
+    return result
+
+
 def convert(src, out_path, prefix, array_name):
-    sw, sh, ctype, channels, palette, raw = read_png(src)
+    sw, sh, ctype, channels, palette, transparency, raw = read_png(src)
     stride = sw * channels
     scale = max(W / sw, H / sh)
-    crop_w, crop_h = W / scale, H / scale
-    offset_x, offset_y = (sw - crop_w) / 2.0, (sh - crop_h) / 2.0
-    source_x = [min(sw - 1, max(0, int(offset_x + (x + 0.5) / scale))) for x in range(W)]
-    destination_rows = {}
-    for y in range(H):
-        sy = min(sh - 1, max(0, int(offset_y + (y + 0.5) / scale)))
-        destination_rows.setdefault(sy, []).append(y)
+    offset_x = (sw - W / scale) / 2.0
+    offset_y = (sh - H / scale) / 2.0
 
-    values = [0] * (W * H)
+    # Retain decoded scanlines as bytes to keep memory use bounded for large PNGs.
+    rows = []
     pos = 0
     previous = bytearray(stride)
-    if ctype == 2:
-        def pixel_rgb(row, sx):
-            i = sx * 3
-            return row[i], row[i + 1], row[i + 2]
-    elif ctype == 6:
-        def pixel_rgb(row, sx):
-            i = sx * 4
-            return row[i], row[i + 1], row[i + 2]
-    else:
-        def pixel_rgb(row, sx):
-            return palette[row[sx]]
-
-    for sy in range(sh):
+    for _ in range(sh):
         pos, row = decode_row(raw, pos, channels, stride, previous)
-        dest_ys = destination_rows.get(sy)
-        if dest_ys:
-            sampled = [rgb565(*pixel_rgb(row, sx)) for sx in source_x]
-            for dy in dest_ys:
-                base = dy * W
-                values[base:base + W] = sampled
+        rows.append(bytes(row))
         previous = row
+    del raw
+
+    def pixel_rgba(row, sx):
+        if ctype == 2:
+            i = sx * 3
+            r, g, b = row[i], row[i + 1], row[i + 2]
+            a = 255
+            if transparency and len(transparency) >= 6:
+                if (r, g, b) == (transparency[1], transparency[3], transparency[5]):
+                    a = 0
+            return r, g, b, a
+        if ctype == 6:
+            i = sx * 4
+            return row[i], row[i + 1], row[i + 2], row[i + 3]
+        idx = row[sx]
+        r, g, b = palette[idx]
+        a = transparency[idx] if transparency and idx < len(transparency) else 255
+        return r, g, b, a
+
+    xs = source_axis(sw, W, offset_x, scale)
+    ys = source_axis(sh, H, offset_y, scale)
+    values = [0] * (W * H)
+    for y, (y0, y1, fy) in enumerate(ys):
+        row0, row1 = rows[y0], rows[y1]
+        wy0, wy1 = 1.0 - fy, fy
+        base = y * W
+        for x, (x0, x1, fx) in enumerate(xs):
+            wx0, wx1 = 1.0 - fx, fx
+            samples = (
+                (pixel_rgba(row0, x0), wx0 * wy0),
+                (pixel_rgba(row0, x1), wx1 * wy0),
+                (pixel_rgba(row1, x0), wx0 * wy1),
+                (pixel_rgba(row1, x1), wx1 * wy1),
+            )
+            alpha = sum(px[3] * weight for px, weight in samples)
+            if alpha > 0.0:
+                r = sum(px[0] * px[3] * weight for px, weight in samples) / alpha
+                g = sum(px[1] * px[3] * weight for px, weight in samples) / alpha
+                b = sum(px[2] * px[3] * weight for px, weight in samples) / alpha
+                inverse = 255.0 - alpha
+                r = int((r * alpha + BG_RGB[0] * inverse) / 255.0 + 0.5)
+                g = int((g * alpha + BG_RGB[1] * inverse) / 255.0 + 0.5)
+                b = int((b * alpha + BG_RGB[2] * inverse) / 255.0 + 0.5)
+            else:
+                r, g, b = BG_RGB
+            values[base + x] = rgb565(r, g, b)
 
     guard = "LIONOS_GENERATED_" + prefix + "_H"
     lines = [
@@ -136,7 +174,7 @@ def convert(src, out_path, prefix, array_name):
         lines.append("    " + ", ".join(f"0x{v:04X}u" for v in values[i:i + 16]) + ",")
     lines.extend(["};", "#endif", ""])
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text("\n".join(lines), encoding="utf-8")
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main():
