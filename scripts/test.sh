@@ -150,6 +150,7 @@ done
 echo "[3/5] First SMP boot / filesystem initialization"
 echo "SMP AP entry symbol:"
 nm -n build/lionos.bin | grep -E " smp_ap_main$" || true
+objdump -d --disassemble=smp_ap_main build/lionos.bin | head -n 24
 run_qemu build/qemu-first.log
 grep -q 'LIONOS:READY' build/qemu-first.log
 grep -q 'LIONOS:PERSIST-LOG-READY' build/qemu-first.log
