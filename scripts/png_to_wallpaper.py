@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULT_SRC = Path("assets/wallpapers/lionos-wallpaper-default.png")
 DEFAULT_OUT = Path("build/lion_wallpaper.h")
-W, H = 960, 540
+W, H = 640, 360
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
 
 

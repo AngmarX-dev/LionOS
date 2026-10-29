@@ -68,8 +68,6 @@ static uint32_t clip_x, clip_y, clip_w, clip_h;
 /* GRUB/firmware selects the framebuffer mode before the kernel starts.
  * LionOS consumes the Multiboot2 framebuffer tag and has no runtime
  * display-mode switching interface. */
-static uint32_t framebuffer_div_u64_u32(uint64_t numerator, uint32_t denominator);
-
 static uint32_t channel(uint8_t value, uint8_t size, uint8_t position) {
     if (!size) return 0u;
     uint32_t max = (1u << size) - 1u;
@@ -266,16 +264,16 @@ static void framebuffer_boot_blit_rgb565_cover(const uint16_t *pixels, uint32_t 
     if(!enabled||!pixels||!width||!height)return;
     uint32_t sw=fb_width_value,sh=fb_height_value;
     if(!sw||!sh)return;
-    uint64_t lhs=(uint64_t)sw*height,rhs=(uint64_t)sh*width;
+    uint32_t lhs=sw*height,rhs=sh*width;
     uint32_t out_w,out_h;
-    if(lhs>=rhs){out_w=sw;out_h=framebuffer_div_u64_u32(lhs,width);}
-    else{out_h=sh;out_w=framebuffer_div_u64_u32(rhs,height);}
+    if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;}
+    else{out_h=sh;out_w=(sh*width)/height;}
     uint32_t crop_x=out_w>sw?(out_w-sw)/2u:0u;
     uint32_t crop_y=out_h>sh?(out_h-sh)/2u:0u;
     for(uint32_t y=0u;y<sh;++y){
-        uint32_t sy=framebuffer_div_u64_u32((uint64_t)(y+crop_y)*height,out_h);
+        uint32_t sy=((y+crop_y)*height)/out_h;
         for(uint32_t x=0u;x<sw;++x){
-            uint32_t sx=framebuffer_div_u64_u32((uint64_t)(x+crop_x)*width,out_w);
+            uint32_t sx=((x+crop_x)*width)/out_w;
             uint16_t p=pixels[sy*width+sx];
             uint32_t r=((p>>11)&31u)*255u/31u;
             uint32_t g=((p>>5)&63u)*255u/63u;
@@ -577,19 +575,6 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
     }
 }
 
-static uint32_t framebuffer_div_u64_u32(uint64_t numerator, uint32_t denominator) {
-    if (!denominator) return 0u;
-    uint64_t quotient = 0u;
-    uint64_t remainder = 0u;
-    for (int32_t bit = 63; bit >= 0; --bit) {
-        remainder = (remainder << 1) | ((numerator >> bit) & 1u);
-        if (remainder >= denominator) {
-            remainder -= denominator;
-            quotient |= (1ULL << bit);
-        }
-    }
-    return (uint32_t)quotient;
-}
 
 void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint32_t height) {
     if (!enabled || !desktop_mode || !desktop_buffer || !pixels || !width || !height) return;
@@ -604,16 +589,16 @@ void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint3
     uint32_t sw=fb_width_value, sh=fb_height_value;
     if (!wallpaper_cache_ready) {
         for(uint64_t i=0u;i<(uint64_t)sw*sh;++i) wallpaper_cache[i]=pack_rgb(0u);
-        uint64_t lhs=(uint64_t)sw*height, rhs=(uint64_t)sh*width;
+        uint32_t lhs=sw*height, rhs=sh*width;
         uint32_t out_w,out_h;
-        if(lhs>=rhs){out_w=sw;out_h=framebuffer_div_u64_u32(lhs,width);}
-        else{out_h=sh;out_w=framebuffer_div_u64_u32(rhs,height);}
+        if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;}
+        else{out_h=sh;out_w=(sh*width)/height;}
         uint32_t crop_x=out_w>sw?(out_w-sw)/2u:0u, crop_y=out_h>sh?(out_h-sh)/2u:0u;
         for(uint32_t y=0u;y<sh;++y){
-            uint32_t sy=framebuffer_div_u64_u32((uint64_t)(y+crop_y)*height,out_h);
+            uint32_t sy=((y+crop_y)*height)/out_h;
             uint32_t *dst=wallpaper_cache+y*sw;
             for(uint32_t x=0u;x<sw;++x){
-                uint32_t sx=framebuffer_div_u64_u32((uint64_t)(x+crop_x)*width,out_w);
+                uint32_t sx=((x+crop_x)*width)/out_w;
                 uint16_t p=pixels[sy*width+sx];
                 uint32_t r=((p>>11)&31u)*255u/31u, g=((p>>5)&63u)*255u/63u, b=(p&31u)*255u/31u;
                 dst[x]=pack_rgb((r<<16)|(g<<8)|b);
