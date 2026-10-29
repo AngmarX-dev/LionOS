@@ -10,6 +10,7 @@
 #include "lapic.h"
 #include "idt.h"
 #include "browser.h"
+#include "kernel_diag.h"
 #include "lion_icons.h"
 #include "lion_font.h"
 #include "lion_wallpaper.h"
@@ -28,7 +29,8 @@
 #define WIN_ABOUT 3u
 #define WIN_SETTINGS 4u
 #define WIN_NOTEPAD 5u
-#define WIN_MAX 5u
+#define WIN_LOGS 6u
+#define WIN_MAX 6u
 
 /* Warm, restrained palette matching the supplied LionOS visual reference. */
 #define COL_SKY_TOP 0x07111Fu
@@ -76,6 +78,62 @@ static uint32_t drag_surface_w, drag_surface_h;
 static uint8_t drag_cache_active;
 static uint8_t drag_render_skip_id;
 
+/* Kernel log storage is a bounded in-memory desktop service, not a file. */
+#define KLOG_RING_CAPACITY 64u
+#define KLOG_MESSAGE_MAX 96u
+struct kernel_log_entry {
+    volatile uint32_t sequence;
+    enum kernel_log_level level;
+    char message[KLOG_MESSAGE_MAX];
+};
+static struct kernel_log_entry log_ring[KLOG_RING_CAPACITY];
+static volatile uint32_t log_sequence;
+
+void kernel_log_ring_record(enum kernel_log_level level, const char *message) {
+    uint32_t sequence = __atomic_add_fetch(&log_sequence, 1u, __ATOMIC_RELAXED);
+    struct kernel_log_entry *entry = &log_ring[sequence % KLOG_RING_CAPACITY];
+    __atomic_store_n(&entry->sequence, 0u, __ATOMIC_RELEASE);
+    entry->level = level;
+    uint32_t i = 0u;
+    if (message) {
+        while (message[i] && i + 1u < KLOG_MESSAGE_MAX) {
+            entry->message[i] = message[i];
+            ++i;
+        }
+    }
+    entry->message[i] = 0;
+    __atomic_store_n(&entry->sequence, sequence, __ATOMIC_RELEASE);
+}
+
+uint32_t kernel_log_entry_count(void) {
+    uint32_t count = __atomic_load_n(&log_sequence, __ATOMIC_ACQUIRE);
+    return count > KLOG_RING_CAPACITY ? KLOG_RING_CAPACITY : count;
+}
+
+int kernel_log_read(uint32_t index, enum kernel_log_level *level,
+                    char *message, uint32_t capacity) {
+    if (!level || !message || capacity == 0u) return -1;
+    uint32_t head = __atomic_load_n(&log_sequence, __ATOMIC_ACQUIRE);
+    uint32_t count = head > KLOG_RING_CAPACITY ? KLOG_RING_CAPACITY : head;
+    if (index >= count) return -1;
+    uint32_t sequence = (head > KLOG_RING_CAPACITY
+        ? head - KLOG_RING_CAPACITY + 1u : 1u) + index;
+    struct kernel_log_entry *entry = &log_ring[sequence % KLOG_RING_CAPACITY];
+    if (__atomic_load_n(&entry->sequence, __ATOMIC_ACQUIRE) != sequence)
+        return -1;
+    *level = entry->level;
+    uint32_t i = 0u;
+    while (i + 1u < capacity && i + 1u < KLOG_MESSAGE_MAX &&
+           entry->message[i]) {
+        message[i] = entry->message[i];
+        ++i;
+    }
+    message[i] = 0;
+    if (__atomic_load_n(&entry->sequence, __ATOMIC_ACQUIRE) != sequence)
+        return -1;
+    return 0;
+}
+
 struct desktop_icon {
     uint32_t x, y;
     uint8_t action;
@@ -97,6 +155,7 @@ struct desktop_icon {
 #define ICON_ACTION_SETTINGS 4u
 #define ICON_ACTION_ABOUT 5u
 #define ICON_ACTION_NOTEPAD 6u
+#define ICON_ACTION_LOGS 7u
 
 static struct desktop_icon desktop_icons[DESKTOP_ICON_COUNT] = {
     {24u, 24u,  ICON_ACTION_FILES,    0u, 0u, 0u, lion_icon_computer, "THIS PC"},
@@ -524,6 +583,54 @@ static void draw_notepad(const struct ui_window*w){
     text_line("ESC CLOSE   AUTOSAVE",x+100u,status_y+2u,COL_DIM,COL_PANEL2);
 }
 
+static void draw_logs(const struct ui_window*w){
+    window_chrome(w,"System Log");
+    uint32_t left=w->x+16u, top=w->y+TITLE_H+12u;
+    uint32_t body_w=w->w>32u?w->w-32u:1u;
+    uint32_t body_h=w->h>TITLE_H+28u?w->h-TITLE_H-28u:1u;
+    framebuffer_blend_round_rect(left,top,body_w,body_h,12u,COL_INPUT,175u);
+    border(left,top,body_w,body_h,COL_GOLD_DIM);
+    text_line("LIVE KERNEL HISTORY  |  IN-MEMORY SYSTEM SERVICE",
+              left+10u,top+8u,COL_GOLD,COL_INPUT);
+
+    uint32_t count=kernel_log_entry_count();
+    uint32_t row_h=CHAR_H+3u;
+    uint32_t rows=body_h>42u?(body_h-40u)/row_h:1u;
+    if(rows>22u)rows=22u;
+    uint32_t first=count>rows?count-rows:0u;
+    if(!count){
+        text_line("No kernel events recorded yet.",left+10u,top+32u,COL_DIM,COL_INPUT);
+        return;
+    }
+
+    uint32_t y=top+32u;
+    uint32_t max_chars=body_w>28u?(body_w-28u)/CHAR_W:12u;
+    if(max_chars>88u)max_chars=88u;
+    if(max_chars<12u)max_chars=12u;
+    for(uint32_t i=first;i<count&&y+CHAR_H<top+body_h;++i){
+        enum kernel_log_level level=KLOG_INFO;
+        char message[96];
+        if(kernel_log_read(i,&level,message,sizeof(message))!=0)continue;
+        const char *tag="INFO";
+        uint32_t color=COL_OK;
+        if(level==KLOG_DEBUG){tag="DEBUG";color=COL_DIM;}
+        else if(level==KLOG_WARN){tag="WARN";color=COL_GOLD;}
+        else if(level==KLOG_ERROR){tag="ERROR";color=COL_DANGER;}
+        else if(level==KLOG_PANIC){tag="PANIC";color=COL_DANGER;}
+
+        char line[105];
+        uint32_t n=0u;
+        while(tag[n]&&n+1u<max_chars&&n+1u<sizeof(line)){line[n]=tag[n];++n;}
+        if(n+3u<max_chars&&n+3u<sizeof(line)){line[n++]=' ';line[n++]='|';line[n++]=' ';}
+        uint32_t j=0u;
+        while(message[j]&&n+1u<max_chars&&n+1u<sizeof(line)){line[n++]=message[j++];}
+        line[n]=0;
+        fill(left+7u,y-1u,3u,CHAR_H,color);
+        text_line(line,left+16u,y,COL_TEXT,COL_INPUT);
+        y+=row_h;
+    }
+}
+
 static void draw_desktop_icon(const struct desktop_icon *icon){
     if(!icon||!icon->bitmap)return;
     uint32_t x=icon->x,y=icon->y;
@@ -646,7 +753,7 @@ static void draw_taskbar(void){
 static void start_geom(uint32_t*x,uint32_t*y,uint32_t*w,uint32_t*h){
     uint32_t sw=framebuffer_width(),sh=framebuffer_height();
     *w=sw>560u?460u:300u;
-    *h=sh>580u?470u:sh>480u?410u:350u;
+    *h=sh>580u?520u:sh>480u?455u:350u;
     *x=12u;
     *y=sh-TASKBAR_H-*h-10u;
 }
@@ -665,17 +772,17 @@ static void draw_start_menu(void){
     text_line("Search applications...",x+31u,y+79u,COL_DIM,COL_INPUT);
 
     text_line("PINNED",x+20u,y+120u,COL_DIM,COL_PANEL);
-    static const char *items[]={"TERMINAL","FILES","ABOUT","SETTINGS","BROWSER","NOTEPAD"};
-    for(uint32_t i=0u;i<6u;++i){
+    static const char *items[]={"TERMINAL","FILES","ABOUT","SETTINGS","BROWSER","NOTEPAD","SYSTEM LOG"};
+    for(uint32_t i=0u;i<7u;++i){
         uint32_t by=y+136u+i*42u;
         int hov=hit(x+18u,by,mw-36u,38u,mouse_px_x,mouse_px_y);
         uint32_t bg=hov?COL_SKY_MID:COL_PANEL2;
         framebuffer_blend_round_rect(x+18u,by,mw-36u,38u,12u,bg,hov?120u:72u);
         border(x+18u,by,mw-36u,38u,hov?COL_GOLD:COL_GOLD_DIM);
         const char *name=items[i];
-        static const uint32_t *item_icons[6]={
+        static const uint32_t *item_icons[7]={
             lion_icon_terminal,lion_icon_documents,lion_icon_lionos,
-            lion_icon_tools,lion_icon_browser,lion_icon_notepad
+            lion_icon_tools,lion_icon_browser,lion_icon_notepad,lion_icon_terminal
         };
         framebuffer_blit_rgba32(item_icons[i],LION_ICON_SIZE,LION_ICON_SIZE,x+26u,by+6u,26u);
         text_line(name,x+62u,by+10u,COL_TEXT,bg);
@@ -725,7 +832,7 @@ static void draw_desktop_icons(void){
         draw_desktop_icon(&desktop_icons[i]);
 }
 
-static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;case WIN_NOTEPAD:draw_notepad(w);break;default:draw_settings(w);break;}}
+static void draw_window(const struct ui_window*w){if(!w->visible||w->minimized)return;switch(w->id){case WIN_TERMINAL:draw_terminal(w);break;case WIN_FILES:draw_files(w);break;case WIN_ABOUT:draw_about(w);break;case WIN_NOTEPAD:draw_notepad(w);break;case WIN_LOGS:draw_logs(w);break;default:draw_settings(w);break;}}
 static void draw_windows(void){
     for(uint32_t i=0;i<WIN_MAX;++i)
         if(windows[i].visible&&windows[i].id!=drag_render_skip_id&&!windows[i].minimized&&!windows[i].focused)
@@ -781,6 +888,7 @@ static void init_windows(void){
     windows[2]=(struct ui_window){WIN_ABOUT,0u,0u,0u,0u,(sw*34u)/100u,(sh*20u)/100u,(sw*36u)/100u,(sh*48u)/100u,0u,0u,0u,0u};
     windows[3]=(struct ui_window){WIN_SETTINGS,0u,0u,0u,0u,(sw*41u)/100u,(sh*18u)/100u,(sw*34u)/100u,(sh*52u)/100u,0u,0u,0u,0u};
     windows[4]=(struct ui_window){WIN_NOTEPAD,0u,0u,0u,0u,(sw*22u)/100u,(sh*12u)/100u,(sw*56u)/100u,(sh*64u)/100u,0u,0u,0u,0u};
+    windows[5]=(struct ui_window){WIN_LOGS,0u,0u,0u,0u,(sw*10u)/100u,(sh*10u)/100u,(sw*80u)/100u,(sh*76u)/100u,0u,0u,0u,0u};
     terminal_init();gui_active=1u;start_open=0u;drag_active=0u;
     desktop_icon_drag=-1;
     for(uint32_t i=0u;i<DESKTOP_ICON_COUNT;++i){
@@ -935,12 +1043,13 @@ static void handle_click(void){
     if(start_open){
         uint32_t sx,sy,mw,mh;
         start_geom(&sx,&sy,&mw,&mh);
-        for(uint32_t i=0u;i<6u;++i){
+        for(uint32_t i=0u;i<7u;++i){
             uint32_t by=sy+136u+i*42u;
             if(hit(sx+18u,by,mw-36u,38u,x,y)){
-                static const uint8_t act[6]={
+                static const uint8_t act[7]={
                     ICON_ACTION_TERMINAL,ICON_ACTION_FILES,ICON_ACTION_ABOUT,
-                    ICON_ACTION_SETTINGS,ICON_ACTION_BROWSER,ICON_ACTION_NOTEPAD
+                    ICON_ACTION_SETTINGS,ICON_ACTION_BROWSER,ICON_ACTION_NOTEPAD,
+                    ICON_ACTION_LOGS
                 };
                 activate_desktop_icon(act[i]);
                 start_open=0u;
@@ -1009,6 +1118,7 @@ static void activate_desktop_icon(uint8_t action){
         case ICON_ACTION_SETTINGS: show(WIN_SETTINGS); break;
         case ICON_ACTION_ABOUT: show(WIN_ABOUT); break;
         case ICON_ACTION_NOTEPAD: show(WIN_NOTEPAD); break;
+        case ICON_ACTION_LOGS: show(WIN_LOGS); break;
         default: break;
     }
 }
@@ -1091,6 +1201,7 @@ void gui_start(void){
     cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
+    kernel_log_ring_record(KLOG_INFO, "Graphical desktop ready");
     debug_write("LIONOS:GUI-READY\n");
 }
 void gui_step(void){
