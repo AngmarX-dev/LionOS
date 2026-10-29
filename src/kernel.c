@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include "gdt.h"
 #include "idt.h"
+#include "keyboard.h"
 #include "paging.h"
 #include "heap.h"
 #include "pit.h"
