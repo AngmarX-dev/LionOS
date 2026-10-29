@@ -1663,7 +1663,16 @@ static int enumerate_port_impl(uint32_t p){
      * xhci_mouse_poll() already has a boot-report decoder and will use the
      * parsed layout when one is available.
      */
-    (void)hid_layout_read_descriptor(&c);
+    int layout_rc=hid_layout_read_descriptor(&c);
+    /*
+     * Subclass-0 HID interfaces are not necessarily mice. Some laptop
+     * embedded-controller devices expose the keyboard through a generic
+     * HID interface; do not claim that endpoint as the mouse unless its
+     * report descriptor actually contains mouse X/Y fields. This also
+     * keeps mouse discovery from stealing the internal keyboard's slot.
+     */
+    if(c.boot_protocol==0u && layout_rc!=0)
+        return usb_fail("HID REPORT LAYOUT");
     if(ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1)){
         usb_log("[ USB ] SET_IDLE failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
     }
