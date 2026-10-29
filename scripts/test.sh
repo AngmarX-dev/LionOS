@@ -38,7 +38,7 @@ run_qemu() {
         -serial none \
         -debugcon "file:$log_file" \
         -global isa-debugcon.iobase=0xE9 \
-        -d int,cpu_reset,guest_errors -D "$log_file.qemu"
+        -d cpu_reset,guest_errors -D "$log_file.qemu"
     local status=$?
     set -e
 
