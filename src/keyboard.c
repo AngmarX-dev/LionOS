@@ -212,8 +212,16 @@ void keyboard_init(void){
     keyboard_flush_output();
 
     set2_break_pending=0u;
-    if(ps2_translation_enabled){
+    /*
+     * Some laptop i8042 implementations time out while reading the command
+     * byte even though firmware leaves the keyboard in translated set-1 mode.
+     * In that case, set 1 is the safest compatibility fallback; guessing set 2
+     * causes every key to be decoded as an unknown scancode.
+     */
+    if(cfg_rc!=0 || ps2_translation_enabled){
         scancode_set=1u;
+        if(cfg_rc!=0)
+            debug_write("LIONOS:KEYBOARD-CFG-FALLBACK-SET1\n");
     }else{
         uint8_t detected=0u;
         if(keyboard_query_scancode_set(&detected)==0 &&
