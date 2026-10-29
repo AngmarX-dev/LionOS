@@ -64,7 +64,30 @@ smp_protected_entry:
     mov dx, 0xE9
     mov al, 'C'
     out dx, al
-    ; The AP entry never returns; jump directly as in the original trampoline.
+    ; Trace the absolute C entry target before jumping, to diagnose AP resets.
+    mov dx, 0xE9
+    mov al, 'T'
+    out dx, al
+    mov al, '='
+    out dx, al
+    mov ebx, [smp_trampoline_entry]
+    mov ecx, 8
+.ap_target_hex:
+    rol ebx, 4
+    mov al, bl
+    and al, 0x0F
+    cmp al, 9
+    jbe .ap_target_digit
+    add al, 'A' - 10
+    jmp .ap_target_emit
+.ap_target_digit:
+    add al, '0'
+.ap_target_emit:
+    mov dx, 0xE9
+    out dx, al
+    loop .ap_target_hex
+    mov al, 10
+    out dx, al
     mov eax, [smp_trampoline_entry]
     jmp eax
 .ap_halt:
