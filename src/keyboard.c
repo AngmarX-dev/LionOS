@@ -212,7 +212,15 @@ void keyboard_init(void){
     keyboard_flush_output();
 
     set2_break_pending=0u;
-    if(ps2_translation_enabled){
+    /*
+     * Some laptop i8042 controllers time out while reading the command byte,
+     * while firmware still translates keyboard data to scan-code set 1.
+     * Do not assume set 2 when the controller configuration could not be read.
+     */
+    if(cfg_rc!=0){
+        scancode_set=1u;
+        debug_write("LIONOS:KEYBOARD-CFG-FALLBACK-SET1\n");
+    }else if(ps2_translation_enabled){
         scancode_set=1u;
     }else{
         uint8_t detected=0u;
