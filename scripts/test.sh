@@ -43,6 +43,13 @@ run_qemu() {
 
     if [ -f "$log_file" ]; then
         cat "$log_file"
+        if grep -q 'LIONOS:PANIC' "$log_file"; then
+            panic_eip=$(sed -nE 's/.*LIONOS:PANIC.*eip=(0x[[:xdigit:]]+).*/\1/p' "$log_file" | head -n 1)
+            if [ -n "$panic_eip" ]; then
+                echo "LionOS panic symbol:"
+                addr2line -f -C -e build/lionos.bin "$panic_eip" || true
+            fi
+        fi
     fi
     if [ "$status" -ne 124 ]; then
         echo "LionOS test: QEMU exited unexpectedly with status $status" >&2

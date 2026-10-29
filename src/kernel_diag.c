@@ -63,6 +63,12 @@ void kernel_panic(uint32_t vector, uint32_t error, uint32_t eip, uint32_t cs, ui
     debug_hex32(error);
     debug_write(" eip=");
     debug_hex32(eip);
+    if (vector == 14u) {
+        uint32_t cr2;
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+        debug_write(" cr2=");
+        debug_hex32(cr2);
+    }
     debug_write(" cs=");
     debug_hex32(cs);
     debug_write(" eflags=");
