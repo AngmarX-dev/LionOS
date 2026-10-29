@@ -17,7 +17,7 @@ def paeth(a, b, c):
     pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
     if pa <= pc and pa <= pb:
         return a
-    if pb <= pc and pb <= pc:
+    if pb <= pa and pb <= pc:
         return b
     return c
 
