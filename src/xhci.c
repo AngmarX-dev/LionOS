@@ -1663,7 +1663,16 @@ static int enumerate_port_impl(uint32_t p){
      * xhci_mouse_poll() already has a boot-report decoder and will use the
      * parsed layout when one is available.
      */
-    (void)hid_layout_read_descriptor(&c);
+    int layout_rc=hid_layout_read_descriptor(&c);
+    /*
+     * Subclass-0 HID interfaces are not necessarily mice. Some laptop
+     * embedded-controller devices expose the keyboard through a generic
+     * HID interface; do not claim that endpoint as the mouse unless its
+     * report descriptor actually contains mouse X/Y fields. This also
+     * keeps mouse discovery from stealing the internal keyboard's slot.
+     */
+    if(c.boot_protocol==0u && layout_rc!=0)
+        return usb_fail("HID REPORT LAYOUT");
     if(ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1)){
         usb_log("[ USB ] SET_IDLE failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
     }
@@ -1869,8 +1878,24 @@ int xhci_keyboard_init(void){
        find_hid(&c)==0 && c.config_value &&
        c.interface_number!=0xFFu &&
        cmd_configure_hid(&c)==0){
-        if(c.boot_protocol==1u)
-            (void)ctrl(0x21u,0x0Bu,1u,c.interface_number,0,0,0,1);
+        /*
+         * A composite laptop HID device may expose its keyboard on a
+         * non-boot interface (for example, an ITE embedded-controller
+         * keyboard).  In that case SET_PROTOCOL is not applicable and the
+         * interrupt report is not the standard 8-byte boot report.  Parse
+         * the interface's HID report descriptor before arming the endpoint;
+         * otherwise the completion path interprets vendor/NKRO bytes as a
+         * boot keyboard report and silently drops every key.
+         */
+        if(c.boot_protocol==1u){
+            if(ctrl(0x21u,0x0Bu,1u,c.interface_number,0,0,0,1)!=0)
+                debug_write("LIONOS:USB-KBD-SET-PROTOCOL-FAILED\n");
+        }
+        int layout_rc=hid_layout_read_descriptor(&c);
+        if(layout_rc==0)
+            debug_write("LIONOS:USB-KBD-REPORT-LAYOUT-OK\n");
+        else
+            debug_write("LIONOS:USB-KBD-REPORT-LAYOUT-UNKNOWN\n");
         (void)ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1);
         endpoint_packet=c.packet_size;
         if(endpoint_packet>PAGE_SIZE) endpoint_packet=PAGE_SIZE;
