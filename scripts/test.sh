@@ -37,15 +37,10 @@ run_qemu() {
         -display none \
         -serial none \
         -debugcon "file:$log_file" \
-        -global isa-debugcon.iobase=0xE9 \
-        -d cpu_reset,guest_errors -D "$log_file.qemu"
+        -global isa-debugcon.iobase=0xE9
     local status=$?
     set -e
 
-    if [ -f "$log_file.qemu" ]; then
-        echo "QEMU CPU/exception trace (last 120 lines):"
-        tail -n 120 "$log_file.qemu" || true
-    fi
     if [ -f "$log_file" ]; then
         cat "$log_file"
         if grep -q 'LIONOS:PANIC' "$log_file"; then
@@ -153,9 +148,6 @@ for elf in build/*.elf; do
 done
 
 echo "[3/5] First SMP boot / filesystem initialization"
-echo "SMP AP entry symbol:"
-nm -n build/lionos.bin | grep -E " smp_ap_main$| page_root$|kernel_pd|identity_pt| _kernel_end$" || true
-objdump -d --disassemble=smp_ap_main build/lionos.bin | head -n 24
 run_qemu build/qemu-first.log
 grep -q 'LIONOS:READY' build/qemu-first.log
 grep -q 'LIONOS:PERSIST-LOG-READY' build/qemu-first.log
