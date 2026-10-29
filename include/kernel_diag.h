@@ -12,6 +12,7 @@ enum kernel_log_level {
 };
 
 void kernel_log(enum kernel_log_level level, const char *message);
+void kernel_log_ring_record(enum kernel_log_level level, const char *message);
 /* Read the in-memory kernel log ring; index 0 is the oldest retained entry. */
 uint32_t kernel_log_entry_count(void);
 int kernel_log_read(uint32_t index, enum kernel_log_level *level,
