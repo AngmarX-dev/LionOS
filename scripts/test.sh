@@ -165,6 +165,7 @@ if grep -q 'LIONOS:PERSIST-LOG-WRITE-FAILED' build/qemu-first.log; then
     exit 1
 fi
 grep -q 'LIONOS:PERSIST-INIT' build/qemu-first.log
+python3 scripts/check_disk_log.py build/lionos-disk.img --require-complete
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
