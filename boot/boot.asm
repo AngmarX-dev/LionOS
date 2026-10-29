@@ -53,9 +53,6 @@ smp_protected_entry:
     mov eax, cr4
     or eax, 0x20
     mov cr4, eax
-    ; Cache the C entry before paging changes, while low-memory trampoline
-    ; data is unquestionably addressable in real/protected-mode identity space.
-    mov edi, [smp_trampoline_entry]
     mov eax, [smp_trampoline_cr3]
     mov cr3, eax
     mov eax, cr0
@@ -67,8 +64,9 @@ smp_protected_entry:
     mov dx, 0xE9
     mov al, 'C'
     out dx, al
-    ; Enter the C AP entry using CALL so its stack follows the i386 ABI.
-    call edi
+    ; The AP entry never returns; jump directly as in the original trampoline.
+    mov eax, [smp_trampoline_entry]
+    jmp eax
 .ap_halt:
     cli
     hlt
