@@ -287,19 +287,12 @@ uint32_t *process_schedule(uint32_t *frame){
             }
         }
     }
-    /* Work stealing: choose the highest-priority runnable task on another
-       CPU, preserving the per-CPU ownership model. */
-    if(!next){
-        for(uint32_t priority=0u;priority<PROCESS_PRIORITY_LEVELS && !next;++priority){
-            for(uint32_t step=1u;step<=LIONOS_PROCESS_MAX;++step){
-                uint32_t idx=(start_idx+step)%LIONOS_PROCESS_MAX;
-                struct process*p=&processes[idx];
-                if(p->state==PROCESS_READY&&p->priority==priority){
-                    next=p;p->cpu_owner=cpu;sc->cursor=idx;++sc->steal_count;break;
-                }
-            }
-        }
-    }
+    /*
+     * Cross-CPU work stealing is temporarily disabled. The AP currently lacks
+     * a dedicated scheduler idle context for safely retiring a task that exits
+     * on a secondary CPU. Keep each task on its creator CPU until that context
+     * and migration-safe run-queue handling are implemented.
+     */
     if(next){
         if(prev&&prev->state==PROCESS_RUNNING){prev->state=PROCESS_READY;fpu_save(prev);}
         fpu_restore(next);
