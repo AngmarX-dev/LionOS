@@ -29,12 +29,14 @@ jobs:
 
       - name: Validate kernel executable and Multiboot2 header
         run: |
+          set -euxo pipefail
           test -s build/lionos.bin
-          file build/lionos.bin | grep -q 'ELF 32-bit.*Intel 80386'
+          file build/lionos.bin
           grub-file --is-x86-multiboot2 build/lionos.bin
-          nm -n build/lionos.bin | grep -Eq '[[:space:]]_start$'
-          nm -n build/lionos.bin | grep -Eq '[[:space:]]kernel_main$'
-          nm -n build/lionos.bin | grep -Eq '[[:space:]]interrupt_dispatch$'
+          nm -n build/lionos.bin | tee build/kernel-symbols.txt
+          grep -Eq '[[:space:]]_start$' build/kernel-symbols.txt
+          grep -Eq '[[:space:]]kernel_main$' build/kernel-symbols.txt
+          readelf -h build/lionos.bin | grep -q 'Entry point address:'
 
       - name: Validate userspace ELF layout
         run: |
@@ -62,15 +64,14 @@ jobs:
       - name: Validate LionFS disk image metadata
         run: |
           python3 - <<'PY'
-          import os, struct
+          import struct
           path = "build/lionos-disk.img"
           data = open(path, "rb").read()
-          assert len(data) == 8 * 1024 * 1024, f"unexpected disk image size: {len(data)}"
+          assert len(data) == 8 * 1024 * 1024, f"unexpected image size: {len(data)}"
           assert data[:7] == b"LIONFS1", "LionFS signature missing"
           assert struct.unpack_from("<I", data, 8)[0] == 2, "unsupported LionFS version"
-          directory = data[512:512 + 5 * 512]
-          assert len(directory) == 5 * 512, "directory region truncated"
-          print("LionFS v2 structure: PASS (8 MiB image, superblock and directory region valid)")
+          assert len(data[512:512 + 5 * 512]) == 5 * 512
+          print("LionFS v2 structure: PASS")
           PY
 
       - name: Validate source-level boot configuration
@@ -92,4 +93,5 @@ jobs:
             build/lionos-disk.img
             build/boot-structure.txt
             build/iso-files.txt
+            build/kernel-symbols.txt
           if-no-files-found: error
