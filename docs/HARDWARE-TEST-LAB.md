@@ -24,7 +24,7 @@ This branch integrates Labgrid, LAVA, and KernelCI scaffolding and now adds a po
 
 See `include/serial.h`, `src/serial.c`, and `hardware/lava/README.md`.
 
-LionOS initializes 16550-compatible COM1 at I/O base `0x03F8`, 115200 8N1, with no flow control and polling rather than UART IRQs. An internal loopback test must pass before the UART is enabled. Console output is mirrored to COM1, serial input is routed to the shell, and UART-equipped targets enter the shell instead of the GUI. The `serial` command reports detection and transfer counters.
+LionOS initializes 16550-compatible COM1 (`0x03F8`) with COM2 (`0x02F8`) fallback, 115200 8N1, with no flow control and polling rather than UART IRQs. An internal loopback test must pass before the UART is enabled. Console output is mirrored to COM1, serial input is routed to the shell, and UART-equipped targets enter the shell instead of the GUI. The `serial` command reports detection and transfer counters.
 
 This is an implementation for a legacy COM1-style UART, not a generic USB serial driver. A standard laptop USB port is not a UART. The LOQ 15IAX9 has not been verified to expose a documented COM1/UART connector, so this change does not establish that LAVA can control that laptop. Do not connect adapters to undocumented pins; electrical levels must match (TTL UART versus RS-232).
 
