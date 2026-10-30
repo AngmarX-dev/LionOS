@@ -18,18 +18,6 @@
 
 ---
 
-## Portable HID input
-
-LionOS input is selected by hardware capability rather than by a laptop model:
-
-- Legacy **i8042/PS/2** keyboard and mouse are probed only when the controller is present.
-- **USB HID keyboards and mice** run through the xHCI controller path.
-- USB HID boot devices and compatible **non-boot HID report descriptors** are parsed.
-- Composite USB devices can expose keyboard and mouse interfaces on the same USB address.
-- Missing PS/2 hardware no longer prevents USB input initialization.
-
-Modern laptops may expose their internal keyboard/touchpad through **I²C-HID** rather than PS/2 or USB HID. That transport requires a separate I²C/ACPI HID driver and is not yet covered by the current input stack.
-
 ## 🦁 Overview
 
 **LionOS** is an experimental educational operating system for **32-bit x86** machines.
@@ -194,11 +182,6 @@ LionOS/
 ├── include/              # Kernel headers and UAPI
 ├── src/                  # Kernel, drivers, VFS, GUI, SMP
 ├── user/                 # Ring-3 programs, libc, tests
-├── assets/
-│   ├── boot/             # Boot splash artwork
-│   ├── branding/         # LionOS logo, emblem and wordmark
-│   ├── icons/            # Application, desktop, file-type and system icons
-│   └── wallpapers/       # Default, minimal and sunrise backgrounds
 ├── scripts/              # Automated test scripts
 ├── docs/                 # Design and feature documentation
 ├── .github/workflows/    # GitHub Actions CI
@@ -206,8 +189,6 @@ LionOS/
 ├── LICENSE
 └── README.md
 ```
-
-Boot splash art, branding, application/file-type icons, and wallpapers are now built from `assets/`. Open **Settings** in the desktop to switch between the default, minimal, and sunrise wallpapers.
 
 ---
 
@@ -434,37 +415,37 @@ The repository keeps the low-level source, tests, and engineering history visibl
 
 ## 🗺️ Future Roadmap
 
-LionOS is intentionally being developed in layers. The roadmap below tracks remaining work after the scheduler, diagnostics, SIMD, SMP, thread, and IPC foundations now implemented.
+LionOS is intentionally being developed in layers. The following features are planned for later work as the kernel, drivers, userspace, and desktop mature.
 
 ### 🧠 Kernel & CPU
 
 | Planned feature | Status |
 |---|:---:|
-| Kernel panic / crash dump framework | ✅ |
-| Structured kernel logging levels | ✅ |
-| Runtime kernel diagnostics report | ✅ |
+| Kernel panic / crash dump framework | ⬜ |
+| Structured kernel logging levels | ⬜ |
+| Runtime kernel diagnostics page | ⬜ |
 | Better APIC / interrupt routing | ⬜ |
-| Per-CPU interrupt statistics | ✅ |
-| CPU feature management (SSE/AVX detection) | ✅ |
-| FPU/SSE context switching | ✅ |
+| Per-CPU interrupt statistics | ⬜ |
+| CPU feature management (SSE/AVX detection) | ⬜ |
+| FPU/SSE context switching | ⬜ |
 | Lazy FPU state management | ⬜ |
-| Kernel preemption improvements | ✅ |
-| Priority-aware scheduling | ✅ |
-| MLFQ-style interactive scheduling | ✅ |
-| Scheduler load balancing | ✅ |
-| Per-CPU run queues | ✅ |
-| More robust SMP synchronization | ✅ |
+| Kernel preemption improvements | ⬜ |
+| Priority-aware scheduling | ⬜ |
+| MLFQ-style interactive scheduling | ⬜ |
+| Scheduler load balancing | ⬜ |
+| Per-CPU run queues | ⬜ |
+| More robust SMP synchronization | ⬜ |
 
 ### ⚙️ Processes, Threads & IPC
 
 | Planned feature | Status |
 |---|:---:|
-| Kernel threads | ✅ |
-| User threads | ✅ |
-| Thread IDs / thread lifecycle | ✅ |
+| Kernel threads | ⬜ |
+| User threads | ⬜ |
+| Thread IDs / thread lifecycle | ⬜ |
 | Generic sleep(channel) / wakeup(channel) API expansion | ✅ |
 | Blocking keyboard reads | ⬜ |
-| Blocking pipe reads/writes | ✅ |
+| Blocking pipe reads/writes | ⬜ |
 | Blocking filesystem operations | ⬜ |
 | Process groups | ⬜ |
 | Sessions / controlling terminal | ⬜ |
@@ -472,7 +453,7 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 | Full signal delivery and handling | ⬜ |
 | Signal-safe process termination | ⬜ |
 | Shared memory IPC | ⬜ |
-| Pipes | ✅ |
+| Pipes | ⬜ |
 | Named pipes | ⬜ |
 | Unix-style sockets | ⬜ |
 
@@ -629,19 +610,19 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 
 | Planned feature | Status |
 |---|:---:|
-| More complete libc | ✅ |
-| printf family | ✅ |
-| Dynamic memory allocation | ✅ |
-| Environment variables | ✅ |
-| argv / argc conventions | ✅ |
+| More complete libc | ⬜ |
+| printf family | ⬜ |
+| Dynamic memory allocation | ⬜ |
+| Environment variables | ⬜ |
+| argv / argc conventions | ⬜ |
 | Standard streams | ⬜ |
 | File descriptor inheritance | ✅ |
 | Pipes / redirection | ⬜ |
 | Shell job control | ⬜ |
-| env command | ✅ |
-| grep | ✅ |
-| find | ✅ |
-| cp / mv | ✅ |
+| env command | ⬜ |
+| grep | ⬜ |
+| find | ⬜ |
+| cp / mv | ⬜ |
 | mkdir / rmdir | ⬜ |
 | chmod / chown | ⬜ |
 | ps improvements | ⬜ |
@@ -770,8 +751,3 @@ See [LICENSE](LICENSE).
   <strong>🦁 LionOS</strong><br>
   <sub>Build low-level. Learn deeply. Ship the kernel.</sub>
 </p>
-
-> CI verification: Kernel/CPU plus Processes/Threads/IPC foundations are validated through the full build/test pipeline.
-
-
-CI verification marker: kernel audit validation.

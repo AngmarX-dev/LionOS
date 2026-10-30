@@ -15,7 +15,6 @@
 #include "diskfs.h"
 #include "vfs.h"
 #include "ipc.h"
-#include "pipe.h"
 #include "signal.h"
 #include "net.h"
 #include "shell.h"
@@ -28,8 +27,6 @@
 #include "xhci.h"
 #include "intel_gpu.h"
 #include "exec.h"
-#include "kernel_diag.h"
-#include "pci.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -222,19 +219,13 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     paging_init();
 
-    /* Enumerate real PCI configuration space before device-driver probing. */
-    if(pci_init() == 0)
-        pci_print_devices();
-    else
-        console_write("[ -- ] PCI hardware enumeration unavailable\n");
-
     if(framebuffer_init(multiboot_info) == 0){
         console_write("[ OK ] Framebuffer ");
         boot_dec(framebuffer_width());
         console_putc('x');
         boot_dec(framebuffer_height());
         console_write(" desktop mode\n");
-        /* Keep boot diagnostics on VGA while the full-screen splash remains visible. */
+        console_use_framebuffer();
         BOOT_STAGE(34u, "DISPLAY READY");
     }
 
@@ -247,11 +238,14 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     heap_init();
     console_write("[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n");
 
-    /* ---- USB xHCI HID input ---- */
-    int usb_mouse_rc = mouse_usb_init();
-    if(usb_mouse_rc == 0){
+    /* ---- USB xHCI mouse ---- */
+    if(mouse_usb_init() == 0){
         console_write("[ OK ] USB xHCI / HID boot mouse\n");
-    }else{
+        if(xhci_keyboard_init() == 0)
+            console_write("[ OK ] USB xHCI / HID boot keyboard\n");
+        else
+            console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
+    } else {
         xhci_mouse_debug_info_t dbg;
         if(xhci_mouse_debug_get(&dbg) == 0){
             console_write("[ -- ] USB xHCI stage: ");
@@ -268,17 +262,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             console_write_hex(dbg.portsc);
             console_write(")\n");
         }
-        console_write("[ -- ] USB xHCI / HID mouse unavailable; keyboard/input paths continue\n");
+        console_write("[ -- ] USB xHCI / HID mouse unavailable; PS/2 fallback active\n");
     }
-
-    /* Keyboard discovery is independent of mouse discovery. This is
-       important on machines with a USB keyboard but no usable USB mouse,
-       and for composite HID devices where both interfaces share a slot. */
-    if(xhci_keyboard_init() == 0)
-        console_write("[ OK ] USB xHCI / HID boot keyboard\n");
-    else
-        console_write("[ -- ] USB xHCI / HID keyboard unavailable\n");
-
     BOOT_STAGE(42u, "HEAP READY");
 
     /* ---- CPU topology / APIC ---- */
@@ -287,9 +272,6 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     boot_dec(cpu_get(0)->apic_id);
     console_write(" / logical hint ");
     boot_dec(cpu_count_hint());
-    console_write("\n");
-    console_write("[ OK ] CPU SIMD features: 0x");
-    console_write_hex(cpu_feature_flags());
     console_write("\n");
     BOOT_STAGE(46u, "CPU TOPOLOGY READY");
 
@@ -319,10 +301,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     BOOT_STAGE(62u, "KERNEL SERVICES READY");
 
     process_init();
-    console_write("[ OK ] Process table / MLFQ scheduler / per-CPU run queues\n");
-    console_write(cpu_fpu_sse_init()==0 ? "[ OK ] FPU / SSE context switching enabled\n" : "[ -- ] FPU / SSE unavailable\n");
-    kernel_log(KLOG_INFO,"kernel services online");
-    kernel_diag_print();
+    console_write("[ OK ] Process table / scheduler / ring-3 address spaces\n");
     BOOT_STAGE(68u, "PROCESS MANAGER READY");
 
     if(lapic_ready){
@@ -334,33 +313,22 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     /* ---- Filesystems ---- */
     ramfs_init();
     console_write("[ OK ] RAM filesystem / embedded programs\n");
-    kernel_log(KLOG_INFO, "RAM filesystem initialized");
     BOOT_STAGE(78u, "RAM FILESYSTEM READY");
 
     if(diskfs_init() == 0){
         console_write("[ OK ] ATA PIO / persistent LionFS\n");
-        kernel_log(KLOG_INFO, "Persistent LionFS available");
         diskfs_boot_test();
     } else {
         console_write("[ -- ] Persistent disk unavailable (RAMFS only)\n");
         debug_write("LIONOS:NO-DISK\n");
-        kernel_log(KLOG_WARN, "Persistent disk unavailable; using RAMFS");
     }
     BOOT_STAGE(84u, "STORAGE READY");
 
     vfs_init();
     console_write("[ OK ] VFS / unified file descriptor layer\n");
-    if (kernel_log_persistence_init() == 0) {
-        console_write("[ OK ] System Log / RAM history + /var/log/lionos.log\n");
-    } else {
-        console_write("[ -- ] Persistent System Log unavailable; RAM history remains active\n");
-        debug_write("LIONOS:PERSIST-LOG-INIT-FAIL\n");
-    }
-    kernel_log(KLOG_INFO, "Virtual filesystem initialized");
     vfs_boot_test();
 
     ipc_init();
-    pipe_init();
     console_write("[ OK ] IPC / kernel message queues\n");
     BOOT_STAGE(89u, "FILESYSTEM SERVICES READY");
 
@@ -368,23 +336,17 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ OK ] Signals / process control\n");
 
     net_init();
-    if(net_physical_ready()){
+    if(net_physical_ready())
         console_write("[ OK ] RTL8139 Ethernet / IPv4 / ARP / ICMP\n");
-        kernel_log(KLOG_INFO, "Physical network interface initialized");
-    }else{
+    else
         console_write("[ -- ] Physical NIC unavailable; loopback only\n");
-        kernel_log(KLOG_WARN, "No physical NIC; loopback only");
-    }
     BOOT_STAGE(94u, "NETWORK READY");
 
     /* ---- Desktop ---- */
     console_write("\nLionOS is ready.\n");
-    kernel_log(KLOG_INFO, "LionOS boot completed; starting desktop");
     debug_write("LIONOS:READY\n");
     BOOT_STAGE(100u, "STARTING LIONOS DESKTOP");
 
-    /* Switch to the graphical console only after the splash has finished. */
-    console_use_framebuffer();
     __asm__ volatile("sti");
     gui_run();
     shell_run();
