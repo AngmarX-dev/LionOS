@@ -87,6 +87,10 @@ int serial_init(void) {
         uart_base = SERIAL_COM1_BASE;
     else if (uart_probe(SERIAL_COM2_BASE) == 0)
         uart_base = SERIAL_COM2_BASE;
+    else if (uart_probe(SERIAL_COM3_BASE) == 0)
+        uart_base = SERIAL_COM3_BASE;
+    else if (uart_probe(SERIAL_COM4_BASE) == 0)
+        uart_base = SERIAL_COM4_BASE;
     else
         return -1;
 
@@ -105,6 +109,8 @@ uint16_t serial_io_base(void) {
 const char *serial_port_name(void) {
     if (uart_base == SERIAL_COM1_BASE) return "COM1";
     if (uart_base == SERIAL_COM2_BASE) return "COM2";
+    if (uart_base == SERIAL_COM3_BASE) return "COM3";
+    if (uart_base == SERIAL_COM4_BASE) return "COM4";
     return "none";
 }
 
