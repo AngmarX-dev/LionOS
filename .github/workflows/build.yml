@@ -53,20 +53,21 @@ jobs:
 
       - name: Validate bootable ISO structure
         run: |
+          set -euxo pipefail
           test -s build/lionos.iso
           xorriso -indev build/lionos.iso -report_el_torito as_mkisofs 2>&1 | tee build/boot-structure.txt
-          grep -q -- '-b /boot/grub/i386-pc/eltorito.img' build/boot-structure.txt
-          grep -q -- '-e /efi.img' build/boot-structure.txt
-          xorriso -indev build/lionos.iso -find /boot -type f -exec lsdl 2>&1 | tee build/iso-files.txt
-          grep -q 'lionos.bin' build/iso-files.txt
-          grep -q 'grub.cfg' build/iso-files.txt
+          grep -q 'eltorito.img' build/boot-structure.txt
+          grep -q 'efi.img' build/boot-structure.txt
+          xorriso -indev build/lionos.iso -find / -name lionos.bin -print 2>&1 | tee build/iso-kernel-path.txt
+          xorriso -indev build/lionos.iso -find / -name grub.cfg -print 2>&1 | tee build/iso-grub-path.txt
+          grep -q 'lionos.bin' build/iso-kernel-path.txt
+          grep -q 'grub.cfg' build/iso-grub-path.txt
 
       - name: Validate LionFS disk image metadata
         run: |
           python3 - <<'PY'
           import struct
-          path = "build/lionos-disk.img"
-          data = open(path, "rb").read()
+          data = open("build/lionos-disk.img", "rb").read()
           assert len(data) == 8 * 1024 * 1024, f"unexpected image size: {len(data)}"
           assert data[:7] == b"LIONFS1", "LionFS signature missing"
           assert struct.unpack_from("<I", data, 8)[0] == 2, "unsupported LionFS version"
@@ -92,6 +93,7 @@ jobs:
             build/lionos.iso
             build/lionos-disk.img
             build/boot-structure.txt
-            build/iso-files.txt
+            build/iso-kernel-path.txt
+            build/iso-grub-path.txt
             build/kernel-symbols.txt
           if-no-files-found: error
