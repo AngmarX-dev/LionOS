@@ -5,6 +5,8 @@
 
 #define SERIAL_COM1_BASE 0x03F8u
 #define SERIAL_COM2_BASE 0x02F8u
+#define SERIAL_COM3_BASE 0x03E8u
+#define SERIAL_COM4_BASE 0x02E8u
 #define SERIAL_COM1_BAUD 115200u
 
 int serial_init(void);
