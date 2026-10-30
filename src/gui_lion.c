@@ -957,7 +957,10 @@ static void drag_cache_move(struct ui_window*w,uint32_t old_x,uint32_t old_y){
     uint32_t right=old_right>new_right?old_right:new_right;
     uint32_t bottom=old_bottom>new_bottom?old_bottom:new_bottom;
     if(right>left&&bottom>top){
-        framebuffer_copy_rect_from_buffer(drag_background,framebuffer_width(),
+        uint32_t screen_stride=framebuffer_width();
+        const uint32_t *background_src=
+            drag_background+(size_t)top*screen_stride+left;
+        framebuffer_copy_rect_from_buffer(background_src,screen_stride,
                                            left,top,right-left,bottom-top);
         framebuffer_copy_rect_from_buffer(drag_surface,drag_surface_w,
                                            w->x,w->y,drag_surface_w,drag_surface_h);
