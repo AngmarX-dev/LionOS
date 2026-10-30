@@ -397,8 +397,7 @@ static void draw_terminal(const struct ui_window*w){
     text_line(term_input,x+10u+16u*CHAR_W,py0+4u,COL_TEXT,COL_PANEL2);
 }
 
-static int file_manager_hit(const struct ui_window*w,uint32_t x,uint32_t y,uint32_t *index){
-    if(!w||!index)return 0;
+static int file_manager_hit(const struct ui_window*w,uint32_t x,uint32_t y,uint32_t *index){    if(!w||!index)return 0;
     uint32_t left=w->x+16u, top=w->y+TITLE_H+10u, side=128u;
     uint32_t gx=left+side+18u, gy=top+48u;
     uint32_t col_w=96u,row_h=70u;
@@ -797,7 +796,6 @@ static void draw_start_menu(void){
         text_line("ESC",x+mw-58u,py0+9u,COL_DIM,COL_PANEL);
     }
 }
-
 static void draw_cursor(uint32_t x,uint32_t y){
     /*
      * Classic desktop pointer: black 1-pixel outline/shadow with a
@@ -1168,6 +1166,10 @@ static void handle_move(void){
     w->y=(uint32_t)ny;
     if(drag_cache_active){
         drag_cache_move(w,old_x,old_y);
+        /* The cached blit already rendered this frame. Do not let render_all()
+           redraw the full old/new window union a second time on the same tick. */
+        scene_dirty=0u;
+        dirty_valid=0u;
         return;
     }
 }
@@ -1197,8 +1199,7 @@ void gui_start(void){
     if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\n");return;}
-    while(keyboard_available())(void)keyboard_getchar();
-    /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
+    while(keyboard_available())(void)keyboard_getchar();    /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
     cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
     init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
