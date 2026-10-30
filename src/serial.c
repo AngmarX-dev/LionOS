@@ -2,7 +2,7 @@
 #include "io.h"
 #include "serial.h"
 
-/* 16550-compatible COM1. Polling keeps this independent of PIC/APIC IRQ setup. */
+/* 16550-compatible legacy UARTs. Polling avoids PIC/APIC IRQ dependencies. */
 #define UART_DATA(base)       ((uint16_t)((base) + 0u))
 #define UART_IER(base)        ((uint16_t)((base) + 1u))
 #define UART_FIFO(base)       ((uint16_t)((base) + 2u))
@@ -22,16 +22,51 @@
 #define UART_LOOPBACK_TEST    0xAEu
 
 static volatile uint8_t uart_ready;
+static volatile uint16_t uart_base;
 static volatile uint8_t previous_was_cr;
 static volatile uint32_t rx_bytes;
 static volatile uint32_t tx_bytes;
 static volatile uint32_t io_errors;
 
-static void uart_raw_putc(uint8_t value) {
-    if (!uart_ready) return;
+static int uart_probe(uint16_t base) {
+    /* Disable UART interrupts before touching divisor and line-control registers. */
+    outb(UART_IER(base), 0x00u);
+    outb(UART_LINE(base), 0x80u);
+    outb(UART_DLL(base), 0x01u); /* 115200 baud from 1.8432 MHz clock */
+    outb(UART_DLM(base), 0x00u);
+    outb(UART_LINE(base), 0x03u); /* 8 data bits, no parity, 1 stop bit */
+    outb(UART_FIFO(base), 0xC7u);
+
+    /*
+     * Verify a real 16550-compatible UART using its internal loopback.
+     * An absent legacy UART normally reads as 0xFF and fails this test.
+     * Do not enable IRQs; the driver is deliberately polled.
+     */
+    outb(UART_MODEM(base), 0x1Eu);
+    outb(UART_DATA(base), UART_LOOPBACK_TEST);
+
+    uint8_t received = 0u;
+    uint8_t got_byte = 0u;
     for (uint32_t i = 0u; i < UART_POLL_LIMIT; ++i) {
-        if (inb(UART_STATUS(SERIAL_COM1_BASE)) & UART_LSR_TX_EMPTY) {
-            outb(UART_DATA(SERIAL_COM1_BASE), value);
+        uint8_t status = inb(UART_STATUS(base));
+        if (status == 0xFFu) break;
+        if (status & UART_LSR_DATA_READY) {
+            received = inb(UART_DATA(base));
+            got_byte = 1u;
+            break;
+        }
+    }
+
+    /* Leave a responding UART in normal operation with DTR/RTS and OUT2 set. */
+    outb(UART_MODEM(base), 0x0Bu);
+    return got_byte && received == UART_LOOPBACK_TEST ? 0 : -1;
+}
+
+static void uart_raw_putc(uint8_t value) {
+    if (!uart_ready || !uart_base) return;
+    for (uint32_t i = 0u; i < UART_POLL_LIMIT; ++i) {
+        if (inb(UART_STATUS(uart_base)) & UART_LSR_TX_EMPTY) {
+            outb(UART_DATA(uart_base), value);
             ++tx_bytes;
             return;
         }
@@ -41,45 +76,19 @@ static void uart_raw_putc(uint8_t value) {
 
 int serial_init(void) {
     uart_ready = 0u;
+    uart_base = 0u;
     previous_was_cr = 0u;
     rx_bytes = 0u;
     tx_bytes = 0u;
     io_errors = 0u;
 
-    /* Disable UART interrupts before touching divisor and line-control registers. */
-    outb(UART_IER(SERIAL_COM1_BASE), 0x00u);
-    outb(UART_LINE(SERIAL_COM1_BASE), 0x80u);
-    outb(UART_DLL(SERIAL_COM1_BASE), 0x01u); /* 115200 baud from 1.8432 MHz clock */
-    outb(UART_DLM(SERIAL_COM1_BASE), 0x00u);
-    outb(UART_LINE(SERIAL_COM1_BASE), 0x03u); /* 8 data bits, no parity, 1 stop bit */
-    outb(UART_FIFO(SERIAL_COM1_BASE), 0xC7u);
-
-    /*
-     * Verify a real 16550-compatible UART using its internal loopback.
-     * An absent legacy COM1 normally reads as 0xFF and will fail this test.
-     * Do not enable IRQs; the driver is deliberately polled.
-     */
-    outb(UART_MODEM(SERIAL_COM1_BASE), 0x1Eu);
-    outb(UART_DATA(SERIAL_COM1_BASE), UART_LOOPBACK_TEST);
-
-    uint8_t received = 0u;
-    uint8_t got_byte = 0u;
-    for (uint32_t i = 0u; i < UART_POLL_LIMIT; ++i) {
-        uint8_t status = inb(UART_STATUS(SERIAL_COM1_BASE));
-        if (status == 0xFFu) break;
-        if (status & UART_LSR_DATA_READY) {
-            received = inb(UART_DATA(SERIAL_COM1_BASE));
-            got_byte = 1u;
-            break;
-        }
-    }
-
-    /* Leave the UART in normal operation, with DTR/RTS and OUT2 asserted. */
-    outb(UART_MODEM(SERIAL_COM1_BASE), 0x0Bu);
-    if (!got_byte || received != UART_LOOPBACK_TEST) {
-        uart_ready = 0u;
+    /* Prefer COM1; probe COM2 as a fallback for boards wired to the second UART. */
+    if (uart_probe(SERIAL_COM1_BASE) == 0)
+        uart_base = SERIAL_COM1_BASE;
+    else if (uart_probe(SERIAL_COM2_BASE) == 0)
+        uart_base = SERIAL_COM2_BASE;
+    else
         return -1;
-    }
 
     uart_ready = 1u;
     return 0;
@@ -89,6 +98,16 @@ int serial_available(void) {
     return uart_ready != 0u;
 }
 
+uint16_t serial_io_base(void) {
+    return uart_base;
+}
+
+const char *serial_port_name(void) {
+    if (uart_base == SERIAL_COM1_BASE) return "COM1";
+    if (uart_base == SERIAL_COM2_BASE) return "COM2";
+    return "none";
+}
+
 void serial_putc(char c) {
     if (!uart_ready) return;
     if (c == '\n') uart_raw_putc('\r');
@@ -96,16 +115,16 @@ void serial_putc(char c) {
 }
 
 int serial_getchar(void) {
-    if (!uart_ready) return -1;
+    if (!uart_ready || !uart_base) return -1;
 
-    uint8_t status = inb(UART_STATUS(SERIAL_COM1_BASE));
+    uint8_t status = inb(UART_STATUS(uart_base));
     if (status == 0xFFu) {
         uart_ready = 0u;
         return -1;
     }
     if (!(status & UART_LSR_DATA_READY)) return -1;
 
-    uint8_t value = inb(UART_DATA(SERIAL_COM1_BASE));
+    uint8_t value = inb(UART_DATA(uart_base));
     if (status & (UART_LSR_OVERRUN | UART_LSR_PARITY |
                   UART_LSR_FRAMING | UART_LSR_BREAK)) {
         ++io_errors;
