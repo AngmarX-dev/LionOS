@@ -11,8 +11,8 @@
 #define KERNEL_MMIO_BASE 0xF0000000u
 #define KERNEL_MMIO_PD_INDEX ((KERNEL_MMIO_BASE >> 21) & 0x1FFu)
 /*
- * 0xF0000000..0xF7FFFFFF is 128 MiB. Each page-directory entry covers
- * 2 MiB, so only 32 page tables are needed here.
+ * 0xF0000000..0xFFFFFFFF is 256 MiB. Each page-directory entry covers
+ * 2 MiB, so 128 page tables cover the complete final 256 MiB window.
  */
 #define KERNEL_MMIO_PT_COUNT 128u
 #define USER_LIMIT 0xC0000000u
