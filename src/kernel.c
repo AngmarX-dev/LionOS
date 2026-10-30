@@ -10,6 +10,7 @@
 #include "process.h"
 #include "user.h"
 #include "console.h"
+#include "serial.h"
 #include "framebuffer.h"
 #include "ramfs.h"
 #include "diskfs.h"
@@ -170,8 +171,15 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 #define BOOT_STAGE(percent, label) framebuffer_boot_splash((percent), (label))
 
     debug_write("LIONOS:BOOT\n");
+    int serial_rc = serial_init();
     console_init();
     console_write("LionOS kernel booting...\n\n");
+    if (serial_rc == 0) {
+        console_write("[ OK ] 16550 COM1 / 115200 8N1 / polled serial console\n");
+        debug_write("LIONOS:SERIAL-COM1-READY\n");
+    } else {
+        debug_write("LIONOS:SERIAL-COM1-ABSENT\n");
+    }
 
     if(magic != 0x36D76289u){
         debug_write("LIONOS:BAD-MULTIBOOT\n");
@@ -384,11 +392,17 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     debug_write("LIONOS:READY\n");
     BOOT_STAGE(100u, "STARTING LIONOS DESKTOP");
 
-    /* Switch to the graphical console only after the splash has finished. */
-    console_use_framebuffer();
     __asm__ volatile("sti");
-    gui_run();
-    shell_run();
+    if (serial_available()) {
+        /* LAVA needs an interactive prompt; skip the GUI on UART-equipped test targets. */
+        console_write("[ OK ] Serial test mode: entering the interactive LionOS shell\n");
+        shell_run();
+    } else {
+        /* Preserve normal desktop startup when no verified legacy COM1 exists. */
+        console_use_framebuffer();
+        gui_run();
+        shell_run();
+    }
     for(;;) __asm__ volatile("hlt");
 
 #undef BOOT_STAGE
