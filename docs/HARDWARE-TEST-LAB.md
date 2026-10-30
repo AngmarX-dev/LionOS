@@ -1,14 +1,14 @@
 # LionOS Hardware Test Lab
 
-This branch is an integration scaffold for Labgrid, LAVA, and KernelCI. It does not claim LionOS has booted on physical hardware. No emulator or virtual machine is used by this hardware-lab workflow.
+This branch is an integration scaffold and validation set for Labgrid, LAVA, and KernelCI. It does not claim LionOS has booted on physical hardware. No emulator or virtual machine is used by these hardware-lab checks.
 
-| Component | Intended role | Current status |
+| Component | Automated check performed | Actual LionOS hardware status |
 |---|---|---|
-| GitHub-hosted runner | Compile LionOS and validate ISO/image structure | Build/structure only |
-| Labgrid | Control a real x86 test machine, serial console, power/reset and pytest | Configuration template; requires a lab controller and target |
-| LAVA | Schedule boot/test jobs on a registered physical device | Job template; requires server, registered device and boot method |
-| KernelCI | Linux kernel hardware test ecosystem | Not a direct LionOS execution backend |
-| Lenovo LOQ 15IAX9 | Final target for internal keyboard and laptop-specific validation | Requires physical access and key actuation |
+| GitHub Actions | Native build, Multiboot2/ISO/filesystem structure | Build/structure only |
+| Labgrid | Upstream Python package loads target; RawSerialPort and SerialDriver bind | No physical serial device; LionOS shell has no verified UART console |
+| LAVA | Upstream strict schema validates UEFI-menu + interactive job | No LAVA server/device; framebuffer-only console blocks interactive use |
+| KernelCI | Upstream core runtime/test YAML parses; LAVA lab runtime config inspected | Standard KernelCI Linux-kernel pipeline does not natively build/boot LionOS |
+| Lenovo LOQ 15IAX9 | Built-in keyboard acceptance test planned | Requires actual laptop boot and physical key presses |
 
 ## Safety rules
 
@@ -22,26 +22,16 @@ This branch is an integration scaffold for Labgrid, LAVA, and KernelCI. It does 
 
 ## Labgrid
 
-See hardware/labgrid/README.md and hardware/labgrid/environment.yaml.example. Labgrid is the most suitable starting point for a small private hardware bench. It can expose serial, power and USB/SD resources to pytest. LionOS serial console support is not yet verified, so automated serial shell tests are not currently operational.
+See `hardware/labgrid/README.md` and `hardware/labgrid/environment.yaml.example`. Labgrid is the best first choice for a small private hardware bench. The CI check validates the actual Labgrid config parser and target factory. The example uses a placeholder serial device and does not open it. LionOS currently renders its shell through the framebuffer; a verified UART console path is still required.
 
 ## LAVA
 
-See hardware/lava/README.md and hardware/lava/lionos-job-template.yaml. LAVA is appropriate when a server and device type exist. The template is not submitted automatically: boot method, device type, image deployment and bootloader commands are lab-specific.
+See `hardware/lava/README.md` and `hardware/lava/lionos-job-template.yaml`. The CI check runs the official LAVA strict job-schema validator. The job uses LAVA's interactive test mode, which is suitable for a non-POSIX command line, and assumes a pre-prepared removable USB device selected through a configured UEFI menu entry. It does not write to internal storage. A LAVA server, registered device, serial console and UEFI menu configuration are still required.
 
 ## KernelCI
 
-See hardware/kernelci/README.md. KernelCI's standard pipeline tests Linux kernels. LionOS is a Multiboot2 OS, not a Linux kernel. A custom integration would need Labgrid/LAVA as the physical execution backend and a custom result producer; this is not native KernelCI support.
+See `hardware/kernelci/README.md`. The CI check clones and parses the current upstream KernelCI core configurations. Its standard pipeline targets upstream Linux kernels, so this is not a native LionOS execution backend.
 
-## Proposed stages
+## Required hardware stage
 
-1. GitHub-hosted CI builds the kernel, userland, ISO and disk image.
-2. Structural checks inspect ELF, Multiboot2, ISO and filesystem metadata.
-3. A separately managed physical lab controller obtains the ISO artifact.
-4. Labgrid or LAVA boots the target from removable media non-destructively.
-5. The operator captures boot output and runs the keyboard diagnostic.
-6. The operator presses keys on the built-in keyboard.
-7. Logs/results are uploaded to GitHub. Only observed hardware results are marked PASS.
-
-## Current truth
-
-This branch adds integration documentation and configuration templates. It does not create remote access to the user's laptop, provision a physical test bench, or prove keyboard functionality. Those require hardware and controller access outside GitHub.
+The current LionOS shell prompt is `lion:/ >` and is rendered via framebuffer. Labgrid and LAVA need a console transport that can read and write that prompt. A UART/serial console path must be implemented and physically connected before those tools can interact with the shell. Then a physical operator must boot from removable USB and press keys on the built-in keyboard. Only recorded input increments and visible shell characters can mark keyboard PASS.
