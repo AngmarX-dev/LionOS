@@ -30,7 +30,7 @@ def main() -> int:
 
         driver = target.get_driver(SerialDriver, activate=False)
         bound = driver.get_bound_resources()
-        assert len(bound) == 1 and bound[0] is raw_port, (
+        assert len(bound) == 1 and raw_port in bound, (
             "SerialDriver is not bound to the configured RawSerialPort"
         )
 
