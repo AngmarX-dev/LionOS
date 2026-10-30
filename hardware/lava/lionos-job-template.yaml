@@ -1,8 +1,8 @@
-# Schema-valid LAVA job template. The LAVA server/device must be configured first.
-# The "lionos-usb" UEFI menu entry must boot a pre-prepared removable USB device.
-# No install, repartition, format, or internal-disk write is performed by this job.
+# Schema-valid LAVA job template; replace the device type and configure the worker/device first.
+# "lionos-usb" must select a pre-prepared removable USB medium.
+# This job contains no install, repartition, format, or internal-disk write action.
 device_type: REPLACE_WITH_REGISTERED_X86_UEFI_DEVICE_TYPE
-job_name: LionOS removable-media interactive console smoke test
+job_name: LionOS removable-media serial interactive console smoke test
 timeouts:
   job:
     minutes: 20
@@ -14,7 +14,7 @@ priority: medium
 visibility: personal
 metadata:
   source: LionOS
-  test-plan: removable-usb-interactive-console-smoke
+  test-plan: removable-usb-serial-interactive-console-smoke
 actions:
   - boot:
       method: uefi-menu
@@ -32,6 +32,10 @@ actions:
             - "lion:/ >"
           echo: discard
           script:
+            - name: serial-diagnostics
+              command: serial
+              successes:
+                - message: "Serial console diagnostics"
             - name: uname
               command: uname
               successes:
@@ -43,6 +47,7 @@ actions:
             - name: vfs-list
               command: ls
           expected:
+            - serial-diagnostics
             - uname
             - keyboard-diagnostics
             - vfs-list
