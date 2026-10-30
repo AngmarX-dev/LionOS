@@ -20,8 +20,10 @@ lava_docs = read("hardware/lava/README.md")
 
 checks = {
     "COM1 I/O base": "0x03F8u" in header,
+    "COM2 fallback base": "0x02F8u" in header,
     "115200 baud": "115200u" in header,
     "16550 internal loopback test": "UART_LOOPBACK_TEST" in serial and "0xAEu" in serial,
+    "COM1 then COM2 detection": "SERIAL_COM1_BASE" in serial and "SERIAL_COM2_BASE" in serial,
     "8N1 UART configuration": "0x03u); /* 8 data bits, no parity, 1 stop bit */" in serial,
     "UART interrupts disabled": "UART_IER(SERIAL_COM1_BASE), 0x00u" in serial,
     "bounded UART polling": "UART_POLL_LIMIT" in serial,
@@ -31,7 +33,7 @@ checks = {
     "keyboard input preserved": "keyboard_poll()" in shell and "keyboard_getchar()" in shell,
     "UART initialized before console": kernel.index("serial_init()") < kernel.index("console_init()"),
     "serial-equipped target enters shell": "if (serial_available())" in kernel and kernel.index("if (serial_available())") < kernel.index("gui_run();"),
-    "serial diagnostic command exposed": 'eq(cmd,"serial")' in shell and "Serial console diagnostics" in shell,
+    "serial diagnostic command exposed": 'eq(cmd,"serial")' in shell and "Serial console diagnostics" in shell and "serial_port_name()" in shell,
     "LAVA serial test command": "command: serial" in job and "serial-diagnostics" in job,
     "LAVA shell prompt": 'lion:/ >' in job,
     "non-destructive removable-media policy": "internal storage" in lava_docs and "removable" in lava_docs,
