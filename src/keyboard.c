@@ -451,6 +451,12 @@ int keyboard_getchar(void){
 }
 
 int keyboard_ps2_available(void){return ps2_controller_present!=0u;}
+uint32_t keyboard_scancode_count(void){return scancode_count;}
+uint32_t keyboard_dropped_count(void){return dropped_chars;}
+uint8_t keyboard_last_scancode(void){return last_scancode;}
+uint8_t keyboard_scancode_set(void){return scancode_set;}
+uint8_t keyboard_ps2_status(void){return inb(PS2_STATUS);}
+uint8_t keyboard_raw_input_seen(void){return raw_input_seen;}
 
 uint32_t keyboard_available(void){
     if(write_index>=read_index)return write_index-read_index;
