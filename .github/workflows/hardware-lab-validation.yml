@@ -51,7 +51,8 @@ jobs:
           test -s hardware/lava/README.md
           test -s hardware/kernelci/README.md
           grep -q "internal SSD" docs/HARDWARE-TEST-LAB.md
-          grep -q "framebuffer" hardware/labgrid/README.md
-          grep -q "interactive tests" hardware/lava/README.md
+          grep -q "COM1" hardware/labgrid/README.md
+          grep -q "interactive test" hardware/lava/README.md
+          python3 scripts/ci/validate_serial_console.py
           grep -q "not a Linux kernel" hardware/kernelci/README.md
           echo "Hardware-lab integration checks: PASS"
