@@ -6,3 +6,5 @@ targets:
       RawSerialPort:
         port: /dev/ttyUSB0
         speed: 115200
+    drivers:
+      SerialDriver: {}
