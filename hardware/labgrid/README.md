@@ -11,14 +11,14 @@ The branch validation installs the upstream Labgrid Python package, loads the ex
 
 ## LionOS serial transport
 
-LionOS now provides a polled 16550-compatible COM1 console on COM1 (`0x03F8`) or COM2 (`0x02F8`), 115200 8N1, no flow control. It tests the UART with internal loopback, mirrors console output to COM1, and routes serial input to the interactive shell. When either UART is detected, LionOS skips the desktop and enters the shell. This makes the existing Labgrid serial driver useful once a real physical UART link is provided.
+LionOS now provides a polled 16550-compatible COM1 console on legacy COM1–COM4 (I/O bases `0x03F8`, `0x02F8`, `0x03E8`, `0x02E8`), 115200 8N1, no flow control. It tests the UART with internal loopback, mirrors console output to COM1, and routes serial input to the interactive shell. When any detected legacy UART is found, LionOS skips the desktop and enters the shell. This makes the existing Labgrid serial driver useful once a real physical UART link is provided.
 
 The internal loopback test does not verify the external cable, adapter or serial server. CI only validates that the Labgrid resource/driver can be configured; it does not open the placeholder device or interact with hardware.
 
 ## Setup requirements
 
 1. Use a separate Linux controller; the LOQ cannot control its own power cycle while booted into LionOS.
-2. Connect a real worker-side serial interface to the target's documented COM1 or COM2 UART interface and configure 115200 8N1, no flow control.
+2. Connect a real worker-side serial interface to the target's documented legacy UART interface and configure 115200 8N1, no flow control.
 3. Replace `/dev/ttyUSB0` and the example baud rate with the actual controller device and settings.
 4. Configure power/reset/removable-media resources only when the corresponding physical equipment is present.
 5. Run pytest tests through Labgrid after the target displays the `lion:/ >` prompt over serial.
