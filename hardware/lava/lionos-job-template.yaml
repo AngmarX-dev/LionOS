@@ -1,0 +1,40 @@
+# LAVA job skeleton only; not directly submit-ready.
+# Replace device_type and implement deployment/boot actions for your lab.
+# Keep the target's internal storage untouched.
+device_type: REPLACE_WITH_REGISTERED_X86_DEVICE_TYPE
+job_name: LionOS removable-media hardware smoke test
+timeouts:
+  job:
+    minutes: 20
+  action:
+    minutes: 5
+priority: medium
+visibility: personal
+metadata:
+  source: LionOS
+  test-plan: removable-media-boot-smoke
+actions:
+  # Provide a deployment method supported by your lab.
+  # Never add install-to-disk or destructive partitioning actions.
+  - deploy:
+      timeout:
+        minutes: 5
+      to: REPLACE_WITH_LAB_SUPPORTED_BOOT_MEDIA
+      images:
+        lionos:
+          url: REPLACE_WITH_GITHUB_ACTION_ARTIFACT_OR_LAB_MIRROR
+          image_arg: lionos.iso
+  # Boot action intentionally omitted: GRUB/USB/UEFI details are target-specific.
+  - test:
+      timeout:
+        minutes: 10
+      definitions:
+        - repository:
+            metadata:
+              name: lionos-hardware-smoke
+              format: Lava-Test Test Definition 1.0
+              version: "1.0"
+            run:
+              steps:
+                - echo "LionOS LAVA test definition placeholder"
+                - echo "Replace with target console capture and boot assertions"
