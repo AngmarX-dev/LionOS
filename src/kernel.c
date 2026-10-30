@@ -175,7 +175,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_init();
     console_write("LionOS kernel booting...\n\n");
     if (serial_rc == 0) {
-        console_write("[ OK ] 16550 UART / COM1-COM2 / 115200 8N1 / polled console\n");
+        console_write("[ OK ] 16550 UART / COM1-COM4 / 115200 8N1 / polled console\n");
         debug_write("LIONOS:SERIAL-UART-READY\n");
     } else {
         debug_write("LIONOS:SERIAL-UART-ABSENT\n");
