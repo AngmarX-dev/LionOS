@@ -204,8 +204,9 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ OK ] PS/2 keyboard / scancode input buffer\n");
     BOOT_STAGE(22u, "INPUT READY");
 
-    mouse_init();
-    console_write("[ OK ] PS/2 mouse / polled input\n");
+    /* Keep the laptop i8042 keyboard isolated while its input path is being validated.
+       PS/2 mouse setup sends AUX/controller commands through the same 8042 ports. */
+    console_write("[ -- ] PS/2 mouse initialization deferred during keyboard bring-up\n");
 
     /* ---- Memory / paging ---- */
     memory_init(multiboot_info);
