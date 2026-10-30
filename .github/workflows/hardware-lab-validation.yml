@@ -12,43 +12,46 @@ on:
 jobs:
   validate-integration-scaffold:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
-      - name: Checkout
+      - name: Checkout LionOS
         uses: actions/checkout@v4
 
-      - name: Validate Labgrid example and LAVA template syntax
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependencies
         run: |
-          python3 -m pip install --user PyYAML
-          python3 - <<'PY'
-          from pathlib import Path
-          import yaml
+          python -m pip install --upgrade pip
+          python -m pip install PyYAML labgrid voluptuous
 
-          paths = [
-              Path("hardware/labgrid/environment.yaml.example"),
-              Path("hardware/lava/lionos-job-template.yaml"),
-          ]
-          for path in paths:
-              data = yaml.safe_load(path.read_text(encoding="utf-8"))
-              assert isinstance(data, dict), f"{path}: expected YAML mapping"
-              print(f"YAML syntax PASS: {path}")
+      - name: Validate Labgrid environment using Labgrid APIs
+        run: |
+          python hardware/labgrid/validate_environment.py hardware/labgrid/environment.yaml.example
 
-          env = yaml.safe_load(paths[0].read_text(encoding="utf-8"))
-          assert "targets" in env and "loq15iax9" in env["targets"]
-          lava = yaml.safe_load(paths[1].read_text(encoding="utf-8"))
-          assert lava.get("job_name", "").startswith("LionOS")
-          assert "actions" in lava
-          print("Template structure checks PASS")
-          PY
+      - name: Validate LAVA job using upstream strict schema
+        run: |
+          git clone --depth 1 https://github.com/Linaro/lava.git "$RUNNER_TEMP/lava"
+          PYTHONPATH="$RUNNER_TEMP/lava" python hardware/lava/validate_job.py hardware/lava/lionos-job-template.yaml
+          git -C "$RUNNER_TEMP/lava" rev-parse HEAD
 
-      - name: Validate integration documentation and safety constraints
+      - name: Validate KernelCI core configuration and compatibility scope
+        run: |
+          git clone --depth 1 https://github.com/kernelci/kernelci-core.git "$RUNNER_TEMP/kernelci-core"
+          python hardware/kernelci/validate_scope.py "$RUNNER_TEMP/kernelci-core"
+          git -C "$RUNNER_TEMP/kernelci-core" rev-parse HEAD
+
+      - name: Validate docs and non-destructive hardware policy
         run: |
           set -euxo pipefail
           test -s docs/HARDWARE-TEST-LAB.md
           test -s hardware/labgrid/README.md
           test -s hardware/lava/README.md
           test -s hardware/kernelci/README.md
-          grep -q "not a Linux kernel" hardware/kernelci/README.md
           grep -q "internal SSD" docs/HARDWARE-TEST-LAB.md
-          grep -q "not a verified LionOS serial interface" hardware/labgrid/README.md || grep -q "not establish" hardware/labgrid/README.md
-          echo "Hardware-lab scaffold validation PASS"
+          grep -q "framebuffer" hardware/labgrid/README.md
+          grep -q "interactive tests" hardware/lava/README.md
+          grep -q "not a Linux kernel" hardware/kernelci/README.md
+          echo "Hardware-lab integration checks: PASS"
