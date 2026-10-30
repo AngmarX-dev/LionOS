@@ -25,7 +25,7 @@ static volatile uint8_t uart_ready;
 static volatile uint8_t previous_was_cr;
 static volatile uint32_t rx_bytes;
 static volatile uint32_t tx_bytes;
-static volatile uint32_t rx_errors;
+static volatile uint32_t io_errors;
 
 static void uart_raw_putc(uint8_t value) {
     if (!uart_ready) return;
@@ -36,7 +36,7 @@ static void uart_raw_putc(uint8_t value) {
             return;
         }
     }
-    ++rx_errors;
+    ++io_errors;
 }
 
 int serial_init(void) {
@@ -44,7 +44,7 @@ int serial_init(void) {
     previous_was_cr = 0u;
     rx_bytes = 0u;
     tx_bytes = 0u;
-    rx_errors = 0u;
+    io_errors = 0u;
 
     /* Disable UART interrupts before touching divisor and line-control registers. */
     outb(UART_IER(SERIAL_COM1_BASE), 0x00u);
@@ -108,7 +108,7 @@ int serial_getchar(void) {
     uint8_t value = inb(UART_DATA(SERIAL_COM1_BASE));
     if (status & (UART_LSR_OVERRUN | UART_LSR_PARITY |
                   UART_LSR_FRAMING | UART_LSR_BREAK)) {
-        ++rx_errors;
+        ++io_errors;
         return -1;
     }
 
@@ -132,4 +132,4 @@ int serial_getchar(void) {
 
 uint32_t serial_rx_count(void) { return rx_bytes; }
 uint32_t serial_tx_count(void) { return tx_bytes; }
-uint32_t serial_error_count(void) { return rx_errors; }
+uint32_t serial_error_count(void) { return io_errors; }
