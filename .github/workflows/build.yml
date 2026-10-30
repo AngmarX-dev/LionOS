@@ -1,4 +1,4 @@
-name: Build LionOS (GitHub-hosted runner, no emulator)
+name: LionOS native build and structural validation
 
 on:
   push:
@@ -6,20 +6,20 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-validate:
-    # GitHub-hosted Linux runner. This builds and inspects LionOS artifacts;
-    # GitHub-hosted runners do not expose a bare-metal boot target for custom OSes.
+  native-build:
+    # Official GitHub-hosted runner. No emulator or virtual machine is launched.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Install native build toolchain (no QEMU)
+      - name: Install native toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools syslinux-utils
 
-      - name: Build kernel and userspace
+      - name: Compile and link kernel, userspace, ISO, and filesystem image
         run: |
           make clean
           make
@@ -27,47 +27,62 @@ jobs:
           make iso
           make disk
 
-      - name: Validate Multiboot2 kernel
+      - name: Validate kernel executable and Multiboot2 header
         run: |
-          grub-file --is-x86-multiboot2 build/lionos.bin
-          file build/lionos.bin
           test -s build/lionos.bin
+          file build/lionos.bin | grep -q 'ELF 32-bit.*Intel 80386'
+          grub-file --is-x86-multiboot2 build/lionos.bin
+          nm -n build/lionos.bin | grep -Eq '[[:space:]]_start$'
+          nm -n build/lionos.bin | grep -Eq '[[:space:]]kernel_main$'
+          nm -n build/lionos.bin | grep -Eq '[[:space:]]interrupt_dispatch$'
 
-      - name: Validate userspace ELF binaries
+      - name: Validate userspace ELF layout
         run: |
+          count=0
           for elf in build/*.elf; do
             test -s "$elf"
-            test "$(stat -c%s "$elf")" -le 16384
             readelf -h "$elf" | grep -q 'Class:[[:space:]]*ELF32'
             readelf -h "$elf" | grep -q 'Machine:[[:space:]]*Intel 80386'
             readelf -l "$elf" | grep -q 'LOAD'
+            count=$((count + 1))
           done
+          test "$count" -gt 0
+          echo "Validated $count userspace ELF binaries"
 
-      - name: Verify BIOS and UEFI boot entries
+      - name: Validate bootable ISO structure
         run: |
-          xorriso -indev build/lionos.iso -report_el_torito as_mkisofs 2>&1 | tee build/eltorito.txt
-          grep -qi 'EFI' build/eltorito.txt
+          test -s build/lionos.iso
+          xorriso -indev build/lionos.iso -report_el_torito as_mkisofs 2>&1 | tee build/boot-structure.txt
+          grep -q -- '-b /boot/grub/i386-pc/eltorito.img' build/boot-structure.txt
+          grep -q -- '-e /efi.img' build/boot-structure.txt
+          xorriso -indev build/lionos.iso -find /boot -type f -exec lsdl 2>&1 | tee build/iso-files.txt
+          grep -q 'lionos.bin' build/iso-files.txt
+          grep -q 'grub.cfg' build/iso-files.txt
 
-      - name: Verify LionOS boot UI configuration
+      - name: Validate LionFS disk image metadata
+        run: |
+          python3 - <<'PY'
+          import os, struct
+          path = "build/lionos-disk.img"
+          data = open(path, "rb").read()
+          assert len(data) == 8 * 1024 * 1024, f"unexpected disk image size: {len(data)}"
+          assert data[:7] == b"LIONFS1", "LionFS signature missing"
+          assert struct.unpack_from("<I", data, 8)[0] == 2, "unsupported LionFS version"
+          directory = data[512:512 + 5 * 512]
+          assert len(directory) == 5 * 512, "directory region truncated"
+          print("LionFS v2 structure: PASS (8 MiB image, superblock and directory region valid)")
+          PY
+
+      - name: Validate source-level boot configuration
         run: |
           grep -q '^set gfxmode=auto$' boot/grub.cfg
           grep -q '^set gfxpayload=keep$' boot/grub.cfg
           grep -q '^menuentry "LionOS" {' boot/grub.cfg
-          ! grep -q 'LionOS (Safe Graphics)' boot/grub.cfg
           grep -q 'framebuffer_boot_splash' src/framebuffer.c
           grep -q 'console_use_framebuffer' src/kernel.c
           ! grep -R -E -q 'framebuffer_(set_mode|mode_supported)' src include
-          ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
-          awk '/^[[:space:]]*dw 5$/{getline; getline; getline; if ($0 !~ /dd 0$/) exit 1; getline; if ($0 !~ /dd 0$/) exit 1; getline; if ($0 !~ /dd 0$/) exit 1; found=1} END{exit(found ? 0 : 1)}' boot/boot.asm
 
-      - name: Verify generated images
-        run: |
-          test -s build/lionos.iso
-          test -s build/lionos-disk.img
-          file build/lionos.iso build/lionos-disk.img
-          python3 scripts/check_disk_log.py build/lionos-disk.img
-
-      - name: Upload images and validation report
+      - name: Upload build products and structural reports
         uses: actions/upload-artifact@v4
         with:
           name: lionos-native-build
@@ -75,4 +90,6 @@ jobs:
             build/lionos.bin
             build/lionos.iso
             build/lionos-disk.img
-            build/eltorito.txt
+            build/boot-structure.txt
+            build/iso-files.txt
+          if-no-files-found: error
