@@ -1,0 +1,8 @@
+# Example only. Copy to a private environment.yaml and replace the values.
+# Do not commit real device paths, network credentials, or power-control details.
+targets:
+  loq15iax9:
+    resources:
+      RawSerialPort:
+        port: /dev/ttyUSB0
+        speed: 115200
