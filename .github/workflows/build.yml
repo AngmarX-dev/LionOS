@@ -84,6 +84,9 @@ jobs:
           grep -q 'console_use_framebuffer' src/kernel.c
           ! grep -R -E -q 'framebuffer_(set_mode|mode_supported)' src include
 
+      - name: Validate LAVA serial console source contract
+        run: python3 scripts/ci/validate_serial_console.py
+
       - name: Deep kernel structure validation (no runtime or emulator)
         run: |
           set -euxo pipefail
