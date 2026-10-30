@@ -7,6 +7,12 @@
 #define KEYBOARD_BUFFER_SIZE 128u
 #define PS2_STATUS 0x64u
 #define PS2_DATA 0x60u
+#define PS2_STATUS_OBF 0x01u
+#define PS2_STATUS_IBF 0x02u
+#define PS2_STATUS_AUX 0x20u
+#define PS2_STATUS_TIMEOUT 0x40u
+#define PS2_STATUS_PARITY 0x80u
+#define PS2_WAIT_LIMIT 500000u
 
 static volatile uint8_t buffer[KEYBOARD_BUFFER_SIZE];
 static volatile uint32_t read_index;
@@ -26,7 +32,7 @@ static volatile uint8_t set2_break_pending=0u;
 static volatile uint8_t ps2_controller_present=0u;
 static volatile uint8_t ps2_translation_enabled=1u;
 
-static void keyboard_wait_write(void);
+static int keyboard_wait_write(void);
 static int keyboard_wait_read(void);
 static void keyboard_flush_output(void);
 
@@ -69,16 +75,29 @@ static void push_char(uint8_t c){
     write_index=next;
 }
 
-static void keyboard_wait_write(void){
-    for(uint32_t i=0u;i<100000u;++i){
-        if(!(inb(PS2_STATUS)&0x02u))return;
+/*
+ * Bounded i8042 waits model Linux's i8042_wait_read/write contract:
+ * callers must not issue a command after a controller timeout.
+ * The timeout is deliberately finite so a missing controller cannot hang boot.
+ */
+static int keyboard_wait_write(void){
+    for(uint32_t i=0u;i<PS2_WAIT_LIMIT;++i){
+        if(!(inb(PS2_STATUS)&PS2_STATUS_IBF))return 0;
         io_wait();
     }
+    return -1;
 }
 
 static int keyboard_wait_read(void){
-    for(uint32_t i=0u;i<100000u;++i){
-        if(inb(PS2_STATUS)&0x01u)return 0;
+    for(uint32_t i=0u;i<PS2_WAIT_LIMIT;++i){
+        uint8_t status=inb(PS2_STATUS);
+        if(status&PS2_STATUS_OBF){
+            if(status&(PS2_STATUS_TIMEOUT|PS2_STATUS_PARITY)){
+                (void)inb(PS2_DATA);
+                return -1;
+            }
+            return 0;
+        }
         io_wait();
     }
     return -1;
@@ -92,7 +111,7 @@ static void keyboard_flush_output(void){
 }
 
 static int keyboard_controller_config(void){
-    keyboard_wait_write();
+    if(keyboard_wait_write()!=0)return -1;
     outb(PS2_STATUS,0x20u);
     if(keyboard_wait_read()!=0){
         /*
@@ -116,9 +135,9 @@ static int keyboard_controller_config(void){
     cfg|=0x01u|0x04u;
     cfg&=(uint8_t)~0x10u;
 
-    keyboard_wait_write();
+    if(keyboard_wait_write()!=0)return -1;
     outb(PS2_STATUS,0x60u);
-    keyboard_wait_write();
+    if(keyboard_wait_write()!=0)return -1;
     outb(PS2_DATA,cfg);
 
     ps2_translation_enabled=(uint8_t)((cfg&0x40u)!=0u);
@@ -126,19 +145,22 @@ static int keyboard_controller_config(void){
 }
 
 static int keyboard_device_command_once(uint8_t command){
-    keyboard_wait_write();
+    if(keyboard_wait_write()!=0)return -1;
     outb(PS2_DATA,command);
 
     for(uint32_t i=0u;i<200000u;++i){
         uint8_t st=inb(PS2_STATUS);
         if(st&0x01u){
             uint8_t v=inb(PS2_DATA);
-            if(st&0x20u){
+            if(st&(PS2_STATUS_TIMEOUT|PS2_STATUS_PARITY))continue;
+            if(st&PS2_STATUS_AUX){
                 mouse_handle_ps2_byte(v);
                 continue;
             }
             if(v==0xFAu)return 0;
             if(v==0xFEu)return -2;
+            /* Preserve scan data that arrives while waiting for an ACK. */
+            keyboard_handle_scancode(v);
         }
         io_wait();
     }
@@ -157,14 +179,15 @@ static int keyboard_device_command(uint8_t command){
 static int keyboard_query_scancode_set(uint8_t *set){
     if(!set)return -1;
 
-    keyboard_wait_write();
+    if(keyboard_wait_write()!=0)return -1;
     outb(PS2_DATA,0xF0u);
     int ack=0;
     for(uint32_t i=0u;i<200000u;++i){
         uint8_t st=inb(PS2_STATUS);
         if(st&0x01u){
             uint8_t v=inb(PS2_DATA);
-            if(st&0x20u){
+            if(st&(PS2_STATUS_TIMEOUT|PS2_STATUS_PARITY))continue;
+            if(st&PS2_STATUS_AUX){
                 mouse_handle_ps2_byte(v);
                 continue;
             }
@@ -175,7 +198,7 @@ static int keyboard_query_scancode_set(uint8_t *set){
     }
     if(!ack)return -1;
 
-    keyboard_wait_write();
+    if(keyboard_wait_write()!=0)return -1;
     outb(PS2_DATA,0x00u);
     for(uint32_t i=0u;i<300000u;++i){
         uint8_t st=inb(PS2_STATUS);
@@ -234,7 +257,7 @@ void keyboard_init(void){
      * In that case, set 1 is the safest compatibility fallback; guessing set 2
      * causes every key to be decoded as an unknown scancode.
      */
-    if(cfg_rc!=0 || ps2_translation_enabled){
+    if(cfg_rc<0 || ps2_translation_enabled){
         scancode_set=1u;
         if(cfg_rc!=0)
             debug_write("LIONOS:KEYBOARD-CFG-FALLBACK-SET1\n");
@@ -256,6 +279,7 @@ void keyboard_init(void){
     if(scan_rc==0)debug_write("LIONOS:KEYBOARD-READY\n");
     else debug_write("LIONOS:KEYBOARD-NO-ACK\n");
 
+    /* Enable IRQ1 only after the controller and keyboard command sequence. */
     uint8_t mask=inb(0x21);
     mask&=(uint8_t)~(1u<<1);
     outb(0x21,mask);
@@ -399,9 +423,10 @@ void keyboard_ps2_service(void){
     if(!ps2_controller_present)return;
     for(uint32_t n=0u;n<64u;++n){
         uint8_t status=inb(PS2_STATUS);
-        if(!(status&0x01u))break;
+        if(!(status&PS2_STATUS_OBF))break;
         uint8_t data=inb(PS2_DATA);
-        if(status&0x20u)mouse_handle_ps2_byte(data);
+        if(status&(PS2_STATUS_TIMEOUT|PS2_STATUS_PARITY))continue;
+        if(status&PS2_STATUS_AUX)mouse_handle_ps2_byte(data);
         else keyboard_handle_scancode(data);
     }
 }
