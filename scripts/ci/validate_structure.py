@@ -95,7 +95,7 @@ base, tables = value(paging, "KERNEL_MMIO_BASE"), value(paging, "KERNEL_MMIO_PT_
 check("MMIO window ends exactly at PD slot boundary", base == 0xF0000000 and ((base >> 21) & 0x1FF) + tables == 512)
 check("PAE physical address mask is 52-bit", "0x000FFFFFFFFFF000ULL" in paging)
 check("User mapper rejects addresses at/above user limit", "virtual_address >= USER_LIMIT" in paging)
-check("COW has refcount, retain and copy paths", all(s in paging for s in ("page_refcount", "page_retain", "dst[i]=src[i]")))
+check("COW has refcount, retain and copy paths", all(s in paging for s in ("page_refcount", "page_alloc()", "dst[i]=src[i]", "page_free(")))
 
 # GDT and TSS.
 gdt = read("src/gdt.c")
