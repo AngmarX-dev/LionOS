@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "console.h"
 #include "framebuffer.h"
+#include "serial.h"
 
 #define VGA_WIDTH 80u
 #define VGA_HEIGHT 25u
@@ -79,6 +80,7 @@ void console_use_framebuffer(void) {
 }
 
 void console_putc(char c) {
+    serial_putc(c);
     if (graphics) {
         uint32_t rows = fb_rows();
         uint32_t cols = fb_cols();
