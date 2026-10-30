@@ -916,15 +916,10 @@ static void drag_cache_free(void){
 static int drag_cache_begin(struct ui_window*w){
     if(!w||!framebuffer_cursor_overlay_supported()) return -1;
     uint64_t screen_pixels=(uint64_t)framebuffer_width()*framebuffer_height();
-    uint64_t surface_pixels=(uint64_t)w->w*w->h;
-    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t) ||
-       surface_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
+    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
 
     drag_background=(uint32_t*)kmalloc((size_t)screen_pixels*sizeof(uint32_t));
-    drag_surface=(uint32_t*)kmalloc((size_t)surface_pixels*sizeof(uint32_t));
-    if(!drag_background||!drag_surface){drag_cache_free();return -1;}
-
-    framebuffer_copy_rect_to_buffer(drag_surface,w->w,w->x,w->y,w->w,w->h);
+    if(!drag_background){drag_cache_free();return -1;}
 
     /*
      * Build one static scene without the dragged window. Every subsequent
@@ -939,9 +934,6 @@ static int drag_cache_begin(struct ui_window*w){
     framebuffer_copy_to_buffer(drag_background);
 
     drag_render_skip_id=0u;
-    framebuffer_copy_rect_from_buffer(drag_surface,w->w,w->x,w->y,w->w,w->h);
-    drag_surface_w=w->w;
-    drag_surface_h=w->h;
     drag_cache_active=1u;
     scene_dirty=0u;
     dirty_valid=0u;
@@ -962,8 +954,11 @@ static void drag_cache_move(struct ui_window*w,uint32_t old_x,uint32_t old_y){
             drag_background+(size_t)top*screen_stride+left;
         framebuffer_copy_rect_from_buffer(background_src,screen_stride,
                                            left,top,right-left,bottom-top);
-        framebuffer_copy_rect_from_buffer(drag_surface,drag_surface_w,
-                                           w->x,w->y,drag_surface_w,drag_surface_h);
+        /* Re-render the window over its new background so glass/alpha effects
+           are composed at the current position instead of using stale pixels. */
+        framebuffer_set_clip(left,top,right-left,bottom-top);
+        draw_window(w);
+        framebuffer_clear_clip();
         framebuffer_present_rect(left,top,right-left,bottom-top);
     }
 }
