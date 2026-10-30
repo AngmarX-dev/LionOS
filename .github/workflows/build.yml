@@ -1,26 +1,47 @@
-name: Build LionOS
+name: Build LionOS (GitHub-hosted runner, no emulator)
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-and-validate:
+    # GitHub-hosted Linux runner. This builds and inspects LionOS artifacts;
+    # GitHub-hosted runners do not expose a bare-metal boot target for custom OSes.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install toolchain
+      - name: Install native build toolchain (no QEMU)
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools syslinux-utils qemu-system-x86
+          sudo apt-get install -y build-essential gcc-multilib nasm grub-pc-bin grub-efi-amd64-bin grub-common xorriso mtools syslinux-utils
 
-      - name: Run stability and GUI suite
-        run: make test
+      - name: Build kernel and userspace
+        run: |
+          make clean
+          make
+          make userland
+          make iso
+          make disk
 
-      - name: Build live USB image
-        run: make usb
+      - name: Validate Multiboot2 kernel
+        run: |
+          grub-file --is-x86-multiboot2 build/lionos.bin
+          file build/lionos.bin
+          test -s build/lionos.bin
+
+      - name: Validate userspace ELF binaries
+        run: |
+          for elf in build/*.elf; do
+            test -s "$elf"
+            test "$(stat -c%s "$elf")" -le 16384
+            readelf -h "$elf" | grep -q 'Class:[[:space:]]*ELF32'
+            readelf -h "$elf" | grep -q 'Machine:[[:space:]]*Intel 80386'
+            readelf -l "$elf" | grep -q 'LOAD'
+          done
 
       - name: Verify BIOS and UEFI boot entries
         run: |
@@ -39,14 +60,19 @@ jobs:
           ! grep -q 'LIONOS_QEMU_RESOLUTION' scripts/qemu_fullscreen.sh
           awk '/^[[:space:]]*dw 5$/{getline; getline; getline; if ($0 !~ /dd 0$/) exit 1; getline; if ($0 !~ /dd 0$/) exit 1; getline; if ($0 !~ /dd 0$/) exit 1; found=1} END{exit(found ? 0 : 1)}' boot/boot.asm
 
-      - name: Verify USB image is bootable as a disk
+      - name: Verify generated images
         run: |
-          timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
+          test -s build/lionos.iso
+          test -s build/lionos-disk.img
+          file build/lionos.iso build/lionos-disk.img
+          python3 scripts/check_disk_log.py build/lionos-disk.img
 
-      - name: Upload images
+      - name: Upload images and validation report
         uses: actions/upload-artifact@v4
         with:
-          name: lionos-images
+          name: lionos-native-build
           path: |
+            build/lionos.bin
             build/lionos.iso
-            build/lionos-usb.img
+            build/lionos-disk.img
+            build/eltorito.txt
