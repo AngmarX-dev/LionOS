@@ -13,5 +13,11 @@ void keyboard_handle_usb_report(const uint8_t *report, uint32_t length);
 int keyboard_getchar(void);
 uint32_t keyboard_available(void);
 int keyboard_ps2_available(void);
+uint32_t keyboard_scancode_count(void);
+uint32_t keyboard_dropped_count(void);
+uint8_t keyboard_last_scancode(void);
+uint8_t keyboard_scancode_set(void);
+uint8_t keyboard_ps2_status(void);
+uint8_t keyboard_raw_input_seen(void);
 
 #endif
