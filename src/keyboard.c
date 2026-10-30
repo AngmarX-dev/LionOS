@@ -122,9 +122,9 @@ static int keyboard_controller_config(void){
          * translation, both PS/2 clocks enabled) as a recovery fallback.
          */
         const uint8_t fallback_cfg=0x47u;
-        keyboard_wait_write();
+        if(keyboard_wait_write()!=0)return -1;
         outb(PS2_STATUS,0x60u);
-        keyboard_wait_write();
+        if(keyboard_wait_write()!=0)return -1;
         outb(PS2_DATA,fallback_cfg);
         ps2_translation_enabled=1u;
         debug_write("LIONOS:KEYBOARD-CFG-FORCED-SET1\n");
@@ -202,9 +202,10 @@ static int keyboard_query_scancode_set(uint8_t *set){
     outb(PS2_DATA,0x00u);
     for(uint32_t i=0u;i<300000u;++i){
         uint8_t st=inb(PS2_STATUS);
-        if(st&0x01u){
+        if(st&PS2_STATUS_OBF){
             uint8_t v=inb(PS2_DATA);
-            if(st&0x20u){
+            if(st&(PS2_STATUS_TIMEOUT|PS2_STATUS_PARITY))continue;
+            if(st&PS2_STATUS_AUX){
                 mouse_handle_ps2_byte(v);
                 continue;
             }
