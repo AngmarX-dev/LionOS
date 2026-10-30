@@ -1652,18 +1652,34 @@ static int enumerate_port_impl(uint32_t p){
     if(cmd_configure_hid(&c)) return usb_fail("CONFIGURE HID EP");
 
     diag_stage="HID CLASS SETUP";
+    /*
+     * HID SET_PROTOCOL wValue is 0 for Boot Protocol and 1 for Report
+     * Protocol. bInterfaceProtocol (1=keyboard, 2=mouse) is not the
+     * SET_PROTOCOL value. The known-working LionOS path consumes the
+     * standard 8-byte boot report, so request Boot Protocol for boot
+     * keyboard and mouse interfaces.
+     */
+    int boot_protocol_active=0;
     if(c.boot_protocol==1u||c.boot_protocol==2u){
-        if(ctrl(0x21u,0x0Bu,(uint16_t)(hid_wanted_keyboard?1u:2u),c.interface_number,0,0,0,1)){
-            usb_log("[ USB ] SET_PROTOCOL failed cc=0x"); usb_log_hex(diag_last_cc); usb_log_nl();
+        if(ctrl(0x21u,0x0Bu,0u,c.interface_number,0,0,0,1)==0){
+            boot_protocol_active=1;
+        }else{
+            usb_log("[ USB ] SET_PROTOCOL(Boot) failed cc=0x");
+            usb_log_hex(diag_last_cc); usb_log_nl();
         }
     }
-    /*
-     * A HID keyboard is usable with its boot report even when a vendor
-     * descriptor is unusual or cannot be parsed. Keep enumeration alive;
-     * xhci_mouse_poll() already has a boot-report decoder and will use the
-     * parsed layout when one is available.
-     */
-    int layout_rc=hid_layout_read_descriptor(&c);
+
+    int layout_rc=-1;
+    if(boot_protocol_active){
+        /* Boot reports are already normalized; do not reinterpret them
+           through a vendor Report-Protocol descriptor. */
+        if(hid_wanted_keyboard)
+            keyboard_hid_layout=(hid_keyboard_layout_t){0u,0u,0u,0u,0u,0u,0u};
+        else
+            mouse_hid_layout=(hid_mouse_layout_t){0u,0u,0u,0u,0u,0u,0u,0u};
+    }else{
+        layout_rc=hid_layout_read_descriptor(&c);
+    }
     /*
      * Subclass-0 HID interfaces are not necessarily mice. Some laptop
      * embedded-controller devices expose the keyboard through a generic
@@ -1887,15 +1903,26 @@ int xhci_keyboard_init(void){
          * otherwise the completion path interprets vendor/NKRO bytes as a
          * boot keyboard report and silently drops every key.
          */
+        int boot_protocol_active=0;
         if(c.boot_protocol==1u){
-            if(ctrl(0x21u,0x0Bu,1u,c.interface_number,0,0,0,1)!=0)
-                debug_write("LIONOS:USB-KBD-SET-PROTOCOL-FAILED\n");
+            if(ctrl(0x21u,0x0Bu,0u,c.interface_number,0,0,0,1)==0){
+                boot_protocol_active=1;
+            }else{
+                debug_write("LIONOS:USB-KBD-SET-PROTOCOL-BOOT-FAILED\n");
+            }
         }
-        int layout_rc=hid_layout_read_descriptor(&c);
-        if(layout_rc==0)
-            debug_write("LIONOS:USB-KBD-REPORT-LAYOUT-OK\n");
-        else
-            debug_write("LIONOS:USB-KBD-REPORT-LAYOUT-UNKNOWN\n");
+        int layout_rc=-1;
+        if(boot_protocol_active){
+            /* The interrupt report is the standard 8-byte boot format. */
+            keyboard_hid_layout=(hid_keyboard_layout_t){0u,0u,0u,0u,0u,0u,0u};
+            debug_write("LIONOS:USB-KBD-BOOT-PROTOCOL\n");
+        }else{
+            layout_rc=hid_layout_read_descriptor(&c);
+            if(layout_rc==0)
+                debug_write("LIONOS:USB-KBD-REPORT-LAYOUT-OK\n");
+            else
+                debug_write("LIONOS:USB-KBD-REPORT-LAYOUT-UNKNOWN\n");
+        }
         (void)ctrl(0x21u,0x0Au,0u,c.interface_number,0,0,0,1);
         endpoint_packet=c.packet_size;
         if(endpoint_packet>PAGE_SIZE) endpoint_packet=PAGE_SIZE;
