@@ -3,24 +3,53 @@
 LAVA repository: https://github.com/Linaro/lava  
 Project site: https://www.lavasoftware.org/
 
-LAVA schedules jobs on registered devices and supports interactive tests for non-POSIX command interfaces. That interactive mode is a better conceptual match for the LionOS shell than LAVA's normal test-definition shell, which expects a POSIX environment.
+LAVA schedules jobs on registered physical devices. Its interactive test action can drive the LionOS command shell without requiring a POSIX userspace.
 
-## What was validated
+## LionOS serial console implemented on this branch
 
-The branch validation clones the upstream LAVA source and runs its `lava_common.schemas.validate(..., strict=True)` validator against `lionos-job-template.yaml`. This checks the current LAVA job/action schema, including the UEFI-menu boot action and interactive test definition. It does not submit a job or contact a LAVA server.
+The kernel now includes a polled 16550-compatible COM1 driver:
 
-## Job assumptions
+- I/O base: `0x03F8` (COM1)
+- Baud: `115200`
+- Framing: `8 data bits, no parity, 1 stop bit (8N1)`
+- Flow control: none
+- Driver mode: polling; UART interrupts are disabled
+- Detection: UART internal loopback self-test before enabling the console
 
-- A LAVA server is controlled by the lab administrator.
-- An x86 UEFI device type is registered.
-- The device type defines a UEFI menu selector named `lionos-usb` for an already prepared removable USB device.
-- The device's serial console exposes the LionOS prompt `lion:/ >`.
-- The removable medium is prepared outside the LAVA job. The template deliberately does not repartition or write the laptop's internal SSD.
+Console output is mirrored to the active display and COM1. Serial input is fed into the same shell command processor as the PS/2/USB keyboard. CR, LF, CRLF and terminal backspace are normalized. The `serial` shell command reports UART detection and RX/TX/error counters.
 
-The job runs `uname`, `keyboard`, and `ls` over LAVA's interactive console. The keyboard command's diagnostic banner confirms the command ran; it does **not** prove that physical key input works. A true keyboard PASS still requires pressing keys on the built-in keyboard and observing the counters/characters.
+When COM1 passes loopback detection, LionOS skips the graphical desktop and enters the interactive shell directly. This makes the `lion:/ >` prompt available to LAVA. If no verified COM1 is found, normal desktop startup is unchanged.
 
-## LionOS-specific blocker
+The internal loopback only verifies the UART itself. It does not verify the cable, adapter, remote serial server, electrical levels, or the registered LAVA device.
 
-The current shell is framebuffer-only. There is no verified bidirectional UART console for the shell, so LAVA cannot currently see the prompt or send shell commands to LionOS. The job is schema-valid, but it is not operational on the present LionOS build until a serial console is implemented and wired to the device.
+## LAVA server and device setup
 
-No LAVA server or registered LOQ device is available to this repository workflow, so no live job can be submitted here.
+1. Register a physical x86 UEFI device type and a device on a LAVA worker.
+2. Connect the worker's serial interface to the target's documented COM1/UART interface. Configure the worker-side serial connection for 115200 8N1, no flow control.
+3. Make the serial interface available to the worker's LAVA dispatcher using the connection method configured for that device (for example, a local serial concentrator or serial server). The connection command and port are lab-specific; do not copy a placeholder device path.
+4. Configure the device's UEFI boot-menu mapping named `lionos-usb` to select a pre-prepared removable LionOS USB device.
+5. Replace `REPLACE_WITH_REGISTERED_X86_UEFI_DEVICE_TYPE` in the job template with the exact registered LAVA device type.
+6. Submit the job from the LAVA server. The template does not partition, format, install to, or write to internal storage.
+
+The device connection and UEFI-menu mapping are LAVA-lab configuration, not properties that the job YAML can invent. A schema-valid job cannot run until those resources exist.
+
+## Job coverage
+
+The interactive job waits for `lion:/ >` and runs:
+
+- `serial` — expects the serial diagnostic banner
+- `uname` — confirms the LionOS shell responds
+- `keyboard` — reports PS/2 state and counters
+- `ls` — exercises another shell command
+
+The keyboard diagnostic banner proves only that the command ran. Keyboard PASS still requires actual physical key presses and observed scancode/character changes.
+
+## What CI validates
+
+The branch workflow clones upstream LAVA and validates the job with `lava_common.schemas.validate(..., strict=True)`. It also runs the LionOS serial-console source contract checks. CI does not submit a live job, connect a serial cable, or boot a registered device.
+
+## Hardware limitation
+
+The Lenovo LOQ 15IAX9 has not been verified to expose a documented legacy COM1/UART connector. A normal USB port is not a UART port. A USB-to-TTL adapter only helps when its serial pins are connected to an actual documented target UART; RS-232 and TTL-level UART must not be connected directly to each other. Do not probe unknown motherboard pins.
+
+If the LOQ has no accessible UART, this COM1 implementation alone cannot provide a LAVA console for that laptop. A supported firmware serial redirection path or a different target with accessible UART hardware would be required.
