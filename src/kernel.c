@@ -29,6 +29,7 @@
 #include "intel_gpu.h"
 #include "exec.h"
 #include "kernel_diag.h"
+#include "pci.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -220,6 +221,12 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         BOOT_STAGE(32u, "DISPLAY DETECTED");
 
     paging_init();
+
+    /* Enumerate real PCI configuration space before device-driver probing. */
+    if(pci_init() == 0)
+        pci_print_devices();
+    else
+        console_write("[ -- ] PCI hardware enumeration unavailable\n");
 
     if(framebuffer_init(multiboot_info) == 0){
         console_write("[ OK ] Framebuffer ");
