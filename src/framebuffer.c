@@ -2,6 +2,7 @@
 #include "framebuffer.h"
 #include "paging.h"
 #include "heap.h"
+#include "lion_boot_splash.h"
 
 #define FB_VIRTUAL_BASE 0xF4000000u
 #define FB_MAX_MAPPED_SIZE 0x04000000u
@@ -55,6 +56,8 @@ static struct mb2_fb_tag saved_fb_tag;
 static uint32_t saved_fb_valid;
 static uint32_t *desktop_buffer;
 static uint32_t *wallpaper_cache;
+static const uint16_t *wallpaper_source;
+static uint32_t boot_splash_asset_drawn;
 static uint32_t wallpaper_cache_width;
 static uint32_t wallpaper_cache_height;
 static uint32_t wallpaper_cache_ready;
@@ -257,6 +260,29 @@ static void boot_text_center(const char *s, uint32_t y, uint32_t fg, uint32_t bg
     }
 }
 
+static void framebuffer_boot_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint32_t height) {
+    if(!enabled||!pixels||!width||!height)return;
+    uint32_t sw=fb_width_value,sh=fb_height_value;
+    if(!sw||!sh)return;
+    uint32_t lhs=sw*height,rhs=sh*width;
+    uint32_t out_w,out_h;
+    if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;}
+    else{out_h=sh;out_w=(sh*width)/height;}
+    uint32_t crop_x=out_w>sw?(out_w-sw)/2u:0u;
+    uint32_t crop_y=out_h>sh?(out_h-sh)/2u:0u;
+    for(uint32_t y=0u;y<sh;++y){
+        uint32_t sy=((y+crop_y)*height)/out_h;
+        for(uint32_t x=0u;x<sw;++x){
+            uint32_t sx=((x+crop_x)*width)/out_w;
+            uint16_t p=pixels[sy*width+sx];
+            uint32_t r=((p>>11)&31u)*255u/31u;
+            uint32_t g=((p>>5)&63u)*255u/63u;
+            uint32_t b=(p&31u)*255u/31u;
+            put_pixel(x,y,(r<<16)|(g<<8)|b);
+        }
+    }
+}
+
 void framebuffer_boot_splash(uint32_t progress, const char *status) {
     if (!enabled) return;
     if (progress > 100u) progress = 100u;
@@ -264,37 +290,24 @@ void framebuffer_boot_splash(uint32_t progress, const char *status) {
     if (!w || !h) return;
 
     ++boot_animation_frame;
-    framebuffer_fill_rect(0u, 0u, w, h, 0x050A12u);
-    framebuffer_fill_rect(0u, 0u, w, 4u, 0xF2C94Cu);
+    if(!boot_splash_asset_drawn){
+        framebuffer_boot_blit_rgb565_cover(lion_boot_splash_rgb565,LION_BOOT_SPLASH_W,LION_BOOT_SPLASH_H);
+        boot_splash_asset_drawn=1u;
+    }
 
-    uint32_t cx = w / 2u;
-    uint32_t logo_y = h > 560u ? h / 2u - 150u : h / 2u - 120u;
-    if (logo_y < 40u) logo_y = 40u;
+    /* The uploaded splash remains visible above a freshly redrawn progress panel. */
+    uint32_t panel_y=h>164u?h-164u:0u;
+    framebuffer_fill_rect(0u,panel_y,w,h-panel_y,0x050A12u);
+    framebuffer_fill_rect(0u,0u,w,4u,0xF2C94Cu);
 
-    /* Compact gold LionOS mark built from the same geometry as the desktop theme. */
-    uint32_t s = h > 560u ? 10u : 8u;
-    uint32_t m = s * 2u + 1u;
-    framebuffer_fill_rect(cx - m * 3u, logo_y, m * 2u, m, 0xF2C94Cu);
-    framebuffer_fill_rect(cx + m, logo_y, m * 2u, m, 0xF2C94Cu);
-    framebuffer_fill_rect(cx - m * 4u, logo_y + m, m * 8u, m * 5u, 0xF2C94Cu);
-    framebuffer_fill_rect(cx - m * 3u, logo_y + m * 2u, m * 6u, m * 4u, 0x0B1422u);
-    framebuffer_fill_rect(cx - m * 2u, logo_y + m * 2u, m, m, 0xF2C94Cu);
-    framebuffer_fill_rect(cx + m, logo_y + m * 2u, m, m, 0xF2C94Cu);
-    framebuffer_fill_rect(cx - m * 2u, logo_y + m * 5u, m * 4u, m * 2u, 0xF2C94Cu);
-    framebuffer_fill_rect(cx - m, logo_y + m * 7u, m * 2u, m, 0xF2C94Cu);
-
-    boot_text_center("LIONOS", logo_y + m * 9u, 0xF2C94Cu, 0x050A12u);
-    boot_text_center("EXPERIMENTAL OPERATING SYSTEM", logo_y + m * 11u, 0x91A4BCu, 0x050A12u);
-
-    uint32_t bar_w = w > 720u ? 560u : (w > 480u ? w - 120u : w - 64u);
+    uint32_t bar_w = w > 720u ? 560u : (w > 480u ? w - 120u : (w>80u?w-64u:w));
     uint32_t bar_h = 10u;
     uint32_t bar_x = (w - bar_w) / 2u;
-    uint32_t bar_y = h > 560u ? h - 120u : h - 90u;
+    uint32_t bar_y = h > 560u ? h - 120u : (h>90u?h-90u:panel_y+10u);
     framebuffer_fill_rect(bar_x, bar_y, bar_w, bar_h, 0x13233Au);
     uint32_t fill_w = (bar_w * progress) / 100u;
     if (fill_w) framebuffer_fill_rect(bar_x, bar_y, fill_w, bar_h, 0xF2C94Cu);
 
-    /* Moving highlight gives the loader a subtle animation without a backbuffer. */
     uint32_t marker = (boot_animation_frame * 6u) % (bar_w ? bar_w : 1u);
     if (marker + 12u < bar_w) framebuffer_fill_rect(bar_x + marker, bar_y, 12u, bar_h, 0xFFF1A8u);
 
@@ -535,19 +548,48 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
     if (end_x > fb_width_value - x) end_x = fb_width_value - x;
     if (end_y > fb_height_value - y) end_y = fb_height_value - y;
     for (uint32_t dy = start_y; dy < end_y; ++dy) {
-        uint32_t sy = (dy * height) / size;
+        int32_t sy_fp = (int32_t)(((2u * dy + 1u) * height * 128u) / size) - 128;
+        if (sy_fp < 0) sy_fp = 0;
+        uint32_t max_sy = (height - 1u) << 8;
+        if ((uint32_t)sy_fp > max_sy) sy_fp = (int32_t)max_sy;
+        uint32_t sy0 = (uint32_t)sy_fp >> 8, sy1 = sy0 + 1u < height ? sy0 + 1u : sy0;
+        uint32_t fy = (uint32_t)sy_fp & 255u;
         for (uint32_t dx = start_x; dx < end_x; ++dx) {
-            uint32_t sx = (dx * width) / size;
-            uint32_t src = pixels[sy * width + sx];
-            uint32_t alpha = src >> 24;
-            if (alpha == 0u) continue;
-            uint32_t rgb = src & 0x00FFFFFFu;
+            int32_t sx_fp = (int32_t)(((2u * dx + 1u) * width * 128u) / size) - 128;
+            if (sx_fp < 0) sx_fp = 0;
+            uint32_t max_sx = (width - 1u) << 8;
+            if ((uint32_t)sx_fp > max_sx) sx_fp = (int32_t)max_sx;
+            uint32_t sx0 = (uint32_t)sx_fp >> 8, sx1 = sx0 + 1u < width ? sx0 + 1u : sx0;
+            uint32_t fx = (uint32_t)sx_fp & 255u;
+            uint32_t p00 = pixels[sy0 * width + sx0], p10 = pixels[sy0 * width + sx1];
+            uint32_t p01 = pixels[sy1 * width + sx0], p11 = pixels[sy1 * width + sx1];
+            uint32_t a00 = p00 >> 24, a10 = p10 >> 24, a01 = p01 >> 24, a11 = p11 >> 24;
+            uint32_t at = (a00 * (256u - fx) + a10 * fx + 128u) >> 8;
+            uint32_t ab = (a01 * (256u - fx) + a11 * fx + 128u) >> 8;
+            uint32_t alpha = (at * (256u - fy) + ab * fy + 128u) >> 8;
+            if (!alpha) continue;
+
+            uint32_t r00 = ((p00 >> 16) & 255u) * a00, r10 = ((p10 >> 16) & 255u) * a10;
+            uint32_t r01 = ((p01 >> 16) & 255u) * a01, r11 = ((p11 >> 16) & 255u) * a11;
+            uint32_t g00 = ((p00 >> 8) & 255u) * a00, g10 = ((p10 >> 8) & 255u) * a10;
+            uint32_t g01 = ((p01 >> 8) & 255u) * a01, g11 = ((p11 >> 8) & 255u) * a11;
+            uint32_t b00 = (p00 & 255u) * a00, b10 = (p10 & 255u) * a10;
+            uint32_t b01 = (p01 & 255u) * a01, b11 = (p11 & 255u) * a11;
+            uint32_t rt = (r00 * (256u - fx) + r10 * fx + 128u) >> 8;
+            uint32_t r_bottom = (r01 * (256u - fx) + r11 * fx + 128u) >> 8;
+            uint32_t gt = (g00 * (256u - fx) + g10 * fx + 128u) >> 8;
+            uint32_t gb = (g01 * (256u - fx) + g11 * fx + 128u) >> 8;
+            uint32_t bt = (b00 * (256u - fx) + b10 * fx + 128u) >> 8;
+            uint32_t bb = (b01 * (256u - fx) + b11 * fx + 128u) >> 8;
+            uint32_t sr = ((rt * (256u - fy) + r_bottom * fy + 128u) >> 8) / alpha;
+            uint32_t sg = ((gt * (256u - fy) + gb * fy + 128u) >> 8) / alpha;
+            uint32_t sb = ((bt * (256u - fy) + bb * fy + 128u) >> 8) / alpha;
+            uint32_t rgb = (sr << 16) | (sg << 8) | sb;
             if (alpha >= 255u) {
                 desktop_buffer[(y + dy) * fb_width_value + (x + dx)] = pack_rgb(rgb);
                 continue;
             }
             uint32_t dst = desktop_buffer[(y + dy) * fb_width_value + (x + dx)];
-            uint32_t sr = (rgb >> 16) & 0xFFu, sg = (rgb >> 8) & 0xFFu, sb = rgb & 0xFFu;
             uint32_t dr = (dst >> red_pos) & ((1u << red_size) - 1u);
             uint32_t dg = (dst >> green_pos) & ((1u << green_size) - 1u);
             uint32_t db = (dst >> blue_pos) & ((1u << blue_size) - 1u);
@@ -562,28 +604,54 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
     }
 }
 
+
 void framebuffer_blit_rgb565_cover(const uint16_t *pixels, uint32_t width, uint32_t height) {
     if (!enabled || !desktop_mode || !desktop_buffer || !pixels || !width || !height) return;
-    if (!wallpaper_cache || wallpaper_cache_width != fb_width_value || wallpaper_cache_height != fb_height_value) {
+    if (!wallpaper_cache || wallpaper_cache_width != fb_width_value || wallpaper_cache_height != fb_height_value || wallpaper_source != pixels) {
         uint64_t pixels_count=(uint64_t)fb_width_value*fb_height_value;
         if (pixels_count > 0xFFFFFFFFu/sizeof(uint32_t)) return;
         if (wallpaper_cache) kfree(wallpaper_cache);
         wallpaper_cache=(uint32_t*)kmalloc((size_t)pixels_count*sizeof(uint32_t));
         if (!wallpaper_cache) { wallpaper_cache_ready=0u; return; }
-        wallpaper_cache_width=fb_width_value; wallpaper_cache_height=fb_height_value; wallpaper_cache_ready=0u;
+        wallpaper_cache_width=fb_width_value; wallpaper_cache_height=fb_height_value; wallpaper_source=pixels; wallpaper_cache_ready=0u;
     }
     uint32_t sw=fb_width_value, sh=fb_height_value;
     if (!wallpaper_cache_ready) {
-        uint32_t lhs=sw*height, rhs=sh*width, out_w,out_h,ox,oy;
-        if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;ox=0u;oy=(sh-out_h)/2u;}
-        else{out_h=sh;out_w=(sh*width)/height;ox=(sw-out_w)/2u;oy=0u;}
-        for(uint32_t y=0u;y<out_h;++y){
-            uint32_t sy=(y*height)/out_h;
-            uint32_t *dst=wallpaper_cache+(oy+y)*sw+ox;
-            for(uint32_t x=0u;x<out_w;++x){
-                uint32_t sx=(x*width)/out_w;
-                uint16_t p=pixels[sy*width+sx];
-                uint32_t r=((p>>11)&31u)*255u/31u, g=((p>>5)&63u)*255u/63u, b=(p&31u)*255u/31u;
+        for(uint64_t i=0u;i<(uint64_t)sw*sh;++i) wallpaper_cache[i]=pack_rgb(0u);
+        uint32_t lhs=sw*height, rhs=sh*width;
+        uint32_t out_w,out_h;
+        if(lhs>=rhs){out_w=sw;out_h=(sw*height)/width;}
+        else{out_h=sh;out_w=(sh*width)/height;}
+        uint32_t crop_x=out_w>sw?(out_w-sw)/2u:0u, crop_y=out_h>sh?(out_h-sh)/2u:0u;
+        for(uint32_t y=0u;y<sh;++y){
+            int32_t sy_fp=(int32_t)(((2u*(y+crop_y)+1u)*height*128u)/out_h)-128;
+            if(sy_fp<0)sy_fp=0;
+            uint32_t max_sy=(height-1u)<<8;
+            if((uint32_t)sy_fp>max_sy)sy_fp=(int32_t)max_sy;
+            uint32_t sy0=(uint32_t)sy_fp>>8, sy1=sy0+1u<height?sy0+1u:sy0;
+            uint32_t fy=(uint32_t)sy_fp&255u;
+            uint32_t *dst=wallpaper_cache+y*sw;
+            for(uint32_t x=0u;x<sw;++x){
+                int32_t sx_fp=(int32_t)(((2u*(x+crop_x)+1u)*width*128u)/out_w)-128;
+                if(sx_fp<0)sx_fp=0;
+                uint32_t max_sx=(width-1u)<<8;
+                if((uint32_t)sx_fp>max_sx)sx_fp=(int32_t)max_sx;
+                uint32_t sx0=(uint32_t)sx_fp>>8, sx1=sx0+1u<width?sx0+1u:sx0;
+                uint32_t fx=(uint32_t)sx_fp&255u;
+                uint16_t p00=pixels[sy0*width+sx0], p10=pixels[sy0*width+sx1];
+                uint16_t p01=pixels[sy1*width+sx0], p11=pixels[sy1*width+sx1];
+                uint32_t r00=((p00>>11)&31u)*255u/31u, r10=((p10>>11)&31u)*255u/31u;
+                uint32_t r01=((p01>>11)&31u)*255u/31u, r11=((p11>>11)&31u)*255u/31u;
+                uint32_t g00=((p00>>5)&63u)*255u/63u, g10=((p10>>5)&63u)*255u/63u;
+                uint32_t g01=((p01>>5)&63u)*255u/63u, g11=((p11>>5)&63u)*255u/63u;
+                uint32_t b00=(p00&31u)*255u/31u, b10=(p10&31u)*255u/31u;
+                uint32_t b01=(p01&31u)*255u/31u, b11=(p11&31u)*255u/31u;
+                uint32_t rt=(r00*(256u-fx)+r10*fx+128u)>>8, rb=(r01*(256u-fx)+r11*fx+128u)>>8;
+                uint32_t gt=(g00*(256u-fx)+g10*fx+128u)>>8, gb=(g01*(256u-fx)+g11*fx+128u)>>8;
+                uint32_t bt=(b00*(256u-fx)+b10*fx+128u)>>8, bb=(b01*(256u-fx)+b11*fx+128u)>>8;
+                uint32_t r=(rt*(256u-fy)+rb*fy+128u)>>8;
+                uint32_t g=(gt*(256u-fy)+gb*fy+128u)>>8;
+                uint32_t b=(bt*(256u-fy)+bb*fy+128u)>>8;
                 dst[x]=pack_rgb((r<<16)|(g<<8)|b);
             }
         }

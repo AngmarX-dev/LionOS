@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "memory.h"
 #include "paging.h"
+#include "cpu.h"
 
 #define PAGE_SIZE 4096u
 #define PAE_ROOT_ENTRIES 4u
@@ -13,7 +14,7 @@
  * 0xF0000000..0xF7FFFFFF is 128 MiB. Each page-directory entry covers
  * 2 MiB, so only 32 page tables are needed here.
  */
-#define KERNEL_MMIO_PT_COUNT 64u
+#define KERNEL_MMIO_PT_COUNT 128u
 #define USER_LIMIT 0xC0000000u
 #define PROCESS_PAGING_PAGES 5u /* PDPT + four page-directory pages */
 
@@ -38,7 +39,8 @@ static uint64_t page_root[PAE_ROOT_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t kernel_pd[PAE_ROOT_ENTRIES][PAE_PD_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t identity_pt[IDENTITY_PT_COUNT][PAE_PT_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t kernel_mmio_pt[KERNEL_MMIO_PT_COUNT][PAE_PT_ENTRIES] __attribute__((aligned(4096)));
-static uint32_t current_directory;
+static uint32_t current_directory[LIONOS_MAX_CPUS];
+static uint32_t *current_directory_slot(void){uint32_t cpu=cpu_current_index();return &current_directory[cpu<LIONOS_MAX_CPUS?cpu:0u];}
 
 static uint64_t *pdpt_ptr(uint32_t physical) {
     return (uint64_t *)(uintptr_t)physical;
@@ -63,11 +65,11 @@ static void enable_pae_paging(void) {
     cr4 |= 0x20u; /* CR4.PAE */
     __asm__ volatile ("mov %0, %%cr4" : : "r"(cr4) : "memory");
 
-    __asm__ volatile ("mov %0, %%cr3" : : "r"(current_directory) : "memory");
+    __asm__ volatile ("mov %0, %%cr3" : : "r"(*current_directory_slot()) : "memory");
 
     uint32_t cr0;
     __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
-    cr0 |= 0x80000000u; /* CR0.PG */
+    cr0 |= 0x80010000u; /* CR0.PG | CR0.WP: kernel cannot bypass user read-only/COW pages. */
     __asm__ volatile ("mov %0, %%cr0" : : "r"(cr0) : "memory");
 }
 
@@ -106,7 +108,7 @@ void paging_init(void) {
     page_root[2] = ((uint64_t)(uintptr_t)kernel_pd[2] & PTE_ADDR_MASK) | PTE_PRESENT;
     page_root[3] = ((uint64_t)(uintptr_t)kernel_pd[3] & PTE_ADDR_MASK) | PTE_PRESENT;
 
-    current_directory = (uint32_t)(uintptr_t)page_root;
+    current_directory[0] = (uint32_t)(uintptr_t)page_root;
     enable_pae_paging();
 }
 
@@ -131,7 +133,7 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT;
 
-    if (current_directory == paging_kernel_directory())
+    if (*current_directory_slot() == paging_kernel_directory())
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
@@ -184,7 +186,7 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT | PTE_USER;
 
-    if (current_directory == pd_physical)
+    if (*current_directory_slot() == pd_physical)
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     return 0;
 }
@@ -275,11 +277,11 @@ void paging_destroy_address_space(uint32_t pd_physical) {
 }
 
 void paging_switch_address_space(uint32_t pd_physical) {
-    if (!pd_physical || pd_physical == current_directory) return;
-    current_directory = pd_physical;
+    if (!pd_physical || pd_physical == *current_directory_slot()) return;
+    *current_directory_slot() = pd_physical;
     __asm__ volatile ("mov %0, %%cr3" : : "r"(pd_physical) : "memory");
 }
 
 uint32_t paging_current_address_space(void) {
-    return current_directory;
+    return *current_directory_slot();
 }

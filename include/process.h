@@ -16,12 +16,17 @@
 #define PROCESS_CONTEXT_WORDS 19u
 #define PROCESS_FD_MAX 32u
 #define PROCESS_FD_PATH_MAX 64u
+#define PROCESS_PRIORITY_LEVELS 4u
+#define PROCESS_PRIORITY_DEFAULT 2u
 #define PROCESS_CAP_CONSOLE (1u<<0)
 #define PROCESS_CAP_FS      (1u<<1)
 #define PROCESS_CAP_PROCESS (1u<<2)
 #define PROCESS_CAP_IPC     (1u<<3)
 #define PROCESS_CAP_NET     (1u<<4)
 #define PROCESS_CAP_ADMIN   (1u<<31)
+#define PROCESS_MAX_THREADS 32u
+#define PROCESS_THREAD_STACK_BASE 0xBFFE0000u
+#define PROCESS_THREAD_STACK_STRIDE 0x2000u
 #define PROCESS_CAP_USER_DEFAULT (PROCESS_CAP_CONSOLE|PROCESS_CAP_FS|PROCESS_CAP_PROCESS|PROCESS_CAP_IPC|PROCESS_CAP_NET)
 
 struct process {
@@ -47,6 +52,20 @@ struct process {
     uint32_t pending_signals;
     uint32_t capabilities;
     uint32_t cpu_owner;
+    uint32_t priority;
+    uint32_t base_priority;
+    uint32_t time_slice;
+    uint32_t ticks_used;
+    uint8_t fpu_state[512] __attribute__((aligned(16)));
+    uint32_t fpu_valid;
+    uint32_t tid;
+    uint32_t thread_group_pid;
+    uint32_t is_thread;
+    uint32_t owns_address_space;
+    uint32_t thread_stack_page;
+    uint32_t thread_stack_va;
+    uint32_t join_tid;
+    uint32_t join_status_ptr;
     uint8_t fd_used[PROCESS_FD_MAX];
     uint8_t fd_backend[PROCESS_FD_MAX];
     uint32_t fd_flags[PROCESS_FD_MAX];
@@ -59,6 +78,11 @@ struct process *process_current(void);
 struct process *process_at(uint32_t index);
 const char *process_state_name(uint32_t state);
 uint32_t process_current_pid(void);
+uint32_t process_current_tid(void);
+struct process *process_create_kernel_thread(uint32_t entry, uint32_t arg);
+uint32_t process_create_user_thread(uint32_t entry);
+void process_exit_thread(uint32_t exit_code);
+int32_t process_join_thread(uint32_t tid, uint32_t status_ptr);
 struct process *process_create(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
                                uint32_t user_code_page, uint32_t user_stack_page);
 struct process *process_create_ex(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
@@ -83,6 +107,10 @@ void    process_wakeup(uintptr_t channel);
 uint32_t process_count(void);
 uint32_t *process_schedule(uint32_t *frame);
 void process_set_saved_frame(struct process *process, uint32_t *frame);
+void process_request_reschedule(void);
+int process_set_priority(struct process *process, uint32_t priority);
+uint32_t process_scheduler_ticks(uint32_t cpu);
+uint32_t process_scheduler_steals(uint32_t cpu);
 uint32_t *process_saved_frame(struct process *process);
 uint32_t process_kernel_stack_top(struct process *process);
 int process_is_descendant_or_child(uint32_t pid, uint32_t ancestor_pid);

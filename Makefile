@@ -4,20 +4,29 @@ DISK := $(BUILD)/lionos-disk.img
 KERNEL := $(BUILD)/lionos.bin
 USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o
 
-USER_PROGRAMS := hello process_test ipc_test signal_test net_test vfs_test cow_test echo cat ls pwd uname rm stat ping userland_test
+USER_PROGRAMS := hello process_test ipc_test signal_test net_test vfs_test cow_test echo cat ls pwd uname rm stat ping env grep find cp mv userland_test
 USER_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 
 CC := gcc
 LD := ld
 NASM := nasm
-CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
+CFLAGS := -m32 -MMD -MP -fno-strict-aliasing -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-function -Werror -O2 -Iinclude
 ICON_HEADER := $(BUILD)/lion_icons.h
 WALLPAPER_HEADER := $(BUILD)/lion_wallpaper.h
-ICON_SOURCES := Icons/lionos-icon.png Icons/Terminal-icon.png Icons/Browser-icon.png Icons/Desktop-icon.png Icons/DocumentsFolder-icon.png Icons/Tools-icon.png Icons/OldComputer-icon.png Icons/Home-icon.png Icons/Trash-icon.png
+WALLPAPER_MINIMAL_HEADER := $(BUILD)/lion_wallpaper_minimal.h
+WALLPAPER_SUNRISE_HEADER := $(BUILD)/lion_wallpaper_sunrise.h
+BOOT_SPLASH_HEADER := $(BUILD)/lion_boot_splash.h
+ICON_SOURCES := assets/branding/lionos-emblem.png assets/branding/lionos-logo.png assets/branding/lionos-wordmark.png \
+    assets/icons/applications/file-manager.png assets/icons/applications/image-viewer.png \
+    assets/icons/applications/settings.png assets/icons/applications/terminal.png assets/icons/applications/text-editor.png \
+    assets/icons/desktop/computer.png assets/icons/desktop/file.png assets/icons/desktop/folder.png assets/icons/desktop/trash.png \
+    assets/icons/filetypes/file-audio.png assets/icons/filetypes/file-code.png assets/icons/filetypes/file-image.png assets/icons/filetypes/file-pdf.png \
+    assets/icons/system/battery.png assets/icons/system/help.png assets/icons/system/network.png assets/icons/system/power.png \
+    assets/icons/system/security.png assets/icons/system/update.png assets/icons/system/volume.png assets/icons/system/wifi.png
 GUI_CFLAGS := $(CFLAGS) -Wno-error=missing-field-initializers -Wno-error=misleading-indentation -I$(BUILD)
 GUI_DESKTOP_CFLAGS := $(CFLAGS)
-USER_CFLAGS := -m32 -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
+USER_CFLAGS := -m32 -fno-strict-aliasing -ffreestanding -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -fno-builtin -Wall -Wextra -Werror -O2 -Iinclude
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 USER_LDFLAGS := -m elf_i386 -T user/user.ld -nostdlib
 
@@ -45,13 +54,25 @@ $(BUILD)/boot.o: boot/boot.asm | $(BUILD)
 $(ICON_HEADER): scripts/png_to_icons.py $(ICON_SOURCES) | $(BUILD)
 	python3 scripts/png_to_icons.py $(ICON_HEADER)
 
-$(WALLPAPER_HEADER): scripts/png_to_wallpaper.py LionOS-Wallpaper.png | $(BUILD)
-	python3 scripts/png_to_wallpaper.py $(WALLPAPER_HEADER)
+$(WALLPAPER_HEADER): scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-default.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-default.png $@ LION_WALLPAPER lion_wallpaper_rgb565
 
-$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) $(WALLPAPER_HEADER) | $(BUILD)
+$(WALLPAPER_MINIMAL_HEADER): scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-minimal.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-minimal.png $@ LION_WALLPAPER_MINIMAL lion_wallpaper_minimal_rgb565
+
+$(WALLPAPER_SUNRISE_HEADER): scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-sunrise.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py assets/wallpapers/lionos-wallpaper-sunrise.png $@ LION_WALLPAPER_SUNRISE lion_wallpaper_sunrise_rgb565
+
+$(BOOT_SPLASH_HEADER): scripts/png_to_wallpaper.py assets/boot/boot-splash.png | $(BUILD)
+	python3 scripts/png_to_wallpaper.py assets/boot/boot-splash.png $@ LION_BOOT_SPLASH lion_boot_splash_rgb565
+
+$(BUILD)/gui_lion.o: src/gui_lion.c $(ICON_HEADER) $(WALLPAPER_HEADER) $(WALLPAPER_MINIMAL_HEADER) $(WALLPAPER_SUNRISE_HEADER) | $(BUILD)
 	$(CC) $(GUI_CFLAGS) -I$(BUILD) -c $< -o $@
 
-$(BUILD)/kernel_runtime.o: src/kernel_runtime.c | $(BUILD)
+$(BUILD)/framebuffer.o: src/framebuffer.c $(BOOT_SPLASH_HEADER) | $(BUILD)
+	$(CC) $(CFLAGS) -I$(BUILD) -c $< -o $@
+
+$(BUILD)/kernel_runtime.o: src/kernel_runtime.c src/kernel.c $(wildcard include/*.h) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
@@ -94,6 +115,16 @@ $(BUILD)/stat.o: user/bin/stat.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/ping.o: user/bin/ping.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/env.o: user/bin/env.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/grep.o: user/bin/grep.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/find.o: user/bin/find.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/cp.o: user/bin/cp.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/mv.o: user/bin/mv.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 
 $(BUILD)/userland_test.o: user/userland_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
@@ -128,6 +159,16 @@ $(BUILD)/stat.elf: $(USER_COMMON_OBJS) $(BUILD)/stat.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/stat.o
 $(BUILD)/ping.elf: $(USER_COMMON_OBJS) $(BUILD)/ping.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/ping.o
+$(BUILD)/env.elf: $(USER_COMMON_OBJS) $(BUILD)/env.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/env.o
+$(BUILD)/grep.elf: $(USER_COMMON_OBJS) $(BUILD)/grep.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/grep.o
+$(BUILD)/find.elf: $(USER_COMMON_OBJS) $(BUILD)/find.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/find.o
+$(BUILD)/cp.elf: $(USER_COMMON_OBJS) $(BUILD)/cp.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/cp.o
+$(BUILD)/mv.elf: $(USER_COMMON_OBJS) $(BUILD)/mv.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/mv.o
 $(BUILD)/userland_test.elf: $(USER_COMMON_OBJS) $(BUILD)/userland_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/userland_test.o
 
@@ -150,7 +191,7 @@ usb: iso
 	cp $(ISO) $(BUILD)/lionos-usb.img
 
 disk: | $(BUILD)
-	if [ ! -f $(DISK) ]; then truncate -s 8M $(DISK); fi
+	python3 scripts/init_disk_image.py $(DISK)
 
 check: iso disk
 	grub-file --is-x86-multiboot2 $(KERNEL)
@@ -160,3 +201,5 @@ run: $(KERNEL) disk
 
 clean:
 	rm -rf $(BUILD)
+
+-include $(C_OBJECTS:.o=.d) $(BUILD)/kernel_runtime.d $(BUILD)/gui_lion.d

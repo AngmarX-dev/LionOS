@@ -50,6 +50,17 @@ int strcmp(const char *a, const char *b) {
     return (int)(uint8_t)*a - (int)(uint8_t)*b;
 }
 
+char *strstr(const char *haystack, const char *needle) {
+    if (!haystack || !needle) return 0;
+    if (!*needle) return (char *)haystack;
+    for (const char *p = haystack; *p; ++p) {
+        const char *a = p, *b = needle;
+        while (*a && *b && *a == *b) { ++a; ++b; }
+        if (!*b) return (char *)p;
+    }
+    return 0;
+}
+
 int strncmp(const char *a, const char *b, uint32_t length) {
     if (length == 0) return 0;
     if (!a || !b) return (a == b) ? 0 : (a ? 1 : -1);
@@ -77,6 +88,61 @@ char *strrchr(const char *s, int c) {
         if ((uint8_t)*s == (uint8_t)c) last = s;
     } while (*s++);
     return (char *)last;
+}
+
+#define USER_HEAP_SIZE 32768u
+static uint8_t user_heap[USER_HEAP_SIZE];
+static uint32_t user_heap_used;
+
+void *malloc(uint32_t size) {
+    if (!size) return 0;
+    size = (size + 7u) & ~7u;
+    if (size > USER_HEAP_SIZE - user_heap_used) return 0;
+    void *p = &user_heap[user_heap_used];
+    user_heap_used += size;
+    return p;
+}
+
+void free(void *ptr) {
+    (void)ptr;
+    /* The first userland allocator is a monotonic arena. */
+}
+
+struct user_env_entry { char name[32]; char value[96]; uint8_t used; };
+static struct user_env_entry user_env[16];
+static int env_name_match(const char *a, const char *b) { return strcmp(a,b) == 0; }
+
+char *getenv(const char *name) {
+    if (!name) return 0;
+    for (uint32_t i = 0; i < 16u; ++i)
+        if (user_env[i].used && env_name_match(user_env[i].name,name)) return user_env[i].value;
+    return 0;
+}
+
+int setenv(const char *name, const char *value, int overwrite) {
+    if (!name || !*name || !value) return -1;
+    for (uint32_t i = 0; i < 16u; ++i) {
+        if (!user_env[i].used) continue;
+        if (!env_name_match(user_env[i].name,name)) continue;
+        if (!overwrite) return 0;
+        uint32_t n = strlen(value); if (n >= sizeof(user_env[i].value)) return -1;
+        memcpy(user_env[i].value,value,n+1u); return 0;
+    }
+    for (uint32_t i = 0; i < 16u; ++i) {
+        if (user_env[i].used) continue;
+        uint32_t n = strlen(name), v = strlen(value);
+        if (n >= sizeof(user_env[i].name) || v >= sizeof(user_env[i].value)) return -1;
+        memcpy(user_env[i].name,name,n+1u); memcpy(user_env[i].value,value,v+1u);
+        user_env[i].used = 1u; return 0;
+    }
+    return -1;
+}
+
+int unsetenv(const char *name) {
+    if (!name) return -1;
+    for (uint32_t i = 0; i < 16u; ++i)
+        if (user_env[i].used && env_name_match(user_env[i].name,name)) { user_env[i].used=0u; return 0; }
+    return -1;
 }
 
 int atoi(const char *s) {

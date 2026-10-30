@@ -7,6 +7,10 @@
 #define KEYBOARD_BUFFER_SIZE 128u
 #define PS2_STATUS 0x64u
 #define PS2_DATA 0x60u
+#define PS2_STATUS_OBF 0x01u
+#define PS2_STATUS_AUX 0x20u
+#define PS2_STATUS_TIMEOUT 0x40u
+#define PS2_STATUS_PARITY 0x80u
 
 static volatile uint8_t buffer[KEYBOARD_BUFFER_SIZE];
 static volatile uint32_t read_index;
@@ -22,6 +26,7 @@ static volatile uint8_t last_scancode;
 static volatile uint8_t input_seen;
 static volatile uint8_t scancode_set = 1u;
 static volatile uint8_t set2_break_pending = 0u;
+static volatile uint8_t ps2_controller_present = 0u;
 
 static const char keymap[128] = {
     [0x01] = 27,
@@ -155,6 +160,11 @@ static int keyboard_enable_scanning(void){
     return keyboard_device_command(0xF4u);
 }
 
+static int keyboard_probe_controller(void) {
+    uint8_t status = inb(PS2_STATUS);
+    return status == 0xFFu ? -1 : 0;
+}
+
 void keyboard_init(void) {
     read_index = 0;
     write_index = 0;
@@ -169,6 +179,13 @@ void keyboard_init(void) {
     input_seen = 0u;
     scancode_set = 1u;
     set2_break_pending = 0u;
+    ps2_controller_present = 0u;
+    if (keyboard_probe_controller() != 0) {
+        debug_write("LIONOS:KEYBOARD-PS2-ABSENT\\n");
+        return;
+    }
+    ps2_controller_present = 1u;
+
 
     /*
      * Fully re-arm the i8042 keyboard port. Some laptop firmware leaves the
@@ -355,22 +372,21 @@ void keyboard_handle_usb_report(const uint8_t *report, uint32_t length){
     }
     for(uint32_t i=0u;i<6u;++i)usb_prev_keys[i]=report[2u+i];
 }
-void keyboard_irq_handler(void){
-    /*
-     * IRQ 1 is the interrupt-driven producer for the ring buffer. Consume
-     * keyboard bytes already waiting in the i8042 output buffer, but never
-     * steal AUX (mouse) bytes belonging to IRQ 12.
-     */
-    for(uint32_t n=0u;n<64u;++n){
-        uint8_t status=inb(PS2_STATUS);
-        if(!(status&0x01u))break;
-        if(status&0x20u){
-            /* The i8042 output buffer is shared by keyboard and mouse. */
-            mouse_irq_handler();
-            continue;
-        }
-        keyboard_handle_scancode(inb(PS2_DATA));
+/* Dispatch the shared i8042 output buffer while preserving mouse packets. */
+void keyboard_ps2_service(void) {
+    if (!ps2_controller_present) return;
+    for (uint32_t n = 0u; n < 64u; ++n) {
+        uint8_t status = inb(PS2_STATUS);
+        if (!(status & PS2_STATUS_OBF)) break;
+        uint8_t data = inb(PS2_DATA);
+        if (status & (PS2_STATUS_TIMEOUT | PS2_STATUS_PARITY)) continue;
+        if (status & PS2_STATUS_AUX) mouse_handle_ps2_byte(data);
+        else keyboard_handle_scancode(data);
     }
+}
+
+void keyboard_irq_handler(void) {
+    keyboard_ps2_service();
 }
 
 void keyboard_rearm_after_mouse_init(void){
@@ -403,6 +419,10 @@ int keyboard_getchar(void) {
     uint8_t c = buffer[read_index];
     read_index = (read_index + 1u) % KEYBOARD_BUFFER_SIZE;
     return (int)c;
+}
+
+int keyboard_ps2_available(void) {
+    return ps2_controller_present != 0u;
 }
 
 uint32_t keyboard_available(void) {

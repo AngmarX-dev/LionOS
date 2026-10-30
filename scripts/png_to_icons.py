@@ -9,17 +9,33 @@ import sys
 import zlib
 from pathlib import Path
 
-SIZE = 48
+SIZE = 64
 ICONS = {
-    "lionos": "Icons/lionos-icon.png",
-    "terminal": "Icons/Terminal-icon.png",
-    "browser": "Icons/Browser-icon.png",
-    "desktop": "Icons/Desktop-icon.png",
-    "documents": "Icons/DocumentsFolder-icon.png",
-    "tools": "Icons/Tools-icon.png",
-    "computer": "Icons/OldComputer-icon.png",
-    "home": "Icons/Home-icon.png",
-    "trash": "Icons/Trash-icon.png",
+    "lionos": "assets/branding/lionos-emblem.png",
+    "logo": "assets/branding/lionos-logo.png",
+    "wordmark": "assets/branding/lionos-wordmark.png",
+    "terminal": "assets/icons/applications/terminal.png",
+    "browser": "assets/icons/system/network.png",
+    "desktop": "assets/branding/lionos-emblem.png",
+    "documents": "assets/icons/applications/file-manager.png",
+    "tools": "assets/icons/applications/settings.png",
+    "computer": "assets/icons/desktop/computer.png",
+    "home": "assets/icons/desktop/folder.png",
+    "trash": "assets/icons/desktop/trash.png",
+    "notepad": "assets/icons/applications/text-editor.png",
+    "image_viewer": "assets/icons/applications/image-viewer.png",
+    "file": "assets/icons/desktop/file.png",
+    "wifi": "assets/icons/system/wifi.png",
+    "volume": "assets/icons/system/volume.png",
+    "power": "assets/icons/system/power.png",
+    "help": "assets/icons/system/help.png",
+    "security": "assets/icons/system/security.png",
+    "update": "assets/icons/system/update.png",
+    "battery": "assets/icons/system/battery.png",
+    "file_audio": "assets/icons/filetypes/file-audio.png",
+    "file_code": "assets/icons/filetypes/file-code.png",
+    "file_image": "assets/icons/filetypes/file-image.png",
+    "file_pdf": "assets/icons/filetypes/file-pdf.png",
 }
 
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
@@ -120,15 +136,62 @@ def read_png(path):
 
 
 def resize_rgba(width, height, pixels):
-    out = []
-    for y in range(SIZE):
-        sy = min(height - 1, (y * height) // SIZE)
-        for x in range(SIZE):
-            sx = min(width - 1, (x * width) // SIZE)
-            r, g, b, a = pixels[sy][sx]
-            out.append((r << 16) | (g << 8) | b | (a << 24))
-    return out
+    # Fit the art without stretching and filter it instead of nearest-neighbour sampling.
+    scale = min(SIZE / width, SIZE / height)
+    draw_w = max(1, min(SIZE, int(width * scale + 0.5)))
+    draw_h = max(1, min(SIZE, int(height * scale + 0.5)))
+    offset_x = (SIZE - draw_w) // 2
+    offset_y = (SIZE - draw_h) // 2
+    out = [0] * (SIZE * SIZE)
 
+    def pack(samples):
+        total_w = sum(weight for _, weight in samples)
+        alpha_sum = sum(px[3] * weight for px, weight in samples)
+        if total_w <= 0.0:
+            return 0
+        alpha = max(0, min(255, int(alpha_sum / total_w + 0.5)))
+        if alpha_sum <= 0.0:
+            return alpha << 24
+        r = int(sum(px[0] * px[3] * weight for px, weight in samples) / alpha_sum + 0.5)
+        g = int(sum(px[1] * px[3] * weight for px, weight in samples) / alpha_sum + 0.5)
+        b = int(sum(px[2] * px[3] * weight for px, weight in samples) / alpha_sum + 0.5)
+        return (alpha << 24) | (r << 16) | (g << 8) | b
+
+    if scale >= 1.0:
+        # Bilinear interpolation for small source images.
+        for y in range(draw_h):
+            sy = max(0.0, min(height - 1.0, (y + 0.5) * height / draw_h - 0.5))
+            y0, y1 = int(sy), min(height - 1, int(sy) + 1)
+            fy = sy - int(sy)
+            for x in range(draw_w):
+                sx = max(0.0, min(width - 1.0, (x + 0.5) * width / draw_w - 0.5))
+                x0, x1 = int(sx), min(width - 1, int(sx) + 1)
+                fx = sx - int(sx)
+                samples = [
+                    (pixels[y0][x0], (1.0 - fx) * (1.0 - fy)),
+                    (pixels[y0][x1], fx * (1.0 - fy)),
+                    (pixels[y1][x0], (1.0 - fx) * fy),
+                    (pixels[y1][x1], fx * fy),
+                ]
+                out[(offset_y + y) * SIZE + offset_x + x] = pack(samples)
+    else:
+        # Area averaging removes high-frequency detail that would alias at icon size.
+        for y in range(draw_h):
+            top, bottom = y * height / draw_h, (y + 1) * height / draw_h
+            sy0, sy1 = int(top), min(height, int(bottom + 0.999999))
+            for x in range(draw_w):
+                left, right = x * width / draw_w, (x + 1) * width / draw_w
+                sx0, sx1 = int(left), min(width, int(right + 0.999999))
+                samples = []
+                for sy in range(sy0, sy1):
+                    wy = max(0.0, min(bottom, sy + 1.0) - max(top, float(sy)))
+                    for sx in range(sx0, sx1):
+                        wx = max(0.0, min(right, sx + 1.0) - max(left, float(sx)))
+                        weight = wx * wy
+                        if weight:
+                            samples.append((pixels[sy][sx], weight))
+                out[(offset_y + y) * SIZE + offset_x + x] = pack(samples)
+    return out
 
 def emit_array(name, values):
     lines = [f"static const uint32_t lion_icon_{name}[{SIZE * SIZE}] = {{"]

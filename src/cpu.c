@@ -15,6 +15,15 @@ struct acpi_madt { struct acpi_sdt h; uint32_t lapic_address,flags; } __attribut
 
 static struct cpu_info cpus[LIONOS_MAX_CPUS];
 static uint32_t cpu_hint=1u;
+static uint32_t cpu_features;
+#define CPU_FEAT_SSE   (1u<<0)
+#define CPU_FEAT_SSE2  (1u<<1)
+#define CPU_FEAT_SSE3  (1u<<2)
+#define CPU_FEAT_SSSE3 (1u<<3)
+#define CPU_FEAT_SSE41 (1u<<4)
+#define CPU_FEAT_SSE42 (1u<<5)
+#define CPU_FEAT_AVX   (1u<<6)
+#define CPU_FEAT_APIC  (1u<<7)
 
 static uint8_t checksum8(const uint8_t*p,uint32_t n){uint8_t s=0;for(uint32_t i=0;i<n;++i)s=(uint8_t)(s+p[i]);return s;}
 static int sig4(const char*p,const char*s){return p[0]==s[0]&&p[1]==s[1]&&p[2]==s[2]&&p[3]==s[3];}
@@ -111,7 +120,16 @@ void cpu_init(uint32_t multiboot_info){
     uint32_t a,b,c,d;
     __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(0u),"c"(0u));
     uint32_t max_leaf=a;
+    cpu_features=0u;
     __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(1u),"c"(0u));
+    if (d&(1u<<9)) cpu_features|=CPU_FEAT_APIC;
+    if (d&(1u<<25)) cpu_features|=CPU_FEAT_SSE;
+    if (d&(1u<<26)) cpu_features|=CPU_FEAT_SSE2;
+    if (c&(1u<<0)) cpu_features|=CPU_FEAT_SSE3;
+    if (c&(1u<<9)) cpu_features|=CPU_FEAT_SSSE3;
+    if (c&(1u<<19)) cpu_features|=CPU_FEAT_SSE41;
+    if (c&(1u<<20)) cpu_features|=CPU_FEAT_SSE42;
+    if ((c&(1u<<27)) && (c&(1u<<28))) cpu_features|=CPU_FEAT_AVX;
     uint32_t logical=(b>>16)&0xFFu;if(!logical)logical=1u;if(logical>LIONOS_MAX_CPUS)logical=LIONOS_MAX_CPUS;
     uint32_t bsp=(b>>24)&0xFFu;
     cpu_hint=logical;cpus[0].apic_id=bsp;cpus[0].logical_per_package=logical;cpus[0].online=1u;
@@ -135,3 +153,21 @@ uint32_t cpu_count_hint(void){return cpu_hint;}
 uint32_t cpu_current_index(void){uint32_t id=lapic_id();if(id!=0xFFFFFFFFu)for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i)if(cpus[i].online&&cpus[i].apic_id==id)return i;return 0u;}
 const struct cpu_info*cpu_get(uint32_t index){if(index>=LIONOS_MAX_CPUS)return 0;__sync_synchronize();return &cpus[index];}
 void cpu_mark_online(uint32_t index,uint32_t apic_id){if(index>=LIONOS_MAX_CPUS)return;cpus[index].apic_id=apic_id;cpus[index].logical_per_package=1u;__sync_synchronize();cpus[index].online=1u;__sync_synchronize();}
+
+
+uint32_t cpu_feature_flags(void){ return cpu_features; }
+
+int cpu_fpu_sse_init(void){
+    uint32_t flags;
+    __asm__ volatile("mov %%cr0,%0":"=r"(flags));
+    flags &= ~(1u<<2); /* CR0.EM: hardware floating point is present. */
+    flags |=  (1u<<1); /* CR0.MP: WAIT/FWAIT tracks task switching. */
+    __asm__ volatile("mov %0,%%cr0"::"r"(flags):"memory");
+    if (cpu_features & CPU_FEAT_SSE) {
+        __asm__ volatile("mov %%cr4,%0":"=r"(flags));
+        flags |= (1u<<9) | (1u<<10); /* OSFXSR + OSXMMEXCPT. */
+        __asm__ volatile("mov %0,%%cr4"::"r"(flags):"memory");
+        return 0;
+    }
+    return -1;
+}

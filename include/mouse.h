@@ -6,15 +6,18 @@
 
 void mouse_init(void);
 void mouse_irq_handler(void);
+void mouse_handle_ps2_byte(uint8_t data);
 int  mouse_usb_init(void);
 void mouse_usb_retry(void);
 void mouse_poll(void);
+void mouse_retry_service(void);
 
 void     mouse_set_cursor_visible(int visible);
 void     mouse_set_bounds(uint32_t max_x, uint32_t max_y);
 int32_t  mouse_x(void);
 int32_t  mouse_y(void);
 uint8_t  mouse_buttons(void);
+int      mouse_ps2_available(void);
 
 struct mouse_event {
     int32_t dx;

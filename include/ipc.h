@@ -6,6 +6,7 @@
 #define IPC_MESSAGE_MAX 128u
 #define IPC_QUEUE_MAX 64u
 #define IPC_RECV_EMPTY (-2)
+#define IPC_WAIT_CHANNEL_BASE 0x49504300u
 
 struct ipc_message {
     uint32_t used;
@@ -18,6 +19,7 @@ struct ipc_message {
 void ipc_init(void);
 int32_t ipc_send(uint32_t receiver_pid, uint32_t sender_pid, const void *data, uint32_t length);
 int32_t ipc_recv(uint32_t receiver_pid, void *data, uint32_t capacity, uint32_t *sender_pid);
+int32_t ipc_recv_blocking(uint32_t receiver_pid, void *data, uint32_t capacity, uint32_t *sender_pid);
 uint32_t ipc_pending(uint32_t receiver_pid);
 
 #endif

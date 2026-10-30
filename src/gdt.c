@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include "gdt.h"
+#include "cpu.h"
 
-#define LIONOS_MAX_CPUS 16u
 #define GDT_ENTRIES 7u
 #define GDT_TSS 0x18u
 #define GDT_USER_CODE 0x2Bu

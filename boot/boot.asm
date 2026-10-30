@@ -1,5 +1,31 @@
 BITS 32
 
+%macro TRACE_HEX 2
+    mov ebx, %2
+    mov dx, 0xE9
+    mov al, %1
+    out dx, al
+    mov al, '='
+    out dx, al
+    mov ecx, 8
+%%hex:
+    rol ebx, 4
+    mov al, bl
+    and al, 0x0F
+    cmp al, 9
+    jbe %%digit
+    add al, 'A' - 10
+    jmp %%emit
+%%digit:
+    add al, '0'
+%%emit:
+    mov dx, 0xE9
+    out dx, al
+    loop %%hex
+    mov al, 10
+    out dx, al
+%endmacro
+
 section .multiboot
 align 8
 multiboot_header:
@@ -49,6 +75,7 @@ smp_protected_entry:
     mov es, ax
     mov fs, ax
     mov gs, ax
+    mov ss, ax
     mov esp, [smp_trampoline_stack]
     mov eax, cr4
     or eax, 0x20
@@ -58,11 +85,24 @@ smp_protected_entry:
     mov eax, cr0
     or eax, 0x80000000
     mov cr0, eax
+    ; The trampoline is identity-mapped, so execution continues at 0x8000.
+    jmp short .paging_enabled
+.paging_enabled:
     mov dx, 0xE9
     mov al, 'C'
     out dx, al
+    ; Trace the target, configured stack, live ESP, and active page table.
+    TRACE_HEX 'T', [smp_trampoline_entry]
+    TRACE_HEX 'S', [smp_trampoline_stack]
+    TRACE_HEX 'E', esp
+    mov eax, cr3
+    TRACE_HEX 'P', eax
     mov eax, [smp_trampoline_entry]
     jmp eax
+.ap_halt:
+    cli
+    hlt
+    jmp .ap_halt
 align 8
 smp_gdt:
     dq 0x0000000000000000

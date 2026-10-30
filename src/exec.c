@@ -7,7 +7,7 @@
 #include "ramfs.h"
 #include "debug.h"
 
-#define USER_BASE 0x00400000u
+#define USER_BASE 0x10000000u
 #define USER_LIMIT 0xC0000000u
 #define USER_STACK_PAGE 0xBFFFF000u
 #define USER_STACK_TOP 0xC0000000u
@@ -71,7 +71,7 @@ static int build_initial_stack(uint8_t *page, const char *name,
     while (name[len] && len < 32u) ++len;
     if (name[len] != 0 || len + 1u > 64u) return -1;
 
-    uint32_t string_va = USER_STACK_TOP - len - 1u;
+    uint32_t string_va = USER_STACK_TOP - 20u - len - 1u;
     uint32_t argv0_va = USER_STACK_TOP - 12u;
     uint32_t argc_va = USER_STACK_TOP - 20u;
     uint32_t os = string_va - USER_STACK_PAGE;
