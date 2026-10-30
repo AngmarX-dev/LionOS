@@ -58,8 +58,8 @@ jobs:
           xorriso -indev build/lionos.iso -report_el_torito as_mkisofs 2>&1 | tee build/boot-structure.txt
           grep -q 'eltorito.img' build/boot-structure.txt
           grep -q 'efi.img' build/boot-structure.txt
-          xorriso -indev build/lionos.iso -find / -name lionos.bin -print 2>&1 | tee build/iso-kernel-path.txt
-          xorriso -indev build/lionos.iso -find / -name grub.cfg -print 2>&1 | tee build/iso-grub-path.txt
+          xorriso -indev build/lionos.iso -find / -name lionos.bin -exec lsdl 2>&1 | tee build/iso-kernel-path.txt
+          xorriso -indev build/lionos.iso -find / -name grub.cfg -exec lsdl 2>&1 | tee build/iso-grub-path.txt
           grep -q 'lionos.bin' build/iso-kernel-path.txt
           grep -q 'grub.cfg' build/iso-grub-path.txt
 
