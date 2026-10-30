@@ -9,7 +9,7 @@ LAVA schedules jobs on registered physical devices. Its interactive test action 
 
 The kernel now includes a polled 16550-compatible COM1 driver:
 
-- UART ports: COM1 at `0x03F8`, then COM2 at `0x02F8` as fallback
+- UART ports: COM1 (`0x03F8`), COM2 (`0x02F8`), COM3 (`0x03E8`), then COM4 (`0x02E8`) as fallbacks
 - Baud: `115200`
 - Framing: `8 data bits, no parity, 1 stop bit (8N1)`
 - Flow control: none
@@ -18,7 +18,7 @@ The kernel now includes a polled 16550-compatible COM1 driver:
 
 Console output is mirrored to the active display and COM1. Serial input is fed into the same shell command processor as the PS/2/USB keyboard. CR, LF, CRLF and terminal backspace are normalized. The `serial` shell command reports UART detection and RX/TX/error counters.
 
-When COM1 or COM2 passes loopback detection, LionOS skips the graphical desktop and enters the interactive shell directly. This makes the `lion:/ >` prompt available to LAVA. If no verified COM1 is found, normal desktop startup is unchanged.
+When any detected legacy COM port passes loopback detection, LionOS skips the graphical desktop and enters the interactive shell directly. This makes the `lion:/ >` prompt available to LAVA. If no verified COM1 is found, normal desktop startup is unchanged.
 
 The internal loopback only verifies the UART itself. It does not verify the cable, adapter, remote serial server, electrical levels, or the registered LAVA device.
 
@@ -50,6 +50,6 @@ The branch workflow clones upstream LAVA and validates the job with `lava_common
 
 ## Hardware limitation
 
-The Lenovo LOQ 15IAX9 has not been verified to expose a documented legacy COM1/COM2 UART connector. A normal USB port is not a UART port. A USB-to-TTL adapter only helps when its serial pins are connected to an actual documented target UART; RS-232 and TTL-level UART must not be connected directly to each other. Do not probe unknown motherboard pins.
+The Lenovo LOQ 15IAX9 has not been verified to expose a documented legacy legacy UART connector (COM1–COM4). A normal USB port is not a UART port. A USB-to-TTL adapter only helps when its serial pins are connected to an actual documented target UART; RS-232 and TTL-level UART must not be connected directly to each other. Do not probe unknown motherboard pins.
 
-If the LOQ has no accessible UART, this legacy COM1/COM2 implementation alone cannot provide a LAVA console for that laptop. A supported firmware serial redirection path or a different target with accessible UART hardware would be required.
+If the LOQ has no accessible UART, this legacy COM-port implementation alone cannot provide a LAVA console for that laptop. A supported firmware serial redirection path or a different target with accessible UART hardware would be required.
