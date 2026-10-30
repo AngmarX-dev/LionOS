@@ -1,0 +1,54 @@
+name: Hardware test lab integration validation
+
+on:
+  push:
+    branches:
+      - hardware-test-lab-integration
+  pull_request:
+    branches:
+      - hardware-test-lab-integration
+  workflow_dispatch:
+
+jobs:
+  validate-integration-scaffold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Labgrid example and LAVA template syntax
+        run: |
+          python3 -m pip install --user PyYAML
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          paths = [
+              Path("hardware/labgrid/environment.yaml.example"),
+              Path("hardware/lava/lionos-job-template.yaml"),
+          ]
+          for path in paths:
+              data = yaml.safe_load(path.read_text(encoding="utf-8"))
+              assert isinstance(data, dict), f"{path}: expected YAML mapping"
+              print(f"YAML syntax PASS: {path}")
+
+          env = yaml.safe_load(paths[0].read_text(encoding="utf-8"))
+          assert "targets" in env and "loq15iax9" in env["targets"]
+          lava = yaml.safe_load(paths[1].read_text(encoding="utf-8"))
+          assert lava.get("job_name", "").startswith("LionOS")
+          assert "actions" in lava
+          print("Template structure checks PASS")
+          PY
+
+      - name: Validate integration documentation and safety constraints
+        run: |
+          set -euxo pipefail
+          test -s docs/HARDWARE-TEST-LAB.md
+          test -s hardware/labgrid/README.md
+          test -s hardware/lava/README.md
+          test -s hardware/kernelci/README.md
+          grep -q "not a Linux kernel" hardware/kernelci/README.md
+          grep -q "internal SSD" docs/HARDWARE-TEST-LAB.md
+          grep -q "not a verified LionOS serial interface" hardware/labgrid/README.md || grep -q "not establish" hardware/labgrid/README.md
+          echo "Hardware-lab scaffold validation PASS"
