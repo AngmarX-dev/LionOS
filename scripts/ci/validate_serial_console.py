@@ -21,9 +21,11 @@ lava_docs = read("hardware/lava/README.md")
 checks = {
     "COM1 I/O base": "0x03F8u" in header,
     "COM2 fallback base": "0x02F8u" in header,
+    "COM3 fallback base": "0x03E8u" in header,
+    "COM4 fallback base": "0x02E8u" in header,
     "115200 baud": "115200u" in header,
     "16550 internal loopback test": "UART_LOOPBACK_TEST" in serial and "0xAEu" in serial,
-    "COM1 then COM2 detection": "SERIAL_COM1_BASE" in serial and "SERIAL_COM2_BASE" in serial,
+    "COM1 through COM4 detection": all(f"SERIAL_COM{i}_BASE" in serial for i in range(1, 5)),
     "8N1 UART configuration": "0x03u); /* 8 data bits, no parity, 1 stop bit */" in serial,
     "UART interrupts disabled": "UART_IER(SERIAL_COM1_BASE), 0x00u" in serial,
     "bounded UART polling": "UART_POLL_LIMIT" in serial,
