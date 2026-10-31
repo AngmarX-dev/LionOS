@@ -9,6 +9,7 @@ This branch separates desktop frame pacing from the process scheduler and introd
 - PIT remains at 100 Hz and continues to drive the BSP process/scheduler clock.
 - When the BSP local APIC timer can be calibrated against PIT channel 2, LionOS starts a separate 120 Hz periodic frame clock.
 - The desktop loop waits for this frame clock instead of waiting for the PIT scheduler tick.
+- The GUI render limiter uses the same active frame clock, so a working 120 Hz frame timer is not accidentally capped by the 100 Hz PIT tick.
 - USB mouse event-ring polling moves to the same BSP frame-clock interrupt when it is active. If APIC initialization or calibration is unavailable, USB mouse polling and desktop updates fall back to the existing PIT cadence.
 - LAPIC frame ticks do not increment the kernel's PIT time counter. The APIC timer on application processors continues to drive their local scheduling path.
 
