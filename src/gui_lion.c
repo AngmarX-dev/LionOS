@@ -77,6 +77,7 @@ static uint32_t *drag_surface;
 static uint32_t drag_surface_w, drag_surface_h;
 static uint8_t drag_cache_active;
 static uint8_t drag_render_skip_id;
+static uint8_t drag_compositor_ready;
 
 /* Kernel log storage is a bounded in-memory desktop service, not a file. */
 #define KLOG_RING_CAPACITY 64u
@@ -914,7 +915,7 @@ static void drag_cache_free(void){
 }
 
 static int drag_cache_begin(struct ui_window*w){
-    if(!w||!framebuffer_cursor_overlay_supported()) return -1;
+    if(!w||!drag_compositor_ready||!framebuffer_cursor_overlay_supported()) return -1;
     uint64_t screen_pixels=(uint64_t)framebuffer_width()*framebuffer_height();
     uint64_t surface_pixels=(uint64_t)w->w*w->h;
     if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t) ||
@@ -1221,6 +1222,10 @@ void gui_start(void){
     if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\n");return;}
+    drag_compositor_ready=(uint8_t)(framebuffer_compositor_selftest()==0);
+    debug_write(drag_compositor_ready
+        ? "LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK\n"
+        : "LIONOS:FRAMEBUFFER-ARGB-SELFTEST-FAIL\n");
     while(keyboard_available())(void)keyboard_getchar();
     /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
     cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
