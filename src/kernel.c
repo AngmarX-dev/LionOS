@@ -336,6 +336,9 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             console_write("[ OK ] PIT 100 Hz scheduler + GUI/input fallback clock\n");
         BOOT_STAGE(72u, "SYSTEM TIMER READY");
     }
+    debug_write(lapic_frame_timer_active()
+        ? "LIONOS:GUI-FRAME-TIMER-120HZ\n"
+        : "LIONOS:GUI-FRAME-TIMER-PIT-FALLBACK\n");
 
     /* ---- Filesystems ---- */
     ramfs_init();
