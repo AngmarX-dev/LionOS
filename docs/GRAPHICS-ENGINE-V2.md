@@ -42,3 +42,25 @@ The GitHub Actions QEMU jobs validate compilation, boot and the software composi
 4. Add a safe native Intel display/render backend after platform and generation-specific hardware support is validated.
 5. Consider NVIDIA support separately; the firmware framebuffer path remains the compatibility fallback.
 6. Validate on real hardware, including window overlap, fast diagonal drag, transparency, edge clipping, multiple open windows, and fallback modes.
+
+## Intel UHD Graphics acceleration track (Alder Lake)
+
+The first hardware target is the Intel integrated GPU in 12th-generation Alder Lake systems. NVIDIA is out of scope for this track. The current `intel_gpu.c` code is a PCI/platform probe only: it identifies an Intel display-class function, records its PCI location and BAR0, and preserves the firmware-provided framebuffer. It is **not** a hardware-acceleration driver.
+
+Implementation order:
+
+1. **Identify and validate the device.** Record the exact PCI device/revision from real hardware; do not infer the UHD SKU from the CPU model alone. Validate BAR type, 64-bit address handling, resource size, and PCI command state before mapping or touching MMIO.
+2. **Establish safe MMIO access.** Map only the verified graphics MMIO resource through the kernel's PAE MMIO window. Add bounded register accessors and diagnostic reads of documented, non-destructive registers. Do not reset the display engine or change firmware display mode during this stage.
+3. **Understand memory ownership.** Document and validate the firmware framebuffer, stolen memory, GGTT/GTT aperture and required page-table structures. Do not allocate GPU-visible memory until cacheability, address width, alignment and ownership rules are explicit.
+4. **Add a minimal 2D engine backend.** Start with a narrowly scoped BLT/copy operation and strict bounds/format validation. Keep CPU rendering as the fallback and compare output against the software path.
+5. **Integrate with the compositor.** Route only supported opaque copy/fill operations to the GPU initially. Keep alpha blending, unsupported formats, clipping edge cases and failures on the CPU until validated. Add timeouts and a safe fallback if the engine does not complete.
+6. **Validate on physical hardware.** QEMU build/boot tests cannot prove Intel GPU command submission. Require real-device tests for register access, engine completion, framebuffer integrity, repeated operations and CPU-load/frame-time measurements before enabling the backend by default.
+
+### Safety and compatibility constraints
+
+- The firmware framebuffer remains the active display path until native Intel display initialization is independently validated.
+- No guessed BAR sizes, undocumented register writes, GPU resets, or unbounded command waits.
+- No xHCI, USB keyboard, USB mouse, or input-driver changes are part of this graphics work.
+- The current 120 Hz frame clock is a scheduling target; it is not proof of GPU acceleration or panel VSync.
+- The first milestone is **2D acceleration**, not a complete OpenGL/Vulkan/3D driver. A full Intel graphics stack is substantially larger.
+
