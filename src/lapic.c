@@ -88,10 +88,19 @@ static uint32_t lapic_calibrate_initial(uint32_t target_hz){
     outb(PIT_SPKR,speaker);
     if(elapsed<100u) return 0u;
 
-    uint64_t per_second=(uint64_t)elapsed*PIT_CAL_HZ;
-    uint64_t initial64=per_second/target_hz;
-    if(initial64<1000u || initial64>0xFFFFFFFFu) return 0u;
-    return (uint32_t)initial64;
+    /*
+     * Keep calibration arithmetic in 32-bit integer operations. A variable
+     * 64-bit divide would pull __udivdi3 into this freestanding 32-bit kernel.
+     * Splitting quotient and remainder preserves floor(elapsed*PIT_CAL_HZ/hz)
+     * without overflowing the intermediate values.
+     */
+    uint32_t whole=elapsed/target_hz;
+    uint32_t remainder=elapsed%target_hz;
+    if(whole>0xFFFFFFFFu/PIT_CAL_HZ) return 0u;
+    uint32_t initial=whole*PIT_CAL_HZ+
+        (remainder*PIT_CAL_HZ)/target_hz;
+    if(initial<1000u) return 0u;
+    return initial;
 }
 void lapic_timer_init(void){
     if(!initialized)return;
