@@ -1235,13 +1235,25 @@ int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){
     gui_start();
     if(!gui_active)return;
+
+    if(lapic_frame_timer_active()){
+        /* The calibrated BSP LAPIC clock drives desktop frames independently
+           from PIT process scheduling. USB mouse reports are sampled at the
+           same cadence in the LAPIC interrupt path. */
+        uint32_t last_frame=lapic_frame_ticks();
+        for(;;){
+            while(gui_active && lapic_frame_ticks()==last_frame)
+                __asm__ volatile("sti; hlt");
+            if(!gui_active)break;
+            last_frame=lapic_frame_ticks();
+            gui_step();
+        }
+        return;
+    }
+
+    /* Safe fallback for machines without a working local APIC frame clock. */
     uint32_t last_frame=interrupt_timer_ticks();
     for(;;){
-        /*
-         * Use the existing PIT 100 Hz interrupt as the desktop/input clock.
-         * It is already the kernel scheduler clock and does not depend on
-         * LAPIC timer calibration, which can vary across physical machines.
-         */
         while(gui_active && interrupt_timer_ticks()==last_frame)
             __asm__ volatile("sti; hlt");
         if(!gui_active)break;
