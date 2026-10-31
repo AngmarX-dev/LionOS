@@ -17,7 +17,6 @@
 #define LAPIC_TIMER_PERIODIC (1u << 17)
 #define LAPIC_TIMER_MASKED (1u << 16)
 #define LAPIC_TIMER_DIV_16 0x3u
-#define LAPIC_TARGET_HZ 60u
 #define PIT_BASE_HZ 1193182u
 #define PIT_CAL_HZ 50u
 #define PIT_CH2 0x42u
@@ -32,6 +31,8 @@
 static volatile uint32_t *lapic = (volatile uint32_t *)(uintptr_t)LIONOS_LAPIC_VIRT;
 static uint32_t initialized;
 static volatile uint32_t timer_ticks;
+static volatile uint32_t frame_ticks;
+static volatile uint32_t frame_timer_enabled;
 
 static uint64_t rdmsr(uint32_t msr) { uint32_t lo,hi; __asm__ volatile("rdmsr":"=a"(lo),"=d"(hi):"c"(msr)); return ((uint64_t)hi<<32)|lo; }
 static void wrmsr(uint32_t msr,uint64_t value) { uint32_t lo=(uint32_t)value,hi=(uint32_t)(value>>32); __asm__ volatile("wrmsr"::"c"(msr),"a"(lo),"d"(hi):"memory"); }
@@ -60,7 +61,8 @@ void lapic_send_init(uint32_t apic_id){
     wait_icr();
 }
 void lapic_send_startup(uint32_t apic_id,uint32_t vector){if(!initialized||vector>0xFFu)return;write_reg(0x310u,(apic_id&0xFFu)<<24);write_reg(0x300u,ICR_DELIVERY_STARTUP|(vector&0xFFu));wait_icr();}
-static uint32_t lapic_calibrate_initial(void){
+static uint32_t lapic_calibrate_initial(uint32_t target_hz){
+    if(target_hz<20u || target_hz>240u) return 0u;
     /* Calibrate the local APIC timer against PIT channel 2. */
     uint8_t speaker=inb(PIT_SPKR);
     uint32_t pit_count=PIT_BASE_HZ/PIT_CAL_HZ;
@@ -86,19 +88,46 @@ static uint32_t lapic_calibrate_initial(void){
     outb(PIT_SPKR,speaker);
     if(elapsed<100u) return 0u;
 
-    uint64_t per_second=(uint64_t)elapsed*PIT_CAL_HZ;
-    uint64_t initial64=per_second/LAPIC_TARGET_HZ;
-    if(initial64<1000u || initial64>0xFFFFFFFFu) return 0u;
-    return (uint32_t)initial64;
+    /*
+     * Keep calibration arithmetic in 32-bit integer operations. A variable
+     * 64-bit divide would pull __udivdi3 into this freestanding 32-bit kernel.
+     * Splitting quotient and remainder preserves floor(elapsed*PIT_CAL_HZ/hz)
+     * without overflowing the intermediate values.
+     */
+    uint32_t whole=elapsed/target_hz;
+    uint32_t remainder=elapsed%target_hz;
+    if(whole>0xFFFFFFFFu/PIT_CAL_HZ) return 0u;
+    uint32_t initial=whole*PIT_CAL_HZ+
+        (remainder*PIT_CAL_HZ)/target_hz;
+    if(initial<1000u) return 0u;
+    return initial;
 }
 void lapic_timer_init(void){
     if(!initialized)return;
     timer_ticks=0u;
-    uint32_t initial=lapic_calibrate_initial();
+    uint32_t initial=lapic_calibrate_initial(60u);
     if(!initial) initial=200000u;
     write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);
     write_reg(LAPIC_REG_LVT_TIMER,LAPIC_TIMER_PERIODIC|LIONOS_LAPIC_TIMER_VECTOR);
     write_reg(LAPIC_REG_TIMER_INIT,initial);
 }
+
+/* BSP frame clock: independent from the PIT process/scheduler clock. */
+int lapic_frame_timer_init(uint32_t hz){
+    frame_timer_enabled=0u;
+    if(!initialized || hz<20u || hz>240u) return -1;
+    uint32_t initial=lapic_calibrate_initial(hz);
+    if(!initial) return -1;
+    frame_ticks=0u;
+    write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);
+    write_reg(LAPIC_REG_LVT_TIMER,LAPIC_TIMER_PERIODIC|LIONOS_LAPIC_TIMER_VECTOR);
+    write_reg(LAPIC_REG_TIMER_INIT,initial);
+    frame_timer_enabled=1u;
+    return 0;
+}
+int lapic_frame_timer_active(void){return frame_timer_enabled!=0u;}
+uint32_t lapic_frame_ticks(void){return frame_ticks;}
+void lapic_frame_timer_tick(void){if(frame_timer_enabled)++frame_ticks;}
+
 uint32_t lapic_timer_ticks(void){return timer_ticks;}
 void lapic_timer_tick(void){++timer_ticks;lapic_eoi();}

@@ -306,6 +306,10 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_write(smp_lock_selftest()
             ? "[ OK ] SMP spinlock / IRQ-save synchronization\n"
             : "[ERR] SMP spinlock self-test\n");
+        if(lapic_frame_timer_init(120u)==0)
+            console_write("[ OK ] Calibrated 120 Hz BSP frame timer\n");
+        else
+            console_write("[ -- ] BSP frame timer unavailable; PIT fallback enabled\n");
         BOOT_STAGE(56u, "PROCESSORS READY");
     } else {
         console_write("[ -- ] Local APIC unavailable; SMP disabled\n");
@@ -326,10 +330,15 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     BOOT_STAGE(68u, "PROCESS MANAGER READY");
 
     if(lapic_ready){
-        /* Keep the PIT 100 Hz timer active for the desktop and input path. */
-        console_write("[ OK ] PIT 100 Hz / desktop + input clock\n");
+        if(lapic_frame_timer_active())
+            console_write("[ OK ] PIT 100 Hz scheduler / LAPIC 120 Hz GUI + USB input clock\n");
+        else
+            console_write("[ OK ] PIT 100 Hz scheduler + GUI/input fallback clock\n");
         BOOT_STAGE(72u, "SYSTEM TIMER READY");
     }
+    debug_write(lapic_frame_timer_active()
+        ? "LIONOS:GUI-FRAME-TIMER-120HZ\n"
+        : "LIONOS:GUI-FRAME-TIMER-PIT-FALLBACK\n");
 
     /* ---- Filesystems ---- */
     ramfs_init();

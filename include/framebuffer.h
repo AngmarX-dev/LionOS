@@ -17,6 +17,10 @@ void framebuffer_blend_circle(uint32_t cx, uint32_t cy, uint32_t radius, uint32_
 void framebuffer_console_clear(void);
 void framebuffer_console_putc(char c, uint32_t row, uint32_t col, uint32_t fg, uint32_t bg);
 int framebuffer_begin_desktop(void);
+int framebuffer_begin_layer(uint32_t *pixels,uint32_t width,uint32_t height,uint32_t origin_x,uint32_t origin_y);
+void framebuffer_end_layer(void);
+void framebuffer_composite_layer(const uint32_t *pixels,uint32_t width,uint32_t height,uint32_t x,uint32_t y);
+int framebuffer_compositor_selftest(void);
 void framebuffer_end_desktop(void);
 int framebuffer_cursor_overlay_supported(void);
 void framebuffer_cursor_hide(void);

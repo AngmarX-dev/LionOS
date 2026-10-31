@@ -77,6 +77,7 @@ static uint32_t *drag_surface;
 static uint32_t drag_surface_w, drag_surface_h;
 static uint8_t drag_cache_active;
 static uint8_t drag_render_skip_id;
+static uint8_t drag_compositor_ready;
 
 /* Kernel log storage is a bounded in-memory desktop service, not a file. */
 #define KLOG_RING_CAPACITY 64u
@@ -842,14 +843,21 @@ static void draw_windows(void){
         if(windows[i].visible&&windows[i].id!=drag_render_skip_id&&!windows[i].minimized&&windows[i].focused)
             draw_window(&windows[i]);
 }
+static uint32_t gui_render_clock_ticks(void){
+    return lapic_frame_timer_active()
+        ? lapic_frame_ticks()
+        : interrupt_timer_ticks();
+}
+
 static void render_all(void){
-    uint32_t now=interrupt_timer_ticks();
+    uint32_t now=gui_render_clock_ticks();
     uint32_t sw=framebuffer_width(), sh=framebuffer_height();
     (void)dirty_valid;
     (void)sw;
     (void)sh;
-    /* Render on the next PIT tick even for a full-screen change so
-       clicks/window opens do not add an extra frame of latency. */
+    /* Pace presentation from the active frame clock, not the PIT scheduler.
+       This lets the calibrated 120 Hz BSP clock actually drive rendering;
+       systems without it retain the 100 Hz PIT fallback. */
     uint32_t min_ticks=1u;
     if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<min_ticks)return;
 
@@ -914,17 +922,21 @@ static void drag_cache_free(void){
 }
 
 static int drag_cache_begin(struct ui_window*w){
-    if(!w||!framebuffer_cursor_overlay_supported()) return -1;
+    if(!w||!drag_compositor_ready||!framebuffer_cursor_overlay_supported()) return -1;
     uint64_t screen_pixels=(uint64_t)framebuffer_width()*framebuffer_height();
-    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
+    uint64_t surface_pixels=(uint64_t)w->w*w->h;
+    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t) ||
+       surface_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
 
     drag_background=(uint32_t*)kmalloc((size_t)screen_pixels*sizeof(uint32_t));
-    if(!drag_background){drag_cache_free();return -1;}
+    drag_surface=(uint32_t*)kmalloc((size_t)surface_pixels*sizeof(uint32_t));
+    if(!drag_background||!drag_surface){drag_cache_free();return -1;}
 
     /*
-     * Build one static scene without the dragged window. Every subsequent
-     * mouse sample can then restore/copy rectangles instead of rerendering
-     * fonts, rounded panels and every other window.
+     * Snapshot the static scene without this window. The window itself is
+     * rendered once into an ARGB layer, so transparency is recomposited over
+     * the current background on every frame without rerunning its widgets,
+     * text and rounded-corner rasterization.
      */
     drag_render_skip_id=w->id;
     dirty_full();
@@ -932,8 +944,26 @@ static int drag_cache_begin(struct ui_window*w){
     last_render_tick=0xFFFFFFFFu;
     render_all();
     framebuffer_copy_to_buffer(drag_background);
-
     drag_render_skip_id=0u;
+
+    __builtin_memset(drag_surface,0,(size_t)surface_pixels*sizeof(uint32_t));
+    if(framebuffer_begin_layer(drag_surface,w->w,w->h,w->x,w->y)!=0){
+        drag_cache_free();
+        dirty_full();
+        last_render_tick=0xFFFFFFFFu;
+        render_all();
+        return -1;
+    }
+    draw_window(w);
+    framebuffer_end_layer();
+
+    framebuffer_set_clip(w->x,w->y,w->w,w->h);
+    framebuffer_composite_layer(drag_surface,w->w,w->h,w->x,w->y);
+    framebuffer_clear_clip();
+    framebuffer_present_rect(w->x,w->y,w->w,w->h);
+
+    drag_surface_w=w->w;
+    drag_surface_h=w->h;
     drag_cache_active=1u;
     scene_dirty=0u;
     dirty_valid=0u;
@@ -949,19 +979,15 @@ static void drag_cache_move(struct ui_window*w,uint32_t old_x,uint32_t old_y){
     uint32_t right=old_right>new_right?old_right:new_right;
     uint32_t bottom=old_bottom>new_bottom?old_bottom:new_bottom;
     if(right>left&&bottom>top){
-        /* Restore the old hardware cursor before changing the framebuffer.
-           Otherwise its saved-under pixels can overwrite the newly presented
-           drag region when the cursor is moved at the end of gui_step(). */
         framebuffer_cursor_hide();
         uint32_t screen_stride=framebuffer_width();
         const uint32_t *background_src=
             drag_background+(size_t)top*screen_stride+left;
         framebuffer_copy_rect_from_buffer(background_src,screen_stride,
                                            left,top,right-left,bottom-top);
-        /* Re-render the window over its new background so glass/alpha effects
-           are composed at the current position instead of using stale pixels. */
         framebuffer_set_clip(left,top,right-left,bottom-top);
-        draw_window(w);
+        framebuffer_composite_layer(drag_surface,drag_surface_w,drag_surface_h,
+                                     w->x,w->y);
         framebuffer_clear_clip();
         framebuffer_present_rect(left,top,right-left,bottom-top);
     }
@@ -1203,6 +1229,10 @@ void gui_start(void){
     if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\n");return;}
+    drag_compositor_ready=(uint8_t)(framebuffer_compositor_selftest()==0);
+    debug_write(drag_compositor_ready
+        ? "LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK\n"
+        : "LIONOS:FRAMEBUFFER-ARGB-SELFTEST-FAIL\n");
     while(keyboard_available())(void)keyboard_getchar();
     /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
     cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
@@ -1235,13 +1265,25 @@ int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){
     gui_start();
     if(!gui_active)return;
+
+    if(lapic_frame_timer_active()){
+        /* The calibrated BSP LAPIC clock drives desktop frames independently
+           from PIT process scheduling. USB mouse reports are sampled at the
+           same cadence in the LAPIC interrupt path. */
+        uint32_t last_frame=lapic_frame_ticks();
+        for(;;){
+            while(gui_active && lapic_frame_ticks()==last_frame)
+                __asm__ volatile("sti; hlt");
+            if(!gui_active)break;
+            last_frame=lapic_frame_ticks();
+            gui_step();
+        }
+        return;
+    }
+
+    /* Safe fallback for machines without a working local APIC frame clock. */
     uint32_t last_frame=interrupt_timer_ticks();
     for(;;){
-        /*
-         * Use the existing PIT 100 Hz interrupt as the desktop/input clock.
-         * It is already the kernel scheduler clock and does not depend on
-         * LAPIC timer calibration, which can vary across physical machines.
-         */
         while(gui_active && interrupt_timer_ticks()==last_frame)
             __asm__ volatile("sti; hlt");
         if(!gui_active)break;
