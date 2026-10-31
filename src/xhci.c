@@ -99,6 +99,7 @@ static uint32_t port_state_neutral(uint32_t ps){
 #define TRB_STATUS 4u
 #define TRB_LINK 6u
 #define TRB_ENABLE_SLOT 9u
+#define TRB_DISABLE_SLOT 10u
 #define TRB_ADDRESS_DEVICE 11u
 #define TRB_CONFIGURE_EP 12u
 #define TRB_EVAL_CONTEXT 13u
@@ -189,9 +190,11 @@ static uint32_t cap_len, op_base, db_base, rt_base;
 static uint32_t hci_version;
 static uint32_t max_ports, max_slots, ctx_size;
 static uint32_t slot_id, port_number, device_speed, endpoint_id;
+static uint32_t enum_slot_id;
 static uint32_t endpoint_packet, endpoint_interval;
 static uint32_t ep0_mps;
 static uint32_t ready;
+static uint32_t controller_ready;
 static uint32_t ppc_enabled;
 static uint16_t xhci_vendor_id;   /* PCI vendor of the xHCI controller */
 
@@ -708,9 +711,20 @@ static int cmd_enable_slot(void){
         uint32_t cc=(e.status>>24)&0xFFu;
         if(cc!=CC_SUCCESS){ cmd_recover(); return -1; }
         slot_id=(e.control>>24)&0xFFu;
+        enum_slot_id=slot_id;
         return slot_id?0:-1;
     }
     cmd_recover(); return -1;
+}
+static int cmd_disable_slot(uint32_t target_slot){
+    if(!target_slot) return 0;
+    cmd_submit(TRB_DISABLE_SLOT,0,target_slot<<24);
+    int rc=cmd_wait(0u);
+    if(rc==0 && dcbaa){
+        dcbaa[target_slot]=0u;
+        dma_wmb();
+    }
+    return rc;
 }
 static int cmd_address_device(uint32_t bsr){
     zero_mem(in_ctx,PAGE_SIZE);
@@ -1267,7 +1281,7 @@ static void clear_change_bits(uint32_t p,uint32_t ps){
     if(chg) w32(po,port_state_neutral(ps)|chg);
 }
 
-static int enumerate_port(uint32_t p){
+static int enumerate_port_impl(uint32_t p){
     uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
     uint32_t ps=r32(po);
     if(!(ps&PS_CCS)) return -1;
@@ -1392,8 +1406,57 @@ static int enumerate_port(uint32_t p){
     }
     return 0;
 }
+static int enumerate_port(uint32_t p){
+    uint32_t saved_slot=slot_id;
+    enum_slot_id=0u;
+    int rc=enumerate_port_impl(p);
+    uint32_t failed_slot=enum_slot_id;
+    enum_slot_id=0u;
+    if(rc!=0){
+        /* Release a partially enumerated slot before retrying this port
+           with the other HID class. */
+        if(failed_slot) (void)cmd_disable_slot(failed_slot);
+        slot_id=saved_slot;
+    }
+    return rc;
+}
+
+static int enumerate_hid_ports(void){
+    for(uint32_t pass=0u;pass<2u;++pass){
+        uint32_t saw_ccs=0u;
+        for(uint32_t p=1u;p<=max_ports;++p){
+            uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
+            uint32_t ps=r32(po);
+            diag_last_portsc=ps;
+            if(!(ps&PS_CCS)) continue;
+            /* A mouse retry must never reset a working USB keyboard. */
+            if(!hid_wanted_keyboard && kbd_ready && p==kbd_port_number) continue;
+            saw_ccs=1u;
+            diag_stage="USB PORT CONNECTED";
+            usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
+            usb_log(" ---\\n");
+            if(enumerate_port(p)==0) return 0;
+            usb_log("[ USB ] port "); usb_log_dec(p);
+            usb_log(" failed, moving on\\n");
+        }
+        if(saw_ccs)
+            return usb_fail(hid_wanted_keyboard ? "NO-HID-KEYBOARD" : "NO-HID-MOUSE");
+        if(pass==0u){
+            usb_log("[ USB ] no devices, retry after wake\\n");
+            wake_all_ports();
+            xhci_delay_ms(300u);
+        }
+    }
+    return usb_fail(hid_wanted_keyboard ? "NO-PORT-KEYBOARD" : "NO-PORT-MOUSE");
+}
+
 int xhci_mouse_init(void){
     if(ready) return 0;
+    if(controller_ready){
+        hid_wanted_keyboard=0u;
+        diag_stage="MOUSE ENUMERATION";
+        return enumerate_hid_ports();
+    }
     diag_stage="SCANNING PCI";
     diag_controller_found=0; diag_init_ok=0;
     diag_transfer_submitted=diag_event_count=0;
@@ -1481,6 +1544,8 @@ int xhci_mouse_init(void){
     cmd_submit(TRB_NOOP_CMD,0,0);
     if(cmd_wait(0)) return usb_fail("NOOP-CMD");
 
+    controller_ready=1u;
+
     diag_stage="PORT POWER";
     wake_all_ports();
     xhci_delay_ms(100u);
@@ -1488,36 +1553,14 @@ int xhci_mouse_init(void){
     diag_stage="PORT DUMP";
     dump_ports();
 
-    for(uint32_t pass=0;pass<2u;++pass){
-        uint32_t saw_ccs=0;
-        for(uint32_t p=1;p<=max_ports;++p){
-            uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
-            uint32_t ps=r32(po);
-            diag_last_portsc=ps;
-            if(!(ps&PS_CCS)) continue;
-            saw_ccs=1;
-            diag_stage="USB PORT CONNECTED";
-            usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
-            usb_log(" ---\n");
-            if(enumerate_port(p)==0) return 0;
-            usb_log("[ USB ] port "); usb_log_dec(p);
-            usb_log(" failed, moving on\n");
-        }
-        if(saw_ccs) return usb_fail(diag_stage);
-        if(pass==0u){
-            usb_log("[ USB ] no devices, retry after wake\n");
-            wake_all_ports();
-            xhci_delay_ms(300u);
-        } else {
-            return usb_fail("NO-PORT");
-        }
-    }
-    return usb_fail("NO-HID-MOUSE");
+    return enumerate_hid_ports();
 }
 
+
+
 int xhci_keyboard_init(void){
-    if(!ready||!slot_id||!endpoint_id)return -1;
     if(kbd_ready)return 0;
+    if(!controller_ready)return -1;
     uint32_t save_slot=slot_id, save_port=port_number, save_speed=device_speed;
     uint32_t save_ep=endpoint_id, save_pkt=endpoint_packet, save_int=endpoint_interval;
     uint32_t save_intr_index=intr_index, save_intr_cycle=intr_cycle, save_intr_segment=intr_segment;
@@ -1536,8 +1579,11 @@ int xhci_keyboard_init(void){
     report_pending=kbd_report_pending; report_length=kbd_report_length; report_seen=0u;
     hid_wanted_keyboard=1u;
     int found=-1;
+    /* Only skip the mouse port when mouse enumeration really succeeded.
+       A failed mouse probe may have left save_port pointing at the keyboard. */
+    uint32_t mouse_port=save_ready?save_port:0u;
     for(uint32_t p=1u;p<=max_ports;++p){
-        if(p==save_port)continue;
+        if(mouse_port && p==mouse_port)continue;
         uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
         uint32_t ps=r32(po);
         if(!(ps&PS_CCS))continue;
@@ -1593,9 +1639,9 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dx) *dx = 0;
     if(dy) *dy = 0;
     if(buttons) *buttons = 0;
-    if(!ready) return 0;
-    if(!hid_controller_healthy()) return -1;
-    if(hid_endpoint_needs_recovery()) return -1;
+    if(!ready && !kbd_ready) return 0;
+    if(ready && !hid_controller_healthy()) return -1;
+    if(ready && hid_endpoint_needs_recovery()) return -1;
 
     /*
      * Process only the events that were present when this poll started.
@@ -1627,7 +1673,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
             submit_keyboard_report();
             continue;
         }
-        if(event_slot!=slot_id || event_ep!=endpoint_id) continue;
+        if(!ready || event_slot!=slot_id || event_ep!=endpoint_id) continue;
 
         report_pending=0;
         ++diag_event_count;
@@ -1672,7 +1718,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
      * Do not reset the endpoint merely because the mouse is silent.
      */
     if(kbd_ready && !kbd_report_pending)submit_keyboard_report();
-    if(!report_pending){
+    if(ready && !report_pending){
         if(submit_report()!=0) return -1;
     }
 
