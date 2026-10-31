@@ -843,14 +843,21 @@ static void draw_windows(void){
         if(windows[i].visible&&windows[i].id!=drag_render_skip_id&&!windows[i].minimized&&windows[i].focused)
             draw_window(&windows[i]);
 }
+static uint32_t gui_render_clock_ticks(void){
+    return lapic_frame_timer_active()
+        ? lapic_frame_ticks()
+        : interrupt_timer_ticks();
+}
+
 static void render_all(void){
-    uint32_t now=interrupt_timer_ticks();
+    uint32_t now=gui_render_clock_ticks();
     uint32_t sw=framebuffer_width(), sh=framebuffer_height();
     (void)dirty_valid;
     (void)sw;
     (void)sh;
-    /* Render on the next PIT tick even for a full-screen change so
-       clicks/window opens do not add an extra frame of latency. */
+    /* Pace presentation from the active frame clock, not the PIT scheduler.
+       This lets the calibrated 120 Hz BSP clock actually drive rendering;
+       systems without it retain the 100 Hz PIT fallback. */
     uint32_t min_ticks=1u;
     if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<min_ticks)return;
 
