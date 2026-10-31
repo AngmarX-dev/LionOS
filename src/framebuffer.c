@@ -55,6 +55,10 @@ static uint32_t enabled;
 static struct mb2_fb_tag saved_fb_tag;
 static uint32_t saved_fb_valid;
 static uint32_t *desktop_buffer;
+static uint32_t *layer_buffer;
+static uint32_t layer_width, layer_height, layer_origin_x, layer_origin_y;
+static uint8_t layer_active, layer_saved_clip_enabled;
+static uint32_t layer_saved_clip_x, layer_saved_clip_y, layer_saved_clip_w, layer_saved_clip_h;
 static uint32_t *wallpaper_cache;
 static const uint16_t *wallpaper_source;
 static uint32_t boot_splash_asset_drawn;
@@ -346,9 +350,40 @@ int framebuffer_begin_desktop(void) {
 
 void framebuffer_end_desktop(void) {
     framebuffer_cursor_hide();
+    framebuffer_end_layer();
     clip_enabled = 0u;
     desktop_mode = 0u;
 }
+
+int framebuffer_begin_layer(uint32_t *pixels,uint32_t width,uint32_t height,
+                            uint32_t origin_x,uint32_t origin_y){
+    if(!enabled||!desktop_mode||!desktop_buffer||!pixels||!width||!height||
+       layer_active||origin_x>=fb_width_value||origin_y>=fb_height_value||
+       width>fb_width_value-origin_x||height>fb_height_value-origin_y)
+        return -1;
+    layer_saved_clip_enabled=clip_enabled;
+    layer_saved_clip_x=clip_x;layer_saved_clip_y=clip_y;
+    layer_saved_clip_w=clip_w;layer_saved_clip_h=clip_h;
+    layer_buffer=pixels;
+    layer_width=width;layer_height=height;
+    layer_origin_x=origin_x;layer_origin_y=origin_y;
+    layer_active=1u;
+    clip_x=origin_x;clip_y=origin_y;clip_w=width;clip_h=height;
+    clip_enabled=1u;
+    return 0;
+}
+
+void framebuffer_end_layer(void){
+    if(!layer_active)return;
+    layer_active=0u;
+    layer_buffer=0;
+    layer_width=layer_height=0u;
+    layer_origin_x=layer_origin_y=0u;
+    clip_enabled=layer_saved_clip_enabled;
+    clip_x=layer_saved_clip_x;clip_y=layer_saved_clip_y;
+    clip_w=layer_saved_clip_w;clip_h=layer_saved_clip_h;
+}
+
 
 void framebuffer_set_clip(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
     if (!width || !height || x >= fb_width_value || y >= fb_height_value) {
@@ -585,11 +620,16 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
             uint32_t sg = ((gt * (256u - fy) + gb * fy + 128u) >> 8) / alpha;
             uint32_t sb = ((bt * (256u - fy) + bb * fy + 128u) >> 8) / alpha;
             uint32_t rgb = (sr << 16) | (sg << 8) | sb;
-            if (alpha >= 255u) {
-                desktop_buffer[(y + dy) * fb_width_value + (x + dx)] = pack_rgb(rgb);
+            uint32_t *dst_pixel=framebuffer_draw_row(y+dy,x+dx);
+            if(layer_active){
+                *dst_pixel=blend_layer_pixel(*dst_pixel,rgb,alpha);
                 continue;
             }
-            uint32_t dst = desktop_buffer[(y + dy) * fb_width_value + (x + dx)];
+            if (alpha >= 255u) {
+                *dst_pixel = pack_rgb(rgb);
+                continue;
+            }
+            uint32_t dst = *dst_pixel;
             uint32_t dr = (dst >> red_pos) & ((1u << red_size) - 1u);
             uint32_t dg = (dst >> green_pos) & ((1u << green_size) - 1u);
             uint32_t db = (dst >> blue_pos) & ((1u << blue_size) - 1u);
@@ -599,7 +639,7 @@ void framebuffer_blit_rgba32(const uint32_t *pixels, uint32_t width, uint32_t he
             uint32_t rr = (sr * alpha + dr * (255u - alpha)) / 255u;
             uint32_t rg = (sg * alpha + dg * (255u - alpha)) / 255u;
             uint32_t rb = (sb * alpha + db * (255u - alpha)) / 255u;
-            desktop_buffer[(y + dy) * fb_width_value + (x + dx)] = pack_rgb((rr << 16) | (rg << 8) | rb);
+            *dst_pixel = pack_rgb((rr << 16) | (rg << 8) | rb);
         }
     }
 }
@@ -694,8 +734,11 @@ void framebuffer_fill_rect(uint32_t x, uint32_t y, uint32_t width, uint32_t heig
     uint32_t packed = pack_rgb(color);
     for (uint32_t yy = y; yy < y + height; ++yy) {
         if(desktop_mode){
-            uint32_t *line=desktop_buffer+yy*fb_width_value+x;
-            for(uint32_t xx=0u;xx<width;++xx)line[xx]=packed;
+            uint32_t *line=layer_active
+                ? layer_buffer+(yy-layer_origin_y)*layer_width+(x-layer_origin_x)
+                : desktop_buffer+yy*fb_width_value+x;
+            uint32_t value=layer_active?(0xFF000000u|(color&0x00FFFFFFu)):packed;
+            for(uint32_t xx=0u;xx<width;++xx)line[xx]=value;
         }else{
             uint32_t bytes=(fb_bpp+7u)/8u;
             volatile uint8_t *line=fb+yy*fb_pitch+x*bytes;
@@ -729,11 +772,61 @@ static uint32_t desktop_blend_rgb(uint32_t dst,uint32_t src,uint32_t alpha){
 }
 
 static inline uint32_t blend888(uint32_t dst,uint32_t src,uint32_t a){uint32_t rb=(((src&0x00FF00FFu)*a+(dst&0x00FF00FFu)*(256u-a))>>8)&0x00FF00FFu;uint32_t g=(((src&0x0000FF00u)*a+(dst&0x0000FF00u)*(256u-a))>>8)&0x0000FF00u;return rb|g;}
-static void blend_span(uint32_t*p,uint32_t n,uint32_t color,uint32_t alpha){if(fmt888){uint32_t a=alpha+(alpha>>7),s=color&0x00FFFFFFu;for(uint32_t i=0;i<n;++i)p[i]=blend888(p[i],s,a);return;}for(uint32_t i=0;i<n;++i)p[i]=pack_rgb(desktop_blend_rgb(desktop_unpack_rgb(p[i]),color,alpha));}
+static uint32_t blend_layer_pixel(uint32_t dst,uint32_t src,uint32_t alpha){
+    uint32_t da=dst>>24;
+    uint32_t outa=alpha+(da*(255u-alpha)+127u)/255u;
+    if(!outa)return 0u;
+    uint32_t sr=(src>>16)&255u,sg=(src>>8)&255u,sb=src&255u;
+    uint32_t dr=(dst>>16)&255u,dg=(dst>>8)&255u,db=dst&255u;
+    uint32_t remain=(da*(255u-alpha)+127u)/255u;
+    uint32_t r=(sr*alpha+dr*remain+outa/2u)/outa;
+    uint32_t g=(sg*alpha+dg*remain+outa/2u)/outa;
+    uint32_t b=(sb*alpha+db*remain+outa/2u)/outa;
+    return (outa<<24)|(r<<16)|(g<<8)|b;
+}
+static uint32_t *framebuffer_draw_row(uint32_t y,uint32_t x){
+    return layer_active
+        ? layer_buffer+(y-layer_origin_y)*layer_width+(x-layer_origin_x)
+        : desktop_buffer+y*fb_width_value+x;
+}
+static void blend_span(uint32_t*p,uint32_t n,uint32_t color,uint32_t alpha){
+    if(layer_active){for(uint32_t i=0u;i<n;++i)p[i]=blend_layer_pixel(p[i],color,alpha);return;}
+    if(fmt888){uint32_t a=alpha+(alpha>>7),s=color&0x00FFFFFFu;for(uint32_t i=0;i<n;++i)p[i]=blend888(p[i],s,a);return;}
+    for(uint32_t i=0;i<n;++i)p[i]=pack_rgb(desktop_blend_rgb(desktop_unpack_rgb(p[i]),color,alpha));
+}
 static uint32_t isqrt_u32(uint32_t v){uint32_t r=0u;while((r+1u)*(r+1u)<=v)++r;return r;}
-void framebuffer_blend_rect(uint32_t x,uint32_t y,uint32_t width,uint32_t height,uint32_t color,uint8_t alpha){if(!enabled||!desktop_mode||!desktop_buffer||!width||!height||!alpha)return;if(x>=fb_width_value||y>=fb_height_value)return;if(width>fb_width_value-x)width=fb_width_value-x;if(height>fb_height_value-y)height=fb_height_value-y;uint32_t x0=x,y0=y,x1=x+width,y1=y+height;if(clip_enabled){if(x0<clip_x)x0=clip_x;if(y0<clip_y)y0=clip_y;uint32_t cr=clip_x+clip_w,cb=clip_y+clip_h;if(x1>cr)x1=cr;if(y1>cb)y1=cb;}if(x1<=x0||y1<=y0)return;for(uint32_t yy=y0;yy<y1;++yy)blend_span(desktop_buffer+yy*fb_width_value+x0,x1-x0,color,alpha);}
-void framebuffer_blend_round_rect(uint32_t x,uint32_t y,uint32_t width,uint32_t height,uint32_t radius,uint32_t color,uint8_t alpha){if(!enabled||!desktop_mode||!desktop_buffer||!width||!height||!alpha)return;if(x>=fb_width_value||y>=fb_height_value)return;if(width>fb_width_value-x)width=fb_width_value-x;if(height>fb_height_value-y)height=fb_height_value-y;if(radius*2u>width)radius=width/2u;if(radius*2u>height)radius=height/2u;uint32_t x0=x,y0=y,x1=x+width,y1=y+height;if(clip_enabled){if(x0<clip_x)x0=clip_x;if(y0<clip_y)y0=clip_y;uint32_t cr=clip_x+clip_w,cb=clip_y+clip_h;if(x1>cr)x1=cr;if(y1>cb)y1=cb;}if(x1<=x0||y1<=y0)return;int32_t r=(int32_t)radius,left=(int32_t)x,top=(int32_t)y,right=(int32_t)(x+width-1u),bottom=(int32_t)(y+height-1u);for(uint32_t yy=y0;yy<y1;++yy){int32_t py=(int32_t)yy,dy=0,inset=0;if(py<top+r)dy=top+r-py;else if(py>bottom-r)dy=py-(bottom-r);if(dy>0)inset=r-(int32_t)isqrt_u32((uint32_t)(r*r-dy*dy));uint32_t sx=(uint32_t)(left+inset),ex=(uint32_t)(right-inset)+1u;if(sx<x0)sx=x0;if(ex>x1)ex=x1;if(ex>sx)blend_span(desktop_buffer+yy*fb_width_value+sx,ex-sx,color,alpha);}}
-void framebuffer_blend_circle(uint32_t cx,uint32_t cy,uint32_t radius,uint32_t color,uint8_t alpha){if(!enabled||!desktop_mode||!desktop_buffer||!radius||!alpha)return;int32_t r=(int32_t)radius,y0=(int32_t)cy-r,y1=(int32_t)cy+r+1,cl=0,cr=(int32_t)fb_width_value,ct=0,cb=(int32_t)fb_height_value;if(clip_enabled){cl=(int32_t)clip_x;cr=(int32_t)(clip_x+clip_w);ct=(int32_t)clip_y;cb=(int32_t)(clip_y+clip_h);}if(y0<ct)y0=ct;if(y1>cb)y1=cb;for(int32_t yy=y0;yy<y1;++yy){int32_t dy=yy-(int32_t)cy,d2=r*r-dy*dy;if(d2<0)continue;int32_t half=(int32_t)isqrt_u32((uint32_t)d2),sx=(int32_t)cx-half,ex=(int32_t)cx+half+1;if(sx<cl)sx=cl;if(ex>cr)ex=cr;if(ex>sx)blend_span(desktop_buffer+(uint32_t)yy*fb_width_value+(uint32_t)sx,(uint32_t)(ex-sx),color,alpha);}}
+void framebuffer_composite_layer(const uint32_t *pixels,uint32_t width,uint32_t height,
+                                    uint32_t x,uint32_t y){
+    if(!enabled||!desktop_mode||!desktop_buffer||!pixels||!width||!height||
+       x>=fb_width_value||y>=fb_height_value)return;
+    uint32_t x0=x,y0=y,x1=x+width,y1=y+height;
+    if(x1<x || y1<y)return;
+    if(x1>fb_width_value)x1=fb_width_value;
+    if(y1>fb_height_value)y1=fb_height_value;
+    if(clip_enabled){
+        if(x0<clip_x)x0=clip_x;
+        if(y0<clip_y)y0=clip_y;
+        uint32_t cr=clip_x+clip_w,cb=clip_y+clip_h;
+        if(x1>cr)x1=cr;
+        if(y1>cb)y1=cb;
+    }
+    if(x1<=x0||y1<=y0)return;
+    for(uint32_t yy=y0;yy<y1;++yy){
+        const uint32_t *src=pixels+(yy-y)*width+(x0-x);
+        uint32_t *dst=desktop_buffer+yy*fb_width_value+x0;
+        for(uint32_t xx=x0;xx<x1;++xx,++src,++dst){
+            uint32_t alpha=*src>>24;
+            if(!alpha)continue;
+            if(alpha>=255u){*dst=pack_rgb(*src&0x00FFFFFFu);continue;}
+            uint32_t bg=desktop_unpack_rgb(*dst);
+            *dst=pack_rgb(desktop_blend_rgb(bg,*src&0x00FFFFFFu,alpha));
+        }
+    }
+}
+
+void framebuffer_blend_rect(uint32_t x,uint32_t y,uint32_t width,uint32_t height,uint32_t color,uint8_t alpha){if(!enabled||!desktop_mode||!desktop_buffer||!width||!height||!alpha)return;if(x>=fb_width_value||y>=fb_height_value)return;if(width>fb_width_value-x)width=fb_width_value-x;if(height>fb_height_value-y)height=fb_height_value-y;uint32_t x0=x,y0=y,x1=x+width,y1=y+height;if(clip_enabled){if(x0<clip_x)x0=clip_x;if(y0<clip_y)y0=clip_y;uint32_t cr=clip_x+clip_w,cb=clip_y+clip_h;if(x1>cr)x1=cr;if(y1>cb)y1=cb;}if(x1<=x0||y1<=y0)return;for(uint32_t yy=y0;yy<y1;++yy)blend_span(framebuffer_draw_row(yy,x0),x1-x0,color,alpha);}
+void framebuffer_blend_round_rect(uint32_t x,uint32_t y,uint32_t width,uint32_t height,uint32_t radius,uint32_t color,uint8_t alpha){if(!enabled||!desktop_mode||!desktop_buffer||!width||!height||!alpha)return;if(x>=fb_width_value||y>=fb_height_value)return;if(width>fb_width_value-x)width=fb_width_value-x;if(height>fb_height_value-y)height=fb_height_value-y;if(radius*2u>width)radius=width/2u;if(radius*2u>height)radius=height/2u;uint32_t x0=x,y0=y,x1=x+width,y1=y+height;if(clip_enabled){if(x0<clip_x)x0=clip_x;if(y0<clip_y)y0=clip_y;uint32_t cr=clip_x+clip_w,cb=clip_y+clip_h;if(x1>cr)x1=cr;if(y1>cb)y1=cb;}if(x1<=x0||y1<=y0)return;int32_t r=(int32_t)radius,left=(int32_t)x,top=(int32_t)y,right=(int32_t)(x+width-1u),bottom=(int32_t)(y+height-1u);for(uint32_t yy=y0;yy<y1;++yy){int32_t py=(int32_t)yy,dy=0,inset=0;if(py<top+r)dy=top+r-py;else if(py>bottom-r)dy=py-(bottom-r);if(dy>0)inset=r-(int32_t)isqrt_u32((uint32_t)(r*r-dy*dy));uint32_t sx=(uint32_t)(left+inset),ex=(uint32_t)(right-inset)+1u;if(sx<x0)sx=x0;if(ex>x1)ex=x1;if(ex>sx)blend_span(framebuffer_draw_row(yy,sx),ex-sx,color,alpha);}}
+void framebuffer_blend_circle(uint32_t cx,uint32_t cy,uint32_t radius,uint32_t color,uint8_t alpha){if(!enabled||!desktop_mode||!desktop_buffer||!radius||!alpha)return;int32_t r=(int32_t)radius,y0=(int32_t)cy-r,y1=(int32_t)cy+r+1,cl=0,cr=(int32_t)fb_width_value,ct=0,cb=(int32_t)fb_height_value;if(clip_enabled){cl=(int32_t)clip_x;cr=(int32_t)(clip_x+clip_w);ct=(int32_t)clip_y;cb=(int32_t)(clip_y+clip_h);}if(y0<ct)y0=ct;if(y1>cb)y1=cb;for(int32_t yy=y0;yy<y1;++yy){int32_t dy=yy-(int32_t)cy,d2=r*r-dy*dy;if(d2<0)continue;int32_t half=(int32_t)isqrt_u32((uint32_t)d2),sx=(int32_t)cx-half,ex=(int32_t)cx+half+1;if(sx<cl)sx=cl;if(ex>cr)ex=cr;if(ex>sx)blend_span(framebuffer_draw_row((uint32_t)yy,(uint32_t)sx),(uint32_t)(ex-sx),color,alpha);}}
 
 void framebuffer_console_clear(void) {
     if (!enabled) return;
