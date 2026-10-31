@@ -1034,9 +1034,13 @@ static int find_hid(hid_candidate_t *c){
                 uint8_t sub=config_buf[i+6u];
                 uint8_t proto=config_buf[i+7u];
                 if(hid_wanted_keyboard)
-                    sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&(proto==1u||proto==0u)):(alt==0u&&cls==3u&&sub==1u);
+                    sel=(pass==0u)
+                        ?(alt==0u&&cls==3u&&sub==1u&&proto==1u)
+                        :(alt==0u&&cls==3u&&sub==1u&&proto==0u);
                 else
-                    sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&proto==2u):(alt==0u&&cls==3u&&sub==1u);
+                    sel=(pass==0u)
+                        ?(alt==0u&&cls==3u&&sub==1u&&proto==2u)
+                        :(alt==0u&&cls==3u&&sub==1u&&proto==0u);
                 if(sel) c->interface_number=config_buf[i+2u];
             } else if(type==5u&&len>=7u&&sel){
                 uint8_t addr=config_buf[i+2u];
@@ -1434,15 +1438,15 @@ static int enumerate_hid_ports(void){
             saw_ccs=1u;
             diag_stage="USB PORT CONNECTED";
             usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
-            usb_log(" ---\\n");
+            usb_log(" ---\n");
             if(enumerate_port(p)==0) return 0;
             usb_log("[ USB ] port "); usb_log_dec(p);
-            usb_log(" failed, moving on\\n");
+            usb_log(" failed, moving on\n");
         }
         if(saw_ccs)
             return usb_fail(hid_wanted_keyboard ? "NO-HID-KEYBOARD" : "NO-HID-MOUSE");
         if(pass==0u){
-            usb_log("[ USB ] no devices, retry after wake\\n");
+            usb_log("[ USB ] no devices, retry after wake\n");
             wake_all_ports();
             xhci_delay_ms(300u);
         }
