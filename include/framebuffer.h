@@ -20,6 +20,7 @@ int framebuffer_begin_desktop(void);
 int framebuffer_begin_layer(uint32_t *pixels,uint32_t width,uint32_t height,uint32_t origin_x,uint32_t origin_y);
 void framebuffer_end_layer(void);
 void framebuffer_composite_layer(const uint32_t *pixels,uint32_t width,uint32_t height,uint32_t x,uint32_t y);
+int framebuffer_compositor_selftest(void);
 void framebuffer_end_desktop(void);
 int framebuffer_cursor_overlay_supported(void);
 void framebuffer_cursor_hide(void);
