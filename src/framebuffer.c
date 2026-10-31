@@ -69,6 +69,10 @@ static uint32_t desktop_mode;
 static uint8_t clip_enabled;
 static uint32_t clip_x, clip_y, clip_w, clip_h;
 
+/* Forward declarations for the off-screen ARGB drawing target. */
+static uint32_t blend_layer_pixel(uint32_t dst,uint32_t src,uint32_t alpha);
+static uint32_t *framebuffer_draw_row(uint32_t y,uint32_t x);
+
 /* GRUB/firmware selects the framebuffer mode before the kernel starts.
  * LionOS consumes the Multiboot2 framebuffer tag and has no runtime
  * display-mode switching interface. */
