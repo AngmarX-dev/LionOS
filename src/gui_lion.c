@@ -949,6 +949,10 @@ static void drag_cache_move(struct ui_window*w,uint32_t old_x,uint32_t old_y){
     uint32_t right=old_right>new_right?old_right:new_right;
     uint32_t bottom=old_bottom>new_bottom?old_bottom:new_bottom;
     if(right>left&&bottom>top){
+        /* Restore the old hardware cursor before changing the framebuffer.
+           Otherwise its saved-under pixels can overwrite the newly presented
+           drag region when the cursor is moved at the end of gui_step(). */
+        framebuffer_cursor_hide();
         uint32_t screen_stride=framebuffer_width();
         const uint32_t *background_src=
             drag_background+(size_t)top*screen_stride+left;
