@@ -916,15 +916,19 @@ static void drag_cache_free(void){
 static int drag_cache_begin(struct ui_window*w){
     if(!w||!framebuffer_cursor_overlay_supported()) return -1;
     uint64_t screen_pixels=(uint64_t)framebuffer_width()*framebuffer_height();
-    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
+    uint64_t surface_pixels=(uint64_t)w->w*w->h;
+    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t) ||
+       surface_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
 
     drag_background=(uint32_t*)kmalloc((size_t)screen_pixels*sizeof(uint32_t));
-    if(!drag_background){drag_cache_free();return -1;}
+    drag_surface=(uint32_t*)kmalloc((size_t)surface_pixels*sizeof(uint32_t));
+    if(!drag_background||!drag_surface){drag_cache_free();return -1;}
 
     /*
-     * Build one static scene without the dragged window. Every subsequent
-     * mouse sample can then restore/copy rectangles instead of rerendering
-     * fonts, rounded panels and every other window.
+     * Snapshot the static scene without this window. The window itself is
+     * rendered once into an ARGB layer, so transparency is recomposited over
+     * the current background on every frame without rerunning its widgets,
+     * text and rounded-corner rasterization.
      */
     drag_render_skip_id=w->id;
     dirty_full();
@@ -932,8 +936,26 @@ static int drag_cache_begin(struct ui_window*w){
     last_render_tick=0xFFFFFFFFu;
     render_all();
     framebuffer_copy_to_buffer(drag_background);
-
     drag_render_skip_id=0u;
+
+    __builtin_memset(drag_surface,0,(size_t)surface_pixels*sizeof(uint32_t));
+    if(framebuffer_begin_layer(drag_surface,w->w,w->h,w->x,w->y)!=0){
+        drag_cache_free();
+        dirty_full();
+        last_render_tick=0xFFFFFFFFu;
+        render_all();
+        return -1;
+    }
+    draw_window(w);
+    framebuffer_end_layer();
+
+    framebuffer_set_clip(w->x,w->y,w->w,w->h);
+    framebuffer_composite_layer(drag_surface,w->w,w->h,w->x,w->y);
+    framebuffer_clear_clip();
+    framebuffer_present_rect(w->x,w->y,w->w,w->h);
+
+    drag_surface_w=w->w;
+    drag_surface_h=w->h;
     drag_cache_active=1u;
     scene_dirty=0u;
     dirty_valid=0u;
@@ -949,19 +971,15 @@ static void drag_cache_move(struct ui_window*w,uint32_t old_x,uint32_t old_y){
     uint32_t right=old_right>new_right?old_right:new_right;
     uint32_t bottom=old_bottom>new_bottom?old_bottom:new_bottom;
     if(right>left&&bottom>top){
-        /* Restore the old hardware cursor before changing the framebuffer.
-           Otherwise its saved-under pixels can overwrite the newly presented
-           drag region when the cursor is moved at the end of gui_step(). */
         framebuffer_cursor_hide();
         uint32_t screen_stride=framebuffer_width();
         const uint32_t *background_src=
             drag_background+(size_t)top*screen_stride+left;
         framebuffer_copy_rect_from_buffer(background_src,screen_stride,
                                            left,top,right-left,bottom-top);
-        /* Re-render the window over its new background so glass/alpha effects
-           are composed at the current position instead of using stale pixels. */
         framebuffer_set_clip(left,top,right-left,bottom-top);
-        draw_window(w);
+        framebuffer_composite_layer(drag_surface,drag_surface_w,drag_surface_h,
+                                     w->x,w->y);
         framebuffer_clear_clip();
         framebuffer_present_rect(left,top,right-left,bottom-top);
     }
