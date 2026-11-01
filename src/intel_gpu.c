@@ -3,32 +3,37 @@
 #include "console.h"
 #include "debug.h"
 #include "intel_gpu.h"
+#include "paging.h"
 
 /*
- * LionOS Intel graphics bootstrap
+ * Alder Lake Intel display bootstrap for LionOS.
  *
- * The Linux i915 driver uses a PCI probe, device-ID/platform matching,
- * MMIO-resource validation, and then a large generation-specific display
- * stack. LionOS is intentionally smaller: this layer performs the safe
- * PCI discovery/platform identification part and preserves the firmware
- * framebuffer selected by GRUB/UEFI.
+ * This stage discovers the display PCI function, sizes BAR0 using the
+ * standard PCI BAR sizing procedure, restores PCI configuration state,
+ * and maps the verified aperture as uncached supervisor MMIO.
  *
- * It does not copy i915 code and it does not attempt native Intel modesetting
- * yet. Keeping the firmware framebuffer active makes the boot path useful
- * while a native display engine is developed separately.
+ * No graphics-engine commands, GPU resets, display-mode changes, or
+ * undocumented register writes are issued here. Firmware scanout remains
+ * active. Hardware BLT is a later milestone after GGTT/stolen-memory
+ * ownership and generation-specific command requirements are implemented.
  */
 
-#define PCI_ADDR       0xCF8u
-#define PCI_DATA       0xCFCu
-#define PCI_COMMAND    0x04u
-#define PCI_REVISION   0x08u
-#define PCI_CLASS      0x08u
-#define PCI_BAR0       0x10u
+#define PCI_ADDR             0xCF8u
+#define PCI_DATA             0xCFCu
+#define PCI_COMMAND          0x04u
+#define PCI_CLASS            0x08u
+#define PCI_BAR0              0x10u
+#define PCI_COMMAND_MEMORY   0x0002u
 
-#define INTEL_VENDOR   0x8086u
+#define INTEL_VENDOR         0x8086u
+#define MMIO_VIRTUAL_BASE    0xF8000000u
+#define MMIO_MAX_SIZE        0x04000000u
+#define PAGE_SIZE            4096u
+#define MMIO_PTE_FLAGS       0x01Au /* PWT | PCD | writable; present is added by paging. */
 
 static intel_gpu_info_t gpu;
 static uint32_t gpu_ready;
+static uint32_t mmio_ready;
 
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg)
 {
@@ -45,13 +50,31 @@ static uint32_t pci_read32(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg)
     return inl(PCI_DATA);
 }
 
+static void pci_write32(uint8_t bus, uint8_t slot, uint8_t func,
+                        uint8_t reg, uint32_t value)
+{
+    outl(PCI_ADDR, pci_key(bus, slot, func, reg));
+    outl(PCI_DATA, value);
+}
+
+static uint16_t pci_read_command(uint8_t bus, uint8_t slot, uint8_t func)
+{
+    outl(PCI_ADDR, pci_key(bus, slot, func, PCI_COMMAND));
+    return inw(PCI_DATA);
+}
+
+static void pci_write_command(uint8_t bus, uint8_t slot, uint8_t func,
+                              uint16_t command)
+{
+    outl(PCI_ADDR, pci_key(bus, slot, func, PCI_COMMAND));
+    outw(PCI_DATA, command);
+}
+
 static int intel_alder_lake_id(uint16_t id)
 {
     switch (id) {
-        /* Alder Lake-S */
         case 0x4680u: case 0x4682u: case 0x4688u: case 0x468Au:
         case 0x468Bu: case 0x4690u: case 0x4692u: case 0x4693u:
-        /* Alder Lake mobile display IDs present in the Linux i915 table */
         case 0x46A0u: case 0x46A1u: case 0x46A2u: case 0x46A3u:
         case 0x46A6u: case 0x46A8u: case 0x46AAu: case 0x462Au:
         case 0x4626u: case 0x4628u: case 0x46B0u: case 0x46B1u:
@@ -69,8 +92,6 @@ static int intel_known_display_id(uint16_t id)
         return 1;
 
     switch (id) {
-        /* Raptor Lake display IDs are kept here because their display
-         * path follows the same firmware-framebuffer-first bootstrap. */
         case 0xA780u: case 0xA781u: case 0xA782u: case 0xA783u:
         case 0xA788u: case 0xA789u: case 0xA78Au: case 0xA78Bu:
         case 0xA720u: case 0xA721u: case 0xA7A0u: case 0xA7A1u:
@@ -82,22 +103,86 @@ static int intel_known_display_id(uint16_t id)
     }
 }
 
-static uint64_t pci_bar0_address(uint8_t bus, uint8_t slot, uint8_t func)
+/*
+ * Determine BAR0's true resource size. PCI decoding is temporarily disabled
+ * only for this function and the original command/BAR values are restored
+ * before returning. This routine is called once during early boot.
+ */
+static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
+                         uint64_t *base_out, uint64_t *size_out)
 {
-    uint32_t lo = pci_read32(bus, slot, func, PCI_BAR0);
-    if (!lo || (lo & 1u))
-        return 0;
+    uint32_t original_lo = pci_read32(bus, slot, func, PCI_BAR0);
+    uint32_t original_hi = pci_read32(bus, slot, func, PCI_BAR0 + 4u);
+    uint32_t type = (original_lo >> 1) & 3u;
+    uint16_t command;
+    uint32_t mask_lo, mask_hi = 0u;
+    uint64_t base, mask, size;
 
-    uint64_t addr = (uint64_t)(lo & 0xFFFFFFF0u);
-    if (((lo >> 1) & 3u) == 2u)
-        addr |= (uint64_t)pci_read32(bus, slot, func, PCI_BAR0 + 4u) << 32;
+    if ((original_lo & 1u) || type != 2u)
+        return -1; /* BAR0 must be a 64-bit memory BAR. */
 
-    return addr;
+    base = ((uint64_t)original_hi << 32) |
+           (uint64_t)(original_lo & 0xFFFFFFF0u);
+    if (!base)
+        return -1;
+
+    command = pci_read_command(bus, slot, func);
+    pci_write_command(bus, slot, func,
+                      (uint16_t)(command & (uint16_t)~PCI_COMMAND_MEMORY));
+
+    pci_write32(bus, slot, func, PCI_BAR0, 0xFFFFFFFFu);
+    pci_write32(bus, slot, func, PCI_BAR0 + 4u, 0xFFFFFFFFu);
+    mask_lo = pci_read32(bus, slot, func, PCI_BAR0);
+    mask_hi = pci_read32(bus, slot, func, PCI_BAR0 + 4u);
+
+    /* Restore the BAR pair before restoring PCI command decoding. */
+    pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
+    pci_write32(bus, slot, func, PCI_BAR0, original_lo);
+    pci_write_command(bus, slot, func, command);
+
+    mask = ((uint64_t)mask_hi << 32) |
+           (uint64_t)(mask_lo & 0xFFFFFFF0u);
+    if (!mask)
+        return -1;
+
+    size = (~mask) + 1u;
+    if (size < PAGE_SIZE || size > MMIO_MAX_SIZE)
+        return -1;
+    if ((size & (size - 1u)) != 0u)
+        return -1;
+    if ((base & (size - 1u)) != 0u)
+        return -1;
+    if (base > 0x000FFFFFFFFFFFFFULL ||
+        size - 1u > 0x000FFFFFFFFFFFFFULL - base)
+        return -1;
+
+    *base_out = base;
+    *size_out = size;
+    return 0;
+}
+
+static int map_gpu_mmio(uint64_t physical, uint64_t size)
+{
+    if (!physical || !size || size > MMIO_MAX_SIZE)
+        return -1;
+    if ((physical & (PAGE_SIZE - 1u)) ||
+        (size & (PAGE_SIZE - 1u)))
+        return -1;
+
+    for (uint32_t offset = 0u; (uint64_t)offset < size; offset += PAGE_SIZE) {
+        if (paging_map_kernel_page(MMIO_VIRTUAL_BASE + offset,
+                                   physical + offset,
+                                   MMIO_PTE_FLAGS) != 0)
+            return -1;
+    }
+
+    return 0;
 }
 
 int intel_gpu_init(uint32_t firmware_framebuffer_active)
 {
     gpu_ready = 0u;
+    mmio_ready = 0u;
     gpu = (intel_gpu_info_t){0};
 
     for (uint32_t bus = 0u; bus < 256u; ++bus) {
@@ -110,31 +195,30 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
             uint32_t funcs = (hdr & 0x00800000u) ? 8u : 1u;
 
             for (uint32_t func = 0u; func < funcs; ++func) {
-                uint32_t id = pci_read32((uint8_t)bus, (uint8_t)slot, (uint8_t)func, 0u);
+                uint32_t id = pci_read32((uint8_t)bus, (uint8_t)slot,
+                                         (uint8_t)func, 0u);
                 uint16_t vendor = (uint16_t)(id & 0xFFFFu);
                 uint16_t device = (uint16_t)(id >> 16);
+                uint32_t class_rev;
+                uint8_t base_class, sub_class;
+                uint64_t bar0, bar0_size;
 
-                if (vendor != INTEL_VENDOR)
+                if (vendor != INTEL_VENDOR || func != 0u)
                     continue;
 
-                /*
-                 * Follow the important part of the i915 PCI policy:
-                 * bind the display function, not an auxiliary function.
-                 */
-                if (func != 0u)
-                    continue;
-
-                uint32_t class_rev =
-                    pci_read32((uint8_t)bus, (uint8_t)slot, (uint8_t)func, PCI_CLASS);
-                uint8_t base_class = (uint8_t)(class_rev >> 24);
-                uint8_t sub_class = (uint8_t)(class_rev >> 16);
-
+                class_rev = pci_read32((uint8_t)bus, (uint8_t)slot,
+                                       (uint8_t)func, PCI_CLASS);
+                base_class = (uint8_t)(class_rev >> 24);
+                sub_class = (uint8_t)(class_rev >> 16);
                 if (base_class != 0x03u || sub_class != 0x00u)
                     continue;
 
-                uint64_t bar0 = pci_bar0_address((uint8_t)bus, (uint8_t)slot, (uint8_t)func);
-                if (!bar0)
-                    continue;
+                if (pci_size_bar0((uint8_t)bus, (uint8_t)slot,
+                                  (uint8_t)func, &bar0, &bar0_size) != 0) {
+                    console_write("[ -- ] Intel GPU BAR0 type/size validation failed\n");
+                    debug_write("LIONOS:INTEL-BAR0-INVALID\n");
+                    return -1;
+                }
 
                 gpu.found = 1u;
                 gpu.vendor_id = vendor;
@@ -144,41 +228,46 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                 gpu.slot = (uint8_t)slot;
                 gpu.function = (uint8_t)func;
                 gpu.bar0 = bar0;
+                gpu.bar0_size = bar0_size;
+                gpu.mmio_virtual = MMIO_VIRTUAL_BASE;
                 gpu.supported_platform = intel_known_display_id(device) ? 1u : 0u;
                 gpu.firmware_framebuffer = firmware_framebuffer_active ? 1u : 0u;
                 gpu_ready = 1u;
 
-                console_write("[ OK ] Intel graphics controller ");
+                console_write("[ OK ] Intel graphics PCI function ");
                 console_write_hex(device);
-                console_write(" detected at PCI ");
-                console_write_dec(bus);
-                console_putc(':');
-                console_write_dec(slot);
-                console_putc('.');
-                console_write_dec(func);
                 console_write(" BAR0=0x");
+                console_write_hex((uint32_t)(bar0 >> 32));
                 console_write_hex((uint32_t)bar0);
-                console_write("\n");
+                console_write(" size=");
+                console_write_dec((uint32_t)(bar0_size / (1024u * 1024u)));
+                console_write(" MiB\n");
+
+                if (!gpu.supported_platform) {
+                    console_write("[ -- ] Intel display platform not in supported ID table\n");
+                    debug_write("LIONOS:INTEL-DISPLAY-GENERIC\n");
+                    return 0;
+                }
+
+                if (map_gpu_mmio(bar0, bar0_size) == 0) {
+                    gpu.mmio_mapped = 1u;
+                    mmio_ready = 1u;
+                    console_write("[ OK ] Intel GPU MMIO aperture mapped (uncached)\n");
+                    debug_write("LIONOS:INTEL-MMIO-MAPPED\n");
+                } else {
+                    console_write("[ -- ] Intel GPU MMIO mapping failed; firmware display retained\n");
+                    debug_write("LIONOS:INTEL-MMIO-MAP-FAIL\n");
+                }
 
                 if (intel_alder_lake_id(device)) {
-                    console_write("[ OK ] Alder Lake Intel display platform identified\n");
+                    console_write("[ OK ] Alder Lake Intel graphics platform identified\n");
                     debug_write("LIONOS:INTEL-UHD-ADL\n");
-                } else if (gpu.supported_platform) {
-                    console_write("[ OK ] Intel modern display platform identified\n");
-                    debug_write("LIONOS:INTEL-DISPLAY-PLATFORM\n");
-                } else {
-                    console_write("[ -- ] Intel display ID is not in the LionOS platform table\n");
-                    debug_write("LIONOS:INTEL-DISPLAY-GENERIC\n");
                 }
-
                 if (gpu.firmware_framebuffer) {
-                    console_write("[ OK ] Firmware framebuffer retained for Intel display\n");
+                    console_write("[ OK ] Firmware framebuffer retained\n");
                     debug_write("LIONOS:INTEL-FB-HANDOFF\n");
-                } else {
-                    console_write("[ -- ] No firmware framebuffer; text/display fallback remains active\n");
                 }
-
-                return 0;
+                return mmio_ready ? 0 : -1;
             }
         }
     }
@@ -197,10 +286,25 @@ int intel_gpu_is_alder_lake(void)
     return gpu_ready && intel_alder_lake_id(gpu.device_id);
 }
 
+int intel_gpu_mmio_ready(void)
+{
+    return mmio_ready ? 1 : 0;
+}
+
 int intel_gpu_get_info(intel_gpu_info_t *out)
 {
     if (!out)
         return -1;
     *out = gpu;
     return gpu_ready ? 0 : -1;
+}
+
+int intel_gpu_mmio_read32(uint32_t offset, uint32_t *value)
+{
+    if (!value || !mmio_ready || (offset & 3u) ||
+        (uint64_t)offset + sizeof(uint32_t) > gpu.bar0_size)
+        return -1;
+
+    *value = *(volatile const uint32_t *)(uintptr_t)(MMIO_VIRTUAL_BASE + offset);
+    return 0;
 }
