@@ -770,7 +770,7 @@ static void draw_notification(void){
     n=0u;diag_append(lines[2],&n,"Stepping: ");diag_dec(lines[2],&n,ci.stepping);
     diag_append(lines[2],&n,"  Signature: 0x");diag_hex(lines[2],&n,ci.signature,8u);
     diag_append(lines[2],&n,"  CPUID: 0x");diag_hex(lines[2],&n,ci.max_basic_leaf,2u);
-    n=0u;diag_append(lines[3],&n,"Physical cores: ");diag_dec(lines[3],&n,ci.physical_cores);
+    n=0u;diag_append(lines[3],&n,"Physical cores: ");if(ci.physical_cores)diag_dec(lines[3],&n,ci.physical_cores);else diag_append(lines[3],&n,"Unknown");
     diag_append(lines[3],&n,"  Logical CPUs: ");diag_dec(lines[3],&n,ci.logical_processors);
     diag_append(lines[3],&n,"  APIC ID: ");diag_dec(lines[3],&n,ci.apic_id);
     n=0u;diag_append(lines[4],&n,"L1D: ");diag_dec(lines[4],&n,ci.l1_data_kb);
