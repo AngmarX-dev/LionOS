@@ -17,6 +17,11 @@ typedef struct {
     uint32_t mmio_mapped;
     uint32_t supported_platform;
     uint32_t firmware_framebuffer;
+    uint32_t host_bridge_found;
+    uint32_t host_ggc;
+    uint32_t host_bdsm;
+    uint32_t host_bgsm;
+    uint32_t host_tolud;
 } intel_gpu_info_t;
 
 /* PCI discovery and conservative, read-only MMIO aperture setup. */
