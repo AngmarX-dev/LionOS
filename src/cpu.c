@@ -16,6 +16,13 @@ struct acpi_madt { struct acpi_sdt h; uint32_t lapic_address,flags; } __attribut
 static struct cpu_info cpus[LIONOS_MAX_CPUS];
 static uint32_t cpu_hint=1u;
 static uint32_t cpu_features;
+static cpu_identification_t cpu_identification;
+
+static void cpuid_count(uint32_t leaf,uint32_t subleaf,
+                        uint32_t *a,uint32_t *b,uint32_t *c,uint32_t *d){
+    __asm__ volatile("cpuid":"=a"(*a),"=b"(*b),"=c"(*c),"=d"(*d)
+                     :"a"(leaf),"c"(subleaf));
+}
 #define CPU_FEAT_SSE   (1u<<0)
 #define CPU_FEAT_SSE2  (1u<<1)
 #define CPU_FEAT_SSE3  (1u<<2)
@@ -118,10 +125,37 @@ static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
 void cpu_init(uint32_t multiboot_info){
     reset_cpus();
     uint32_t a,b,c,d;
-    __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(0u),"c"(0u));
+    cpuid_count(0u,0u,&a,&b,&c,&d);
     uint32_t max_leaf=a;
+    cpu_identification=(cpu_identification_t){0};
+    cpu_identification.max_basic_leaf=max_leaf;
+    for(uint32_t i=0u;i<4u;++i){
+        uint32_t word=(i==0u)?b:(i==1u)?d:c;
+        for(uint32_t j=0u;j<4u;++j)
+            cpu_identification.vendor[i*4u+j]=(char)(word>>(j*8u));
+    }
     cpu_features=0u;
-    __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(1u),"c"(0u));
+    cpuid_count(1u,0u,&a,&b,&c,&d);
+    cpu_identification.signature=a;
+    cpu_identification.stepping=(uint8_t)(a&0xFu);
+    {
+        uint32_t base_family=(a>>8)&0xFu;
+        uint32_t base_model=(a>>4)&0xFu;
+        uint32_t ext_family=(a>>20)&0xFFu;
+        uint32_t ext_model=(a>>16)&0xFu;
+        cpu_identification.family=(uint16_t)(base_family==0xFu?base_family+ext_family:base_family);
+        cpu_identification.model=(uint16_t)(((base_family==0x6u||base_family==0xFu)
+            ?(base_model|(ext_model<<4)):base_model));
+    }
+    cpu_identification.logical_processors=(uint8_t)((b>>16)&0xFFu);
+    if(!cpu_identification.logical_processors)cpu_identification.logical_processors=1u;
+    cpu_identification.apic_id=(uint8_t)(b>>24);
+    cpu_identification.physical_cores=1u;
+    if(max_leaf>=4u){
+        uint32_t ca,cb,cc,cd;
+        cpuid_count(4u,0u,&ca,&cb,&cc,&cd);
+        if((ca&0x1Fu)!=0u)cpu_identification.physical_cores=(uint8_t)(((ca>>26)&0x3Fu)+1u);
+    }
     if (d&(1u<<9)) cpu_features|=CPU_FEAT_APIC;
     if (d&(1u<<25)) cpu_features|=CPU_FEAT_SSE;
     if (d&(1u<<26)) cpu_features|=CPU_FEAT_SSE2;
@@ -134,6 +168,29 @@ void cpu_init(uint32_t multiboot_info){
     uint32_t bsp=(b>>24)&0xFFu;
     cpu_hint=logical;cpus[0].apic_id=bsp;cpus[0].logical_per_package=logical;cpus[0].online=1u;
     if(max_leaf>=0xBu){__asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(0xBu),"c"(0u));if(b&&b<=LIONOS_MAX_CPUS)cpu_hint=b;}
+    cpu_identification.feature_flags=cpu_features;
+    cpuid_count(0x80000000u,0u,&a,&b,&c,&d);
+    cpu_identification.max_extended_leaf=a;
+    if(a>=0x80000004u){
+        uint32_t words[12],wa,wb,wc,wd;
+        cpuid_count(0x80000002u,0u,&wa,&wb,&wc,&wd);
+        words[0]=wa;words[1]=wb;words[2]=wc;words[3]=wd;
+        cpuid_count(0x80000003u,0u,&wa,&wb,&wc,&wd);
+        words[4]=wa;words[5]=wb;words[6]=wc;words[7]=wd;
+        cpuid_count(0x80000004u,0u,&wa,&wb,&wc,&wd);
+        words[8]=wa;words[9]=wb;words[10]=wc;words[11]=wd;
+        for(uint32_t i=0u;i<12u;++i)
+            for(uint32_t j=0u;j<4u;++j)
+                cpu_identification.brand[i*4u+j]=(char)(words[i]>>(j*8u));
+        cpu_identification.brand[48]=0;
+    }else{
+        const char fallback[]="Unknown x86 CPU";
+        for(uint32_t i=0u;i<sizeof(fallback);++i)cpu_identification.brand[i]=fallback[i];
+    }
+    if(cpu_identification.max_extended_leaf>=0x80000001u){
+        cpuid_count(0x80000001u,0u,&a,&b,&c,&d);
+        cpu_identification.x86_64=(d&(1u<<29))?1u:0u;
+    }
     (void)c;(void)d;
 
     uint32_t acpi_count=acpi_enumerate(multiboot_info,bsp);
@@ -156,6 +213,10 @@ void cpu_mark_online(uint32_t index,uint32_t apic_id){if(index>=LIONOS_MAX_CPUS)
 
 
 uint32_t cpu_feature_flags(void){ return cpu_features; }
+void cpu_get_identification(cpu_identification_t *out){
+    if(!out)return;
+    *out=cpu_identification;
+}
 
 int cpu_fpu_sse_init(void){
     uint32_t flags;
