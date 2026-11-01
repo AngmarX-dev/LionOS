@@ -172,6 +172,54 @@ void cpu_init(uint32_t multiboot_info){
             else if(level==3u)cpu_identification.l3_kb+=kb;
         }
     }
+    /*
+     * Prefer architectural topology enumeration over the legacy leaf-1
+     * logical count and leaf-4 core field. On hybrid CPUs (Alder Lake),
+     * leaf 0x1F/0x0B provides the SMT/core hierarchy and avoids reporting
+     * cache-sharing/package bitfields as a physical-core count.
+     */
+    {
+        uint32_t topology_leaf = (max_leaf >= 0x1Fu) ? 0x1Fu :
+                                 (max_leaf >= 0x0Bu) ? 0x0Bu : 0u;
+        uint32_t smt_shift = 0u, core_shift = 0u;
+        uint32_t package_logical = 0u;
+        uint32_t have_smt = 0u, have_core = 0u;
+
+        if (topology_leaf) {
+            for (uint32_t sub = 0u; sub < 8u; ++sub) {
+                uint32_t ta, tb, tc, td;
+                cpuid_count(topology_leaf, sub, &ta, &tb, &tc, &td);
+                uint32_t level_type = (tc >> 8) & 0xFFu;
+                uint32_t level_shift = ta & 0x1Fu;
+                uint32_t level_count = tb & 0xFFFFu;
+                if (!level_type || !level_count)
+                    break;
+                if (level_count > package_logical)
+                    package_logical = level_count;
+                if (level_type == 1u) {
+                    smt_shift = level_shift;
+                    have_smt = 1u;
+                } else if (level_type == 2u) {
+                    core_shift = level_shift;
+                    have_core = 1u;
+                }
+            }
+        }
+
+        if (package_logical) {
+            cpu_identification.logical_processors =
+                (uint8_t)(package_logical > 255u ? 255u : package_logical);
+        }
+        if (have_core && core_shift >= smt_shift &&
+            (core_shift - smt_shift) < 8u) {
+            cpu_identification.physical_cores =
+                (uint8_t)(1u << (core_shift - smt_shift));
+        } else if (cpu_identification.physical_cores >
+                   cpu_identification.logical_processors) {
+            cpu_identification.physical_cores =
+                cpu_identification.logical_processors;
+        }
+    }
     if(max_leaf>=0x16u){
         uint32_t fa,fb,fc,fd;
         cpuid_count(0x16u,0u,&fa,&fb,&fc,&fd);
@@ -187,10 +235,12 @@ void cpu_init(uint32_t multiboot_info){
     if (leaf1_c&(1u<<19)) cpu_features|=CPU_FEAT_SSE41;
     if (leaf1_c&(1u<<20)) cpu_features|=CPU_FEAT_SSE42;
     if ((leaf1_c&(1u<<27)) && (leaf1_c&(1u<<28))) cpu_features|=CPU_FEAT_AVX;
-    uint32_t logical=(leaf1_b>>16)&0xFFu;if(!logical)logical=1u;if(logical>LIONOS_MAX_CPUS)logical=LIONOS_MAX_CPUS;
+    uint32_t logical=cpu_identification.logical_processors;
+    if(!logical)logical=1u;
     uint32_t bsp=(leaf1_b>>24)&0xFFu;
-    cpu_hint=logical;cpus[0].apic_id=bsp;cpus[0].logical_per_package=logical;cpus[0].online=1u;
-    if(max_leaf>=0xBu){__asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(0xBu),"c"(0u));if(b&&b<=LIONOS_MAX_CPUS)cpu_hint=b;}
+    cpu_hint=logical;
+    if(cpu_hint>LIONOS_MAX_CPUS)cpu_hint=LIONOS_MAX_CPUS;
+    cpus[0].apic_id=bsp;cpus[0].logical_per_package=cpu_hint;cpus[0].online=1u;
     cpu_identification.feature_flags=cpu_features;
     cpuid_count(0x80000000u,0u,&a,&b,&c,&d);
     cpu_identification.max_extended_leaf=a;
