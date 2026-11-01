@@ -153,9 +153,31 @@ void cpu_init(uint32_t multiboot_info){
     cpu_identification.apic_id=(uint8_t)(leaf1_b>>24);
     cpu_identification.physical_cores=1u;
     if(max_leaf>=4u){
-        uint32_t ca,cb,cc,cd;
-        cpuid_count(4u,0u,&ca,&cb,&cc,&cd);
-        if((ca&0x1Fu)!=0u)cpu_identification.physical_cores=(uint8_t)(((ca>>26)&0x3Fu)+1u);
+        for(uint32_t sub=0u;sub<8u;++sub){
+            uint32_t ca,cb,cc,cd;
+            cpuid_count(4u,sub,&ca,&cb,&cc,&cd);
+            uint32_t type=ca&0x1Fu;
+            if(!type)break;
+            if(sub==0u)cpu_identification.physical_cores=(uint8_t)(((ca>>26)&0x3Fu)+1u);
+            uint32_t level=(ca>>5)&7u;
+            uint64_t line=(cb&0xFFFu)+1u;
+            uint64_t partitions=((cb>>12)&0x3FFu)+1u;
+            uint64_t ways=((cb>>22)&0x3FFu)+1u;
+            uint64_t sets=(uint64_t)cc+1u;
+            uint32_t kb=(uint32_t)((line*partitions*ways*sets)/1024u);
+            if(level==1u){
+                if(type==1u||type==3u)cpu_identification.l1_data_kb+=kb;
+                if(type==2u||type==3u)cpu_identification.l1_instruction_kb+=kb;
+            }else if(level==2u)cpu_identification.l2_kb+=kb;
+            else if(level==3u)cpu_identification.l3_kb+=kb;
+        }
+    }
+    if(max_leaf>=0x16u){
+        uint32_t fa,fb,fc,fd;
+        cpuid_count(0x16u,0u,&fa,&fb,&fc,&fd);
+        cpu_identification.base_mhz=(uint16_t)fa;
+        cpu_identification.max_mhz=(uint16_t)fb;
+        cpu_identification.bus_mhz=(uint16_t)fc;
     }
     if (leaf1_d&(1u<<9)) cpu_features|=CPU_FEAT_APIC;
     if (leaf1_d&(1u<<25)) cpu_features|=CPU_FEAT_SSE;
