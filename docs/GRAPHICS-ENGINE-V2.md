@@ -64,3 +64,10 @@ Implementation order:
 - The current 120 Hz frame clock is a scheduling target; it is not proof of GPU acceleration or panel VSync.
 - The first milestone is **2D acceleration**, not a complete OpenGL/Vulkan/3D driver. A full Intel graphics stack is substantially larger.
 
+
+
+## CPU hardware report for Intel driver development
+
+The desktop diagnostics panel replaces the generic welcome notification with live CPUID and Intel PCI probe data. The CPU report includes the processor brand string, vendor ID string, display family/model/stepping, raw CPUID signature, basic and extended CPUID maxima, physical-core and logical-processor counts, BSP APIC ID, x86-64 capability, and detected SSE/AVX/APIC feature flags. When the Intel display-class PCI function is found, the panel also shows its device ID, revision, PCI BDF and BAR0 address.
+
+This is diagnostic input for matching the correct Intel graphics platform and validating the boot environment. It does not by itself identify every GPU stepping or replace the GPU PCI device ID, firmware tables, BAR sizing, GGTT/stolen-memory discovery, or documented generation-specific register definitions. The report is gathered through CPUID and the existing read-only PCI probe; it does not change CPU or GPU operating modes.
