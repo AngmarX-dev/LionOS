@@ -26,6 +26,8 @@ The device ID is used for platform matching; the CPU marketing name alone is not
 
 The firmware framebuffer remains the active display path. No GPU reset, display mode change, engine command, or undocumented register write is issued.
 
+The current physical memory manager has a fixed 65,536-page bitmap and therefore manages only physical addresses below 256 MiB. The reported Alder Lake graphics boundaries (BGSM/BDSM/TOLUD) are around 2 GiB on the verified laptop, outside that managed range. LionOS must not add these graphics ranges to the allocator or treat them as free memory. A future PMM expansion must first consume the complete firmware memory map, preserve non-available regions, reserve the graphics stolen-memory/GGTT regions using the exact platform definitions, and handle address-width/overflow checks.
+
 ### Not implemented yet
 
 This is a safe MMIO bootstrap, not a functioning acceleration engine. It does not yet initialize the GT, forcewake domains, GGTT, stolen memory, ring buffers, BLT engine, or display engine. Consequently the compositor continues to render on the CPU.
