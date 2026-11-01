@@ -73,3 +73,7 @@ For the verified Alder Lake display path, the diagnostic bootstrap identifies th
 The driver exposes a bounded read-only accessor for 64-bit Gen8+ GGTT entries. It samples each entry with a bounded high-low-high sequence, retries at most three times if the high dword changes, and never writes a PTE or performs a GGTT invalidate. The hardware report displays the aperture offset/size and the first four PTE values as raw diagnostics only. No interpretation of those PTEs as owned allocations is made yet.
 
 The GTTMMADR layout and GGTT offset follow the Linux i915 implementation: `drivers/gpu/drm/i915/gt/intel_ggtt.c` (`gen6_gttmmadr_size()` and `gen6_gttadr_offset()`). GGMS size decoding follows `gen8_get_total_gtt_size()`. This is a cross-check reference; the Intel Alder Lake platform documentation remains authoritative.
+
+## High-memory inventory (read-only)
+
+The PMM now totals Multiboot2 available-memory regions above 256 MiB and reports that amount in the desktop hardware panel. This is inventory only: those pages are not added to the PMM bitmap and cannot be returned by `page_alloc()`. The kernel still uses identity-mapped pointers for PMM allocations, and its normal identity map remains limited to the low 256 MiB. Do not treat the reported high-memory total as allocatable RAM until a high-physical-page mapping API and allocator ownership rules are implemented.
