@@ -151,14 +151,13 @@ void cpu_init(uint32_t multiboot_info){
     cpu_identification.logical_processors=(uint8_t)((leaf1_b>>16)&0xFFu);
     if(!cpu_identification.logical_processors)cpu_identification.logical_processors=1u;
     cpu_identification.apic_id=(uint8_t)(leaf1_b>>24);
-    cpu_identification.physical_cores=1u;
+    cpu_identification.physical_cores=0u;
     if(max_leaf>=4u){
         for(uint32_t sub=0u;sub<8u;++sub){
             uint32_t ca,cb,cc,cd;
             cpuid_count(4u,sub,&ca,&cb,&cc,&cd);
             uint32_t type=ca&0x1Fu;
             if(!type)break;
-            if(sub==0u)cpu_identification.physical_cores=(uint8_t)(((ca>>26)&0x3Fu)+1u);
             uint32_t level=(ca>>5)&7u;
             uint64_t line=(cb&0xFFFu)+1u;
             uint64_t partitions=((cb>>12)&0x3FFu)+1u;
@@ -210,14 +209,13 @@ void cpu_init(uint32_t multiboot_info){
             cpu_identification.logical_processors =
                 (uint8_t)(package_logical > 255u ? 255u : package_logical);
         }
-        if (have_core && core_shift >= smt_shift &&
+        if (have_smt && have_core && core_shift >= smt_shift &&
             (core_shift - smt_shift) < 8u) {
             cpu_identification.physical_cores =
                 (uint8_t)(1u << (core_shift - smt_shift));
-        } else if (cpu_identification.physical_cores >
-                   cpu_identification.logical_processors) {
-            cpu_identification.physical_cores =
-                cpu_identification.logical_processors;
+        } else {
+            /* Unknown is safer than misreporting cache-sharing IDs as cores. */
+            cpu_identification.physical_cores = 0u;
         }
     }
     if(max_leaf>=0x16u){
