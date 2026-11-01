@@ -12,14 +12,21 @@ typedef struct {
     uint8_t slot;
     uint8_t function;
     uint64_t bar0;
+    uint64_t bar0_size;
+    uint32_t mmio_virtual;
+    uint32_t mmio_mapped;
     uint32_t supported_platform;
     uint32_t firmware_framebuffer;
 } intel_gpu_info_t;
 
-/* Probe the PCI graphics function without replacing the firmware display. */
+/* PCI discovery and conservative, read-only MMIO aperture setup. */
 int intel_gpu_init(uint32_t firmware_framebuffer_active);
 int intel_gpu_available(void);
 int intel_gpu_is_alder_lake(void);
+int intel_gpu_mmio_ready(void);
 int intel_gpu_get_info(intel_gpu_info_t *out);
+
+/* Read-only MMIO accessor. Returns -1 for an unmapped/out-of-range access. */
+int intel_gpu_mmio_read32(uint32_t offset, uint32_t *value);
 
 #endif
