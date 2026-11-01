@@ -238,8 +238,12 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         BOOT_STAGE(34u, "DISPLAY READY");
     }
 
-    console_write("[ -- ] Intel graphics native driver not active; probing firmware-backed display...\n");
-    (void)intel_gpu_init(framebuffer_available() ? 1u : 0u);
+    console_write("[ .. ] Initializing Intel graphics PCI/MMIO bootstrap...\n");
+    if (intel_gpu_init(framebuffer_available() ? 1u : 0u) == 0 && intel_gpu_mmio_ready()) {
+        console_write("[ OK ] Intel GPU MMIO ready; CPU compositor remains active\n");
+    } else {
+        console_write("[ -- ] Intel GPU MMIO unavailable; firmware framebuffer remains active\n");
+    }
 
     console_write("[ OK ] Paging / supervisor kernel mappings\n");
     BOOT_STAGE(38u, "PAGING READY");
