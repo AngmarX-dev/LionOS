@@ -21,6 +21,13 @@ typedef struct cpu_identification {
     uint32_t max_basic_leaf;
     uint32_t max_extended_leaf;
     uint32_t feature_flags;
+    uint32_t l1_data_kb;
+    uint32_t l1_instruction_kb;
+    uint32_t l2_kb;
+    uint32_t l3_kb;
+    uint16_t base_mhz;
+    uint16_t max_mhz;
+    uint16_t bus_mhz;
     uint16_t family;
     uint16_t model;
     uint8_t stepping;
