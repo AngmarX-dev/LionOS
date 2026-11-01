@@ -51,3 +51,7 @@ This is a safe MMIO bootstrap, not a functioning acceleration engine. It does no
 The CPU diagnostic panel does not calculate physical core count from the difference between CPUID topology shift widths. Those widths describe x2APIC ID layout and are not a reliable physical-core count on hybrid processors.
 
 For the verified Intel Core i5-12450HX (GenuineIntel, family 6, model 151, matching the exact brand string), the report uses its known 8-core SKU configuration. The logical processor count continues to come from CPUID topology enumeration. For other processor models without a reliable topology source or explicit verified mapping, the panel displays `Unknown` instead of a guessed count.
+
+### Read-only host-bridge memory snapshot
+
+The Intel graphics bootstrap now checks PCI function 00:00.0 for an Intel host bridge (class 06:00) and, when present, records the raw values of GGC (0x50), BDSM (0xB4), BGSM (0xB8), and TOLUD (0xBC). These are diagnostic snapshots only. LionOS does not decode them into physical allocations, reserve or release memory, change graphics memory ownership, or alter GGTT state in this stage. The values must be checked against the exact Intel 600-series/Alder Lake platform documentation before any memory manager integration.
