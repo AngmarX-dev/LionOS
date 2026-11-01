@@ -22,6 +22,9 @@ typedef struct {
     uint32_t host_bdsm;
     uint32_t host_bgsm;
     uint32_t host_tolud;
+    uint32_t ggtt_offset;
+    uint32_t ggtt_size;
+    uint32_t ggtt_ready;
 } intel_gpu_info_t;
 
 /* PCI discovery and conservative, read-only MMIO aperture setup. */
@@ -33,5 +36,7 @@ int intel_gpu_get_info(intel_gpu_info_t *out);
 
 /* Read-only MMIO accessor. Returns -1 for an unmapped/out-of-range access. */
 int intel_gpu_mmio_read32(uint32_t offset, uint32_t *value);
+/* Read one existing Gen8+ GGTT PTE without modifying the table. */
+int intel_gpu_ggtt_read_entry(uint32_t index, uint64_t *value);
 
 #endif
