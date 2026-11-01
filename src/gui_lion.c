@@ -8,6 +8,8 @@
 #include "heap.h"
 #include "vfs.h"
 #include "lapic.h"
+#include "cpu.h"
+#include "intel_gpu.h"
 #include "idt.h"
 #include "browser.h"
 #include "kernel_diag.h"
@@ -723,14 +725,79 @@ static void draw_top_menu(void){
     }
 }
 
+static void diag_append(char *dst,uint32_t *at,const char *src){
+    if(!dst||!at||!src)return;
+    while(*src&&*at<95u)dst[(*at)++]=*src++;
+    dst[*at]=0;
+}
+static void diag_dec(char *dst,uint32_t *at,uint32_t value){
+    char tmp[10];uint32_t n=0u;
+    do{tmp[n++]=(char)('0'+value%10u);value/=10u;}while(value&&n<sizeof(tmp));
+    while(n&&*at<95u)dst[(*at)++]=tmp[--n];
+    dst[*at]=0;
+}
+static void diag_hex(char *dst,uint32_t *at,uint32_t value,uint32_t digits){
+    static const char hex[]="0123456789ABCDEF";
+    for(uint32_t i=digits;i>0u&&*at<95u;--i)
+        dst[(*at)++]=hex[(value>>((i-1u)*4u))&0xFu];
+    dst[*at]=0;
+}
+static void diag_hex64(char *dst,uint32_t *at,uint64_t value){
+    diag_hex(dst,at,(uint32_t)(value>>32),8u);
+    diag_hex(dst,at,(uint32_t)value,8u);
+}
+static void draw_diag_line(const char *s,uint32_t x,uint32_t y,uint32_t max_chars,uint32_t color){
+    uint32_t n=0u;
+    while(s&&s[n]&&n<max_chars){text(s[n],x+n*CHAR_W,y,color,COL_PANEL);++n;}
+}
 static void draw_notification(void){
     uint32_t w=framebuffer_width();
-    if(w<700u)return;
-    uint32_t x=w-360u;
-    glass_panel(x,50u,330u,92u,22u,0xEAF7FFu,22u,1u);
-    text_line("Welcome to LionOS",x+20u,66u,COL_TEXT,COL_PANEL);
-    text_line("Liquid glass desktop",x+20u,94u,COL_DIM,COL_PANEL);
-    text_line("Drag windows to move.",x+20u,118u,COL_DIM,COL_PANEL);
+    if(w<760u)return;
+    const uint32_t panel_w=720u,panel_h=190u;
+    uint32_t x=w>panel_w+24u?w-panel_w-20u:10u;
+    glass_panel(x,50u,panel_w,panel_h,22u,0xEAF7FFu,22u,1u);
+    text_line("CPU / INTEL GRAPHICS HARDWARE REPORT",x+18u,60u,COL_GOLD,COL_PANEL);
+
+    cpu_identification_t ci;
+    cpu_get_identification(&ci);
+    char lines[8][96];
+    for(uint32_t i=0u;i<8u;++i)lines[i][0]=0;
+    uint32_t n=0u;
+    diag_append(lines[0],&n,"CPU: ");diag_append(lines[0],&n,ci.brand[0]?ci.brand:"Unknown CPU");
+    n=0u;diag_append(lines[1],&n,"Vendor: ");diag_append(lines[1],&n,ci.vendor);
+    n=0u;diag_append(lines[2],&n,"Family: ");diag_dec(lines[2],&n,ci.family);
+    diag_append(lines[2],&n,"  Model: ");diag_dec(lines[2],&n,ci.model);
+    diag_append(lines[2],&n,"  Stepping: ");diag_dec(lines[2],&n,ci.stepping);
+    n=0u;diag_append(lines[3],&n,"Signature: 0x");diag_hex(lines[3],&n,ci.signature,8u);
+    diag_append(lines[3],&n,"  CPUID max: 0x");diag_hex(lines[3],&n,ci.max_basic_leaf,2u);
+    n=0u;diag_append(lines[4],&n,"Physical cores: ");diag_dec(lines[4],&n,ci.physical_cores);
+    diag_append(lines[4],&n,"  Logical CPUs: ");diag_dec(lines[4],&n,ci.logical_processors);
+    diag_append(lines[4],&n,"  APIC ID: ");diag_dec(lines[4],&n,ci.apic_id);
+    n=0u;diag_append(lines[5],&n,"Architecture: ");diag_append(lines[5],&n,ci.x86_64?"x86-64 capable":"32-bit only");
+    diag_append(lines[5],&n,"  Kernel: 32-bit x86");
+    n=0u;diag_append(lines[6],&n,"CPU features:");
+    if(ci.feature_flags&CPU_FEATURE_SSE)diag_append(lines[6],&n," SSE");
+    if(ci.feature_flags&CPU_FEATURE_SSE2)diag_append(lines[6],&n," SSE2");
+    if(ci.feature_flags&CPU_FEATURE_SSE3)diag_append(lines[6],&n," SSE3");
+    if(ci.feature_flags&CPU_FEATURE_SSSE3)diag_append(lines[6],&n," SSSE3");
+    if(ci.feature_flags&CPU_FEATURE_SSE41)diag_append(lines[6],&n," SSE4.1");
+    if(ci.feature_flags&CPU_FEATURE_SSE42)diag_append(lines[6],&n," SSE4.2");
+    if(ci.feature_flags&CPU_FEATURE_AVX)diag_append(lines[6],&n," AVX");
+    if(ci.feature_flags&CPU_FEATURE_APIC)diag_append(lines[6],&n," APIC");
+
+    intel_gpu_info_t gi;
+    if(intel_gpu_get_info(&gi)==0){
+        n=0u;diag_append(lines[7],&n,"Intel GPU: 0x");diag_hex(lines[7],&n,gi.device_id,4u);
+        diag_append(lines[7],&n," Rev 0x");diag_hex(lines[7],&n,gi.revision,2u);
+        diag_append(lines[7],&n," PCI ");diag_dec(lines[7],&n,gi.bus);
+        diag_append(lines[7],&n,":");diag_dec(lines[7],&n,gi.slot);
+        diag_append(lines[7],&n,".");diag_dec(lines[7],&n,gi.function);
+        n=0u;diag_append(lines[7],&n,"GPU BAR0: 0x");diag_hex64(lines[7],&n,gi.bar0);
+    }else{
+        diag_append(lines[7],&n,"Intel GPU: not detected by PCI probe");
+    }
+    for(uint32_t i=0u;i<8u;++i)
+        draw_diag_line(lines[i],x+18u,82u+i*18u,56u,i==0u?COL_TEXT:COL_DIM);
 }
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
