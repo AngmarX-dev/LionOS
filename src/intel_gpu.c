@@ -294,6 +294,29 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                     mmio_ready = 1u;
                     console_write("[ OK ] Intel GPU MMIO aperture mapped (uncached)\n");
                     debug_write("LIONOS:INTEL-MMIO-MAPPED\n");
+
+                    /*
+                     * Gen8+ GTTMMADR is 16 MiB; its GGTT PTE aperture
+                     * begins at +8 MiB. GGMS encodes 2, 4, or 8 MiB
+                     * when its field is 1, 2, or 3 respectively.
+                     */
+                    if (intel_alder_lake_id(device) &&
+                        gpu.host_bridge_found && bar0_size == 0x01000000ULL) {
+                        uint32_t ggms = (gpu.host_ggc >> 6) & 0x3u;
+                        if (ggms != 0u) {
+                            uint32_t ggtt_size = (1u << ggms) << 20;
+                            uint32_t ggtt_offset = 0x00800000u;
+                            if ((uint64_t)ggtt_offset + ggtt_size <= bar0_size) {
+                                gpu.ggtt_offset = ggtt_offset;
+                                gpu.ggtt_size = ggtt_size;
+                                gpu.ggtt_ready = 1u;
+                                console_write("[ OK ] Read-only GGTT aperture identified: ");
+                                console_write_dec(ggtt_size / (1024u * 1024u));
+                                console_write(" MiB at BAR0+0x00800000\n");
+                                debug_write("LIONOS:INTEL-GGTT-READONLY-READY\n");
+                            }
+                        }
+                    }
                 } else {
                     console_write("[ -- ] Intel GPU MMIO mapping failed; firmware display retained\n");
                     debug_write("LIONOS:INTEL-MMIO-MAP-FAIL\n");
@@ -347,4 +370,34 @@ int intel_gpu_mmio_read32(uint32_t offset, uint32_t *value)
 
     *value = *(volatile const uint32_t *)(uintptr_t)(MMIO_VIRTUAL_BASE + offset);
     return 0;
+}
+
+int intel_gpu_ggtt_read_entry(uint32_t index, uint64_t *value)
+{
+    uint32_t low_offset, high_offset;
+    uint32_t high_before, high_after, low;
+    uint32_t attempts;
+
+    if (!value || !gpu.ggtt_ready || !mmio_ready)
+        return -1;
+    if (index >= gpu.ggtt_size / 4096u)
+        return -1;
+
+    low_offset = gpu.ggtt_offset + index * 8u;
+    high_offset = low_offset + 4u;
+
+    /* Bounded high-low-high sampling avoids returning a torn 64-bit PTE. */
+    for (attempts = 0u; attempts < 3u; ++attempts) {
+        if (intel_gpu_mmio_read32(high_offset, &high_before) != 0 ||
+            intel_gpu_mmio_read32(low_offset, &low) != 0 ||
+            intel_gpu_mmio_read32(high_offset, &high_after) != 0)
+            return -1;
+
+        if (high_before == high_after) {
+            *value = ((uint64_t)high_after << 32) | low;
+            return 0;
+        }
+    }
+
+    return -2; /* Entry changed during every bounded sample. */
 }
