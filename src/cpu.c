@@ -129,7 +129,7 @@ void cpu_init(uint32_t multiboot_info){
     uint32_t max_leaf=a;
     cpu_identification=(cpu_identification_t){0};
     cpu_identification.max_basic_leaf=max_leaf;
-    for(uint32_t i=0u;i<4u;++i){
+    for(uint32_t i=0u;i<3u;++i){
         uint32_t word=(i==0u)?b:(i==1u)?d:c;
         for(uint32_t j=0u;j<4u;++j)
             cpu_identification.vendor[i*4u+j]=(char)(word>>(j*8u));
