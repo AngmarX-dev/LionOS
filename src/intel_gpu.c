@@ -23,6 +23,10 @@
 #define PCI_COMMAND          0x04u
 #define PCI_CLASS            0x08u
 #define PCI_BAR0              0x10u
+#define PCI_GGC               0x50u
+#define PCI_BDSM              0xB4u
+#define PCI_BGSM              0xB8u
+#define PCI_TOLUD             0xBCu
 #define PCI_COMMAND_MEMORY   0x0002u
 
 #define INTEL_VENDOR         0x8086u
@@ -68,6 +72,29 @@ static void pci_write_command(uint8_t bus, uint8_t slot, uint8_t func,
 {
     outl(PCI_ADDR, pci_key(bus, slot, func, PCI_COMMAND));
     outw(PCI_DATA, command);
+}
+
+/*
+ * Read the Intel host-bridge graphics memory boundary registers. These are
+ * diagnostic snapshots only: no values are decoded into allocations and no
+ * memory is reserved, remapped, or modified by this probe.
+ */
+static void read_host_bridge_memory_config(void)
+{
+    uint32_t id = pci_read32(0u, 0u, 0u, 0x00u);
+    uint32_t class_rev = pci_read32(0u, 0u, 0u, PCI_CLASS);
+    uint16_t vendor = (uint16_t)(id & 0xFFFFu);
+    uint8_t base_class = (uint8_t)(class_rev >> 24);
+    uint8_t sub_class = (uint8_t)(class_rev >> 16);
+
+    if (vendor != INTEL_VENDOR || base_class != 0x06u || sub_class != 0x00u)
+        return;
+
+    gpu.host_bridge_found = 1u;
+    gpu.host_ggc = pci_read32(0u, 0u, 0u, PCI_GGC);
+    gpu.host_bdsm = pci_read32(0u, 0u, 0u, PCI_BDSM);
+    gpu.host_bgsm = pci_read32(0u, 0u, 0u, PCI_BGSM);
+    gpu.host_tolud = pci_read32(0u, 0u, 0u, PCI_TOLUD);
 }
 
 static int intel_alder_lake_id(uint16_t id)
@@ -232,6 +259,7 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                 gpu.mmio_virtual = MMIO_VIRTUAL_BASE;
                 gpu.supported_platform = intel_known_display_id(device) ? 1u : 0u;
                 gpu.firmware_framebuffer = firmware_framebuffer_active ? 1u : 0u;
+                read_host_bridge_memory_config();
                 gpu_ready = 1u;
 
                 console_write("[ OK ] Intel graphics PCI function ");
@@ -242,6 +270,18 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                 console_write(" size=");
                 console_write_dec((uint32_t)(bar0_size / (1024u * 1024u)));
                 console_write(" MiB\n");
+
+                if (gpu.host_bridge_found) {
+                    console_write("[ OK ] Intel host bridge memory map (read-only)\n");
+                    console_write("       GGC=0x"); console_write_hex(gpu.host_ggc);
+                    console_write(" BDSM=0x"); console_write_hex(gpu.host_bdsm);
+                    console_write(" BGSM=0x"); console_write_hex(gpu.host_bgsm);
+                    console_write(" TOLUD=0x"); console_write_hex(gpu.host_tolud);
+                    console_write("\n");
+                    debug_write("LIONOS:INTEL-HOST-MEMORY-READ\n");
+                } else {
+                    console_write("[ -- ] Intel host bridge memory registers unavailable\n");
+                }
 
                 if (!gpu.supported_platform) {
                     console_write("[ -- ] Intel display platform not in supported ID table\n");
