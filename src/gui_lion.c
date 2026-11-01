@@ -780,6 +780,7 @@ static void draw_notification(void){
     n=0u;diag_append(lines[5],&n,"L3: ");diag_dec(lines[5],&n,ci.l3_kb);
     diag_append(lines[5],&n," KB  Base: ");diag_dec(lines[5],&n,ci.base_mhz);
     diag_append(lines[5],&n," MHz  Max: ");diag_dec(lines[5],&n,ci.max_mhz);
+    diag_append(lines[5],&n," MHz  BCLK: ");diag_dec(lines[5],&n,ci.bus_mhz);
     diag_append(lines[5],&n," MHz");
     n=0u;diag_append(lines[6],&n,"Architecture: ");diag_append(lines[6],&n,ci.x86_64?"x86-64 capable":"32-bit only");
     diag_append(lines[6],&n,"  Ext CPUID: 0x");diag_hex(lines[6],&n,ci.max_extended_leaf,8u);
