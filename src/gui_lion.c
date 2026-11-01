@@ -848,7 +848,7 @@ static void draw_notification(void){
                 diag_dec(lines[23],&n,gi.ggtt_size/(1024u*1024u));
                 diag_append(lines[23],&n," MiB (identified)");
                 n=0u;diag_append(lines[24],&n,"GGTT PTE sampling: disabled");
-                n=0u;diag_append(lines[25],&n,"Reason: keep desktop MMIO-free");
+                n=0u;diag_append(lines[25],&n,"PMM limit: ");diag_dec(lines[25],&n,(uint32_t)(memory_managed_limit_bytes()/(1024u*1024u)));diag_append(lines[25],&n," MiB physical");
             }else{
                 n=0u;diag_append(lines[22],&n,"GGTT aperture: not validated");
             }
