@@ -136,6 +136,7 @@ void cpu_init(uint32_t multiboot_info){
     }
     cpu_features=0u;
     cpuid_count(1u,0u,&a,&b,&c,&d);
+    uint32_t leaf1_b=b,leaf1_c=c,leaf1_d=d;
     cpu_identification.signature=a;
     cpu_identification.stepping=(uint8_t)(a&0xFu);
     {
@@ -147,25 +148,25 @@ void cpu_init(uint32_t multiboot_info){
         cpu_identification.model=(uint16_t)(((base_family==0x6u||base_family==0xFu)
             ?(base_model|(ext_model<<4)):base_model));
     }
-    cpu_identification.logical_processors=(uint8_t)((b>>16)&0xFFu);
+    cpu_identification.logical_processors=(uint8_t)((leaf1_b>>16)&0xFFu);
     if(!cpu_identification.logical_processors)cpu_identification.logical_processors=1u;
-    cpu_identification.apic_id=(uint8_t)(b>>24);
+    cpu_identification.apic_id=(uint8_t)(leaf1_b>>24);
     cpu_identification.physical_cores=1u;
     if(max_leaf>=4u){
         uint32_t ca,cb,cc,cd;
         cpuid_count(4u,0u,&ca,&cb,&cc,&cd);
         if((ca&0x1Fu)!=0u)cpu_identification.physical_cores=(uint8_t)(((ca>>26)&0x3Fu)+1u);
     }
-    if (d&(1u<<9)) cpu_features|=CPU_FEAT_APIC;
-    if (d&(1u<<25)) cpu_features|=CPU_FEAT_SSE;
-    if (d&(1u<<26)) cpu_features|=CPU_FEAT_SSE2;
-    if (c&(1u<<0)) cpu_features|=CPU_FEAT_SSE3;
-    if (c&(1u<<9)) cpu_features|=CPU_FEAT_SSSE3;
-    if (c&(1u<<19)) cpu_features|=CPU_FEAT_SSE41;
-    if (c&(1u<<20)) cpu_features|=CPU_FEAT_SSE42;
-    if ((c&(1u<<27)) && (c&(1u<<28))) cpu_features|=CPU_FEAT_AVX;
-    uint32_t logical=(b>>16)&0xFFu;if(!logical)logical=1u;if(logical>LIONOS_MAX_CPUS)logical=LIONOS_MAX_CPUS;
-    uint32_t bsp=(b>>24)&0xFFu;
+    if (leaf1_d&(1u<<9)) cpu_features|=CPU_FEAT_APIC;
+    if (leaf1_d&(1u<<25)) cpu_features|=CPU_FEAT_SSE;
+    if (leaf1_d&(1u<<26)) cpu_features|=CPU_FEAT_SSE2;
+    if (leaf1_c&(1u<<0)) cpu_features|=CPU_FEAT_SSE3;
+    if (leaf1_c&(1u<<9)) cpu_features|=CPU_FEAT_SSSE3;
+    if (leaf1_c&(1u<<19)) cpu_features|=CPU_FEAT_SSE41;
+    if (leaf1_c&(1u<<20)) cpu_features|=CPU_FEAT_SSE42;
+    if ((leaf1_c&(1u<<27)) && (leaf1_c&(1u<<28))) cpu_features|=CPU_FEAT_AVX;
+    uint32_t logical=(leaf1_b>>16)&0xFFu;if(!logical)logical=1u;if(logical>LIONOS_MAX_CPUS)logical=LIONOS_MAX_CPUS;
+    uint32_t bsp=(leaf1_b>>24)&0xFFu;
     cpu_hint=logical;cpus[0].apic_id=bsp;cpus[0].logical_per_package=logical;cpus[0].online=1u;
     if(max_leaf>=0xBu){__asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(0xBu),"c"(0u));if(b&&b<=LIONOS_MAX_CPUS)cpu_hint=b;}
     cpu_identification.feature_flags=cpu_features;
