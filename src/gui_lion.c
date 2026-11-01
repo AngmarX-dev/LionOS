@@ -753,15 +753,15 @@ static void draw_diag_line(const char *s,uint32_t x,uint32_t y,uint32_t max_char
 static void draw_notification(void){
     uint32_t w=framebuffer_width();
     if(w<760u)return;
-    const uint32_t panel_w=720u,panel_h=570u;
+    const uint32_t panel_w=720u,panel_h=552u;
     uint32_t x=w>panel_w+24u?w-panel_w-20u:10u;
     glass_panel(x,50u,panel_w,panel_h,22u,0xEAF7FFu,22u,1u);
     text_line("CPU / INTEL GRAPHICS HARDWARE REPORT",x+18u,60u,COL_GOLD,COL_PANEL);
 
     cpu_identification_t ci;
     cpu_get_identification(&ci);
-    char lines[27][96];
-    for(uint32_t i=0u;i<27u;++i)lines[i][0]=0;
+    char lines[26][96];
+    for(uint32_t i=0u;i<26u;++i)lines[i][0]=0;
     uint32_t n=0u;
     diag_append(lines[0],&n,"CPU: ");diag_append(lines[0],&n,ci.brand[0]?ci.brand:"Unknown CPU");
     n=0u;diag_append(lines[1],&n,"Vendor: ");diag_append(lines[1],&n,ci.vendor);
@@ -846,18 +846,9 @@ static void draw_notification(void){
                 diag_hex(lines[22],&n,gi.ggtt_offset,8u);
                 n=0u;diag_append(lines[23],&n,"GGTT size: ");
                 diag_dec(lines[23],&n,gi.ggtt_size/(1024u*1024u));
-                diag_append(lines[23],&n," MiB (read-only)");
-
-                for(uint32_t p=0u;p<4u;++p){
-                    uint64_t entry=0u;
-                    n=0u;diag_append(lines[24u+p],&n,"GGTT PTE[");
-                    diag_dec(lines[24u+p],&n,p);
-                    diag_append(lines[24u+p],&n,"]: ");
-                    if(intel_gpu_ggtt_read_entry(p,&entry)==0)
-                        diag_hex64(lines[24u+p],&n,entry);
-                    else
-                        diag_append(lines[24u+p],&n,"unavailable/unstable");
-                }
+                diag_append(lines[23],&n," MiB (identified)");
+                n=0u;diag_append(lines[24],&n,"GGTT PTE sampling: disabled");
+                n=0u;diag_append(lines[25],&n,"Reason: keep desktop MMIO-free");
             }else{
                 n=0u;diag_append(lines[22],&n,"GGTT aperture: not validated");
             }
@@ -867,7 +858,7 @@ static void draw_notification(void){
     }else{
         diag_append(lines[8],&n,"Intel GPU: not detected by PCI probe");
     }
-    for(uint32_t i=0u;i<27u;++i)
+    for(uint32_t i=0u;i<26u;++i)
         draw_diag_line(lines[i],x+18u,82u+i*18u,56u,i==0u?COL_TEXT:COL_DIM);
 }
 static void draw_taskbar(void){
