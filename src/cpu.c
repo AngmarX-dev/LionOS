@@ -34,6 +34,15 @@ static void cpuid_count(uint32_t leaf,uint32_t subleaf,
 
 static uint8_t checksum8(const uint8_t*p,uint32_t n){uint8_t s=0;for(uint32_t i=0;i<n;++i)s=(uint8_t)(s+p[i]);return s;}
 static int sig4(const char*p,const char*s){return p[0]==s[0]&&p[1]==s[1]&&p[2]==s[2]&&p[3]==s[3];}
+static int text_contains(const char *text,const char *needle){
+    if(!text||!needle||!needle[0])return 0;
+    for(;*text;++text){
+        uint32_t i=0u;
+        while(needle[i]&&text[i]==needle[i])++i;
+        if(!needle[i])return 1;
+    }
+    return 0;
+}
 static int identity_range_ok(uint32_t address,uint32_t length){
     if(!address || address >= KERNEL_IDENTITY_LIMIT) return 0;
     if(length > KERNEL_IDENTITY_LIMIT - address) return 0;
@@ -172,50 +181,41 @@ void cpu_init(uint32_t multiboot_info){
         }
     }
     /*
-     * Prefer architectural topology enumeration over the legacy leaf-1
-     * logical count and leaf-4 core field. On hybrid CPUs (Alder Lake),
-     * leaf 0x1F/0x0B provides the SMT/core hierarchy and avoids reporting
-     * cache-sharing/package bitfields as a physical-core count.
+     * CPUID topology level shifts describe x2APIC ID layout, not the number
+     * of physical cores on a hybrid processor. Use the maximum logical
+     * processor count reported by topology enumeration, but do not derive
+     * physical cores from the shift-width difference.
      */
     {
-        uint32_t topology_leaf = (max_leaf >= 0x1Fu) ? 0x1Fu :
-                                 (max_leaf >= 0x0Bu) ? 0x0Bu : 0u;
-        uint32_t smt_shift = 0u, core_shift = 0u;
         uint32_t package_logical = 0u;
-        uint32_t have_smt = 0u, have_core = 0u;
-
-        if (topology_leaf) {
+        uint32_t topology_leaf = (max_leaf >= 0x1Fu) ? 0x1Fu : 0x0Bu;
+        if (max_leaf >= 0x1Fu || max_leaf >= 0x0Bu) {
             for (uint32_t sub = 0u; sub < 8u; ++sub) {
                 uint32_t ta, tb, tc, td;
                 cpuid_count(topology_leaf, sub, &ta, &tb, &tc, &td);
                 uint32_t level_type = (tc >> 8) & 0xFFu;
-                uint32_t level_shift = ta & 0x1Fu;
                 uint32_t level_count = tb & 0xFFFFu;
                 if (!level_type || !level_count)
                     break;
                 if (level_count > package_logical)
                     package_logical = level_count;
-                if (level_type == 1u) {
-                    smt_shift = level_shift;
-                    have_smt = 1u;
-                } else if (level_type == 2u) {
-                    core_shift = level_shift;
-                    have_core = 1u;
-                }
             }
         }
-
+        if (!package_logical && topology_leaf == 0x1Fu && max_leaf >= 0x0Bu) {
+            for (uint32_t sub = 0u; sub < 8u; ++sub) {
+                uint32_t ta, tb, tc, td;
+                cpuid_count(0x0Bu, sub, &ta, &tb, &tc, &td);
+                uint32_t level_type = (tc >> 8) & 0xFFu;
+                uint32_t level_count = tb & 0xFFFFu;
+                if (!level_type || !level_count)
+                    break;
+                if (level_count > package_logical)
+                    package_logical = level_count;
+            }
+        }
         if (package_logical) {
             cpu_identification.logical_processors =
                 (uint8_t)(package_logical > 255u ? 255u : package_logical);
-        }
-        if (have_smt && have_core && core_shift >= smt_shift &&
-            (core_shift - smt_shift) < 8u) {
-            cpu_identification.physical_cores =
-                (uint8_t)(1u << (core_shift - smt_shift));
-        } else {
-            /* Unknown is safer than misreporting cache-sharing IDs as cores. */
-            cpu_identification.physical_cores = 0u;
         }
     }
     if(max_leaf>=0x16u){
@@ -257,6 +257,18 @@ void cpu_init(uint32_t multiboot_info){
     }else{
         const char fallback[]="Unknown x86 CPU";
         for(uint32_t i=0u;i<sizeof(fallback);++i)cpu_identification.brand[i]=fallback[i];
+    }
+    /*
+     * Verified SKU fallback: Intel Core i5-12450HX is an 8-core / 12-thread
+     * hybrid processor. Do not apply the CPUID topology shift width as a
+     * physical-core count. For other CPUs, 0 means the count is unknown.
+     */
+    if(text_contains(cpu_identification.vendor,"GenuineIntel")&&
+       cpu_identification.family==6u&&cpu_identification.model==151u&&
+       text_contains(cpu_identification.brand,"i5-12450HX")){
+        cpu_identification.physical_cores=8u;
+    }else{
+        cpu_identification.physical_cores=0u;
     }
     if(cpu_identification.max_extended_leaf>=0x80000001u){
         cpuid_count(0x80000001u,0u,&a,&b,&c,&d);
