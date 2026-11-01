@@ -31,7 +31,7 @@ typedef struct cpu_identification {
     uint16_t family;
     uint16_t model;
     uint8_t stepping;
-    uint8_t physical_cores;
+    uint8_t physical_cores; /* 0 when a reliable physical-core count is unavailable. */
     uint8_t logical_processors;
     uint8_t apic_id;
     uint8_t x86_64;
