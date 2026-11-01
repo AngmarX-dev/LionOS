@@ -753,15 +753,15 @@ static void draw_diag_line(const char *s,uint32_t x,uint32_t y,uint32_t max_char
 static void draw_notification(void){
     uint32_t w=framebuffer_width();
     if(w<760u)return;
-    const uint32_t panel_w=720u,panel_h=246u;
+    const uint32_t panel_w=720u,panel_h=318u;
     uint32_t x=w>panel_w+24u?w-panel_w-20u:10u;
     glass_panel(x,50u,panel_w,panel_h,22u,0xEAF7FFu,22u,1u);
     text_line("CPU / INTEL GRAPHICS HARDWARE REPORT",x+18u,60u,COL_GOLD,COL_PANEL);
 
     cpu_identification_t ci;
     cpu_get_identification(&ci);
-    char lines[11][96];
-    for(uint32_t i=0u;i<11u;++i)lines[i][0]=0;
+    char lines[15][96];
+    for(uint32_t i=0u;i<15u;++i)lines[i][0]=0;
     uint32_t n=0u;
     diag_append(lines[0],&n,"CPU: ");diag_append(lines[0],&n,ci.brand[0]?ci.brand:"Unknown CPU");
     n=0u;diag_append(lines[1],&n,"Vendor: ");diag_append(lines[1],&n,ci.vendor);
@@ -805,10 +805,23 @@ static void draw_notification(void){
         n=0u;diag_append(lines[10],&n,"MMIO: ");diag_append(lines[10],&n,gi.mmio_mapped?"MAPPED":"NOT MAPPED");
         diag_append(lines[10],&n,"  BAR0 size: ");diag_dec(lines[10],&n,(uint32_t)(gi.bar0_size/(1024u*1024u)));
         diag_append(lines[10],&n," MiB");
+
+        n=0u;
+        diag_append(lines[11],&n,"Host bridge: ");
+        diag_append(lines[11],&n,gi.host_bridge_found?"Intel 00:00.0":"not detected");
+
+        if(gi.host_bridge_found){
+            n=0u;diag_append(lines[12],&n,"GGC: 0x");diag_hex(lines[12],&n,gi.host_ggc,8u);
+            n=0u;diag_append(lines[13],&n,"BDSM: 0x");diag_hex(lines[13],&n,gi.host_bdsm,8u);
+            diag_append(lines[13],&n,"  BGSM: 0x");diag_hex(lines[13],&n,gi.host_bgsm,8u);
+            n=0u;diag_append(lines[14],&n,"TOLUD: 0x");diag_hex(lines[14],&n,gi.host_tolud,8u);
+        }else{
+            diag_append(lines[12],&n,"Host memory registers unavailable");
+        }
     }else{
         diag_append(lines[8],&n,"Intel GPU: not detected by PCI probe");
     }
-    for(uint32_t i=0u;i<11u;++i)
+    for(uint32_t i=0u;i<15u;++i)
         draw_diag_line(lines[i],x+18u,82u+i*18u,56u,i==0u?COL_TEXT:COL_DIM);
 }
 static void draw_taskbar(void){
