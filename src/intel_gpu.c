@@ -50,6 +50,7 @@ static uint32_t mmio_ready;
 #define INTEL_RING_CTL_OFFSET      0x3Cu
 
 static intel_gpu_engine_snapshot_t engine_snapshot;
+static void intel_gpu_hex32(uint32_t value);
 
 static int intel_gpu_read_engine_registers(uint32_t base,
                                            intel_gpu_ring_snapshot_t *ring)
@@ -79,7 +80,7 @@ static void intel_gpu_probe_engine_registers(void)
         return;
 
     engine_snapshot.valid = 1u;
-    console_write("[ OK ] Intel Gen12 GT identity and render/blitter ring registers read (read-only)\\n");
+    console_write("[ OK ] Intel Gen12 GT identity and render/blitter ring registers read (read-only)\n");
     console_write("       GMD_ID_GRAPHICS=0x");
     intel_gpu_hex32(engine_snapshot.graphics_gmd_id);
     console_write(" RCS HEAD/TAIL=0x");
@@ -90,8 +91,8 @@ static void intel_gpu_probe_engine_registers(void)
     intel_gpu_hex32(engine_snapshot.blitter.head);
     console_write("/0x");
     intel_gpu_hex32(engine_snapshot.blitter.tail);
-    console_write("\\n");
-    debug_write("LIONOS:INTEL-GT-ENGINE-READ-PROBE-OK\\n");
+    console_write("\n");
+    debug_write("LIONOS:INTEL-GT-ENGINE-READ-PROBE-OK\n");
 }
 
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg)
