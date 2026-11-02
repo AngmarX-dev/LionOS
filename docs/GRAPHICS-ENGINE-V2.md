@@ -26,7 +26,7 @@ The device ID is used for platform matching; the CPU marketing name alone is not
 
 The firmware framebuffer remains the active display path. No GPU reset, display mode change, engine command, or undocumented register write is issued.
 
-The current physical memory manager has a fixed 65,536-page bitmap and therefore manages only physical addresses below 256 MiB. The reported Alder Lake graphics boundaries (BGSM/BDSM/TOLUD) are around 2 GiB on the verified laptop, outside that managed range. LionOS must not add these graphics ranges to the allocator or treat them as free memory. A future PMM expansion must first consume the complete firmware memory map, preserve non-available regions, reserve the graphics stolen-memory/GGTT regions using the exact platform definitions, and handle address-width/overflow checks.
+The legacy identity-mapped PMM still manages the low 256 MiB. A separate high-physical-page allocator now tracks Multiboot2 available pages from 256 MiB up to a conservative 64 GiB ceiling with separate availability/allocation bitmaps. Non-available Multiboot2 regions, the Multiboot information block, and modules are excluded. High allocations are returned as 64-bit physical addresses and must never be dereferenced as 32-bit pointers; they must be mapped through the dedicated high-page virtual window. The allocator does not yet decode Intel BGSM/BDSM/TOLUD or independently reserve stolen-memory/GGTT ranges, so it must not be used for GPU-owned memory until those platform reservations are validated.
 
 ### Not implemented yet
 
@@ -74,10 +74,12 @@ The driver exposes a bounded read-only accessor for 64-bit Gen8+ GGTT entries. I
 
 The GTTMMADR layout and GGTT offset follow the Linux i915 implementation: `drivers/gpu/drm/i915/gt/intel_ggtt.c` (`gen6_gttmmadr_size()` and `gen6_gttadr_offset()`). GGMS size decoding follows `gen8_get_total_gtt_size()`. This is a cross-check reference; the Intel Alder Lake platform documentation remains authoritative.
 
-## High-memory inventory (read-only)
+## High-physical memory management
 
-The PMM now totals Multiboot2 available-memory regions above 256 MiB and reports that amount in the desktop hardware panel. This is inventory only: those pages are not added to the PMM bitmap and cannot be returned by `page_alloc()`. The kernel still uses identity-mapped pointers for PMM allocations, and its normal identity map remains limited to the low 256 MiB. Do not treat the reported high-memory total as allocatable RAM until a high-physical-page mapping API and allocator ownership rules are implemented.
+The high-memory allocator tracks firmware-available pages from 256 MiB to 64 GiB, excludes non-available memory-map entries and Multiboot2 metadata/modules, and returns 64-bit physical addresses. A separate 48 MiB virtual window (`0xF1000000..0xF3FFFFFF)) maps one high physical page at a time; it is kept separate from the framebuffer window at `0xF4000000`, Intel GPU BAR mapping at `0xF8000000`, and LAPIC mapping. Mapping/unmapping is BSP-only and uses a dedicated APIC IPI (vector 49) to invalidate the virtual address on every online CPU before the operation returns.
 
-### PAE mapping safety prerequisites
+The boot self-test allocates one high page, maps it, writes and verifies 4 KiB of test patterns, unmaps it, and frees it. The GUI reports currently free high RAM. This is a generic system-RAM allocator, not a GPU memory allocator: the exact Intel Alder Lake stolen-memory and GGTT reservations still need to be decoded and excluded before GPU-visible allocations are permitted.
 
-The kernel mapping API rejects physical addresses that cannot be represented by the PAE PTE address field; it must not silently mask an out-of-range address into a different page. This is only an input-validation safeguard, not a high-memory allocator. A future shared high-memory mapping window must also define virtual-range ownership, mapping lifetime, cache attributes, and TLB invalidation on every online CPU. The current paging code only performs local `invlpg`; there is no cross-CPU TLB shootdown API, so dynamically changing shared mappings after SMP startup is not yet safe. Until that synchronization exists, high physical pages remain inventory-only.
+### PAE mapping and synchronization safeguards
+
+The kernel mapping API rejects physical addresses that cannot be represented by the PAE PTE address field. Shared kernel mappings are serialized and restricted to the BSP. After updating a PTE, the BSP invalidates its local TLB, sends vector 49 to online APs, and waits for their acknowledgements. The interrupt handler performs `invlpg`, increments the shared acknowledgement counter, and sends LAPIC EOI. This protocol is currently exercised by the high-memory boot self-test; QEMU CI does not replace a physical-hardware test.
