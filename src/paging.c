@@ -172,7 +172,7 @@ static void paging_kernel_tlb_shootdown(uint32_t address) {
        target has acknowledged the invalidation. */
     while(__atomic_load_n(&shootdown_acks,__ATOMIC_ACQUIRE)<targets)
         __asm__ volatile("pause" ::: "memory");
-    debug_write("LIONOS:TLB-SHOOTDOWN-ACKED\\n");
+    debug_write("LIONOS:TLB-SHOOTDOWN-ACKED\n");
 }
 
 int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, uint32_t flags) {
