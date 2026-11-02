@@ -222,6 +222,37 @@ static int map_gpu_mmio(uint64_t physical, uint64_t size)
     return 0;
 }
 
+/*
+ * Read-only GGTT aperture smoke test. This checks that the first and last
+ * PTE slots are reachable through the mapped BAR without changing firmware
+ * page-table contents or submitting work to the graphics engine.
+ */
+static void intel_gpu_probe_ggtt(void)
+{
+    uint64_t first = 0u, last = 0u;
+    uint32_t last_index;
+
+    if (!gpu.ggtt_ready || !mmio_ready || gpu.ggtt_size < 8u)
+        return;
+
+    last_index = gpu.ggtt_size / 4096u - 1u;
+    if (intel_gpu_ggtt_read_entry(0u, &first) != 0 ||
+        intel_gpu_ggtt_read_entry(last_index, &last) != 0) {
+        console_write("[ -- ] Intel GGTT read-only aperture probe failed\\n");
+        debug_write("LIONOS:INTEL-GGTT-READ-PROBE-FAIL\\n");
+        return;
+    }
+
+    console_write("[ OK ] Intel GGTT read-only boundary probe: first=0x");
+    console_write_hex((uint32_t)(first >> 32));
+    console_write_hex((uint32_t)first);
+    console_write(" last=0x");
+    console_write_hex((uint32_t)(last >> 32));
+    console_write_hex((uint32_t)last);
+    console_write("\\n");
+    debug_write("LIONOS:INTEL-GGTT-READ-PROBE-OK\\n");
+}
+
 int intel_gpu_init(uint32_t firmware_framebuffer_active)
 {
     gpu_ready = 0u;
@@ -332,6 +363,7 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                                 console_write_dec(ggtt_size / (1024u * 1024u));
                                 console_write(" MiB at BAR0+0x00800000\n");
                                 debug_write("LIONOS:INTEL-GGTT-READONLY-READY\n");
+                                intel_gpu_probe_ggtt();
                             }
                         }
                     }
