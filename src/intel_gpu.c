@@ -108,7 +108,7 @@ static void read_host_bridge_memory_config(void)
         uint64_t tolud = (uint64_t)(gpu.host_tolud & 0xFFF00000u);
         if (bgsm && bgsm < bdsm && bdsm < tolud && tolud <= 0x100000000ULL) {
             memory_reserve_physical_range(bgsm, tolud);
-            debug_write("LIONOS:IGPU-STOLEN-RANGE-RESERVED\\n");
+            debug_write("LIONOS:IGPU-STOLEN-RANGE-RESERVED\n");
         }
     }
 }
