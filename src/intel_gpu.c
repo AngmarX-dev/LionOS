@@ -79,7 +79,7 @@ static void pci_write_command(uint8_t bus, uint8_t slot, uint8_t func,
  * Read Intel host-bridge graphics memory boundaries. On a matched Alder Lake
  * device, reserve the validated BGSM..TOLUD interval from general PMM use.
  */
-static void read_host_bridge_memory_config(void)
+static void read_host_bridge_memory_config(uint32_t reserve_alder_lake_graphics)
 {
     uint32_t id = pci_read32(0u, 0u, 0u, 0x00u);
     uint32_t class_rev = pci_read32(0u, 0u, 0u, PCI_CLASS);
