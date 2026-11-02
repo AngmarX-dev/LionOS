@@ -66,6 +66,19 @@ static uint64_t *pt_ptr(uint64_t entry) {
     return (uint64_t *)(uintptr_t)(entry & PTE_ADDR_MASK);
 }
 
+static void pte_store_atomic(volatile uint64_t *entry,uint64_t value){
+    uint32_t low=(uint32_t)value;
+    uint32_t high=(uint32_t)(value>>32);
+    __asm__ volatile(
+        "1: movl (%1), %%eax\n"
+        "movl 4(%1), %%edx\n"
+        "lock; cmpxchg8b (%1)\n"
+        "jnz 1b\n"
+        : "+m"(*entry)
+        : "r"(entry), "b"(low), "c"(high)
+        : "eax","edx","memory","cc");
+}
+
 static void zero_words(uint64_t *buffer, uint32_t count) {
     for (uint32_t i = 0; i < count; ++i) buffer[i] = 0;
 }
@@ -179,9 +192,9 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
 
     uint32_t irq=spinlock_irqsave_acquire(&kernel_map_lock);
     uint64_t *table = kernel_mmio_pt[mmio_index];
-    table[pt_index] = (physical_address & PTE_ADDR_MASK) |
+    pte_store_atomic(&table[pt_index],(physical_address & PTE_ADDR_MASK) |
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
-                      PTE_PRESENT;
+                      PTE_PRESENT);
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     paging_kernel_tlb_shootdown(virtual_address);
     spinlock_irqrestore_release(&kernel_map_lock,irq);
@@ -230,7 +243,7 @@ int paging_unmap_high_page(uint32_t virtual_address){
         spinlock_irqrestore_release(&kernel_map_lock,map_irq);
         return -1;
     }
-    kernel_mmio_pt[mmio_index][pt_index]=0u;
+    pte_store_atomic(&kernel_mmio_pt[mmio_index][pt_index],0u);
     __asm__ volatile("invlpg (%0)"::"r"(virtual_address):"memory");
     paging_kernel_tlb_shootdown(virtual_address);
     spinlock_irqrestore_release(&kernel_map_lock,map_irq);
