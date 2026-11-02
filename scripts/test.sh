@@ -174,7 +174,11 @@ grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-first.log
 
-echo "[4/5] Second SMP boot / persistence verification"
+echo "[4/6] High-memory allocator + cross-CPU TLB shootdown"
+QEMU_MEMORY=512M run_qemu build/qemu-highmem.log
+grep -q 'LIONOS:HIGH-MEMORY-TEST-OK' build/qemu-highmem.log
+
+echo "[5/6] Second SMP boot / persistence verification"
 run_qemu build/qemu-second.log
 grep -q 'LIONOS:READY' build/qemu-second.log
 grep -q 'LIONOS:PERSIST-OK' build/qemu-second.log
@@ -189,6 +193,6 @@ grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-second.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
-echo "[5/5] Graphical desktop / keyboard escape smoke test"
+echo "[6/6] Graphical desktop / keyboard escape smoke test"
 run_gui_smoke build/qemu-gui.log
 echo "LionOS stability + VFS integration + Phase 26 GUI test: PASS"
