@@ -117,7 +117,10 @@ uint32_t paging_kernel_directory(void) {
 }
 
 int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, uint32_t flags) {
-    if ((virtual_address & (PAGE_SIZE - 1u)) || (physical_address & (PAGE_SIZE - 1u))) return -1;
+    /* Reject addresses beyond the PAE PTE address field instead of silently truncating them. */
+    if ((virtual_address & (PAGE_SIZE - 1u)) ||
+        (physical_address & (PAGE_SIZE - 1u)) ||
+        (physical_address & ~PTE_ADDR_MASK)) return -1;
     if (virtual_address < KERNEL_MMIO_BASE) return -1;
 
     uint32_t pdpt_index = virtual_address >> 30;
