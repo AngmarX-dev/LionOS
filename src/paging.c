@@ -2,6 +2,9 @@
 #include "memory.h"
 #include "paging.h"
 #include "cpu.h"
+#include "lapic.h"
+#include "smp.h"
+#include "spinlock.h"
 
 #define PAGE_SIZE 4096u
 #define PAE_ROOT_ENTRIES 4u
@@ -40,6 +43,10 @@ static uint64_t kernel_pd[PAE_ROOT_ENTRIES][PAE_PD_ENTRIES] __attribute__((align
 static uint64_t identity_pt[IDENTITY_PT_COUNT][PAE_PT_ENTRIES] __attribute__((aligned(4096)));
 static uint64_t kernel_mmio_pt[KERNEL_MMIO_PT_COUNT][PAE_PT_ENTRIES] __attribute__((aligned(4096)));
 static uint32_t current_directory[LIONOS_MAX_CPUS];
+#define LIONOS_TLB_IPI_VECTOR 49u
+static struct spinlock kernel_map_lock;
+static volatile uint32_t shootdown_address;
+static volatile uint32_t shootdown_acks;
 static uint32_t *current_directory_slot(void){uint32_t cpu=cpu_current_index();return &current_directory[cpu<LIONOS_MAX_CPUS?cpu:0u];}
 
 static uint64_t *pdpt_ptr(uint32_t physical) {
@@ -74,6 +81,9 @@ static void enable_pae_paging(void) {
 }
 
 void paging_init(void) {
+    spinlock_init(&kernel_map_lock);
+    shootdown_address=0u;
+    shootdown_acks=0u;
     zero_words(page_root, PAE_ROOT_ENTRIES);
     for (uint32_t i = 0; i < PAE_ROOT_ENTRIES; ++i)
         zero_words(kernel_pd[i], PAE_PD_ENTRIES);
@@ -116,6 +126,34 @@ uint32_t paging_kernel_directory(void) {
     return (uint32_t)(uintptr_t)page_root;
 }
 
+void paging_tlb_shootdown_interrupt(void) {
+    uint32_t address=__atomic_load_n(&shootdown_address,__ATOMIC_ACQUIRE);
+    __asm__ volatile ("invlpg (%0)" : : "r"(address) : "memory");
+    __atomic_add_fetch(&shootdown_acks,1u,__ATOMIC_RELEASE);
+    lapic_eoi();
+}
+
+static void paging_kernel_tlb_shootdown(uint32_t address) {
+    uint32_t self=cpu_current_index();
+    uint32_t targets=0u;
+    for(uint32_t i=0u;i<cpu_count_hint()&&i<LIONOS_MAX_CPUS;++i){
+        const struct cpu_info *info=cpu_get(i);
+        if(i!=self&&info&&info->online&&info->apic_id<=0xFFu)++targets;
+    }
+    if(!targets)return;
+    __atomic_store_n(&shootdown_acks,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&shootdown_address,address,__ATOMIC_RELEASE);
+    for(uint32_t i=0u;i<cpu_count_hint()&&i<LIONOS_MAX_CPUS;++i){
+        const struct cpu_info *info=cpu_get(i);
+        if(i!=self&&info&&info->online&&info->apic_id<=0xFFu)
+            lapic_send_ipi(info->apic_id,LIONOS_TLB_IPI_VECTOR);
+    }
+    /* A stale translation is unsafe to reuse; do not return until every online
+       target has acknowledged the invalidation. */
+    while(__atomic_load_n(&shootdown_acks,__ATOMIC_ACQUIRE)<targets)
+        __asm__ volatile("pause" ::: "memory");
+}
+
 int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, uint32_t flags) {
     /* Reject addresses beyond the PAE PTE address field instead of silently truncating them. */
     if ((virtual_address & (PAGE_SIZE - 1u)) ||
@@ -131,13 +169,14 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
     uint32_t mmio_index = pd_index - KERNEL_MMIO_PD_INDEX;
     if (mmio_index >= KERNEL_MMIO_PT_COUNT) return -1;
 
+    uint32_t irq=spinlock_irqsave_acquire(&kernel_map_lock);
     uint64_t *table = kernel_mmio_pt[mmio_index];
     table[pt_index] = (physical_address & PTE_ADDR_MASK) |
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT;
-
-    if (*current_directory_slot() == paging_kernel_directory())
-        __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+    __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
+    paging_kernel_tlb_shootdown(virtual_address);
+    spinlock_irqrestore_release(&kernel_map_lock,irq);
     return 0;
 }
 

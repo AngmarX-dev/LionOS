@@ -61,6 +61,7 @@ void lapic_send_init(uint32_t apic_id){
     wait_icr();
 }
 void lapic_send_startup(uint32_t apic_id,uint32_t vector){if(!initialized||vector>0xFFu)return;write_reg(0x310u,(apic_id&0xFFu)<<24);write_reg(0x300u,ICR_DELIVERY_STARTUP|(vector&0xFFu));wait_icr();}
+void lapic_send_ipi(uint32_t apic_id,uint32_t vector){if(!initialized||apic_id>0xFFu||vector<32u||vector>0xFFu)return;write_reg(0x310u,(apic_id&0xFFu)<<24);write_reg(0x300u|(0u),vector);wait_icr();}
 static uint32_t lapic_calibrate_initial(uint32_t target_hz){
     if(target_hz<20u || target_hz>240u) return 0u;
     /* Calibrate the local APIC timer against PIT channel 2. */

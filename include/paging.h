@@ -7,6 +7,7 @@ void paging_init(void);
 uint32_t paging_kernel_directory(void);
 uint32_t paging_create_address_space(void);
 int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, uint32_t flags);
+void paging_tlb_shootdown_interrupt(void);
 int paging_map_user_page_in(uint32_t page_directory, uint32_t virtual_address,
                             uint32_t physical_address, uint32_t flags);
 int paging_set_user_page_flags(uint32_t page_directory, uint32_t virtual_address, uint32_t flags);
