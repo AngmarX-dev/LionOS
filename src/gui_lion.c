@@ -71,6 +71,11 @@ static uint32_t mouse_px_x, mouse_px_y, previous_buttons;
 static uint8_t scene_dirty;
 static const char *last_usb_status;
 static uint32_t last_render_tick = 0xFFFFFFFFu;
+static uint32_t render_stats_tick = 0xFFFFFFFFu;
+static uint32_t render_stats_count;
+static uint32_t render_stats_max_cycles;
+static uint32_t render_stats_max_pixels;
+static uint32_t render_stats_full_frames;
 static uint8_t cursor_overlay;
 static uint8_t dirty_valid;
 static uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
@@ -978,6 +983,47 @@ static uint32_t gui_render_clock_ticks(void){
         : interrupt_timer_ticks();
 }
 
+/* RDTSC is available on the x86 CPUs supported by this kernel. LFENCE
+   brackets the reads so the measurement includes completed render work. */
+static uint64_t gui_read_tsc(void){
+    uint32_t lo,hi;
+    __asm__ volatile("lfence; rdtsc; lfence" : "=a"(lo),"=d"(hi) :: "memory");
+    return ((uint64_t)hi<<32)|(uint64_t)lo;
+}
+static void gui_debug_dec32(uint32_t value){
+    char digits[10];uint32_t n=0u;
+    if(!value){debug_putc('0');return;}
+    while(value&&n<sizeof(digits)){digits[n++]=(char)('0'+value%10u);value/=10u;}
+    while(n)debug_putc(digits[--n]);
+}
+static void gui_render_stats_record(uint64_t started,uint32_t pixels,uint32_t full){
+    uint32_t cycles=(uint32_t)(gui_read_tsc()-started);
+    if(cycles>render_stats_max_cycles)render_stats_max_cycles=cycles;
+    if(pixels>render_stats_max_pixels)render_stats_max_pixels=pixels;
+    if(full)++render_stats_full_frames;
+    ++render_stats_count;
+    uint32_t now=gui_render_clock_ticks();
+    if(render_stats_tick==0xFFFFFFFFu)render_stats_tick=now;
+    uint32_t elapsed=(uint32_t)(now-render_stats_tick);
+    if(elapsed<240u)return;
+    debug_write("LIONOS:COMPOSITOR-PERF renders=");
+    gui_debug_dec32(render_stats_count);
+    debug_write(" max_cycles=");
+    gui_debug_dec32(render_stats_max_cycles);
+    debug_write(" max_pixels=");
+    gui_debug_dec32(render_stats_max_pixels);
+    debug_write(" full=");
+    gui_debug_dec32(render_stats_full_frames);
+    debug_write(" ticks=");
+    gui_debug_dec32(elapsed);
+    debug_write("\\n");
+    render_stats_tick=now;
+    render_stats_count=0u;
+    render_stats_max_cycles=0u;
+    render_stats_max_pixels=0u;
+    render_stats_full_frames=0u;
+}
+
 static void render_all(void){
     uint32_t now=gui_render_clock_ticks();
     uint32_t sw=framebuffer_width(), sh=framebuffer_height();
@@ -991,6 +1037,7 @@ static void render_all(void){
     if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<min_ticks)return;
 
     if(browser_is_active()){
+        uint64_t render_started=gui_read_tsc();
         framebuffer_cursor_hide();
         browser_render();
         if(!cursor_overlay)draw_cursor(mouse_px_x,mouse_px_y);
@@ -998,11 +1045,13 @@ static void render_all(void){
         last_render_tick=now;
         dirty_valid=0u;
         scene_dirty=0u;
+        gui_render_stats_record(render_started,sw*sh,1u);
         return;
     }
     if(!scene_dirty||!dirty_valid)return;
 
     uint32_t x=dirty_x,y=dirty_y,w=dirty_w,h=dirty_h;
+    uint64_t render_started=gui_read_tsc();
     framebuffer_cursor_hide();
     framebuffer_restore_wallpaper_rect(x,y,w,h);
     framebuffer_set_clip(x,y,w,h);
@@ -1017,6 +1066,7 @@ static void render_all(void){
     scene_dirty=0u;
     dirty_valid=0u;
     last_render_tick=now;
+    gui_render_stats_record(render_started,w*h,(x==0u&&y==0u&&w==sw&&h==sh)?1u:0u);
 }
 
 static void init_windows(void){
@@ -1384,7 +1434,7 @@ void gui_step(void){
     if(mouse_px_x!=old_x||mouse_px_y!=old_y){uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u,top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u,right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u,bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;if(right>framebuffer_width())right=framebuffer_width();if(bottom>framebuffer_height())bottom=framebuffer_height();if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);}
     if(buttons!=previous_buttons)dirty_around_cursor();
     if((buttons&1u)&&!(previous_buttons&1u)){uint32_t sig=ui_signature();handle_click();if(sig!=ui_signature())dirty_full();}
-    if(!(buttons&1u)&&(previous_buttons&1u)){uint32_t sig=ui_signature();if(desktop_icon_drag>=0){int icon=desktop_icon_drag;desktop_icons[icon].dragging=0u;if(!desktop_icons[icon].moved)activate_desktop_icon(desktop_icons[icon].action);desktop_icon_drag=-1;}drag_active=0u;drag_cache_free();if(sig!=ui_signature())dirty_full();else dirty_full();}
+    if(!(buttons&1u)&&(previous_buttons&1u)){uint32_t sig=ui_signature();if(desktop_icon_drag>=0){int icon=desktop_icon_drag;desktop_icons[icon].dragging=0u;if(!desktop_icons[icon].moved)activate_desktop_icon(desktop_icons[icon].action);desktop_icon_drag=-1;}drag_active=0u;drag_cache_free();if(sig!=ui_signature())dirty_full();else dirty_around_cursor();}
     handle_move();
     if(browser_is_active()){browser_step();previous_buttons=buttons;dirty_full();render_all();return;}
     while(keyboard_available()){handle_key(keyboard_getchar());dirty_focused();}
