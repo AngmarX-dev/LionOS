@@ -1,12 +1,17 @@
 #include <stdint.h>
 #include "cpu.h"
 #include "lapic.h"
+#include "paging.h"
 
 #define MB2_TAG_END 0u
 #define MB2_TAG_ACPI_OLD 14u
 #define MB2_TAG_ACPI_NEW 15u
 #define ACPI_MAX_CPUS LIONOS_MAX_CPUS
-#define KERNEL_IDENTITY_LIMIT 0x10000000u
+#define ACPI_ROOT_WINDOW 0xF0000000u
+#define ACPI_CHILD_WINDOW 0xF0800000u
+#define ACPI_WINDOW_SIZE 0x00800000u
+#define ACPI_PAGE_SIZE 4096u
+#define ACPI_PTE_FLAGS 0x3u
 
 struct mb2_tag { uint32_t type,size; };
 struct acpi_rsdp20 { char sig[8]; uint8_t checksum; char oem[6]; uint8_t revision; uint32_t rsdt; uint32_t length; uint64_t xsdt; uint8_t ext_checksum; uint8_t reserved[3]; } __attribute__((packed));
@@ -43,49 +48,56 @@ static int text_contains(const char *text,const char *needle){
     }
     return 0;
 }
-static int identity_range_ok(uint32_t address,uint32_t length){
-    if(!address || address >= KERNEL_IDENTITY_LIMIT) return 0;
-    if(length > KERNEL_IDENTITY_LIMIT - address) return 0;
-    return 1;
-}
 static void reset_cpus(void){for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i){cpus[i].index=i;cpus[i].apic_id=0xFFFFFFFFu;cpus[i].logical_per_package=1u;cpus[i].online=0u;}}
-static uint32_t acpi_find_madt(uint32_t rsdt,uint64_t xsdt,uint8_t revision){
-    /*
-     * The kernel currently identity-maps only the low 256 MiB. Firmware may
-     * legally place RSDT/XSDT/MADT above that range. Never dereference an
-     * unmapped physical ACPI address: doing so raises a kernel page fault.
-     * A future ACPI mapper can remove this conservative guard.
-     */
-    if(revision>=2u && (uint32_t)(xsdt>>32)==0u && xsdt){
-        uint32_t address=(uint32_t)xsdt;
-        if(!identity_range_ok(address,36u)) return 0u;
-        const struct acpi_sdt*h=(const struct acpi_sdt*)(uintptr_t)address;
-        if(sig4(h->sig,"XSDT")&&h->length>=36u&&identity_range_ok(address,h->length)&&checksum8((const uint8_t*)h,h->length)==0u){
-            uint32_t count=(h->length-36u)/8u;const uint8_t*p=(const uint8_t*)h+36u;
-            for(uint32_t i=0;i<count;++i){
-                uint64_t a=*(const uint64_t*)(const void*)(p+i*8u);
-                if((uint32_t)(a>>32))continue;
-                uint32_t table=(uint32_t)a;
-                if(!identity_range_ok(table,36u))continue;
-                const struct acpi_sdt*t=(const struct acpi_sdt*)(uintptr_t)table;
-                if(t->length>=36u&&identity_range_ok(table,t->length)&&sig4(t->sig,"APIC")&&checksum8((const uint8_t*)t,t->length)==0u)return table;
-            }
-        }
+static int acpi_map_sdt(uint64_t physical,uint32_t window,const char *signature,
+                        const struct acpi_sdt **mapped_out){
+    if(!physical||(physical&~0x000FFFFFFFFFF000ULL))return -1;
+    uint64_t base=physical&~(uint64_t)(ACPI_PAGE_SIZE-1u);
+    uint32_t offset=(uint32_t)(physical&(ACPI_PAGE_SIZE-1u));
+    if(paging_map_kernel_page(window,base,ACPI_PTE_FLAGS)!=0)return -1;
+    if(offset>ACPI_PAGE_SIZE-sizeof(struct acpi_sdt)){
+        if(base>0x000FFFFFFFFFF000ULL-ACPI_PAGE_SIZE||
+           paging_map_kernel_page(window+ACPI_PAGE_SIZE,base+ACPI_PAGE_SIZE,ACPI_PTE_FLAGS)!=0)
+            return -1;
     }
-    if(rsdt){
-        if(!identity_range_ok(rsdt,36u)) return 0u;
-        const struct acpi_sdt*h=(const struct acpi_sdt*)(uintptr_t)rsdt;
-        if(sig4(h->sig,"RSDT")&&h->length>=36u&&identity_range_ok(rsdt,h->length)&&checksum8((const uint8_t*)h,h->length)==0u){
-            uint32_t count=(h->length-36u)/4u;const uint8_t*p=(const uint8_t*)h+36u;
-            for(uint32_t i=0;i<count;++i){
-                uint32_t a=*(const uint32_t*)(const void*)(p+i*4u);
-                if(!identity_range_ok(a,36u))continue;
-                const struct acpi_sdt*t=(const struct acpi_sdt*)(uintptr_t)a;
-                if(t->length>=36u&&identity_range_ok(a,t->length)&&sig4(t->sig,"APIC")&&checksum8((const uint8_t*)t,t->length)==0u)return a;
-            }
-        }
+    const struct acpi_sdt *header=(const struct acpi_sdt *)(uintptr_t)(window+offset);
+    if(header->length<sizeof(struct acpi_sdt)||
+       header->length>ACPI_WINDOW_SIZE-offset)return -1;
+    uint32_t mapped_bytes=(offset+header->length+ACPI_PAGE_SIZE-1u)&~(ACPI_PAGE_SIZE-1u);
+    for(uint32_t off=ACPI_PAGE_SIZE;off<mapped_bytes;off+=ACPI_PAGE_SIZE){
+        if(base>0x000FFFFFFFFFF000ULL-off||
+           paging_map_kernel_page(window+off,base+off,ACPI_PTE_FLAGS)!=0)return -1;
     }
+    if(!sig4(header->sig,signature)||
+       checksum8((const uint8_t *)header,header->length)!=0u)return -1;
+    if(mapped_out)*mapped_out=header;
     return 0;
+}
+
+static uint32_t acpi_find_madt(uint32_t rsdt,uint64_t xsdt,uint8_t revision){
+    const struct acpi_sdt *root=0;
+    if(revision>=2u&&xsdt&&
+       acpi_map_sdt(xsdt,ACPI_ROOT_WINDOW,"XSDT",&root)==0){
+        uint32_t count=(root->length-(uint32_t)sizeof(struct acpi_sdt))/8u;
+        const uint8_t *entries=(const uint8_t *)root+sizeof(struct acpi_sdt);
+        for(uint32_t i=0u;i<count;++i){
+            uint64_t address=*(const uint64_t *)(const void *)(entries+i*8u);
+            const struct acpi_sdt *table=0;
+            if(acpi_map_sdt(address,ACPI_CHILD_WINDOW,"APIC",&table)==0)
+                return (uint32_t)(uintptr_t)table;
+        }
+    }
+    if(rsdt&&acpi_map_sdt((uint64_t)rsdt,ACPI_ROOT_WINDOW,"RSDT",&root)==0){
+        uint32_t count=(root->length-(uint32_t)sizeof(struct acpi_sdt))/4u;
+        const uint8_t *entries=(const uint8_t *)root+sizeof(struct acpi_sdt);
+        for(uint32_t i=0u;i<count;++i){
+            uint32_t address=*(const uint32_t *)(const void *)(entries+i*4u);
+            const struct acpi_sdt *table=0;
+            if(acpi_map_sdt((uint64_t)address,ACPI_CHILD_WINDOW,"APIC",&table)==0)
+                return (uint32_t)(uintptr_t)table;
+        }
+    }
+    return 0u;
 }
 static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
     if(!mb2)return 0u;
@@ -109,7 +121,7 @@ static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
     if(!madt)return 0u;
 
     const struct acpi_madt*m=(const struct acpi_madt*)(uintptr_t)madt;
-    if(!identity_range_ok(madt,m->h.length)||m->h.length<44u)return 0u;
+    if(m->h.length<44u)return 0u;
 
     uint32_t found=0u,bsp_index=0xFFFFFFFFu;
     const uint8_t*p=(const uint8_t*)m+44u;
