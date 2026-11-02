@@ -144,7 +144,7 @@ void gui_step(void){
             gui_debug_dec(ui_render_frames);
             debug_write(" ticks=");gui_debug_dec(elapsed);
             debug_write(" fps=");gui_debug_dec(fps);
-            debug_write("\\n");
+            debug_write("\n");
             ui_render_frames=0u;ui_stats_tick=now;
         }
     }else{
