@@ -93,6 +93,38 @@ static void diskfs_boot_test(void){
         console_write("[ERR] Persistent filesystem self-test\n");
     }
 }
+static void high_memory_selftest(void){
+    uint64_t physical=0u;
+    uint32_t virtual_address=0u;
+    if(page_alloc_high(&physical)!=0){
+        console_write("[ -- ] High physical memory allocator: no usable page above 256 MiB\n");
+        return;
+    }
+    if(paging_map_high_page(physical,0x2u,&virtual_address)!=0){
+        page_free_high(physical);
+        console_write("[ERR] High memory mapping self-test: map failed\n");
+        return;
+    }
+    volatile uint32_t *words=(volatile uint32_t *)(uintptr_t)virtual_address;
+    uint32_t ok=1u;
+    for(uint32_t i=0u;i<1024u;++i)words[i]=0x4C494F4Eu^(i*0x9E3779B9u);
+    for(uint32_t i=0u;i<1024u;++i){
+        if(words[i]!=(0x4C494F4Eu^(i*0x9E3779B9u))){ok=0u;break;}
+    }
+    if(paging_unmap_high_page(virtual_address)!=0){
+        console_write("[ERR] High memory mapping self-test: unmap failed; page retained\n");
+        return;
+    }
+    page_free_high(physical);
+    if(ok){
+        debug_write("LIONOS:HIGH-MEMORY-TEST-OK\n");
+        console_write("[ OK ] High physical memory allocate/map/write/read/unmap/free\n");
+    }else{
+        debug_write("LIONOS:HIGH-MEMORY-TEST-FAIL\n");
+        console_write("[ERR] High physical memory data verification failed\n");
+    }
+}
+
 static int integration_stage;
 static int integration_done;
 static int integration_pid=-1;
@@ -320,6 +352,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         debug_write("LIONOS:SMP-DISABLED\n");
         BOOT_STAGE(56u, "SINGLE CPU MODE");
     }
+
+    high_memory_selftest();
 
     /* ---- Syscalls / processes ---- */
     syscall_init();
