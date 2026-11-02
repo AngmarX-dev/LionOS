@@ -3,6 +3,8 @@
 #undef gui_run
 #include "vfs.h"
 #include "memory.h"
+#include "lapic.h"
+#include "debug.h"
 
 #define UI_BG 0x0B1220u
 #define UI_SURFACE 0x111A2Au
@@ -34,6 +36,7 @@ static uint8_t ui_started,ui_active,ui_start_open,ui_dragging,ui_drag_window,ui_
 static int ui_drag_dx,ui_drag_dy;
 static char term_input[121];
 static uint32_t term_input_len,term_count;
+static uint32_t ui_last_render_tick,ui_stats_tick,ui_render_frames;
 static char term_lines[28][121];
 
 static uint32_t ui_w(void){return framebuffer_width();}
@@ -92,5 +95,59 @@ static void ui_mouse_move(void){if(!ui_dragging)return;struct desktop_window*w=d
 static void ui_handle_key(int c){if(c==27){if(ui_start_open){ui_start_open=0u;return;}if(ui_terminal_focus){dw_hide(W_TERMINAL);ui_terminal_focus=0u;return;}for(uint32_t i=0;i<W_MAX;++i)if(dw[i].focused){dw_hide(dw[i].id);return;}return;}if(c=='t'||c=='T'){dw_show(W_TERMINAL);ui_terminal_focus=1u;return;}if(c=='a'||c=='A'){dw_show(W_ABOUT);return;}if(c=='s'||c=='S'){dw_show(W_SETTINGS);return;}if(ui_terminal_focus){if(c=='\b'){if(term_input_len)term_input[--term_input_len]=0;return;}if(c==13){term_command();return;}if(c>=32&&c<127&&term_input_len<120u){term_input[term_input_len++]=(char)c;term_input[term_input_len]=0;}}
 }
 int gui_is_active(void){return ui_active!=0u;}
-void gui_start(void){ui_started=0u;ui_active=0u;ui_terminal_focus=0u;debug_write("LIONOS:GUI-ENTER\n");if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}mouse_set_cursor_visible(0u);while(keyboard_available())(void)keyboard_getchar();ui_init_windows();ui_mouse_x=mouse_x();ui_mouse_y=mouse_y();if(ui_mouse_x>=ui_w())ui_mouse_x=ui_w()-1u;if(ui_mouse_y>=ui_h())ui_mouse_y=ui_h()-1u;ui_prev_buttons=mouse_buttons();ui_started=1u;ui_active=1u;ui_render();}
-void gui_step(void){if(!ui_started||!ui_active)return;keyboard_poll();mouse_poll();ui_mouse_x=mouse_x();ui_mouse_y=mouse_y();if(ui_mouse_x>=ui_w())ui_mouse_x=ui_w()-1u;if(ui_mouse_y>=ui_h())ui_mouse_y=ui_h()-1u;uint32_t buttons=mouse_buttons();if(buttons!=ui_prev_buttons){if((buttons&1u)&&!(ui_prev_buttons&1u))ui_handle_click(ui_mouse_x,ui_mouse_y);if(!(buttons&1u)&&(ui_prev_buttons&1u))ui_dragging=0u;ui_prev_buttons=buttons;}ui_mouse_move();while(keyboard_available())ui_handle_key(keyboard_getchar());ui_render();}
+void gui_start(void){
+    ui_started=0u;ui_active=0u;ui_terminal_focus=0u;
+    debug_write("LIONOS:GUI-ENTER\\n");
+    if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\\n");return;}
+    mouse_set_cursor_visible(0u);
+    while(keyboard_available())(void)keyboard_getchar();
+    ui_init_windows();
+    ui_mouse_x=mouse_x();ui_mouse_y=mouse_y();
+    if(ui_mouse_x>=ui_w())ui_mouse_x=ui_w()-1u;
+    if(ui_mouse_y>=ui_h())ui_mouse_y=ui_h()-1u;
+    ui_prev_buttons=mouse_buttons();ui_started=1u;ui_active=1u;
+    ui_last_render_tick=lapic_frame_ticks();ui_stats_tick=ui_last_render_tick;
+    ui_render_frames=1u;ui_render();
+}
+static void gui_debug_dec(uint32_t value){
+    char digits[10];uint32_t n=0u;
+    if(!value){debug_putc('0');return;}
+    while(value&&n<sizeof(digits)){digits[n++]=(char)('0'+value%10u);value/=10u;}
+    while(n)debug_putc(digits[--n]);
+}
+void gui_step(void){
+    if(!ui_started||!ui_active)return;
+    keyboard_poll();mouse_poll();
+    ui_mouse_x=mouse_x();ui_mouse_y=mouse_y();
+    if(ui_mouse_x>=ui_w())ui_mouse_x=ui_w()-1u;
+    if(ui_mouse_y>=ui_h())ui_mouse_y=ui_h()-1u;
+    uint32_t buttons=mouse_buttons();
+    if(buttons!=ui_prev_buttons){
+        if((buttons&1u)&&!(ui_prev_buttons&1u))ui_handle_click(ui_mouse_x,ui_mouse_y);
+        if(!(buttons&1u)&&(ui_prev_buttons&1u))ui_dragging=0u;
+        ui_prev_buttons=buttons;
+    }
+    ui_mouse_move();
+    while(keyboard_available())ui_handle_key(keyboard_getchar());
+
+    /* Avoid repeating CPU framebuffer composition for multiple input wakes
+       within the same 120 Hz frame interval. Input processing remains active. */
+    if(lapic_frame_timer_active()){
+        uint32_t now=lapic_frame_ticks();
+        if(now==ui_last_render_tick)return;
+        ui_last_render_tick=now;
+        ui_render();++ui_render_frames;
+        uint32_t elapsed=(uint32_t)(now-ui_stats_tick);
+        if(elapsed>=240u){
+            uint32_t fps=(ui_render_frames*120u)/elapsed;
+            debug_write("LIONOS:CPU-COMPOSITOR frames=");
+            gui_debug_dec(ui_render_frames);
+            debug_write(" ticks=");gui_debug_dec(elapsed);
+            debug_write(" fps=");gui_debug_dec(fps);
+            debug_write("\\n");
+            ui_render_frames=0u;ui_stats_tick=now;
+        }
+    }else{
+        ui_render();++ui_render_frames;
+    }
+}
