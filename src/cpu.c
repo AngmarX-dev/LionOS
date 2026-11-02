@@ -51,7 +51,7 @@ static int text_contains(const char *text,const char *needle){
 static void reset_cpus(void){for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i){cpus[i].index=i;cpus[i].apic_id=0xFFFFFFFFu;cpus[i].logical_per_package=1u;cpus[i].online=0u;}}
 static int acpi_map_sdt(uint64_t physical,uint32_t window,const char *signature,
                         const struct acpi_sdt **mapped_out){
-    if(!physical||(physical&~0x000FFFFFFFFFF000ULL))return -1;
+    if(!physical||physical>0x000FFFFFFFFFFFFFULL)return -1;
     uint64_t base=physical&~(uint64_t)(ACPI_PAGE_SIZE-1u);
     uint32_t offset=(uint32_t)(physical&(ACPI_PAGE_SIZE-1u));
     if(paging_map_kernel_page(window,base,ACPI_PTE_FLAGS)!=0)return -1;
