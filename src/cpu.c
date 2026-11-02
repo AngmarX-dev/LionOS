@@ -49,9 +49,24 @@ static int text_contains(const char *text,const char *needle){
     return 0;
 }
 static void reset_cpus(void){for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i){cpus[i].index=i;cpus[i].apic_id=0xFFFFFFFFu;cpus[i].logical_per_package=1u;cpus[i].online=0u;}}
+static int acpi_identity_range_ok(uint32_t address,uint32_t length){
+    const uint32_t limit=0x10000000u;
+    return address&&address<limit&&length<=limit-address;
+}
+
 static int acpi_map_sdt(uint64_t physical,uint32_t window,const char *signature,
                         const struct acpi_sdt **mapped_out){
     if(!physical||physical>0x000FFFFFFFFFFFFFULL)return -1;
+    if(physical<0x10000000ULL){
+        const struct acpi_sdt *direct=(const struct acpi_sdt *)(uintptr_t)(uint32_t)physical;
+        if(!acpi_identity_range_ok((uint32_t)physical,sizeof(struct acpi_sdt))||
+           direct->length<sizeof(struct acpi_sdt)||
+           !acpi_identity_range_ok((uint32_t)physical,direct->length)||
+           !sig4(direct->sig,signature)||
+           checksum8((const uint8_t *)direct,direct->length)!=0u)return -1;
+        if(mapped_out)*mapped_out=direct;
+        return 0;
+    }
     uint64_t base=physical&~(uint64_t)(ACPI_PAGE_SIZE-1u);
     uint32_t offset=(uint32_t)(physical&(ACPI_PAGE_SIZE-1u));
     if(paging_map_kernel_page(window,base,ACPI_PTE_FLAGS)!=0)return -1;
