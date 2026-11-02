@@ -1016,7 +1016,7 @@ static void gui_render_stats_record(uint64_t started,uint32_t pixels,uint32_t fu
     gui_debug_dec32(render_stats_full_frames);
     debug_write(" ticks=");
     gui_debug_dec32(elapsed);
-    debug_write("\\n");
+    debug_write("\n");
     render_stats_tick=now;
     render_stats_count=0u;
     render_stats_max_cycles=0u;
