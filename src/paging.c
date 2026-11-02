@@ -48,8 +48,15 @@ static uint32_t current_directory[LIONOS_MAX_CPUS];
 static struct spinlock kernel_map_lock;
 static volatile uint32_t shootdown_address;
 static volatile uint32_t shootdown_acks;
-#define HIGH_MAP_BASE 0xF1000000u
-#define HIGH_MAP_PAGES 0x3000u /* 48 MiB; framebuffer starts at 0xF4000000. */
+/*
+ * Keep the temporary high-memory window separate from device mappings:
+ * xHCI MMIO: 0xF1000000..0xF10FFFFF
+ * high-memory window: 0xF2000000..0xF3FFFFFF
+ * framebuffer: starts at 0xF4000000
+ * Intel GPU MMIO: starts at 0xF8000000
+ */
+#define HIGH_MAP_BASE 0xF2000000u
+#define HIGH_MAP_PAGES 0x2000u /* 32 MiB; ends immediately before framebuffer space. */
 static uint32_t high_map_bitmap[HIGH_MAP_PAGES/32u];
 static struct spinlock high_map_lock;
 static uint32_t *current_directory_slot(void){uint32_t cpu=cpu_current_index();return &current_directory[cpu<LIONOS_MAX_CPUS?cpu:0u];}
