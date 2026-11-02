@@ -101,10 +101,10 @@ static void cpu_intel_hardware_report(void){
         console_write("\n");
         if(gpu.host_bridge_found){
             console_write("Host bridge: Intel 00:00.0\nGGC: 0x");
-            console_write_hex(gpu.host_ggc);
-            console_write("  BDSM: 0x"); console_write_hex(gpu.host_bdsm);
-            console_write("  BGSM: 0x"); console_write_hex(gpu.host_bgsm);
-            console_write("  TOLUD: 0x"); console_write_hex(gpu.host_tolud);
+            boot_hex32(gpu.host_ggc);
+            console_write("  BDSM: 0x"); boot_hex32(gpu.host_bdsm);
+            console_write("  BGSM: 0x"); boot_hex32(gpu.host_bgsm);
+            console_write("  TOLUD: 0x"); boot_hex32(gpu.host_tolud);
             console_write("\n");
         }else console_write("Host bridge: NOT FOUND\n");
         if(gpu.ggtt_ready){
