@@ -3,6 +3,7 @@
 #include "console.h"
 #include "debug.h"
 #include "cpu.h"
+#include "lapic.h"
 
 #define KLOG_LEVELS 5u
 #define KLOG_VECTORS 256u
@@ -154,4 +155,58 @@ void kernel_diag_record_interrupt(uint32_t cpu, uint32_t vector) {
 uint32_t kernel_diag_interrupt_count(uint32_t cpu, uint32_t vector) {
     if (cpu >= LIONOS_MAX_CPUS || vector >= KLOG_VECTORS) return 0u;
     return __atomic_load_n(&interrupt_counts[cpu][vector], __ATOMIC_RELAXED);
+}
+
+
+int kernel_diag_validate_timers(void) {
+    if (!lapic_frame_timer_active()) {
+        console_write("[WARN] Timer validation skipped: LAPIC frame clock unavailable\n");
+        debug_write("LIONOS:TIMER-VALIDATION-SKIPPED\n");
+        return -1;
+    }
+
+    const uint32_t start_frame = lapic_frame_ticks();
+    const uint32_t start_pit = kernel_diag_interrupt_count(0u, 32u);
+    const uint32_t start_lapic = kernel_diag_interrupt_count(0u, 48u);
+
+    /* Use the calibrated 120 Hz LAPIC clock as the two-second reference. */
+    while ((uint32_t)(lapic_frame_ticks() - start_frame) < 240u)
+        __asm__ volatile("hlt");
+
+    const uint32_t frame_delta = (uint32_t)(lapic_frame_ticks() - start_frame);
+    const uint32_t pit_delta =
+        (uint32_t)(kernel_diag_interrupt_count(0u, 32u) - start_pit);
+    const uint32_t lapic_delta =
+        (uint32_t)(kernel_diag_interrupt_count(0u, 48u) - start_lapic);
+
+    /* Broad +/-20% windows tolerate timer delivery jitter in virtual machines. */
+    const int frame_ok = frame_delta >= 240u && frame_delta <= 264u;
+    const int pit_ok = pit_delta >= 160u && pit_delta <= 240u;
+    const int lapic_ok = lapic_delta >= 192u && lapic_delta <= 288u;
+
+    console_write("[TIMER] 2-second sample: PIT=");
+    console_write_dec(pit_delta);
+    console_write("/200 LAPIC=");
+    console_write_dec(lapic_delta);
+    console_write("/240 FRAME=");
+    console_write_dec(frame_delta);
+    console_write("/240\n");
+
+    debug_write("LIONOS:TIMER-SAMPLE pit=");
+    debug_dec32(pit_delta);
+    debug_write(" lapic=");
+    debug_dec32(lapic_delta);
+    debug_write(" frame=");
+    debug_dec32(frame_delta);
+    debug_write("\n");
+
+    if (frame_ok && pit_ok && lapic_ok) {
+        console_write("[ OK ] PIT/LAPIC timer delivery within tolerance\n");
+        debug_write("LIONOS:TIMER-VALIDATION-PASS\n");
+        return 0;
+    }
+
+    console_write("[WARN] Timer delivery outside expected tolerance\n");
+    debug_write("LIONOS:TIMER-VALIDATION-WARN\n");
+    return -1;
 }
