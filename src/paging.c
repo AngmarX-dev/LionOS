@@ -47,6 +47,10 @@ static uint32_t current_directory[LIONOS_MAX_CPUS];
 static struct spinlock kernel_map_lock;
 static volatile uint32_t shootdown_address;
 static volatile uint32_t shootdown_acks;
+#define HIGH_MAP_BASE 0xF1000000u
+#define HIGH_MAP_PAGES 0x3000u /* 48 MiB; framebuffer starts at 0xF4000000. */
+static uint32_t high_map_bitmap[HIGH_MAP_PAGES/32u];
+static struct spinlock high_map_lock;
 static uint32_t *current_directory_slot(void){uint32_t cpu=cpu_current_index();return &current_directory[cpu<LIONOS_MAX_CPUS?cpu:0u];}
 
 static uint64_t *pdpt_ptr(uint32_t physical) {
@@ -84,6 +88,8 @@ void paging_init(void) {
     spinlock_init(&kernel_map_lock);
     shootdown_address=0u;
     shootdown_acks=0u;
+    for(uint32_t i=0u;i<HIGH_MAP_PAGES/32u;++i)high_map_bitmap[i]=0u;
+    spinlock_init(&high_map_lock);
     zero_words(page_root, PAE_ROOT_ENTRIES);
     for (uint32_t i = 0; i < PAE_ROOT_ENTRIES; ++i)
         zero_words(kernel_pd[i], PAE_PD_ENTRIES);
@@ -179,6 +185,58 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
     paging_kernel_tlb_shootdown(virtual_address);
     spinlock_irqrestore_release(&kernel_map_lock,irq);
+    return 0;
+}
+
+int paging_map_high_page(uint64_t physical_address,uint32_t flags,uint32_t *virtual_address){
+    if(!virtual_address||(physical_address& (PAGE_SIZE-1u))||
+       physical_address<0x10000000ULL||(physical_address&~PTE_ADDR_MASK))return -1;
+    if(cpu_current_index()!=0u)return -1;
+    uint32_t irq=spinlock_irqsave_acquire(&high_map_lock);
+    uint32_t slot=HIGH_MAP_PAGES;
+    for(uint32_t i=0u;i<HIGH_MAP_PAGES;++i){
+        if(!(high_map_bitmap[i>>5]&(1u<<(i&31u)))){slot=i;break;}
+    }
+    if(slot==HIGH_MAP_PAGES){spinlock_irqrestore_release(&high_map_lock,irq);return -1;}
+    high_map_bitmap[slot>>5]|=1u<<(slot&31u);
+    spinlock_irqrestore_release(&high_map_lock,irq);
+    uint32_t address=HIGH_MAP_BASE+slot*PAGE_SIZE;
+    if(paging_map_kernel_page(address,physical_address,flags)!=0){
+        irq=spinlock_irqsave_acquire(&high_map_lock);
+        high_map_bitmap[slot>>5]&=~(1u<<(slot&31u));
+        spinlock_irqrestore_release(&high_map_lock,irq);
+        return -1;
+    }
+    *virtual_address=address;
+    return 0;
+}
+
+int paging_unmap_high_page(uint32_t virtual_address){
+    if(virtual_address<HIGH_MAP_BASE||
+       virtual_address>=HIGH_MAP_BASE+HIGH_MAP_PAGES*PAGE_SIZE||
+       (virtual_address&(PAGE_SIZE-1u))||cpu_current_index()!=0u)return -1;
+    uint32_t slot=(virtual_address-HIGH_MAP_BASE)/PAGE_SIZE;
+    uint32_t irq=spinlock_irqsave_acquire(&high_map_lock);
+    if(!(high_map_bitmap[slot>>5]&(1u<<(slot&31u)))){
+        spinlock_irqrestore_release(&high_map_lock,irq);
+        return -1;
+    }
+    spinlock_irqrestore_release(&high_map_lock,irq);
+    uint32_t map_irq=spinlock_irqsave_acquire(&kernel_map_lock);
+    uint32_t pd_index=(virtual_address>>21)&0x1FFu;
+    uint32_t pt_index=(virtual_address>>12)&0x1FFu;
+    uint32_t mmio_index=pd_index-KERNEL_MMIO_PD_INDEX;
+    if(mmio_index>=KERNEL_MMIO_PT_COUNT){
+        spinlock_irqrestore_release(&kernel_map_lock,map_irq);
+        return -1;
+    }
+    kernel_mmio_pt[mmio_index][pt_index]=0u;
+    __asm__ volatile("invlpg (%0)"::"r"(virtual_address):"memory");
+    paging_kernel_tlb_shootdown(virtual_address);
+    spinlock_irqrestore_release(&kernel_map_lock,map_irq);
+    irq=spinlock_irqsave_acquire(&high_map_lock);
+    high_map_bitmap[slot>>5]&=~(1u<<(slot&31u));
+    spinlock_irqrestore_release(&high_map_lock,irq);
     return 0;
 }
 
