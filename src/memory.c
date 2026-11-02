@@ -172,8 +172,10 @@ void page_free_high(uint64_t physical){
     uint32_t irq=spinlock_irqsave_acquire(&memory_lock);
     if(high_bit_get(high_allocated,page)){
         high_bit_clear(high_allocated,page);
-        ++high_free_pages;
-        if(page<high_scan_hint)high_scan_hint=page;
+        if(high_bit_get(high_available,page)){
+            ++high_free_pages;
+            if(page<high_scan_hint)high_scan_hint=page;
+        }
     }
     spinlock_irqrestore_release(&memory_lock,irq);
 }
