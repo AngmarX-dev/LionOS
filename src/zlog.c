@@ -157,7 +157,11 @@ int kernel_log_persistence_init(void) {
             if (n > 0) {
                 previous_session_complete = contains_bytes(
                     persistence_io_buffer, (uint32_t)n,
-                    "LionOS boot completed; starting desktop");
+                    "LionOS boot completed; starting desktop") ||
+                    (contains_bytes(persistence_io_buffer, (uint32_t)n,
+                                    "CPU / INTEL GRAPHICS HARDWARE REPORT") &&
+                     contains_bytes(persistence_io_buffer, (uint32_t)n,
+                                    "GRAPHICAL DESKTOP READY"));
             }
         }
     }
