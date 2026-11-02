@@ -146,6 +146,26 @@ int page_alloc_high(uint64_t *physical_address){
     return -1;
 }
 
+void memory_reserve_physical_range(uint64_t start,uint64_t end){
+    if(end<=start)return;
+    uint32_t irq=spinlock_irqsave_acquire(&memory_lock);
+    high_reserve_range(start,end);
+    if(start<0x10000000ULL){
+        uint64_t low_end=end<0x10000000ULL?end:0x10000000ULL;
+        uint64_t low_start=start;
+        low_start&=~(uint64_t)(PAGE_SIZE-1u);
+        low_end=(low_end+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
+        for(uint64_t a=low_start;a<low_end;a+=PAGE_SIZE){
+            uint32_t page=(uint32_t)(a/PAGE_SIZE);
+            if(page<MAX_PAGES&&is_free(page)){
+                mark_used(page);
+                if(free_pages)--free_pages;
+            }
+        }
+    }
+    spinlock_irqrestore_release(&memory_lock,irq);
+}
+
 void page_free_high(uint64_t physical){
     if((physical&(PAGE_SIZE-1u))||physical<HIGH_MEMORY_BASE||physical>=HIGH_MEMORY_LIMIT)return;
     uint32_t page=(uint32_t)((physical-HIGH_MEMORY_BASE)/PAGE_SIZE);
