@@ -4,6 +4,7 @@
 #include "debug.h"
 #include "intel_gpu.h"
 #include "paging.h"
+#include "memory.h"
 
 /*
  * Alder Lake Intel display bootstrap for LionOS.
@@ -95,6 +96,21 @@ static void read_host_bridge_memory_config(void)
     gpu.host_bdsm = pci_read32(0u, 0u, 0u, PCI_BDSM);
     gpu.host_bgsm = pci_read32(0u, 0u, 0u, PCI_BGSM);
     gpu.host_tolud = pci_read32(0u, 0u, 0u, PCI_TOLUD);
+
+    /*
+     * On the verified Alder Lake display generation, conservatively exclude
+     * the complete BGSM..TOLUD interval from normal RAM allocation. The
+     * firmware memory map remains authoritative for all other reservations.
+     */
+    if (reserve_alder_lake_graphics) {
+        uint64_t bgsm = (uint64_t)(gpu.host_bgsm & 0xFFF00000u);
+        uint64_t bdsm = (uint64_t)(gpu.host_bdsm & 0xFFF00000u);
+        uint64_t tolud = (uint64_t)(gpu.host_tolud & 0xFFF00000u);
+        if (bgsm && bgsm < bdsm && bdsm < tolud && tolud <= 0x100000000ULL) {
+            memory_reserve_physical_range(bgsm, tolud);
+            debug_write("LIONOS:IGPU-STOLEN-RANGE-RESERVED\\n");
+        }
+    }
 }
 
 static int intel_alder_lake_id(uint16_t id)
@@ -259,7 +275,7 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                 gpu.mmio_virtual = MMIO_VIRTUAL_BASE;
                 gpu.supported_platform = intel_known_display_id(device) ? 1u : 0u;
                 gpu.firmware_framebuffer = firmware_framebuffer_active ? 1u : 0u;
-                read_host_bridge_memory_config();
+                read_host_bridge_memory_config(intel_alder_lake_id(device) ? 1u : 0u);
                 gpu_ready = 1u;
 
                 console_write("[ OK ] Intel graphics PCI function ");
