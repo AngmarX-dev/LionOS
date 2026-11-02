@@ -94,15 +94,7 @@ void kernel_diag_print(void) {
         console_write_dec(kernel_diag_log_count((enum kernel_log_level)i));
     }
     console_write("\n");
-    console_write("       interrupt counters (BSP): timer=");
-    console_write_dec(kernel_diag_interrupt_count(0u,32u));
-    console_write(" keyboard=");
-    console_write_dec(kernel_diag_interrupt_count(0u,33u));
-    console_write(" mouse=");
-    console_write_dec(kernel_diag_interrupt_count(0u,44u));
-    console_write(" LAPIC=");
-    console_write_dec(kernel_diag_interrupt_count(0u,48u));
-    console_write("\n");
+    console_write("       interrupt counters: deferred until CPU interrupts are enabled\n");
     console_write("       online CPUs=");
     uint32_t online=0u;
     for (uint32_t i=0;i<LIONOS_MAX_CPUS;++i) {
@@ -112,6 +104,18 @@ void kernel_diag_print(void) {
     console_write_dec(online);
     console_write("\n");
 }
+void kernel_diag_print_interrupts(void) {
+    console_write("[ OK ] Interrupt counters after IRQ enable (BSP): timer=");
+    console_write_dec(kernel_diag_interrupt_count(0u,32u));
+    console_write(" keyboard=");
+    console_write_dec(kernel_diag_interrupt_count(0u,33u));
+    console_write(" mouse=");
+    console_write_dec(kernel_diag_interrupt_count(0u,44u));
+    console_write(" LAPIC=");
+    console_write_dec(kernel_diag_interrupt_count(0u,48u));
+    console_write("\n");
+}
+
 void kernel_diag_record_interrupt(uint32_t cpu, uint32_t vector) {
     if (cpu < LIONOS_MAX_CPUS && vector < KLOG_VECTORS)
         __atomic_fetch_add(&interrupt_counts[cpu][vector], 1u, __ATOMIC_RELAXED);
