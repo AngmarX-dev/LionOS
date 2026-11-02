@@ -70,7 +70,16 @@ static void cpu_intel_hardware_report(void){
     console_write(" MHz  BCLK: "); boot_dec(cpu.bus_mhz); console_write(" MHz");
     console_write("\nArchitecture: ");
     console_write(cpu.x86_64 ? "x86-64 capable" : "32-bit only");
-    console_write("  CPU features: 0x"); console_write_hex(cpu.feature_flags);
+    console_write("\nCPU features:");
+    if(cpu.feature_flags & CPU_FEATURE_SSE) console_write(" SSE");
+    if(cpu.feature_flags & CPU_FEATURE_SSE2) console_write(" SSE2");
+    if(cpu.feature_flags & CPU_FEATURE_SSE3) console_write(" SSE3");
+    if(cpu.feature_flags & CPU_FEATURE_SSSE3) console_write(" SSSE3");
+    if(cpu.feature_flags & CPU_FEATURE_SSE41) console_write(" SSE4.1");
+    if(cpu.feature_flags & CPU_FEATURE_SSE42) console_write(" SSE4.2");
+    if(cpu.feature_flags & CPU_FEATURE_AVX) console_write(" AVX");
+    if(cpu.feature_flags & CPU_FEATURE_APIC) console_write(" APIC");
+    console_write("\nCPU feature mask: 0x"); console_write_hex(cpu.feature_flags);
     console_write("\n");
 
     if(intel_gpu_get_info(&gpu)==0){
@@ -407,6 +416,19 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     /* ---- CPU topology / APIC ---- */
     cpu_init(multiboot_info);
+
+    /*
+     * The boot splash is drawn directly into the framebuffer, while the
+     * text console initially targets VGA text memory. Switch the console
+     * before printing the hardware report so the report is actually visible
+     * on the laptop panel. Clear the splash canvas once; later boot status
+     * updates remain below the report in the framebuffer text console.
+     */
+    if(framebuffer_available()){
+        console_use_framebuffer();
+        console_clear();
+        console_set_color(CONSOLE_COLOR_WHITE);
+    }
     cpu_intel_hardware_report();
     console_write("[ OK ] CPU topology / BSP APIC ID ");
     boot_dec(cpu_get(0)->apic_id);
