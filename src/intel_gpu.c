@@ -238,8 +238,8 @@ static void intel_gpu_probe_ggtt(void)
     last_index = gpu.ggtt_size / 4096u - 1u;
     if (intel_gpu_ggtt_read_entry(0u, &first) != 0 ||
         intel_gpu_ggtt_read_entry(last_index, &last) != 0) {
-        console_write("[ -- ] Intel GGTT read-only aperture probe failed\\n");
-        debug_write("LIONOS:INTEL-GGTT-READ-PROBE-FAIL\\n");
+        console_write("[ -- ] Intel GGTT read-only aperture probe failed\n");
+        debug_write("LIONOS:INTEL-GGTT-READ-PROBE-FAIL\n");
         return;
     }
 
@@ -249,8 +249,8 @@ static void intel_gpu_probe_ggtt(void)
     console_write(" last=0x");
     console_write_hex((uint32_t)(last >> 32));
     console_write_hex((uint32_t)last);
-    console_write("\\n");
-    debug_write("LIONOS:INTEL-GGTT-READ-PROBE-OK\\n");
+    console_write("\n");
+    debug_write("LIONOS:INTEL-GGTT-READ-PROBE-OK\n");
 }
 
 int intel_gpu_init(uint32_t firmware_framebuffer_active)
