@@ -137,14 +137,14 @@ PY
 }
 
 echo "== LionOS stability + VFS integration + Phase 26 GUI smoke test =="
-echo "[1/5] Building kernel, userspace, ISO, and persistent disk"
+echo "[1/6] Building kernel, userspace, ISO, and persistent disk"
 make clean
 make
 make userland
 make iso
 make disk
 
-echo "[2/5] Validating every userspace ELF"
+echo "[2/6] Validating every userspace ELF"
 for elf in build/*.elf; do
     test -s "$elf"
     test "$(stat -c%s "$elf")" -le 16384
@@ -153,7 +153,7 @@ for elf in build/*.elf; do
     readelf -l "$elf" | grep -q 'LOAD'
 done
 
-echo "[3/5] First SMP boot / filesystem initialization"
+echo "[3/6] First SMP boot / filesystem initialization"
 echo "SMP AP entry symbol:"
 nm -n build/lionos.bin | grep -E " smp_ap_main$| page_root$|kernel_pd|identity_pt| _kernel_end$" || true
 objdump -d --disassemble=smp_ap_main build/lionos.bin | head -n 24
