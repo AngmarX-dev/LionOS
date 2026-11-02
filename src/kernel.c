@@ -567,6 +567,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             __asm__ volatile("pause");
     }
     kernel_diag_print_interrupts();
+    (void)kernel_diag_validate_timers();
 
     /*
      * Keep the completed boot report visible for ten seconds before the
