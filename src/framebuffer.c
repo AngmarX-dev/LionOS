@@ -195,7 +195,7 @@ int framebuffer_prepare(uint32_t multiboot_info) {
             {
                 uint64_t bytes=(uint64_t)fb_tag->framebuffer_pitch*fb_tag->framebuffer_height;
                 uint64_t start=fb_tag->framebuffer_addr;
-                if(bytes&&start<=UINT64_MAX-bytes)
+                if(bytes&&bytes<=FB_MAX_MAPPED_SIZE&&start<=UINT64_MAX-bytes)
                     memory_reserve_physical_range(start,start+bytes);
             }
             return 0;
