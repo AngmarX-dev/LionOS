@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "framebuffer.h"
 #include "paging.h"
+#include "memory.h"
 #include "heap.h"
 #include "lion_boot_splash.h"
 
@@ -191,6 +192,12 @@ int framebuffer_prepare(uint32_t multiboot_info) {
                 return -1;
             saved_fb_tag = *fb_tag;
             saved_fb_valid = 1u;
+            {
+                uint64_t bytes=(uint64_t)fb_tag->framebuffer_pitch*fb_tag->framebuffer_height;
+                uint64_t start=fb_tag->framebuffer_addr;
+                if(bytes&&start<=UINT64_MAX-bytes)
+                    memory_reserve_physical_range(start,start+bytes);
+            }
             return 0;
         }
         cursor += (tag->size + 7u) & ~7u;
