@@ -573,8 +573,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
      * desktop takes over the framebuffer. The timer is already running and
      * interrupts are enabled, so HLT avoids burning a CPU core while waiting.
      */
-    console_write("\\nBoot report pause: 10 seconds before desktop...\\n");
-    debug_write("LIONOS:BOOT-REPORT-PAUSE-10S\\n");
+    console_write("\nBoot report pause: 10 seconds before desktop...\n");
+    debug_write("LIONOS:BOOT-REPORT-PAUSE-10S\n");
     if(lapic_frame_timer_active()){
         uint32_t pause_start=lapic_frame_ticks();
         while((uint32_t)(lapic_frame_ticks()-pause_start)<1200u)
@@ -584,7 +584,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         while((uint32_t)(kernel_diag_interrupt_count(0u,32u)-pause_start)<1000u)
             __asm__ volatile("hlt");
     }
-    debug_write("LIONOS:BOOT-REPORT-PAUSE-COMPLETE\\n");
+    debug_write("LIONOS:BOOT-REPORT-PAUSE-COMPLETE\n");
 
     gui_run();
     shell_run();
