@@ -4,6 +4,20 @@
 #include <stdint.h>
 
 typedef struct {
+    uint32_t head;
+    uint32_t tail;
+    uint32_t start;
+    uint32_t control;
+} intel_gpu_ring_snapshot_t;
+
+typedef struct {
+    uint32_t valid;
+    uint32_t graphics_gmd_id;
+    intel_gpu_ring_snapshot_t render;
+    intel_gpu_ring_snapshot_t blitter;
+} intel_gpu_engine_snapshot_t;
+
+typedef struct {
     uint32_t found;
     uint16_t vendor_id;
     uint16_t device_id;
@@ -38,5 +52,7 @@ int intel_gpu_get_info(intel_gpu_info_t *out);
 int intel_gpu_mmio_read32(uint32_t offset, uint32_t *value);
 /* Read one existing Gen8+ GGTT PTE without modifying the table. */
 int intel_gpu_ggtt_read_entry(uint32_t index, uint64_t *value);
+/* Read-only Alder Lake GT identity and ring-register snapshot. */
+int intel_gpu_get_engine_snapshot(intel_gpu_engine_snapshot_t *out);
 
 #endif
