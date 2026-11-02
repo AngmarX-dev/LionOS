@@ -40,6 +40,60 @@ static intel_gpu_info_t gpu;
 static uint32_t gpu_ready;
 static uint32_t mmio_ready;
 
+/* Read-only Gen12 GT/engine register snapshot; no command submission. */
+#define INTEL_GMD_ID_GRAPHICS       0x00000D8Cu
+#define INTEL_RENDER_RING_BASE     0x00002000u
+#define INTEL_BLITTER_RING_BASE    0x00022000u
+#define INTEL_RING_HEAD_OFFSET     0x34u
+#define INTEL_RING_TAIL_OFFSET     0x30u
+#define INTEL_RING_START_OFFSET    0x38u
+#define INTEL_RING_CTL_OFFSET      0x3Cu
+
+static intel_gpu_engine_snapshot_t engine_snapshot;
+
+static int intel_gpu_read_engine_registers(uint32_t base,
+                                           intel_gpu_ring_snapshot_t *ring)
+{
+    if (!ring || !mmio_ready)
+        return -1;
+    if (intel_gpu_mmio_read32(base + INTEL_RING_HEAD_OFFSET, &ring->head) != 0 ||
+        intel_gpu_mmio_read32(base + INTEL_RING_TAIL_OFFSET, &ring->tail) != 0 ||
+        intel_gpu_mmio_read32(base + INTEL_RING_START_OFFSET, &ring->start) != 0 ||
+        intel_gpu_mmio_read32(base + INTEL_RING_CTL_OFFSET, &ring->control) != 0)
+        return -1;
+    return 0;
+}
+
+static void intel_gpu_probe_engine_registers(void)
+{
+    if (!intel_gpu_is_alder_lake() || !mmio_ready)
+        return;
+
+    engine_snapshot = (intel_gpu_engine_snapshot_t){0};
+    if (intel_gpu_mmio_read32(INTEL_GMD_ID_GRAPHICS,
+                              &engine_snapshot.graphics_gmd_id) != 0 ||
+        intel_gpu_read_engine_registers(INTEL_RENDER_RING_BASE,
+                                        &engine_snapshot.render) != 0 ||
+        intel_gpu_read_engine_registers(INTEL_BLITTER_RING_BASE,
+                                        &engine_snapshot.blitter) != 0)
+        return;
+
+    engine_snapshot.valid = 1u;
+    console_write("[ OK ] Intel Gen12 GT identity and render/blitter ring registers read (read-only)\\n");
+    console_write("       GMD_ID_GRAPHICS=0x");
+    intel_gpu_hex32(engine_snapshot.graphics_gmd_id);
+    console_write(" RCS HEAD/TAIL=0x");
+    intel_gpu_hex32(engine_snapshot.render.head);
+    console_write("/0x");
+    intel_gpu_hex32(engine_snapshot.render.tail);
+    console_write(" BCS HEAD/TAIL=0x");
+    intel_gpu_hex32(engine_snapshot.blitter.head);
+    console_write("/0x");
+    intel_gpu_hex32(engine_snapshot.blitter.tail);
+    console_write("\\n");
+    debug_write("LIONOS:INTEL-GT-ENGINE-READ-PROBE-OK\\n");
+}
+
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg)
 {
     return 0x80000000u |
@@ -265,6 +319,7 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
     gpu_ready = 0u;
     mmio_ready = 0u;
     gpu = (intel_gpu_info_t){0};
+    engine_snapshot = (intel_gpu_engine_snapshot_t){0};
 
     for (uint32_t bus = 0u; bus < 256u; ++bus) {
         for (uint32_t slot = 0u; slot < 32u; ++slot) {
@@ -371,6 +426,7 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                                 console_write(" MiB at BAR0+0x00800000\n");
                                 debug_write("LIONOS:INTEL-GGTT-READONLY-READY\n");
                                 intel_gpu_probe_ggtt();
+                                intel_gpu_probe_engine_registers();
                             }
                         }
                     }
@@ -457,4 +513,12 @@ int intel_gpu_ggtt_read_entry(uint32_t index, uint64_t *value)
     }
 
     return -2; /* Entry changed during every bounded sample. */
+}
+
+int intel_gpu_get_engine_snapshot(intel_gpu_engine_snapshot_t *out)
+{
+    if (!out || !engine_snapshot.valid)
+        return -1;
+    *out = engine_snapshot;
+    return 0;
 }
