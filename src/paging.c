@@ -160,6 +160,8 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
         (physical_address & (PAGE_SIZE - 1u)) ||
         (physical_address & ~PTE_ADDR_MASK)) return -1;
     if (virtual_address < KERNEL_MMIO_BASE) return -1;
+    /* Kernel-wide MMIO mappings are serialized by a BSP-owned IPI transaction. */
+    if (cpu_current_index() != 0u) return -1;
 
     uint32_t pdpt_index = virtual_address >> 30;
     uint32_t pd_index = (virtual_address >> 21) & 0x1FFu;
