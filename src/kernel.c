@@ -98,7 +98,8 @@ static void cpu_intel_hardware_report(void){
         console_write(" MiB\nMMIO: ");
         console_write(gpu.mmio_mapped ? "MAPPED" : "NOT MAPPED");
         console_write("  Virtual base: 0x"); boot_hex32(gpu.mmio_virtual);
-        console_write("\n");
+        console_write("\nGraphics acceleration: NOT ACTIVE (firmware scanout + CPU compositor)\n");
+        debug_write("LIONOS:INTEL-GPU-ACCELERATION-NOT-ACTIVE\n");
         if(gpu.host_bridge_found){
             console_write("Host bridge: Intel 00:00.0\nGGC: 0x");
             boot_hex32(gpu.host_ggc);
