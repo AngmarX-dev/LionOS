@@ -123,9 +123,10 @@ void memory_init(uint32_t mi){
     }
 }
 
-void *page_alloc_high(void){
+int page_alloc_high(uint64_t *physical_address){
+    if(!physical_address)return -1;
     uint32_t irq=spinlock_irqsave_acquire(&memory_lock);
-    if(!high_free_pages){spinlock_irqrestore_release(&memory_lock,irq);return 0;}
+    if(!high_free_pages){spinlock_irqrestore_release(&memory_lock,irq);return -1;}
     for(uint32_t pass=0u;pass<2u;++pass){
         uint32_t begin=pass?0u:high_scan_hint;
         uint32_t finish=pass?high_scan_hint:HIGH_MEMORY_PAGES;
@@ -135,14 +136,14 @@ void *page_alloc_high(void){
                 --high_free_pages;
                 high_scan_hint=page+1u;
                 if(high_scan_hint>=HIGH_MEMORY_PAGES)high_scan_hint=0u;
-                uint64_t physical=HIGH_MEMORY_BASE+(uint64_t)page*PAGE_SIZE;
+                *physical_address=HIGH_MEMORY_BASE+(uint64_t)page*PAGE_SIZE;
                 spinlock_irqrestore_release(&memory_lock,irq);
-                return (void*)(uintptr_t)physical;
+                return 0;
             }
         }
     }
     spinlock_irqrestore_release(&memory_lock,irq);
-    return 0;
+    return -1;
 }
 
 void page_free_high(uint64_t physical){
