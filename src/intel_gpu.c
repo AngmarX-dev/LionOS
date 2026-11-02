@@ -227,6 +227,13 @@ static int map_gpu_mmio(uint64_t physical, uint64_t size)
  * PTE slots are reachable through the mapped BAR without changing firmware
  * page-table contents or submitting work to the graphics engine.
  */
+static void intel_gpu_hex32(uint32_t value)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    for (int shift = 28; shift >= 0; shift -= 4)
+        console_putc(digits[(value >> (uint32_t)shift) & 0x0Fu]);
+}
+
 static void intel_gpu_probe_ggtt(void)
 {
     uint64_t first = 0u, last = 0u;
@@ -244,11 +251,11 @@ static void intel_gpu_probe_ggtt(void)
     }
 
     console_write("[ OK ] Intel GGTT read-only boundary probe: first=0x");
-    console_write_hex((uint32_t)(first >> 32));
-    console_write_hex((uint32_t)first);
+    intel_gpu_hex32((uint32_t)(first >> 32));
+    intel_gpu_hex32((uint32_t)first);
     console_write(" last=0x");
-    console_write_hex((uint32_t)(last >> 32));
-    console_write_hex((uint32_t)last);
+    intel_gpu_hex32((uint32_t)(last >> 32));
+    intel_gpu_hex32((uint32_t)last);
     console_write("\n");
     debug_write("LIONOS:INTEL-GGTT-READ-PROBE-OK\n");
 }
@@ -312,20 +319,20 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                 gpu_ready = 1u;
 
                 console_write("[ OK ] Intel graphics PCI function ");
-                console_write_hex(device);
+                intel_gpu_hex32(device);
                 console_write(" BAR0=0x");
-                console_write_hex((uint32_t)(bar0 >> 32));
-                console_write_hex((uint32_t)bar0);
+                intel_gpu_hex32((uint32_t)(bar0 >> 32));
+                intel_gpu_hex32((uint32_t)bar0);
                 console_write(" size=");
                 console_write_dec((uint32_t)(bar0_size / (1024u * 1024u)));
                 console_write(" MiB\n");
 
                 if (gpu.host_bridge_found) {
                     console_write("[ OK ] Intel host bridge memory map (read-only)\n");
-                    console_write("       GGC=0x"); console_write_hex(gpu.host_ggc);
-                    console_write(" BDSM=0x"); console_write_hex(gpu.host_bdsm);
-                    console_write(" BGSM=0x"); console_write_hex(gpu.host_bgsm);
-                    console_write(" TOLUD=0x"); console_write_hex(gpu.host_tolud);
+                    console_write("       GGC=0x"); intel_gpu_hex32(gpu.host_ggc);
+                    console_write(" BDSM=0x"); intel_gpu_hex32(gpu.host_bdsm);
+                    console_write(" BGSM=0x"); intel_gpu_hex32(gpu.host_bgsm);
+                    console_write(" TOLUD=0x"); intel_gpu_hex32(gpu.host_tolud);
                     console_write("\n");
                     debug_write("LIONOS:INTEL-HOST-MEMORY-READ\n");
                 } else {
