@@ -9,6 +9,8 @@ void *page_alloc_contiguous(uint32_t count);
 /* Allocates physical pages above 256 MiB; returned pointer is a physical address, not dereferenceable. */
 int page_alloc_high(uint64_t *physical_address);
 void page_free_high(uint64_t physical_address);
+/* Exclude firmware/device-owned physical ranges from all PMM allocators. */
+void memory_reserve_physical_range(uint64_t start, uint64_t end);
 uint32_t memory_high_free_pages(void);
 void page_free(void *page);
 void page_retain(void *page);
