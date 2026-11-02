@@ -26,7 +26,7 @@ The device ID is used for platform matching; the CPU marketing name alone is not
 
 The firmware framebuffer remains the active display path. No GPU reset, display mode change, engine command, or undocumented register write is issued.
 
-The legacy identity-mapped PMM still manages the low 256 MiB. A separate high-physical-page allocator now tracks Multiboot2 available pages from 256 MiB up to a conservative 64 GiB ceiling with separate availability/allocation bitmaps. Non-available Multiboot2 regions, the Multiboot information block, and modules are excluded. High allocations are returned as 64-bit physical addresses and must never be dereferenced as 32-bit pointers; they must be mapped through the dedicated high-page virtual window. The allocator does not yet decode Intel BGSM/BDSM/TOLUD or independently reserve stolen-memory/GGTT ranges, so it must not be used for GPU-owned memory until those platform reservations are validated.
+The legacy identity-mapped PMM still manages the low 256 MiB. A separate high-physical-page allocator now tracks Multiboot2 available pages from 256 MiB up to a conservative 64 GiB ceiling with separate availability/allocation bitmaps. Non-available Multiboot2 regions, the Multiboot information block, and modules are excluded. High allocations are returned as 64-bit physical addresses and must never be dereferenced as 32-bit pointers; they must be mapped through the dedicated high-page virtual window. For a matched Alder Lake GPU, the bootstrap conservatively removes the complete validated BGSM..TOLUD interval from the allocator. The allocator must still not be used for GPU-owned memory or GGTT entries until the exact stolen-memory and GGTT encodings are validated.
 
 ### Not implemented yet
 
@@ -56,7 +56,7 @@ For the verified Intel Core i5-12450HX (GenuineIntel, family 6, model 151, match
 
 ### Read-only host-bridge memory snapshot
 
-The Intel graphics bootstrap now checks PCI function 00:00.0 for an Intel host bridge (class 06:00) and, when present, records the raw values of GGC (0x50), BDSM (0xB4), BGSM (0xB8), and TOLUD (0xBC). These are diagnostic snapshots only. LionOS does not decode them into physical allocations, reserve or release memory, change graphics memory ownership, or alter GGTT state in this stage. The values must be checked against the exact Intel 600-series/Alder Lake platform documentation before any memory manager integration.
+The Intel graphics bootstrap now checks PCI function 00:00.0 for an Intel host bridge (class 06:00) and, when present, records the raw values of GGC (0x50), BDSM (0xB4), BGSM (0xB8), and TOLUD (0xBC). The raw values are diagnostic snapshots. For a matched Alder Lake display device only, if the masked BGSM, BDSM, and TOLUD candidates satisfy the expected increasing order, LionOS conservatively reserves the entire BGSM..TOLUD interval from the high-memory allocator. It does not infer individual stolen-memory sizes from the address spans or alter GGTT state. This conservative reservation must still be validated against the exact Intel 600-series/Alder Lake platform documentation before GPU memory use.
 
 ### Read-only memory-boundary validation
 
