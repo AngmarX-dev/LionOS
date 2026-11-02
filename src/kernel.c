@@ -39,6 +39,94 @@ static void boot_dec(uint32_t value){
     console_write_dec(value);
 }
 
+static void boot_hex64(uint64_t value){
+    console_write_hex((uint32_t)(value >> 32));
+    console_write_hex((uint32_t)value);
+}
+
+static void cpu_intel_hardware_report(void){
+    cpu_identification_t cpu;
+    intel_gpu_info_t gpu;
+    uint64_t first=0u,last=0u;
+    uint32_t ggtt_last=0u;
+    cpu_get_identification(&cpu);
+    console_write("\\n========== CPU / INTEL GRAPHICS HARDWARE REPORT ==========\\n");
+    console_write("CPU: "); console_write(cpu.brand); console_write("\\n");
+    console_write("Vendor: "); console_write(cpu.vendor);
+    console_write(" Family: "); boot_dec(cpu.family);
+    console_write(" Model: "); boot_dec(cpu.model);
+    console_write(" Stepping: "); boot_dec(cpu.stepping);
+    console_write(" Signature: 0x"); console_write_hex(cpu.signature);
+    console_write("\\nPhysical cores: ");
+    if(cpu.physical_cores) boot_dec(cpu.physical_cores); else console_write("UNKNOWN");
+    console_write("  Logical CPUs: "); boot_dec(cpu.logical_processors);
+    console_write("  APIC ID: "); boot_dec(cpu.apic_id);
+    console_write("\\nL1D: "); boot_dec(cpu.l1_data_kb);
+    console_write(" KB  L1I: "); boot_dec(cpu.l1_instruction_kb);
+    console_write(" KB  L2: "); boot_dec(cpu.l2_kb);
+    console_write(" KB  L3: "); boot_dec(cpu.l3_kb); console_write(" KB");
+    console_write("\\nBase: "); boot_dec(cpu.base_mhz);
+    console_write(" MHz  Max: "); boot_dec(cpu.max_mhz);
+    console_write(" MHz  BCLK: "); boot_dec(cpu.bus_mhz); console_write(" MHz");
+    console_write("\\nArchitecture: ");
+    console_write(cpu.x86_64 ? "x86-64 capable" : "32-bit only");
+    console_write("  CPU features: 0x"); console_write_hex(cpu.feature_flags);
+    console_write("\\n");
+
+    if(intel_gpu_get_info(&gpu)==0){
+        console_write("Intel GPU: 0x"); console_write_hex(gpu.device_id);
+        console_write(" Rev 0x"); console_write_hex(gpu.revision);
+        console_write(" PCI "); boot_dec(gpu.bus); console_putc(':');
+        boot_dec(gpu.slot); console_putc('.'); boot_dec(gpu.function);
+        console_write("\\nGPU BAR0: 0x"); boot_hex64(gpu.bar0);
+        console_write("  BAR0 size: "); boot_dec((uint32_t)(gpu.bar0_size/(1024u*1024u)));
+        console_write(" MiB\\nMMIO: ");
+        console_write(gpu.mmio_mapped ? "MAPPED" : "NOT MAPPED");
+        console_write("  Virtual base: 0x"); console_write_hex(gpu.mmio_virtual);
+        console_write("\\n");
+        if(gpu.host_bridge_found){
+            console_write("Host bridge: Intel 00:00.0\\nGGC: 0x");
+            console_write_hex(gpu.host_ggc);
+            console_write("  BDSM: 0x"); console_write_hex(gpu.host_bdsm);
+            console_write("  BGSM: 0x"); console_write_hex(gpu.host_bgsm);
+            console_write("  TOLUD: 0x"); console_write_hex(gpu.host_tolud);
+            console_write("\\n");
+        }else console_write("Host bridge: NOT FOUND\\n");
+        if(gpu.ggtt_ready){
+            console_write("GGTT aperture: BAR0 + 0x");
+            console_write_hex(gpu.ggtt_offset);
+            console_write("\\nGGTT size: ");
+            boot_dec(gpu.ggtt_size/(1024u*1024u));
+            console_write(" MiB  Read test: ");
+            ggtt_last=gpu.ggtt_size/4096u-1u;
+            if(intel_gpu_ggtt_read_entry(0u,&first)==0 &&
+               intel_gpu_ggtt_read_entry(ggtt_last,&last)==0){
+                console_write("PASS\\nGGTT first PTE: 0x"); boot_hex64(first);
+                console_write("\\nGGTT last PTE: 0x"); boot_hex64(last);
+                console_write("\\n");
+                debug_write("LIONOS:HW-REPORT-GGTT-READ-OK\\n");
+            }else{
+                console_write("FAIL\\n");
+                debug_write("LIONOS:HW-REPORT-GGTT-READ-FAIL\\n");
+            }
+        }else console_write("GGTT: NOT IDENTIFIED\\n");
+    }else{
+        console_write("Intel GPU: NOT FOUND\\n");
+        debug_write("LIONOS:HW-REPORT-IGPU-NOT-FOUND\\n");
+    }
+    console_write("Framebuffer: ");
+    if(framebuffer_available()){
+        boot_dec(framebuffer_width()); console_putc('x'); boot_dec(framebuffer_height());
+        console_write(" ACTIVE\\n");
+    }else console_write("UNAVAILABLE\\n");
+    console_write("High RAM available: ");
+    boot_dec((uint32_t)(memory_high_available_bytes()/(1024u*1024u)));
+    console_write(" MiB  High RAM free: ");
+    boot_dec((uint32_t)(((uint64_t)memory_high_free_pages()*4096u)/(1024u*1024u)));
+    console_write(" MiB\\n=========================================================\\n");
+    debug_write("LIONOS:CPU-INTEL-HARDWARE-REPORT-DONE\\n");
+}
+
 static void vfs_boot_test(void){
     static const char path[]    = "/tests/../vfs-selftest.txt";
     static const char payload[] = "LionOS VFS integration OK\n";
@@ -319,6 +407,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     /* ---- CPU topology / APIC ---- */
     cpu_init(multiboot_info);
+    cpu_intel_hardware_report();
     console_write("[ OK ] CPU topology / BSP APIC ID ");
     boot_dec(cpu_get(0)->apic_id);
     console_write(" / logical hint ");
