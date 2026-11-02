@@ -847,8 +847,8 @@ static void draw_notification(void){
                 n=0u;diag_append(lines[23],&n,"GGTT size: ");
                 diag_dec(lines[23],&n,gi.ggtt_size/(1024u*1024u));
                 diag_append(lines[23],&n," MiB (identified)");
-                n=0u;diag_append(lines[24],&n,"High RAM (not allocatable): ");diag_dec(lines[24],&n,(uint32_t)(memory_high_available_bytes()/(1024u*1024u)));diag_append(lines[24],&n," MiB");
-                n=0u;diag_append(lines[25],&n,"PMM limit: ");diag_dec(lines[25],&n,(uint32_t)(memory_managed_limit_bytes()/(1024u*1024u)));diag_append(lines[25],&n," MiB physical");
+                n=0u;diag_append(lines[24],&n,"High RAM free: ");diag_dec(lines[24],&n,memory_high_free_pages()/256u);diag_append(lines[24],&n," MiB");
+                n=0u;diag_append(lines[25],&n,"Low PMM: ");diag_dec(lines[25],&n,(uint32_t)(memory_managed_limit_bytes()/(1024u*1024u)));diag_append(lines[25],&n," MiB | high cap: 64 GiB");
             }else{
                 n=0u;diag_append(lines[22],&n,"GGTT aperture: not validated");
             }
