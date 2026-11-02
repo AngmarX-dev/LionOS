@@ -177,6 +177,7 @@ grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' buil
 echo "[4/6] High-memory allocator + cross-CPU TLB shootdown"
 QEMU_MEMORY=512M run_qemu build/qemu-highmem.log
 grep -q 'LIONOS:HIGH-MEMORY-TEST-OK' build/qemu-highmem.log
+grep -q 'LIONOS:TLB-SHOOTDOWN-ACKED' build/qemu-highmem.log
 grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-highmem.log
 
 echo "[5/6] Second SMP boot / persistence verification"
