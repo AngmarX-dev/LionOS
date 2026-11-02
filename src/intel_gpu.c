@@ -76,9 +76,8 @@ static void pci_write_command(uint8_t bus, uint8_t slot, uint8_t func,
 }
 
 /*
- * Read the Intel host-bridge graphics memory boundary registers. These are
- * diagnostic snapshots only: no values are decoded into allocations and no
- * memory is reserved, remapped, or modified by this probe.
+ * Read Intel host-bridge graphics memory boundaries. On a matched Alder Lake
+ * device, reserve the validated BGSM..TOLUD interval from general PMM use.
  */
 static void read_host_bridge_memory_config(void)
 {
@@ -108,6 +107,7 @@ static void read_host_bridge_memory_config(void)
         uint64_t tolud = (uint64_t)(gpu.host_tolud & 0xFFF00000u);
         if (bgsm && bgsm < bdsm && bdsm < tolud && tolud <= 0x100000000ULL) {
             memory_reserve_physical_range(bgsm, tolud);
+            console_write("[ OK ] Alder Lake graphics BGSM..TOLUD memory reserved from PMM\n");
             debug_write("LIONOS:IGPU-STOLEN-RANGE-RESERVED\n");
         }
     }
