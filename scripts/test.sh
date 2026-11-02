@@ -80,7 +80,9 @@ run_gui_smoke() {
         >/dev/null 2>&1 &
     GUI_QEMU_PID=$!
 
-    for _ in $(seq 1 100); do
+    # The kernel deliberately holds the hardware report for ten seconds
+    # before entering the desktop. Allow that pause plus slow CI startup.
+    for _ in $(seq 1 250); do
         if [ -f "$log_file" ] && grep -q 'LIONOS:GUI-READY' "$log_file"; then
             break
         fi
