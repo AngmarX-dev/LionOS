@@ -88,7 +88,7 @@ static int write_slot(struct vfs_fd *f,const void *buffer,uint32_t length) {
     if(f->offset!=0 && !(f->flags&VFS_F_APPEND))return -1;
     if(f->flags&VFS_F_APPEND){
         uint32_t old_size=file_size(f->backend,f->path);
-        uint32_t max_size=f->backend==VFS_BACKEND_DISKFS?DISKFS_MAX_FILE_SIZE:256u;
+        uint32_t max_size=f->backend==VFS_BACKEND_DISKFS?DISKFS_MAX_FILE_SIZE:4096u;
         if(old_size>max_size||length>max_size-old_size)return -1;
         uint8_t *tmp=(uint8_t*)kmalloc(max_size);
         if(!tmp)return -1;
