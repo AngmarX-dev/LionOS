@@ -550,6 +550,22 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     /* Switch to the graphical console only after the splash has finished. */
     console_use_framebuffer();
     __asm__ volatile("sti");
+
+    /*
+     * Sample interrupt counters only after IF is enabled. Wait briefly for
+     * two timer events, with a hard bound so a missing timer cannot stall boot.
+     */
+    if(lapic_frame_timer_active()){
+        uint32_t start_ticks=lapic_frame_ticks();
+        for(uint32_t guard=0u;guard<50000000u &&
+            (uint32_t)(lapic_frame_ticks()-start_ticks)<2u;++guard)
+            __asm__ volatile("pause");
+    }else{
+        for(uint32_t guard=0u;guard<50000000u &&
+            kernel_diag_interrupt_count(0u,32u)<2u;++guard)
+            __asm__ volatile("pause");
+    }
+    kernel_diag_print_interrupts();
     gui_run();
     shell_run();
     for(;;) __asm__ volatile("hlt");
