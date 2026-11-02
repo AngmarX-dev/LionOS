@@ -28,6 +28,12 @@ The firmware framebuffer remains the active display path. No GPU reset, display 
 
 The legacy identity-mapped PMM still manages the low 256 MiB. A separate high-physical-page allocator now tracks Multiboot2 available pages from 256 MiB up to a conservative 64 GiB ceiling with separate availability/allocation bitmaps. Non-available Multiboot2 regions, the Multiboot information block, and modules are excluded. High allocations are returned as 64-bit physical addresses and must never be dereferenced as 32-bit pointers; they must be mapped through the dedicated high-page virtual window. For a matched Alder Lake GPU, the bootstrap conservatively removes the complete validated BGSM..TOLUD interval from the allocator. The allocator must still not be used for GPU-owned memory or GGTT entries until the exact stolen-memory and GGTT encodings are validated.
 
+### Read-only Gen12 GT and engine register snapshot
+
+For the verified Alder Lake display device, the bootstrap now samples the documented graphics GMD identity register (0xD8C) and the render (RCS0, base 0x2000) and blitter (BCS0, base 0x22000) ring HEAD, TAIL, START, and CONTROL registers. This is strictly read-only: it does not enable forcewake, change ring state, allocate GPU memory, write a ring, or submit commands. The values are raw diagnostic snapshots; zero or unchanged values do not prove that an engine is initialized or operational. This step is intended to validate register visibility before implementing power management, GPU memory ownership, and bounded command submission.
+
+Register offsets cross-checked against the Linux i915 definitions in `gt/intel_gt_regs.h`, `gt/intel_engine_regs.h`, and `i915_reg.h`. The platform specification remains authoritative.
+
 ### Not implemented yet
 
 This is a safe MMIO bootstrap, not a functioning acceleration engine. It does not yet initialize the GT, forcewake domains, GGTT, stolen memory, ring buffers, BLT engine, or display engine. Consequently the compositor continues to render on the CPU.
