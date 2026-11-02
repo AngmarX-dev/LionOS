@@ -57,6 +57,12 @@ void kernel_panic(uint32_t vector, uint32_t error, uint32_t eip, uint32_t cs, ui
     console_write(" eip=0x"); console_write_hex(eip);
     console_write(" cs=0x"); console_write_hex(cs);
     console_write(" eflags=0x"); console_write_hex(eflags);
+    if (vector == 14u) {
+        uint32_t cr2;
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+        console_write(" CR2=");
+        console_write_hex(cr2);
+    }
     console_write("\nSystem halted.\n");
     debug_write("LIONOS:PANIC vector=");
     debug_hex32(vector);
