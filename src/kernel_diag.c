@@ -170,7 +170,9 @@ int kernel_diag_validate_timers(void) {
     const uint32_t start_lapic = kernel_diag_interrupt_count(0u, 48u);
 
     /* Use the calibrated 120 Hz LAPIC clock as the two-second reference. */
-    while ((uint32_t)(lapic_frame_ticks() - start_frame) < 240u)
+    /* PIT is also a watchdog: if LAPIC delivery stalls, do not hang boot. */
+    while ((uint32_t)(lapic_frame_ticks() - start_frame) < 240u &&
+           (uint32_t)(kernel_diag_interrupt_count(0u, 32u) - start_pit) < 300u)
         __asm__ volatile("hlt");
 
     const uint32_t frame_delta = (uint32_t)(lapic_frame_ticks() - start_frame);
