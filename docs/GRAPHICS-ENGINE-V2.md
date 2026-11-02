@@ -77,3 +77,7 @@ The GTTMMADR layout and GGTT offset follow the Linux i915 implementation: `drive
 ## High-memory inventory (read-only)
 
 The PMM now totals Multiboot2 available-memory regions above 256 MiB and reports that amount in the desktop hardware panel. This is inventory only: those pages are not added to the PMM bitmap and cannot be returned by `page_alloc()`. The kernel still uses identity-mapped pointers for PMM allocations, and its normal identity map remains limited to the low 256 MiB. Do not treat the reported high-memory total as allocatable RAM until a high-physical-page mapping API and allocator ownership rules are implemented.
+
+### PAE mapping safety prerequisites
+
+The kernel mapping API rejects physical addresses that cannot be represented by the PAE PTE address field; it must not silently mask an out-of-range address into a different page. This is only an input-validation safeguard, not a high-memory allocator. A future shared high-memory mapping window must also define virtual-range ownership, mapping lifetime, cache attributes, and TLB invalidation on every online CPU. The current paging code only performs local `invlpg`; there is no cross-CPU TLB shootdown API, so dynamically changing shared mappings after SMP startup is not yet safe. Until that synchronization exists, high physical pages remain inventory-only.
