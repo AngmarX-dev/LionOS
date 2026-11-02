@@ -100,7 +100,7 @@ static uint32_t acpi_find_madt(uint32_t rsdt,uint64_t xsdt,uint8_t revision){
             uint64_t address=*(const uint64_t *)(const void *)(entries+i*8u);
             const struct acpi_sdt *table=0;
             if(acpi_map_sdt(address,ACPI_CHILD_WINDOW,"APIC",&table)==0){
-                debug_write("LIONOS:ACPI-MADT-MAPPED\\n");
+                debug_write("LIONOS:ACPI-MADT-MAPPED\n");
                 return (uint32_t)(uintptr_t)table;
             }
         }
@@ -112,12 +112,12 @@ static uint32_t acpi_find_madt(uint32_t rsdt,uint64_t xsdt,uint8_t revision){
             uint32_t address=*(const uint32_t *)(const void *)(entries+i*4u);
             const struct acpi_sdt *table=0;
             if(acpi_map_sdt((uint64_t)address,ACPI_CHILD_WINDOW,"APIC",&table)==0){
-                debug_write("LIONOS:ACPI-MADT-MAPPED\\n");
+                debug_write("LIONOS:ACPI-MADT-MAPPED\n");
                 return (uint32_t)(uintptr_t)table;
             }
         }
     }
-    debug_write("LIONOS:ACPI-MADT-NOT-FOUND\\n");
+    debug_write("LIONOS:ACPI-MADT-NOT-FOUND\n");
     return 0u;
 }
 static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
