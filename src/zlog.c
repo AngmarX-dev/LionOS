@@ -115,7 +115,7 @@ static int append_log_file_locked(const char *line, uint32_t length) {
 
         if (vfs_stat_path(KLOG_FILE_PATH, &st) != 0) return -1;
         limit = st.backend == VFS_BACKEND_DISKFS
-            ? DISKFS_MAX_FILE_SIZE : 256u;
+            ? DISKFS_MAX_FILE_SIZE : 4096u;
         if (st.size + length > limit) return -1;
     }
 
