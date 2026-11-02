@@ -104,16 +104,47 @@ void kernel_diag_print(void) {
     console_write_dec(online);
     console_write("\n");
 }
+static void debug_dec32(uint32_t value) {
+    char digits[10];
+    uint32_t count = 0u;
+    if (value == 0u) {
+        debug_putc('0');
+        return;
+    }
+    while (value != 0u && count < sizeof(digits)) {
+        digits[count++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    }
+    while (count != 0u)
+        debug_putc(digits[--count]);
+}
+
 void kernel_diag_print_interrupts(void) {
+    uint32_t timer = kernel_diag_interrupt_count(0u,32u);
+    uint32_t keyboard = kernel_diag_interrupt_count(0u,33u);
+    uint32_t mouse = kernel_diag_interrupt_count(0u,44u);
+    uint32_t lapic = kernel_diag_interrupt_count(0u,48u);
+
     console_write("[ OK ] Interrupt counters after IRQ enable (BSP): timer=");
-    console_write_dec(kernel_diag_interrupt_count(0u,32u));
+    console_write_dec(timer);
     console_write(" keyboard=");
-    console_write_dec(kernel_diag_interrupt_count(0u,33u));
+    console_write_dec(keyboard);
     console_write(" mouse=");
-    console_write_dec(kernel_diag_interrupt_count(0u,44u));
+    console_write_dec(mouse);
     console_write(" LAPIC=");
-    console_write_dec(kernel_diag_interrupt_count(0u,48u));
+    console_write_dec(lapic);
     console_write("\n");
+
+    /* Preserve the post-STI sample even if the desktop redraws the console. */
+    debug_write("LIONOS:IRQ-COUNTS timer=");
+    debug_dec32(timer);
+    debug_write(" keyboard=");
+    debug_dec32(keyboard);
+    debug_write(" mouse=");
+    debug_dec32(mouse);
+    debug_write(" lapic=");
+    debug_dec32(lapic);
+    debug_write("\n");
 }
 
 void kernel_diag_record_interrupt(uint32_t cpu, uint32_t vector) {
