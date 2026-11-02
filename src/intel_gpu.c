@@ -273,6 +273,8 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active)
                 gpu.bar0 = bar0;
                 gpu.bar0_size = bar0_size;
                 gpu.mmio_virtual = MMIO_VIRTUAL_BASE;
+                if (bar0 <= UINT64_MAX - bar0_size)
+                    memory_reserve_physical_range(bar0, bar0 + bar0_size);
                 gpu.supported_platform = intel_known_display_id(device) ? 1u : 0u;
                 gpu.firmware_framebuffer = firmware_framebuffer_active ? 1u : 0u;
                 read_host_bridge_memory_config(intel_alder_lake_id(device) ? 1u : 0u);
