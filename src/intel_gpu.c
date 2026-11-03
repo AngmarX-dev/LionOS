@@ -97,6 +97,7 @@ typedef struct {
     uint32_t ack_final;
     uint32_t fallback_used;
     uint32_t fallback_passes;
+    uint32_t preexisting_kernel_ack;
 } intel_forcewake_result_t;
 
 static int intel_gpu_wait_ack(uint32_t ack_reg, uint32_t mask,
@@ -192,6 +193,12 @@ static int intel_gpu_forcewake_acquire(uint32_t request_reg,
     if (rc != 0 || ack == 0xFFFFFFFFu)
         return -2;
     result->ack_initial = ack;
+    if ((ack & INTEL_FORCEWAKE_KERNEL) != 0u) {
+        /* Do not clear a forcewake reference that predates this probe. */
+        result->preexisting_kernel_ack = 1u;
+        result->ack_final = ack;
+        return 0;
+    }
 
     /* Linux i915 first waits for the previous kernel request to clear. */
     rc = intel_gpu_wait_ack(ack_reg, INTEL_FORCEWAKE_KERNEL, 0u, &ack);
@@ -235,6 +242,8 @@ static int intel_gpu_forcewake_release(uint32_t request_reg,
                                        intel_forcewake_result_t *result)
 {
     uint32_t ack = 0u;
+    if (result && result->preexisting_kernel_ack)
+        return 0;
     if (intel_gpu_mmio_write32(
             request_reg,
             INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL)) != 0)
