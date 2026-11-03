@@ -79,6 +79,20 @@ static void intel_gpu_probe_engine_registers(void)
                                         &engine_snapshot.blitter) != 0)
         return;
 
+    /*
+     * A zero/all-ones graphics GMD_ID is not a usable GT identity. On
+     * Gen12 this can occur while GT power/forcewake is unavailable. Do not
+     * publish an all-zero register block as a valid engine snapshot.
+     * This probe deliberately remains read-only: no forcewake request,
+     * power-state transition, ring write, reset, or command submission.
+     */
+    if (engine_snapshot.graphics_gmd_id == 0u ||
+        engine_snapshot.graphics_gmd_id == 0xFFFFFFFFu) {
+        debug_write("LIONOS:INTEL-GT-ID-NOT-READY\n");
+        console_write("[ -- ] Intel GT identity unavailable; power/wake state not confirmed\n");
+        return;
+    }
+
     engine_snapshot.valid = 1u;
     console_write("[ OK ] Intel Gen12 GT identity and render/blitter ring registers read (read-only)\n");
     console_write("       GMD_ID_GRAPHICS=0x");
