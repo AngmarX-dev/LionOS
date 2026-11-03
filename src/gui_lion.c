@@ -85,6 +85,7 @@ static uint32_t drag_surface_w, drag_surface_h;
 static uint8_t drag_cache_active;
 static uint8_t drag_render_skip_id;
 static uint8_t drag_compositor_ready;
+static uint32_t telemetry_last_tick = 0xFFFFFFFFu;
 
 /* Kernel log storage is a bounded in-memory desktop service, not a file. */
 #define KLOG_RING_CAPACITY 64u
@@ -958,6 +959,51 @@ static void draw_cursor(uint32_t x,uint32_t y){
         }
     }
 }
+static void draw_system_monitor(void){
+    uint32_t sw=framebuffer_width();
+    uint32_t x=sw>326u?sw-318u:8u;
+    uint32_t y=54u,w=310u,h=178u;
+    cpu_identification_t cpu;
+    intel_gpu_info_t gpu;
+    uint32_t online=0u;
+    uint32_t total=cpu_count_hint();
+    for(uint32_t i=0u;i<total&&i<LIONOS_MAX_CPUS;++i){
+        const struct cpu_info *info=cpu_get(i);
+        if(info&&info->online)++online;
+    }
+    cpu_get_identification(&cpu);
+    int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
+    glass_panel(x,y,w,h,16u,COL_PANEL,178u,0u);
+    text_line("SYSTEM MONITOR",x+14u,y+10u,COL_GOLD,COL_PANEL);
+    fill(x+12u,y+34u,w-24u,1u,COL_GOLD_DIM);
+    text_line("CPU",x+14u,y+44u,COL_DIM,COL_PANEL);
+    text_line(cpu.vendor[0]?cpu.vendor:"UNKNOWN",x+92u,y+44u,COL_TEXT,COL_PANEL);
+    text_line("MODEL",x+14u,y+64u,COL_DIM,COL_PANEL);
+    text_line("FAMILY",x+92u,y+64u,COL_TEXT,COL_PANEL);
+    draw_uint(cpu.family,x+164u,y+64u,COL_TEXT,COL_PANEL);
+    text_line("MODEL",x+214u,y+64u,COL_DIM,COL_PANEL);
+    draw_uint(cpu.model,x+262u,y+64u,COL_TEXT,COL_PANEL);
+    text_line("CPU ONLINE",x+14u,y+84u,COL_DIM,COL_PANEL);
+    draw_uint(online,x+164u,y+84u,COL_OK,COL_PANEL);
+    text_line("/",x+184u,y+84u,COL_DIM,COL_PANEL);
+    draw_uint(total,x+198u,y+84u,COL_TEXT,COL_PANEL);
+    text_line("HIGH RAM FREE",x+14u,y+104u,COL_DIM,COL_PANEL);
+    draw_uint((uint32_t)(((uint64_t)memory_high_free_pages()*4096u)/(1024u*1024u)),
+              x+164u,y+104u,COL_TEXT,COL_PANEL);
+    text_line("MB",x+220u,y+104u,COL_DIM,COL_PANEL);
+    text_line("INTEL GPU",x+14u,y+124u,COL_DIM,COL_PANEL);
+    if(have_gpu){
+        draw_uint(gpu.device_id,x+164u,y+124u,COL_TEXT,COL_PANEL);
+        text_line(gpu.mmio_mapped?"MMIO OK":"MMIO OFF",x+14u,y+144u,
+                  gpu.mmio_mapped?COL_OK:COL_DANGER,COL_PANEL);
+        text_line("CPU COMPOSITOR",x+164u,y+144u,COL_GOLD,COL_PANEL);
+    }else{
+        text_line("NOT DETECTED",x+164u,y+124u,COL_DANGER,COL_PANEL);
+    }
+    text_line("DISPLAY",x+14u,y+164u,COL_DIM,COL_PANEL);
+    draw_resolution(framebuffer_width(),framebuffer_height(),x+164u,y+164u,
+                    COL_TEXT,COL_PANEL);
+}
 static void draw_desktop_background(void){
     /* Static wallpaper only: no animated background effects. */
     draw_wallpaper();
@@ -1058,6 +1104,7 @@ static void render_all(void){
     draw_desktop_background();
     draw_desktop_icons();
     draw_windows();
+    draw_system_monitor();
     draw_taskbar();
     draw_start_menu();
     if(!cursor_overlay)draw_cursor(mouse_px_x,mouse_px_y);
@@ -1430,6 +1477,16 @@ void gui_step(void){
      */
     keyboard_poll();
     const char *usb_status=mouse_usb_status_text();if(usb_status!=last_usb_status){last_usb_status=usb_status;dirty_full();}
+    {
+        uint32_t now=gui_render_clock_ticks();
+        if(telemetry_last_tick==0xFFFFFFFFu ||
+           (uint32_t)(now-telemetry_last_tick)>=120u){
+            uint32_t sw=framebuffer_width();
+            uint32_t px0=sw>326u?sw-318u:8u;
+            dirty_rect(px0,48u,318u,190u);
+            telemetry_last_tick=now;
+        }
+    }
     uint32_t old_x=mouse_px_x,old_y=mouse_px_y;mouse_px_x=px();mouse_px_y=py();uint32_t buttons=mouse_buttons();
     if(mouse_px_x!=old_x||mouse_px_y!=old_y){uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u,top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u,right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u,bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;if(right>framebuffer_width())right=framebuffer_width();if(bottom>framebuffer_height())bottom=framebuffer_height();if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);}
     if(buttons!=previous_buttons)dirty_around_cursor();
