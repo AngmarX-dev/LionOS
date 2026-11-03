@@ -858,7 +858,7 @@ static void draw_system_monitor(void){
     text_line("PCI ID",x+14u,y+58u,COL_DIM,COL_PANEL);
     draw_hex32(((uint32_t)gpu.vendor_id<<16)|gpu.device_id,x+140u,y+58u,COL_TEXT,COL_PANEL);
     text_line("REVISION",x+350u,y+58u,COL_DIM,COL_PANEL);
-    draw_hex32(gpu.revision,x+450u,y+58u,COL_TEXT,COL_PANEL);
+    draw_hex32(gpu.revision,x+470u,y+58u,COL_TEXT,COL_PANEL);
     text_line("PCI BDF",x+14u,y+76u,COL_DIM,COL_PANEL);
     draw_uint(gpu.bus,x+140u,y+76u,COL_TEXT,COL_PANEL);
     text_line(":",x+164u,y+76u,COL_DIM,COL_PANEL);
@@ -866,7 +866,7 @@ static void draw_system_monitor(void){
     text_line(".",x+200u,y+76u,COL_DIM,COL_PANEL);
     draw_uint(gpu.function,x+212u,y+76u,COL_TEXT,COL_PANEL);
     text_line("PLATFORM",x+350u,y+76u,COL_DIM,COL_PANEL);
-    text_line(gpu.supported_platform?"ADL MATCH":"UNKNOWN",x+450u,y+76u,
+    text_line(gpu.supported_platform?"ADL MATCH":"UNKNOWN",x+470u,y+76u,
               gpu.supported_platform?COL_OK:COL_DANGER,COL_PANEL);
     text_line("BAR0 BASE",x+14u,y+94u,COL_DIM,COL_PANEL);
     draw_hex64(gpu.bar0,x+140u,y+94u,COL_TEXT,COL_PANEL);
@@ -874,25 +874,25 @@ static void draw_system_monitor(void){
     draw_uint((uint32_t)(gpu.bar0_size/(1024u*1024u)),x+140u,y+112u,COL_TEXT,COL_PANEL);
     text_line("MiB",x+188u,y+112u,COL_DIM,COL_PANEL);
     text_line("MMIO VIRT",x+350u,y+112u,COL_DIM,COL_PANEL);
-    draw_hex32(gpu.mmio_virtual,x+450u,y+112u,COL_TEXT,COL_PANEL);
+    draw_hex32(gpu.mmio_virtual,x+470u,y+112u,COL_TEXT,COL_PANEL);
     text_line("MMIO MAP",x+14u,y+130u,COL_DIM,COL_PANEL);
     text_line(gpu.mmio_mapped?"READY":"NOT MAPPED",x+140u,y+130u,
               gpu.mmio_mapped?COL_OK:COL_DANGER,COL_PANEL);
     text_line("GGC",x+350u,y+130u,COL_DIM,COL_PANEL);
-    draw_hex32(gpu.host_ggc,x+450u,y+130u,COL_TEXT,COL_PANEL);
+    draw_hex32(gpu.host_ggc,x+470u,y+130u,COL_TEXT,COL_PANEL);
     text_line("BDSM",x+14u,y+148u,COL_DIM,COL_PANEL);
     draw_hex32(gpu.host_bdsm,x+140u,y+148u,COL_TEXT,COL_PANEL);
     text_line("BGSM",x+350u,y+148u,COL_DIM,COL_PANEL);
-    draw_hex32(gpu.host_bgsm,x+450u,y+148u,COL_TEXT,COL_PANEL);
+    draw_hex32(gpu.host_bgsm,x+470u,y+148u,COL_TEXT,COL_PANEL);
     text_line("TOLUD",x+14u,y+166u,COL_DIM,COL_PANEL);
     draw_hex32(gpu.host_tolud,x+140u,y+166u,COL_TEXT,COL_PANEL);
-    text_line("GGTT OFFSET",x+350u,y+166u,COL_DIM,COL_PANEL);
-    draw_hex32(gpu.ggtt_offset,x+450u,y+166u,COL_TEXT,COL_PANEL);
+    text_line("GGTT OFFS",x+350u,y+166u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.ggtt_offset,x+470u,y+166u,COL_TEXT,COL_PANEL);
     text_line("GGTT SIZE",x+14u,y+184u,COL_DIM,COL_PANEL);
     draw_uint(gpu.ggtt_size/(1024u*1024u),x+140u,y+184u,COL_TEXT,COL_PANEL);
     text_line("MiB",x+188u,y+184u,COL_DIM,COL_PANEL);
-    text_line("GGTT PTE READ",x+350u,y+184u,COL_DIM,COL_PANEL);
-    text_line(have_ptes?"PASS":"UNAVAILABLE",x+450u,y+184u,
+    text_line("PTE READ",x+350u,y+184u,COL_DIM,COL_PANEL);
+    text_line(have_ptes?"PASS":"UNAVAILABLE",x+470u,y+184u,
               have_ptes?COL_OK:COL_DANGER,COL_PANEL);
     text_line("PTE FIRST",x+14u,y+202u,COL_DIM,COL_PANEL);
     if(have_ptes)draw_hex64(pte_first,x+140u,y+202u,COL_TEXT,COL_PANEL);
@@ -918,8 +918,8 @@ static void draw_system_monitor(void){
         draw_hex32(eng.blitter.start,x+188u,y+340u,COL_TEXT,COL_PANEL);
         draw_hex32(eng.blitter.control,x+296u,y+340u,COL_TEXT,COL_PANEL);
     }else{
-        text_line("GT ID ZERO / POWER-WAKE STATE UNKNOWN",x+14u,y+276u,COL_DANGER,COL_PANEL);
-        text_line("READ-ONLY ONLY - NO GPU COMMANDS SUBMITTED",x+14u,y+296u,COL_DIM,COL_PANEL);
+        text_line("GT ENGINE SNAPSHOT NOT READY",x+14u,y+276u,COL_DANGER,COL_PANEL);
+        text_line("FORCEWAKE ACK OR ENGINE READ FAILED",x+14u,y+296u,COL_DIM,COL_PANEL);
     }
 }
 static void draw_desktop_background(void){
