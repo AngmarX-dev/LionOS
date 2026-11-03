@@ -52,6 +52,16 @@ static uint32_t mmio_ready;
 static intel_gpu_engine_snapshot_t engine_snapshot;
 static void intel_gpu_hex32(uint32_t value);
 
+static int intel_gpu_mmio_write32(uint32_t offset, uint32_t value)
+{
+    if (!mmio_ready || (offset & 3u) ||
+        (uint64_t)offset + sizeof(uint32_t) > gpu.bar0_size)
+        return -1;
+    *(volatile uint32_t *)(uintptr_t)(MMIO_VIRTUAL_BASE + offset) = value;
+    (void)*(volatile const uint32_t *)(uintptr_t)(MMIO_VIRTUAL_BASE + offset);
+    return 0;
+}
+
 static int intel_gpu_read_engine_registers(uint32_t base,
                                            intel_gpu_ring_snapshot_t *ring)
 {
@@ -65,36 +75,102 @@ static int intel_gpu_read_engine_registers(uint32_t base,
     return 0;
 }
 
+/*
+ * Gen11/Gen12 forcewake registers and masked-write protocol follow the
+ * Intel i915 register definitions. Request only the GT and render domains
+ * needed for GMD_ID_GRAPHICS and RCS/BCS register reads.
+ */
+#define INTEL_FORCEWAKE_GT_REQ       0x0000A188u
+#define INTEL_FORCEWAKE_RENDER_REQ   0x0000A278u
+#define INTEL_FORCEWAKE_GT_ACK       0x000130044u
+#define INTEL_FORCEWAKE_RENDER_ACK   0x00000D84u
+#define INTEL_FORCEWAKE_KERNEL       0x00000001u
+#define INTEL_FORCEWAKE_MASKED_SET   0x00010001u
+#define INTEL_FORCEWAKE_MASKED_CLR   0x00010000u
+
+static int intel_gpu_forcewake_acquire(uint32_t request_reg,
+                                       uint32_t ack_reg)
+{
+    uint32_t ack = 0u;
+    if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 || ack == 0xFFFFFFFFu)
+        return -1;
+    if ((ack & INTEL_FORCEWAKE_KERNEL) != 0u)
+        return 0; /* Firmware/another owner already holds this domain. */
+
+    if (intel_gpu_mmio_write32(request_reg, INTEL_FORCEWAKE_MASKED_SET) != 0)
+        return -1;
+
+    for (uint32_t i = 0u; i < 100000u; ++i) {
+        if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 || ack == 0xFFFFFFFFu)
+            break;
+        if ((ack & INTEL_FORCEWAKE_KERNEL) != 0u)
+            return 1; /* This probe acquired the reference. */
+        __asm__ volatile("pause");
+    }
+
+    (void)intel_gpu_mmio_write32(request_reg, INTEL_FORCEWAKE_MASKED_CLR);
+    return -1;
+}
+
+static void intel_gpu_forcewake_release(uint32_t request_reg)
+{
+    (void)intel_gpu_mmio_write32(request_reg, INTEL_FORCEWAKE_MASKED_CLR);
+}
+
 static void intel_gpu_probe_engine_registers(void)
 {
+    int gt_wake = -1;
+    int render_wake = -1;
+
     if (!intel_gpu_is_alder_lake() || !mmio_ready)
         return;
 
     engine_snapshot = (intel_gpu_engine_snapshot_t){0};
+
+    gt_wake = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_GT_REQ,
+                                           INTEL_FORCEWAKE_GT_ACK);
+    if (gt_wake < 0) {
+        debug_write("LIONOS:INTEL-GT-FORCEWAKE-FAIL\\n");
+        console_write("[ -- ] Intel GT forcewake acknowledgement timed out\\n");
+        return;
+    }
+
     if (intel_gpu_mmio_read32(INTEL_GMD_ID_GRAPHICS,
                               &engine_snapshot.graphics_gmd_id) != 0 ||
-        intel_gpu_read_engine_registers(INTEL_RENDER_RING_BASE,
+        engine_snapshot.graphics_gmd_id == 0u ||
+        engine_snapshot.graphics_gmd_id == 0xFFFFFFFFu) {
+        if (gt_wake > 0)
+            intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
+        debug_write("LIONOS:INTEL-GT-ID-INVALID\\n");
+        console_write("[ -- ] Intel GT identity unavailable after GT wake\\n");
+        return;
+    }
+
+    render_wake = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_RENDER_REQ,
+                                               INTEL_FORCEWAKE_RENDER_ACK);
+    if (render_wake < 0) {
+        if (gt_wake > 0)
+            intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
+        debug_write("LIONOS:INTEL-RENDER-FORCEWAKE-FAIL\\n");
+        console_write("[ -- ] Intel render forcewake acknowledgement timed out\\n");
+        return;
+    }
+
+    if (intel_gpu_read_engine_registers(INTEL_RENDER_RING_BASE,
                                         &engine_snapshot.render) != 0 ||
         intel_gpu_read_engine_registers(INTEL_BLITTER_RING_BASE,
-                                        &engine_snapshot.blitter) != 0)
-        return;
-
-    /*
-     * A zero/all-ones graphics GMD_ID is not a usable GT identity. On
-     * Gen12 this can occur while GT power/forcewake is unavailable. Do not
-     * publish an all-zero register block as a valid engine snapshot.
-     * This probe deliberately remains read-only: no forcewake request,
-     * power-state transition, ring write, reset, or command submission.
-     */
-    if (engine_snapshot.graphics_gmd_id == 0u ||
-        engine_snapshot.graphics_gmd_id == 0xFFFFFFFFu) {
-        debug_write("LIONOS:INTEL-GT-ID-NOT-READY\n");
-        console_write("[ -- ] Intel GT identity unavailable; power/wake state not confirmed\n");
+                                        &engine_snapshot.blitter) != 0) {
+        if (render_wake > 0)
+            intel_gpu_forcewake_release(INTEL_FORCEWAKE_RENDER_REQ);
+        if (gt_wake > 0)
+            intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
+        debug_write("LIONOS:INTEL-GT-RING-READ-FAIL\\n");
+        console_write("[ -- ] Intel GT ring registers could not be sampled\\n");
         return;
     }
 
     engine_snapshot.valid = 1u;
-    console_write("[ OK ] Intel Gen12 GT identity and render/blitter ring registers read (read-only)\n");
+    console_write("[ OK ] Intel Gen12 GT identity + RCS/BCS sampled with forcewake\\n");
     console_write("       GMD_ID_GRAPHICS=0x");
     intel_gpu_hex32(engine_snapshot.graphics_gmd_id);
     console_write(" RCS HEAD/TAIL=0x");
@@ -105,8 +181,13 @@ static void intel_gpu_probe_engine_registers(void)
     intel_gpu_hex32(engine_snapshot.blitter.head);
     console_write("/0x");
     intel_gpu_hex32(engine_snapshot.blitter.tail);
-    console_write("\n");
-    debug_write("LIONOS:INTEL-GT-ENGINE-READ-PROBE-OK\n");
+    console_write("\\n");
+    debug_write("LIONOS:INTEL-GT-FORCEWAKE-PROBE-OK\\n");
+
+    if (render_wake > 0)
+        intel_gpu_forcewake_release(INTEL_FORCEWAKE_RENDER_REQ);
+    if (gt_wake > 0)
+        intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
 }
 
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg)
