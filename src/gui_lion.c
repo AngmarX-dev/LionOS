@@ -959,50 +959,103 @@ static void draw_cursor(uint32_t x,uint32_t y){
         }
     }
 }
+static void draw_hex32(uint32_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    static const char digits[]="0123456789ABCDEF";
+    char out[9];
+    for(uint32_t i=0u;i<8u;++i)out[i]=digits[(value>>(28u-i*4u))&0xFu];
+    out[8]=0;
+    text_line(out,x,y,fg,bg);
+}
+static void draw_hex64(uint64_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    draw_hex32((uint32_t)(value>>32),x,y,fg,bg);
+    draw_hex32((uint32_t)value,x+8u*CHAR_W,y,fg,bg);
+}
 static void draw_system_monitor(void){
     uint32_t sw=framebuffer_width();
-    uint32_t x=sw>326u?sw-318u:8u;
-    uint32_t y=54u,w=310u,h=178u;
-    cpu_identification_t cpu;
+    uint32_t x=sw>510u?sw-502u:8u;
+    uint32_t y=48u,w=494u,h=354u;
     intel_gpu_info_t gpu;
-    uint32_t online=0u;
-    uint32_t total=cpu_count_hint();
-    for(uint32_t i=0u;i<total&&i<LIONOS_MAX_CPUS;++i){
-        const struct cpu_info *info=cpu_get(i);
-        if(info&&info->online)++online;
-    }
-    cpu_get_identification(&cpu);
+    intel_gpu_engine_snapshot_t eng;
+    uint64_t pte_first=0u,pte_last=0u;
     int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
-    glass_panel(x,y,w,h,16u,COL_PANEL,178u,0u);
-    text_line("SYSTEM MONITOR",x+14u,y+10u,COL_GOLD,COL_PANEL);
-    fill(x+12u,y+34u,w-24u,1u,COL_GOLD_DIM);
-    text_line("CPU",x+14u,y+44u,COL_DIM,COL_PANEL);
-    text_line(cpu.vendor[0]?cpu.vendor:"UNKNOWN",x+92u,y+44u,COL_TEXT,COL_PANEL);
-    text_line("MODEL",x+14u,y+64u,COL_DIM,COL_PANEL);
-    text_line("FAMILY",x+92u,y+64u,COL_TEXT,COL_PANEL);
-    draw_uint(cpu.family,x+164u,y+64u,COL_TEXT,COL_PANEL);
-    text_line("MODEL",x+214u,y+64u,COL_DIM,COL_PANEL);
-    draw_uint(cpu.model,x+262u,y+64u,COL_TEXT,COL_PANEL);
-    text_line("CPU ONLINE",x+14u,y+84u,COL_DIM,COL_PANEL);
-    draw_uint(online,x+164u,y+84u,COL_OK,COL_PANEL);
-    text_line("/",x+184u,y+84u,COL_DIM,COL_PANEL);
-    draw_uint(total,x+198u,y+84u,COL_TEXT,COL_PANEL);
-    text_line("HIGH RAM FREE",x+14u,y+104u,COL_DIM,COL_PANEL);
-    draw_uint((uint32_t)(((uint64_t)memory_high_free_pages()*4096u)/(1024u*1024u)),
-              x+164u,y+104u,COL_TEXT,COL_PANEL);
-    text_line("MB",x+220u,y+104u,COL_DIM,COL_PANEL);
-    text_line("INTEL GPU",x+14u,y+124u,COL_DIM,COL_PANEL);
-    if(have_gpu){
-        draw_uint(gpu.device_id,x+164u,y+124u,COL_TEXT,COL_PANEL);
-        text_line(gpu.mmio_mapped?"MMIO OK":"MMIO OFF",x+14u,y+144u,
-                  gpu.mmio_mapped?COL_OK:COL_DANGER,COL_PANEL);
-        text_line("CPU COMPOSITOR",x+164u,y+144u,COL_GOLD,COL_PANEL);
-    }else{
-        text_line("NOT DETECTED",x+164u,y+124u,COL_DANGER,COL_PANEL);
+    int have_eng=intel_gpu_get_engine_snapshot(&eng)==0;
+    int have_ptes=have_gpu&&gpu.ggtt_ready&&
+        intel_gpu_ggtt_read_entry(0u,&pte_first)==0&&
+        intel_gpu_ggtt_read_entry(gpu.ggtt_size/4096u-1u,&pte_last)==0;
+    glass_panel(x,y,w,h,16u,COL_PANEL,190u,0u);
+    text_line("INTEL UHD DRIVER BRING-UP",x+14u,y+9u,COL_GOLD,COL_PANEL);
+    text_line("READ-ONLY HARDWARE DIAGNOSTICS",x+14u,y+27u,COL_DIM,COL_PANEL);
+    fill(x+12u,y+48u,w-24u,1u,COL_GOLD_DIM);
+    if(!have_gpu){
+        text_line("GPU NOT DETECTED",x+14u,y+64u,COL_DANGER,COL_PANEL);
+        text_line("PCI DISPLAY FUNCTION UNAVAILABLE",x+14u,y+84u,COL_DIM,COL_PANEL);
+        return;
     }
-    text_line("DISPLAY",x+14u,y+164u,COL_DIM,COL_PANEL);
-    draw_resolution(framebuffer_width(),framebuffer_height(),x+164u,y+164u,
-                    COL_TEXT,COL_PANEL);
+    text_line("PCI ID",x+14u,y+58u,COL_DIM,COL_PANEL);
+    draw_hex32(((uint32_t)gpu.vendor_id<<16)|gpu.device_id,x+140u,y+58u,COL_TEXT,COL_PANEL);
+    text_line("REVISION",x+286u,y+58u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.revision,x+394u,y+58u,COL_TEXT,COL_PANEL);
+    text_line("PCI BDF",x+14u,y+76u,COL_DIM,COL_PANEL);
+    draw_uint(gpu.bus,x+140u,y+76u,COL_TEXT,COL_PANEL);
+    text_line(":",x+164u,y+76u,COL_DIM,COL_PANEL);
+    draw_uint(gpu.slot,x+176u,y+76u,COL_TEXT,COL_PANEL);
+    text_line(".",x+200u,y+76u,COL_DIM,COL_PANEL);
+    draw_uint(gpu.function,x+212u,y+76u,COL_TEXT,COL_PANEL);
+    text_line("PLATFORM",x+286u,y+76u,COL_DIM,COL_PANEL);
+    text_line(gpu.supported_platform?"ADL MATCH":"UNKNOWN",x+394u,y+76u,
+              gpu.supported_platform?COL_OK:COL_DANGER,COL_PANEL);
+    text_line("BAR0 BASE",x+14u,y+94u,COL_DIM,COL_PANEL);
+    draw_hex64(gpu.bar0,x+140u,y+94u,COL_TEXT,COL_PANEL);
+    text_line("BAR0 SIZE",x+14u,y+112u,COL_DIM,COL_PANEL);
+    draw_uint((uint32_t)(gpu.bar0_size/(1024u*1024u)),x+140u,y+112u,COL_TEXT,COL_PANEL);
+    text_line("MiB",x+188u,y+112u,COL_DIM,COL_PANEL);
+    text_line("MMIO VIRT",x+286u,y+112u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.mmio_virtual,x+394u,y+112u,COL_TEXT,COL_PANEL);
+    text_line("MMIO MAP",x+14u,y+130u,COL_DIM,COL_PANEL);
+    text_line(gpu.mmio_mapped?"READY":"NOT MAPPED",x+140u,y+130u,
+              gpu.mmio_mapped?COL_OK:COL_DANGER,COL_PANEL);
+    text_line("GGC",x+286u,y+130u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.host_ggc,x+394u,y+130u,COL_TEXT,COL_PANEL);
+    text_line("BDSM",x+14u,y+148u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.host_bdsm,x+140u,y+148u,COL_TEXT,COL_PANEL);
+    text_line("BGSM",x+286u,y+148u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.host_bgsm,x+394u,y+148u,COL_TEXT,COL_PANEL);
+    text_line("TOLUD",x+14u,y+166u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.host_tolud,x+140u,y+166u,COL_TEXT,COL_PANEL);
+    text_line("GGTT OFFSET",x+286u,y+166u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.ggtt_offset,x+394u,y+166u,COL_TEXT,COL_PANEL);
+    text_line("GGTT SIZE",x+14u,y+184u,COL_DIM,COL_PANEL);
+    draw_uint(gpu.ggtt_size/(1024u*1024u),x+140u,y+184u,COL_TEXT,COL_PANEL);
+    text_line("MiB",x+188u,y+184u,COL_DIM,COL_PANEL);
+    text_line("GGTT PTE READ",x+286u,y+184u,COL_DIM,COL_PANEL);
+    text_line(have_ptes?"PASS":"UNAVAILABLE",x+394u,y+184u,
+              have_ptes?COL_OK:COL_DANGER,COL_PANEL);
+    text_line("PTE FIRST",x+14u,y+202u,COL_DIM,COL_PANEL);
+    if(have_ptes)draw_hex64(pte_first,x+140u,y+202u,COL_TEXT,COL_PANEL);
+    else text_line("N/A",x+140u,y+202u,COL_DANGER,COL_PANEL);
+    text_line("PTE LAST",x+14u,y+220u,COL_DIM,COL_PANEL);
+    if(have_ptes)draw_hex64(pte_last,x+140u,y+220u,COL_TEXT,COL_PANEL);
+    else text_line("N/A",x+140u,y+220u,COL_DANGER,COL_PANEL);
+    fill(x+12u,y+240u,w-24u,1u,COL_GOLD_DIM);
+    text_line("GEN12 GT ENGINE SNAPSHOT (BOOT READ-ONLY)",x+14u,y+248u,COL_GOLD,COL_PANEL);
+    if(have_eng){
+        text_line("GMD ID",x+14u,y+268u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.graphics_gmd_id,x+140u,y+268u,COL_TEXT,COL_PANEL);
+        text_line("RCS H/T",x+14u,y+286u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.render.head,x+140u,y+286u,COL_TEXT,COL_PANEL);
+        draw_hex32(eng.render.tail,x+248u,y+286u,COL_TEXT,COL_PANEL);
+        text_line("RCS START/CTL",x+14u,y+304u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.render.start,x+188u,y+304u,COL_TEXT,COL_PANEL);
+        draw_hex32(eng.render.control,x+296u,y+304u,COL_TEXT,COL_PANEL);
+        text_line("BCS H/T",x+14u,y+322u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.blitter.head,x+140u,y+322u,COL_TEXT,COL_PANEL);
+        draw_hex32(eng.blitter.tail,x+248u,y+322u,COL_TEXT,COL_PANEL);
+        text_line("BCS START/CTL",x+14u,y+340u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.blitter.start,x+188u,y+340u,COL_TEXT,COL_PANEL);
+        draw_hex32(eng.blitter.control,x+296u,y+340u,COL_TEXT,COL_PANEL);
+    }else{
+        text_line("ENGINE SNAPSHOT UNAVAILABLE",x+14u,y+276u,COL_DANGER,COL_PANEL);
+    }
 }
 static void draw_desktop_background(void){
     /* Static wallpaper only: no animated background effects. */
@@ -1483,7 +1536,7 @@ void gui_step(void){
            (uint32_t)(now-telemetry_last_tick)>=120u){
             uint32_t sw=framebuffer_width();
             uint32_t px0=sw>326u?sw-318u:8u;
-            dirty_rect(px0,48u,318u,190u);
+            dirty_rect(px0,40u,sw>510u?502u:sw-8u,366u);
             telemetry_last_tick=now;
         }
     }
