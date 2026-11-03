@@ -76,118 +76,251 @@ static int intel_gpu_read_engine_registers(uint32_t base,
 }
 
 /*
- * Gen11/Gen12 forcewake registers and masked-write protocol follow the
- * Intel i915 register definitions. Request only the GT and render domains
- * needed for GMD_ID_GRAPHICS and RCS/BCS register reads.
+ * Gen9+ Forcewake protocol aligned with Linux i915 intel_uncore.c.
+ * Alder Lake (12th Gen) uses FORCEWAKE_GT_GEN9 / ACK_GT_GEN9,
+ * and FORCEWAKE_RENDER_GEN9 / ACK_RENDER_GEN9.
  */
-#define INTEL_FORCEWAKE_GT_REQ       0x0000A188u
-#define INTEL_FORCEWAKE_RENDER_REQ   0x0000A278u
-#define INTEL_FORCEWAKE_GT_ACK       0x000130044u
-#define INTEL_FORCEWAKE_RENDER_ACK   0x00000D84u
-#define INTEL_FORCEWAKE_KERNEL       0x00000001u
-#define INTEL_FORCEWAKE_MASKED_SET   0x00010001u
-#define INTEL_FORCEWAKE_MASKED_CLR   0x00010000u
+#define INTEL_FORCEWAKE_GT_REQ          0x0000A188u
+#define INTEL_FORCEWAKE_RENDER_REQ      0x0000A278u
+#define INTEL_FORCEWAKE_GT_ACK          0x000130044u
+#define INTEL_FORCEWAKE_RENDER_ACK      0x00000D84u
+#define INTEL_FORCEWAKE_KERNEL          (1u << 0)
+#define INTEL_FORCEWAKE_KERNEL_FALLBACK (1u << 15)
+#define INTEL_FORCEWAKE_MASKED_SET(bit) (((bit) << 16) | (bit))
+#define INTEL_FORCEWAKE_MASKED_CLR(bit) ((bit) << 16)
+#define INTEL_FORCEWAKE_ACK_POLLS       1000000u
 
-static int intel_gpu_forcewake_acquire(uint32_t request_reg,
-                                       uint32_t ack_reg)
+typedef struct {
+    uint32_t request_reg;
+    uint32_t ack_reg;
+    uint32_t ack_initial;
+    uint32_t ack_final;
+    uint32_t fallback_used;
+    uint32_t fallback_passes;
+} intel_forcewake_result_t;
+
+static int intel_gpu_wait_ack(uint32_t ack_reg, uint32_t mask,
+                              uint32_t expected, uint32_t *last_value)
 {
-    uint32_t ack = 0u;
-    if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 || ack == 0xFFFFFFFFu)
-        return -1;
-    if ((ack & INTEL_FORCEWAKE_KERNEL) != 0u)
-        return 0; /* Firmware/another owner already holds this domain. */
-
-    if (intel_gpu_mmio_write32(request_reg, INTEL_FORCEWAKE_MASKED_SET) != 0)
-        return -1;
-
-    for (uint32_t i = 0u; i < 100000u; ++i) {
-        if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 || ack == 0xFFFFFFFFu)
-            break;
-        if ((ack & INTEL_FORCEWAKE_KERNEL) != 0u)
-            return 1; /* This probe acquired the reference. */
+    uint32_t value = 0u;
+    for (uint32_t i = 0u; i < INTEL_FORCEWAKE_ACK_POLLS; ++i) {
+        if (intel_gpu_mmio_read32(ack_reg, &value) != 0 ||
+            value == 0xFFFFFFFFu) {
+            if (last_value) *last_value = value;
+            return -2; /* MMIO access failure / all-ones response. */
+        }
+        if ((value & mask) == expected) {
+            if (last_value) *last_value = value;
+            return 0;
+        }
         __asm__ volatile("pause");
     }
+    if (last_value) *last_value = value;
+    return -1; /* ACK timeout. */
+}
 
-    (void)intel_gpu_mmio_write32(request_reg, INTEL_FORCEWAKE_MASKED_CLR);
+/*
+ * Linux i915's fallback workaround toggles bit 15 after the normal ACK
+ * wait fails. The increasing delay gives the GT state machine time to
+ * deliver the delayed kernel ACK. We use bounded pause loops because this
+ * early boot stage does not yet have a calibrated microsecond delay.
+ */
+static int intel_gpu_forcewake_fallback(uint32_t request_reg,
+                                        uint32_t ack_reg,
+                                        uint32_t desired_kernel_ack,
+                                        intel_forcewake_result_t *result)
+{
+    for (uint32_t pass = 1u; pass <= 10u; ++pass) {
+        uint32_t ack = 0u;
+
+        if (intel_gpu_wait_ack(ack_reg, INTEL_FORCEWAKE_KERNEL_FALLBACK,
+                               0u, &ack) != 0)
+            continue;
+
+        if (intel_gpu_mmio_write32(
+                request_reg,
+                INTEL_FORCEWAKE_MASKED_SET(INTEL_FORCEWAKE_KERNEL_FALLBACK)) != 0)
+            return -2;
+
+        /* Bounded backoff; deliberately no uncalibrated microsecond claim. */
+        for (uint32_t delay = 0u; delay < pass * 1000u; ++delay)
+            __asm__ volatile("pause");
+
+        (void)intel_gpu_wait_ack(ack_reg,
+                                 INTEL_FORCEWAKE_KERNEL_FALLBACK,
+                                 INTEL_FORCEWAKE_KERNEL_FALLBACK, &ack);
+
+        if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 ||
+            ack == 0xFFFFFFFFu) {
+            (void)intel_gpu_mmio_write32(
+                request_reg,
+                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL_FALLBACK));
+            return -2;
+        }
+
+        if ((ack & INTEL_FORCEWAKE_KERNEL) == desired_kernel_ack) {
+            result->fallback_used = 1u;
+            result->fallback_passes = pass;
+            (void)intel_gpu_mmio_write32(
+                request_reg,
+                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL_FALLBACK));
+            return 0;
+        }
+
+        if (intel_gpu_mmio_write32(
+                request_reg,
+                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL_FALLBACK)) != 0)
+            return -2;
+    }
     return -1;
 }
 
-static void intel_gpu_forcewake_release(uint32_t request_reg)
+static int intel_gpu_forcewake_acquire(uint32_t request_reg,
+                                       uint32_t ack_reg,
+                                       intel_forcewake_result_t *result)
 {
-    (void)intel_gpu_mmio_write32(request_reg, INTEL_FORCEWAKE_MASKED_CLR);
+    uint32_t ack = 0u;
+    int rc;
+
+    if (!result)
+        return -2;
+    *result = (intel_forcewake_result_t){0};
+    result->request_reg = request_reg;
+    result->ack_reg = ack_reg;
+
+    rc = intel_gpu_mmio_read32(ack_reg, &ack);
+    if (rc != 0 || ack == 0xFFFFFFFFu)
+        return -2;
+    result->ack_initial = ack;
+
+    /* Linux i915 first waits for the previous kernel request to clear. */
+    rc = intel_gpu_wait_ack(ack_reg, INTEL_FORCEWAKE_KERNEL, 0u, &ack);
+    if (rc != 0) {
+        int frc = intel_gpu_forcewake_fallback(request_reg, ack_reg, 0u, result);
+        if (frc != 0)
+            return frc;
+    }
+
+    if (intel_gpu_mmio_write32(
+            request_reg,
+            INTEL_FORCEWAKE_MASKED_SET(INTEL_FORCEWAKE_KERNEL)) != 0)
+        return -2;
+
+    rc = intel_gpu_wait_ack(ack_reg, INTEL_FORCEWAKE_KERNEL,
+                            INTEL_FORCEWAKE_KERNEL, &ack);
+    if (rc != 0) {
+        int frc = intel_gpu_forcewake_fallback(
+            request_reg, ack_reg, INTEL_FORCEWAKE_KERNEL, result);
+        if (frc != 0) {
+            (void)intel_gpu_mmio_write32(
+                request_reg,
+                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL));
+            return frc;
+        }
+        if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 ||
+            (ack & INTEL_FORCEWAKE_KERNEL) == 0u) {
+            (void)intel_gpu_mmio_write32(
+                request_reg,
+                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL));
+            return -1;
+        }
+    }
+
+    result->ack_final = ack;
+    return 0;
+}
+
+static int intel_gpu_forcewake_release(uint32_t request_reg,
+                                       uint32_t ack_reg,
+                                       intel_forcewake_result_t *result)
+{
+    uint32_t ack = 0u;
+    if (intel_gpu_mmio_write32(
+            request_reg,
+            INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL)) != 0)
+        return -2;
+
+    /* Match i915: wait for the kernel ACK to clear after dropping request. */
+    if (intel_gpu_wait_ack(ack_reg, INTEL_FORCEWAKE_KERNEL, 0u, &ack) != 0)
+        return -1;
+    if (result)
+        result->ack_final = ack;
+    return 0;
 }
 
 static void intel_gpu_probe_engine_registers(void)
 {
-    int gt_wake = -1;
-    int render_wake = -1;
+    intel_forcewake_result_t gt_fw, render_fw;
+    int gt_acquired = 0;
+    int render_acquired = 0;
+    int rc;
 
     if (!intel_gpu_is_alder_lake() || !mmio_ready)
         return;
 
     engine_snapshot = (intel_gpu_engine_snapshot_t){0};
 
-    gt_wake = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_GT_REQ,
-                                           INTEL_FORCEWAKE_GT_ACK);
-    if (gt_wake < 0) {
-        debug_write("LIONOS:INTEL-GT-FORCEWAKE-FAIL\n");
-        console_write("[ -- ] Intel GT forcewake acknowledgement timed out\n");
+    rc = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_GT_REQ,
+                                     INTEL_FORCEWAKE_GT_ACK, &gt_fw);
+    if (rc != 0) {
+        debug_write(rc == -2 ? "LIONOS:INTEL-GT-FW-MMIO-FAIL\n" :
+                               "LIONOS:INTEL-GT-FW-ACK-FAIL\n");
+        console_write("[ -- ] GT Forcewake failed; see GT ACK diagnostics\n");
         return;
     }
+    gt_acquired = 1;
 
     if (intel_gpu_mmio_read32(INTEL_GMD_ID_GRAPHICS,
                               &engine_snapshot.graphics_gmd_id) != 0 ||
         engine_snapshot.graphics_gmd_id == 0u ||
         engine_snapshot.graphics_gmd_id == 0xFFFFFFFFu) {
-        if (gt_wake > 0)
-            intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
         debug_write("LIONOS:INTEL-GT-ID-INVALID\n");
-        console_write("[ -- ] Intel GT identity unavailable after GT wake\n");
-        return;
+        console_write("[ -- ] GMD_ID_GRAPHICS invalid while GT is awake\n");
+        goto cleanup;
     }
 
-    render_wake = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_RENDER_REQ,
-                                               INTEL_FORCEWAKE_RENDER_ACK);
-    if (render_wake < 0) {
-        if (gt_wake > 0)
-            intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
-        debug_write("LIONOS:INTEL-RENDER-FORCEWAKE-FAIL\n");
-        console_write("[ -- ] Intel render forcewake acknowledgement timed out\n");
-        return;
+    rc = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_RENDER_REQ,
+                                     INTEL_FORCEWAKE_RENDER_ACK, &render_fw);
+    if (rc != 0) {
+        debug_write(rc == -2 ? "LIONOS:INTEL-RENDER-FW-MMIO-FAIL\n" :
+                               "LIONOS:INTEL-RENDER-FW-ACK-FAIL\n");
+        console_write("[ -- ] Render Forcewake failed; see Render ACK diagnostics\n");
+        goto cleanup;
     }
+    render_acquired = 1;
 
     if (intel_gpu_read_engine_registers(INTEL_RENDER_RING_BASE,
-                                        &engine_snapshot.render) != 0 ||
-        intel_gpu_read_engine_registers(INTEL_BLITTER_RING_BASE,
+                                        &engine_snapshot.render) != 0) {
+        debug_write("LIONOS:INTEL-RCS-READ-FAIL\n");
+        console_write("[ -- ] RCS register read failed\n");
+        goto cleanup;
+    }
+    if (intel_gpu_read_engine_registers(INTEL_BLITTER_RING_BASE,
                                         &engine_snapshot.blitter) != 0) {
-        if (render_wake > 0)
-            intel_gpu_forcewake_release(INTEL_FORCEWAKE_RENDER_REQ);
-        if (gt_wake > 0)
-            intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
-        debug_write("LIONOS:INTEL-GT-RING-READ-FAIL\n");
-        console_write("[ -- ] Intel GT ring registers could not be sampled\n");
-        return;
+        debug_write("LIONOS:INTEL-BCS-READ-FAIL\n");
+        console_write("[ -- ] BCS register read failed\n");
+        goto cleanup;
     }
 
     engine_snapshot.valid = 1u;
-    console_write("[ OK ] Intel Gen12 GT identity + RCS/BCS sampled with forcewake\n");
-    console_write("       GMD_ID_GRAPHICS=0x");
-    intel_gpu_hex32(engine_snapshot.graphics_gmd_id);
-    console_write(" RCS HEAD/TAIL=0x");
-    intel_gpu_hex32(engine_snapshot.render.head);
-    console_write("/0x");
-    intel_gpu_hex32(engine_snapshot.render.tail);
-    console_write(" BCS HEAD/TAIL=0x");
-    intel_gpu_hex32(engine_snapshot.blitter.head);
-    console_write("/0x");
-    intel_gpu_hex32(engine_snapshot.blitter.tail);
-    console_write("\n");
-    debug_write("LIONOS:INTEL-GT-FORCEWAKE-PROBE-OK\n");
+    console_write("[ OK ] Gen12 GT/RCS/BCS registers sampled (i915-style Forcewake)\n");
+    debug_write("LIONOS:INTEL-GT-I915-FORCEWAKE-PROBE-OK\n");
 
-    if (render_wake > 0)
-        intel_gpu_forcewake_release(INTEL_FORCEWAKE_RENDER_REQ);
-    if (gt_wake > 0)
-        intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
+cleanup:
+    if (render_acquired &&
+        intel_gpu_forcewake_release(INTEL_FORCEWAKE_RENDER_REQ,
+                                    INTEL_FORCEWAKE_RENDER_ACK,
+                                    &render_fw) != 0) {
+        debug_write("LIONOS:INTEL-RENDER-FW-RELEASE-FAIL\n");
+        console_write("[ !! ] Render Forcewake release ACK failed\n");
+    }
+    if (gt_acquired &&
+        intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ,
+                                    INTEL_FORCEWAKE_GT_ACK,
+                                    &gt_fw) != 0) {
+        debug_write("LIONOS:INTEL-GT-FW-RELEASE-FAIL\n");
+        console_write("[ !! ] GT Forcewake release ACK failed\n");
+    }
 }
 
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg)
