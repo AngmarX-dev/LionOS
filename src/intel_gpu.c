@@ -130,8 +130,8 @@ static void intel_gpu_probe_engine_registers(void)
     gt_wake = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_GT_REQ,
                                            INTEL_FORCEWAKE_GT_ACK);
     if (gt_wake < 0) {
-        debug_write("LIONOS:INTEL-GT-FORCEWAKE-FAIL\\n");
-        console_write("[ -- ] Intel GT forcewake acknowledgement timed out\\n");
+        debug_write("LIONOS:INTEL-GT-FORCEWAKE-FAIL\n");
+        console_write("[ -- ] Intel GT forcewake acknowledgement timed out\n");
         return;
     }
 
@@ -141,8 +141,8 @@ static void intel_gpu_probe_engine_registers(void)
         engine_snapshot.graphics_gmd_id == 0xFFFFFFFFu) {
         if (gt_wake > 0)
             intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
-        debug_write("LIONOS:INTEL-GT-ID-INVALID\\n");
-        console_write("[ -- ] Intel GT identity unavailable after GT wake\\n");
+        debug_write("LIONOS:INTEL-GT-ID-INVALID\n");
+        console_write("[ -- ] Intel GT identity unavailable after GT wake\n");
         return;
     }
 
@@ -151,8 +151,8 @@ static void intel_gpu_probe_engine_registers(void)
     if (render_wake < 0) {
         if (gt_wake > 0)
             intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
-        debug_write("LIONOS:INTEL-RENDER-FORCEWAKE-FAIL\\n");
-        console_write("[ -- ] Intel render forcewake acknowledgement timed out\\n");
+        debug_write("LIONOS:INTEL-RENDER-FORCEWAKE-FAIL\n");
+        console_write("[ -- ] Intel render forcewake acknowledgement timed out\n");
         return;
     }
 
@@ -164,13 +164,13 @@ static void intel_gpu_probe_engine_registers(void)
             intel_gpu_forcewake_release(INTEL_FORCEWAKE_RENDER_REQ);
         if (gt_wake > 0)
             intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ);
-        debug_write("LIONOS:INTEL-GT-RING-READ-FAIL\\n");
-        console_write("[ -- ] Intel GT ring registers could not be sampled\\n");
+        debug_write("LIONOS:INTEL-GT-RING-READ-FAIL\n");
+        console_write("[ -- ] Intel GT ring registers could not be sampled\n");
         return;
     }
 
     engine_snapshot.valid = 1u;
-    console_write("[ OK ] Intel Gen12 GT identity + RCS/BCS sampled with forcewake\\n");
+    console_write("[ OK ] Intel Gen12 GT identity + RCS/BCS sampled with forcewake\n");
     console_write("       GMD_ID_GRAPHICS=0x");
     intel_gpu_hex32(engine_snapshot.graphics_gmd_id);
     console_write(" RCS HEAD/TAIL=0x");
@@ -181,8 +181,8 @@ static void intel_gpu_probe_engine_registers(void)
     intel_gpu_hex32(engine_snapshot.blitter.head);
     console_write("/0x");
     intel_gpu_hex32(engine_snapshot.blitter.tail);
-    console_write("\\n");
-    debug_write("LIONOS:INTEL-GT-FORCEWAKE-PROBE-OK\\n");
+    console_write("\n");
+    debug_write("LIONOS:INTEL-GT-FORCEWAKE-PROBE-OK\n");
 
     if (render_wake > 0)
         intel_gpu_forcewake_release(INTEL_FORCEWAKE_RENDER_REQ);
