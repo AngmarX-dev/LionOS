@@ -85,7 +85,6 @@ static uint32_t drag_surface_w, drag_surface_h;
 static uint8_t drag_cache_active;
 static uint8_t drag_render_skip_id;
 static uint8_t drag_compositor_ready;
-static uint32_t telemetry_last_tick = 0xFFFFFFFFu;
 
 /* Kernel log storage is a bounded in-memory desktop service, not a file. */
 #define KLOG_RING_CAPACITY 64u
@@ -731,142 +730,6 @@ static void draw_top_menu(void){
     }
 }
 
-static void diag_append(char *dst,uint32_t *at,const char *src){
-    if(!dst||!at||!src)return;
-    while(*src&&*at<95u)dst[(*at)++]=*src++;
-    dst[*at]=0;
-}
-static void diag_dec(char *dst,uint32_t *at,uint32_t value){
-    char tmp[10];uint32_t n=0u;
-    do{tmp[n++]=(char)('0'+value%10u);value/=10u;}while(value&&n<sizeof(tmp));
-    while(n&&*at<95u)dst[(*at)++]=tmp[--n];
-    dst[*at]=0;
-}
-static void diag_hex(char *dst,uint32_t *at,uint32_t value,uint32_t digits){
-    static const char hex[]="0123456789ABCDEF";
-    for(uint32_t i=digits;i>0u&&*at<95u;--i)
-        dst[(*at)++]=hex[(value>>((i-1u)*4u))&0xFu];
-    dst[*at]=0;
-}
-static void diag_hex64(char *dst,uint32_t *at,uint64_t value){
-    diag_hex(dst,at,(uint32_t)(value>>32),8u);
-    diag_hex(dst,at,(uint32_t)value,8u);
-}
-static void draw_diag_line(const char *s,uint32_t x,uint32_t y,uint32_t max_chars,uint32_t color){
-    uint32_t n=0u;
-    while(s&&s[n]&&n<max_chars){text(s[n],x+n*CHAR_W,y,color,COL_PANEL);++n;}
-}
-static void draw_notification(void){
-    uint32_t w=framebuffer_width();
-    if(w<760u)return;
-    const uint32_t panel_w=720u,panel_h=552u;
-    uint32_t x=w>panel_w+24u?w-panel_w-20u:10u;
-    glass_panel(x,50u,panel_w,panel_h,22u,0xEAF7FFu,22u,1u);
-    text_line("CPU / INTEL GRAPHICS HARDWARE REPORT",x+18u,60u,COL_GOLD,COL_PANEL);
-
-    cpu_identification_t ci;
-    cpu_get_identification(&ci);
-    char lines[26][96];
-    for(uint32_t i=0u;i<26u;++i)lines[i][0]=0;
-    uint32_t n=0u;
-    diag_append(lines[0],&n,"CPU: ");diag_append(lines[0],&n,ci.brand[0]?ci.brand:"Unknown CPU");
-    n=0u;diag_append(lines[1],&n,"Vendor: ");diag_append(lines[1],&n,ci.vendor);
-    diag_append(lines[1],&n,"  Family: ");diag_dec(lines[1],&n,ci.family);
-    diag_append(lines[1],&n,"  Model: ");diag_dec(lines[1],&n,ci.model);
-    n=0u;diag_append(lines[2],&n,"Stepping: ");diag_dec(lines[2],&n,ci.stepping);
-    diag_append(lines[2],&n,"  Signature: 0x");diag_hex(lines[2],&n,ci.signature,8u);
-    diag_append(lines[2],&n,"  CPUID: 0x");diag_hex(lines[2],&n,ci.max_basic_leaf,2u);
-    n=0u;diag_append(lines[3],&n,"Physical cores: ");if(ci.physical_cores)diag_dec(lines[3],&n,ci.physical_cores);else diag_append(lines[3],&n,"Unknown");
-    diag_append(lines[3],&n,"  Logical CPUs: ");diag_dec(lines[3],&n,ci.logical_processors);
-    diag_append(lines[3],&n,"  APIC ID: ");diag_dec(lines[3],&n,ci.apic_id);
-    n=0u;diag_append(lines[4],&n,"L1D: ");diag_dec(lines[4],&n,ci.l1_data_kb);
-    diag_append(lines[4],&n," KB  L1I: ");diag_dec(lines[4],&n,ci.l1_instruction_kb);
-    diag_append(lines[4],&n," KB  L2: ");diag_dec(lines[4],&n,ci.l2_kb);
-    diag_append(lines[4],&n," KB");
-    n=0u;diag_append(lines[5],&n,"L3: ");diag_dec(lines[5],&n,ci.l3_kb);
-    diag_append(lines[5],&n," KB  Base: ");diag_dec(lines[5],&n,ci.base_mhz);
-    diag_append(lines[5],&n," MHz  Max: ");diag_dec(lines[5],&n,ci.max_mhz);
-    diag_append(lines[5],&n," MHz  BCLK: ");diag_dec(lines[5],&n,ci.bus_mhz);
-    diag_append(lines[5],&n," MHz");
-    n=0u;diag_append(lines[6],&n,"Architecture: ");diag_append(lines[6],&n,ci.x86_64?"x86-64 capable":"32-bit only");
-    diag_append(lines[6],&n,"  Ext CPUID: 0x");diag_hex(lines[6],&n,ci.max_extended_leaf,8u);
-    n=0u;diag_append(lines[7],&n,"CPU features:");
-    if(ci.feature_flags&CPU_FEATURE_SSE)diag_append(lines[7],&n," SSE");
-    if(ci.feature_flags&CPU_FEATURE_SSE2)diag_append(lines[7],&n," SSE2");
-    if(ci.feature_flags&CPU_FEATURE_SSE3)diag_append(lines[7],&n," SSE3");
-    if(ci.feature_flags&CPU_FEATURE_SSSE3)diag_append(lines[7],&n," SSSE3");
-    if(ci.feature_flags&CPU_FEATURE_SSE41)diag_append(lines[7],&n," SSE4.1");
-    if(ci.feature_flags&CPU_FEATURE_SSE42)diag_append(lines[7],&n," SSE4.2");
-    if(ci.feature_flags&CPU_FEATURE_AVX)diag_append(lines[7],&n," AVX");
-    if(ci.feature_flags&CPU_FEATURE_APIC)diag_append(lines[7],&n," APIC");
-
-    intel_gpu_info_t gi;
-    if(intel_gpu_get_info(&gi)==0){
-        n=0u;diag_append(lines[8],&n,"Intel GPU: 0x");diag_hex(lines[8],&n,gi.device_id,4u);
-        diag_append(lines[8],&n," Rev 0x");diag_hex(lines[8],&n,gi.revision,2u);
-        diag_append(lines[8],&n," PCI ");diag_dec(lines[8],&n,gi.bus);
-        diag_append(lines[8],&n,":");diag_dec(lines[8],&n,gi.slot);
-        diag_append(lines[8],&n,".");diag_dec(lines[8],&n,gi.function);
-        n=0u;diag_append(lines[9],&n,"GPU BAR0: 0x");diag_hex64(lines[9],&n,gi.bar0);
-        n=0u;diag_append(lines[10],&n,"MMIO: ");diag_append(lines[10],&n,gi.mmio_mapped?"MAPPED":"NOT MAPPED");
-        diag_append(lines[10],&n,"  BAR0 size: ");diag_dec(lines[10],&n,(uint32_t)(gi.bar0_size/(1024u*1024u)));
-        diag_append(lines[10],&n," MiB");
-
-        n=0u;
-        diag_append(lines[11],&n,"Host bridge: ");
-        diag_append(lines[11],&n,gi.host_bridge_found?"Intel 00:00.0":"not detected");
-
-        if(gi.host_bridge_found){
-            uint32_t bgsm_base=gi.host_bgsm&0xFFF00000u;
-            uint32_t bdsm_base=gi.host_bdsm&0xFFF00000u;
-            uint32_t tolud_base=gi.host_tolud&0xFFF00000u;
-            uint32_t ranges_valid=(bgsm_base<bdsm_base&&bdsm_base<tolud_base)?1u:0u;
-
-            n=0u;diag_append(lines[12],&n,"GGC: 0x");diag_hex(lines[12],&n,gi.host_ggc,8u);
-            n=0u;diag_append(lines[13],&n,"BDSM: 0x");diag_hex(lines[13],&n,gi.host_bdsm,8u);
-            diag_append(lines[13],&n,"  BGSM: 0x");diag_hex(lines[13],&n,gi.host_bgsm,8u);
-            n=0u;diag_append(lines[14],&n,"TOLUD: 0x");diag_hex(lines[14],&n,gi.host_tolud,8u);
-
-            n=0u;diag_append(lines[15],&n,"GMS field: 0x");
-            diag_hex(lines[15],&n,(gi.host_ggc>>8)&0xFFu,2u);
-            diag_append(lines[15],&n,"  GGMS field: ");
-            diag_dec(lines[15],&n,(gi.host_ggc>>6)&0x3u);
-
-            n=0u;diag_append(lines[16],&n,"BGSM base: 0x");diag_hex(lines[16],&n,bgsm_base,8u);
-            n=0u;diag_append(lines[17],&n,"BDSM base: 0x");diag_hex(lines[17],&n,bdsm_base,8u);
-            n=0u;diag_append(lines[18],&n,"TOLUD base: 0x");diag_hex(lines[18],&n,tolud_base,8u);
-
-            if(ranges_valid){
-                n=0u;diag_append(lines[19],&n,"BGSM->BDSM span: ");
-                diag_dec(lines[19],&n,(bdsm_base-bgsm_base)>>20);
-                diag_append(lines[19],&n," MiB");
-                n=0u;diag_append(lines[20],&n,"BDSM->TOLUD span: ");
-                diag_dec(lines[20],&n,(tolud_base-bdsm_base)>>20);
-                diag_append(lines[20],&n," MiB");
-            }
-            n=0u;diag_append(lines[21],&n,"Address order: ");
-            diag_append(lines[21],&n,ranges_valid?"VALID":"INVALID");
-
-            if(gi.ggtt_ready){
-                n=0u;diag_append(lines[22],&n,"GGTT aperture: BAR0 + 0x");
-                diag_hex(lines[22],&n,gi.ggtt_offset,8u);
-                n=0u;diag_append(lines[23],&n,"GGTT size: ");
-                diag_dec(lines[23],&n,gi.ggtt_size/(1024u*1024u));
-                diag_append(lines[23],&n," MiB (identified)");
-                n=0u;diag_append(lines[24],&n,"High RAM free: ");diag_dec(lines[24],&n,memory_high_free_pages()/256u);diag_append(lines[24],&n," MiB");
-                n=0u;diag_append(lines[25],&n,"Low PMM: ");diag_dec(lines[25],&n,(uint32_t)(memory_managed_limit_bytes()/(1024u*1024u)));diag_append(lines[25],&n," MiB | high cap: 64 GiB");
-            }else{
-                n=0u;diag_append(lines[22],&n,"GGTT aperture: not validated");
-            }
-        }else{
-            diag_append(lines[12],&n,"Host memory registers unavailable");
-        }
-    }else{
-        diag_append(lines[8],&n,"Intel GPU: not detected by PCI probe");
-    }
-    for(uint32_t i=0u;i<26u;++i)
-        draw_diag_line(lines[i],x+18u,82u+i*18u,56u,i==0u?COL_TEXT:COL_DIM);
-}
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
     framebuffer_blend_rect(0u,y,w,TASKBAR_H,COL_GROUND,22u);
@@ -884,7 +747,6 @@ static void draw_taskbar(void){
     for(uint32_t i=0u;i<6u;++i)
         draw_glass_icon(start+i*step,dy+9u,icons[i]);
     draw_top_menu();
-    draw_notification();
 }
 
 static void start_geom(uint32_t*x,uint32_t*y,uint32_t*w,uint32_t*h){
@@ -1530,16 +1392,6 @@ void gui_step(void){
      */
     keyboard_poll();
     const char *usb_status=mouse_usb_status_text();if(usb_status!=last_usb_status){last_usb_status=usb_status;dirty_full();}
-    {
-        uint32_t now=gui_render_clock_ticks();
-        if(telemetry_last_tick==0xFFFFFFFFu ||
-           (uint32_t)(now-telemetry_last_tick)>=120u){
-            uint32_t sw=framebuffer_width();
-            uint32_t px0=sw>326u?sw-318u:8u;
-            dirty_rect(px0,40u,sw>510u?502u:sw-8u,366u);
-            telemetry_last_tick=now;
-        }
-    }
     uint32_t old_x=mouse_px_x,old_y=mouse_px_y;mouse_px_x=px();mouse_px_y=py();uint32_t buttons=mouse_buttons();
     if(mouse_px_x!=old_x||mouse_px_y!=old_y){uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u,top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u,right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u,bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;if(right>framebuffer_width())right=framebuffer_width();if(bottom>framebuffer_height())bottom=framebuffer_height();if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);}
     if(buttons!=previous_buttons)dirty_around_cursor();
