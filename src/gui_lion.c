@@ -898,7 +898,7 @@ static int intel_gpu_report_capture_and_save(void){
                   intel_gpu_ggtt_read_entry(last_entry,&pte_last)==0;
     }
 
-    if(intel_gpu_report_line("LIONOS INTEL GPU DIAGNOSTIC REPORT\n","")!=0||
+    if(intel_gpu_report_line("LIONOS INTEL GPU DIAGNOSTIC REPORT","")!=0||
        intel_gpu_report_line("REPORT VERSION: ","1")!=0||
        intel_gpu_report_line("CPU BRAND: ",cpu.brand)!=0||
        intel_gpu_report_line("CPU VENDOR: ",cpu.vendor)!=0||
@@ -1663,7 +1663,7 @@ void gui_start(void){
     cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
     init_windows();
     intel_gpu_report_saved=intel_gpu_report_capture_and_save();
-    debug_write(intel_gpu_report_saved==0?"LIONOS:INTEL-GPU-REPORT-SAVED\\n":"LIONOS:INTEL-GPU-REPORT-SAVE-FAIL\\n");
+    debug_write(intel_gpu_report_saved==0?"LIONOS:INTEL-GPU-REPORT-SAVED\n":"LIONOS:INTEL-GPU-REPORT-SAVE-FAIL\n");
     mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
     kernel_log(KLOG_INFO, "Graphical desktop ready");
