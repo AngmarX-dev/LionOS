@@ -929,10 +929,15 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
         return -1;
 
     record->state = 1u;
-    record->generation = ++intel_gpu_memory_generation;
-    if (!record->generation)
-        record->generation = ++intel_gpu_memory_generation;
+    intel_gpu_memory_generation = (intel_gpu_memory_generation + 1u) & 0x00FFFFFFu;
+    if (!intel_gpu_memory_generation)
+        intel_gpu_memory_generation = 1u;
+    record->generation = intel_gpu_memory_generation;
     record->page_count = page_count;
+    for (uint32_t i = 0u; i < page_count; ++i) {
+        record->physical[i] = 0u;
+        record->virtual_address[i] = 0u;
+    }
     record->ggtt_first = first;
 
     for (uint32_t i = 0u; i < page_count; ++i) {
