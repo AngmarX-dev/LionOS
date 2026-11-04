@@ -949,7 +949,11 @@ static int intel_gpu_report_capture_and_save(void){
             return -1;
     }
 
-    if(intel_gpu_report_u32("GT DIAGNOSTIC CODE: ",diag.code)!=0||
+    if(intel_gpu_report_hex32("GT FORCEWAKE REQUEST REGISTER: ",0x0000A188u)!=0||
+       intel_gpu_report_hex32("GT FORCEWAKE ACK REGISTER: ",0x00130044u)!=0||
+       intel_gpu_report_hex32("RENDER FORCEWAKE REQUEST REGISTER: ",0x0000A278u)!=0||
+       intel_gpu_report_hex32("RENDER FORCEWAKE ACK REGISTER: ",0x00000D84u)!=0||
+       intel_gpu_report_u32("GT DIAGNOSTIC CODE: ",diag.code)!=0||
        intel_gpu_report_hex32("GT ACK INITIAL: ",diag.gt_ack_initial)!=0||
        intel_gpu_report_hex32("GT ACK FINAL: ",diag.gt_ack_final)!=0||
        intel_gpu_report_hex32("RENDER ACK INITIAL: ",diag.render_ack_initial)!=0||
