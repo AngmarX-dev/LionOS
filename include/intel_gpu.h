@@ -80,4 +80,37 @@ int intel_gpu_ggtt_read_entry(uint32_t index, uint64_t *value);
 int intel_gpu_get_engine_snapshot(intel_gpu_engine_snapshot_t *out);
 int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out);
 
+/*
+ * GPU backing-memory manager, first bring-up stage.
+ * GGTT entries are scanned and reserved in software only; no GGTT PTE is
+ * modified and buffers are NOT GPU-addressable until the later mapping stage.
+ * All manager operations are BSP-only and must be externally serialized.
+ */
+#define INTEL_GPU_MEMORY_MAX_PAGES 256u
+
+typedef struct {
+    uint32_t handle;
+    uint32_t page_count;
+    uint32_t ggtt_first_entry;
+    uint32_t bytes;
+    uint32_t ggtt_mapping_active; /* Always zero in this stage. */
+} intel_gpu_memory_block_t;
+
+typedef struct {
+    uint32_t ggtt_total_entries;
+    uint32_t ggtt_free_entries;
+    uint32_t active_allocations;
+    uint32_t allocated_pages;
+    uint32_t initialized;
+} intel_gpu_memory_stats_t;
+
+int intel_gpu_memory_init(void);
+int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out);
+int intel_gpu_memory_free(uint32_t handle);
+int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
+                              uint64_t *physical_address,
+                              uint32_t *cpu_virtual_address);
+int intel_gpu_memory_get_stats(intel_gpu_memory_stats_t *out);
+int intel_gpu_memory_selftest(void);
+
 #endif
