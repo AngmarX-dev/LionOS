@@ -7,6 +7,7 @@
 #include "memory.h"
 #include "heap.h"
 #include "vfs.h"
+#include "ramfs.h"
 #include "lapic.h"
 #include "cpu.h"
 #include "intel_gpu.h"
