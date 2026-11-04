@@ -931,11 +931,15 @@ static int intel_gpu_report_capture_and_save(void){
     }
 
     if(intel_gpu_report_line("FORCEWAKE DIAGNOSTICS: ",have_diag?"AVAILABLE":"UNAVAILABLE")!=0||
-       intel_gpu_report_hex32("GT ACK INITIAL: ",diag.gt_ack_initial)!=0||
-       intel_gpu_report_hex32("GT ACK FINAL: ",diag.gt_ack_final)!=0||
-       intel_gpu_report_hex32("RENDER ACK INITIAL: ",diag.render_ack_initial)!=0||
-       intel_gpu_report_hex32("RENDER ACK FINAL: ",diag.render_ack_final)!=0||
        intel_gpu_report_line("ENGINE SNAPSHOT: ",have_engine?"AVAILABLE":"UNAVAILABLE")!=0)
+        return -1;
+    if(have_diag&&
+       (intel_gpu_report_u32("GT DIAGNOSTIC CODE: ",diag.code)!=0||
+        intel_gpu_report_hex32("GT ACK INITIAL: ",diag.gt_ack_initial)!=0||
+        intel_gpu_report_hex32("GT ACK FINAL: ",diag.gt_ack_final)!=0||
+        intel_gpu_report_hex32("RENDER ACK INITIAL: ",diag.render_ack_initial)!=0||
+        intel_gpu_report_hex32("RENDER ACK FINAL: ",diag.render_ack_final)!=0||
+        intel_gpu_report_u32("GT / RENDER FALLBACK: ",diag.gt_fallback_used)!=0))
         return -1;
     if(have_engine&&
        (intel_gpu_report_hex32("GMD ID: ",eng.graphics_gmd_id)!=0||
@@ -948,7 +952,9 @@ static int intel_gpu_report_capture_and_save(void){
     if(have_memory&&
        (intel_gpu_report_u32("GPU ALLOCATIONS: ",mem.active_allocations)!=0||
         intel_gpu_report_u32("GPU BACKING PAGES: ",mem.allocated_pages)!=0||
-        intel_gpu_report_u32("GGTT EMPTY / VALID / INVALID: ",mem.ggtt_empty_candidates)!=0))
+        intel_gpu_report_u32("GGTT EMPTY CANDIDATES: ",mem.ggtt_empty_candidates)!=0||
+        intel_gpu_report_u32("GGTT VALID ENTRIES: ",mem.ggtt_valid_entries)!=0||
+        intel_gpu_report_u32("GGTT INVALID NONZERO ENTRIES: ",mem.ggtt_nonzero_invalid_entries)!=0))
         return -1;
 
     if(intel_gpu_report_line("GPU COMMAND SUBMISSION: NOT IMPLEMENTED / NOT TESTED","")!=0||
