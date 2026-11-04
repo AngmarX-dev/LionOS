@@ -837,7 +837,7 @@ static void draw_system_monitor(void){
     /* Keep the diagnostics card inside the desktop and leave room for full-width hex values. */
     uint32_t w=sw>676u?660u:(sw>32u?sw-16u:sw);
     uint32_t x=sw>w+16u?sw-w-8u:8u;
-    uint32_t y=48u,h=390u;
+    uint32_t y=48u,h=470u;
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
     intel_gt_diag_t diag;
@@ -945,9 +945,66 @@ static void draw_system_monitor(void){
         text_line("RENDER ACK IN / OUT",x+14u,y+314u,COL_DIM,COL_PANEL);
         draw_hex32(diag.render_ack_initial,x+190u,y+314u,COL_TEXT,COL_PANEL);
         draw_hex32(diag.render_ack_final,x+300u,y+314u,COL_TEXT,COL_PANEL);
-        text_line("FALLBACK GT / RENDER",x+14u,y+336u,COL_DIM,COL_PANEL);
-        draw_uint(diag.gt_fallback_used,x+220u,y+336u,COL_TEXT,COL_PANEL);
-        draw_uint(diag.render_fallback_used,x+330u,y+336u,COL_TEXT,COL_PANEL);
+    }
+
+    /*
+     * Keep Forcewake diagnostics visible even when the ring snapshot succeeds.
+     * A valid register read is not evidence that a ring has been initialized
+     * or that GPU command submission is operational.
+     */
+    fill(x+12u,y+360u,w-24u,1u,COL_GOLD_DIM);
+    text_line("FORCEWAKE / ENGINE STATUS",x+14u,y+368u,COL_GOLD,COL_PANEL);
+    text_line("GT ACK IN / OUT",x+14u,y+388u,COL_DIM,COL_PANEL);
+    draw_hex32(diag.gt_ack_initial,x+190u,y+388u,COL_TEXT,COL_PANEL);
+    draw_hex32(diag.gt_ack_final,x+300u,y+388u,COL_TEXT,COL_PANEL);
+    text_line("RENDER ACK IN / OUT",x+14u,y+406u,COL_DIM,COL_PANEL);
+    draw_hex32(diag.render_ack_initial,x+190u,y+406u,COL_TEXT,COL_PANEL);
+    draw_hex32(diag.render_ack_final,x+300u,y+406u,COL_TEXT,COL_PANEL);
+    text_line("FALLBACK GT / RENDER",x+14u,y+424u,COL_DIM,COL_PANEL);
+    draw_uint(diag.gt_fallback_used,x+220u,y+424u,COL_TEXT,COL_PANEL);
+    draw_uint(diag.render_fallback_used,x+330u,y+424u,COL_TEXT,COL_PANEL);
+
+    {
+        const char *fw_status="NOT RUN";
+        uint32_t status_color=COL_DIM;
+        switch(diag.code){
+            case INTEL_GT_DIAG_READY:
+                fw_status="FORCEWAKE + MMIO READ OK";
+                status_color=COL_OK;
+                break;
+            case INTEL_GT_DIAG_GT_FW_MMIO:
+                fw_status="GT ACK MMIO ERROR";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_GT_FW_ACK:
+                fw_status="GT FORCEWAKE ACK TIMEOUT";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_RENDER_FW_MMIO:
+                fw_status="RENDER ACK MMIO ERROR";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_RENDER_FW_ACK:
+                fw_status="RENDER FORCEWAKE ACK TIMEOUT";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_RCS_READ:
+                fw_status="RCS MMIO READ ERROR";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_BCS_READ:
+                fw_status="BCS MMIO READ ERROR";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_RELEASE:
+                fw_status="FORCEWAKE RELEASE ERROR";
+                status_color=COL_DANGER;
+                break;
+            default:
+                break;
+        }
+        text_line("DIAGNOSTIC",x+14u,y+442u,COL_DIM,COL_PANEL);
+        text_line(fw_status,x+140u,y+442u,status_color,COL_PANEL);
     }
 }
 static void draw_desktop_background(void){
