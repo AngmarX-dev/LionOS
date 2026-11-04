@@ -7,7 +7,6 @@
 #include "memory.h"
 #include "heap.h"
 #include "vfs.h"
-#include "ramfs.h"
 #include "lapic.h"
 #include "cpu.h"
 #include "intel_gpu.h"
@@ -421,15 +420,6 @@ static int file_manager_hit(const struct ui_window*w,uint32_t x,uint32_t y,uint3
     *index=idx;
     return 1;
 }
-static int is_intel_gpu_report_name(const char *name){
-    static const char expected[]="intel-gpu-diagnostics.txt";
-    const char *base=name;
-    if(!name)return 0;
-    for(const char *p=name;*p;++p)if(*p=='/')base=p+1;
-    uint32_t i=0u;
-    while(expected[i]&&base[i]==expected[i])++i;
-    return expected[i]==0&&base[i]==0;
-}
 static void file_manager_open_selected(void){
     if(file_selected==0xFFFFFFFFu)return;
     const char *name=vfs_name(file_selected);
@@ -450,12 +440,6 @@ static void file_manager_open_selected(void){
     notepad_cursor=notepad_len;
     notepad_loaded=1u;
     show(WIN_NOTEPAD);
-    /* The diagnostics report contains several long wrapped lines. Maximize
-       its viewer so the complete report is visible without hidden rows. */
-    if(is_intel_gpu_report_name(name)){
-        struct ui_window *w=window_by_id(WIN_NOTEPAD);
-        if(w&&!w->maximized)toggle_max(WIN_NOTEPAD);
-    }
 }
 static int filename_has_suffix(const char *name, const char *suffix){
     uint32_t n=0u,s=0u;
@@ -849,221 +833,20 @@ static void draw_hex64(uint64_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t
     draw_hex32((uint32_t)value,x+8u*CHAR_W,y,fg,bg);
 }
 
-#define INTEL_GPU_REPORT_PATH "/intel-gpu-diagnostics.txt"
-#define INTEL_GPU_REPORT_CAPACITY 3072u
-static char intel_gpu_report_buffer[INTEL_GPU_REPORT_CAPACITY];
-static uint32_t intel_gpu_report_length;
-static int intel_gpu_report_saved = -1;
-
-static int intel_gpu_report_append(const char *value){
-    if(!value)return -1;
-    while(*value){
-        if(intel_gpu_report_length>=INTEL_GPU_REPORT_CAPACITY-1u)return -1;
-        intel_gpu_report_buffer[intel_gpu_report_length++]=*value++;
-    }
-    intel_gpu_report_buffer[intel_gpu_report_length]=0;
-    return 0;
-}
-static int intel_gpu_report_line(const char *label,const char *value){
-    return intel_gpu_report_append(label)||intel_gpu_report_append(value)||
-           intel_gpu_report_append("\n")?-1:0;
-}
-static int intel_gpu_report_value_u32(uint32_t value){
-    char digits[10];uint32_t count=0u;
-    do{digits[count++]=(char)('0'+(value%10u));value/=10u;}while(value&&count<10u);
-    while(count){char one[2]={digits[--count],0};if(intel_gpu_report_append(one)!=0)return -1;}
-    return 0;
-}
-static int intel_gpu_report_value_hex32(uint32_t value){
-    static const char digits[]="0123456789ABCDEF";
-    for(uint32_t i=0u;i<8u;++i){
-        char one[2]={digits[(value>>(28u-i*4u))&0xFu],0};
-        if(intel_gpu_report_append(one)!=0)return -1;
-    }
-    return 0;
-}
-static int intel_gpu_report_value_hex64(uint64_t value){
-    static const char digits[]="0123456789ABCDEF";
-    for(uint32_t i=0u;i<16u;++i){
-        char one[2]={digits[(uint32_t)(value>>(60u-i*4u))&0xFu],0};
-        if(intel_gpu_report_append(one)!=0)return -1;
-    }
-    return 0;
-}
-static int intel_gpu_report_end_line(void){return intel_gpu_report_append("\n");}
-static int intel_gpu_report_capture_and_save(void){
-    cpu_identification_t cpu={0};
-    intel_gpu_info_t gpu={0};
-    intel_gpu_engine_snapshot_t eng={0};
-    intel_gt_diag_t diag={0};
-    intel_gpu_memory_stats_t mem={0};
-    uint64_t pte_first=0u,pte_last=0u;
-    uint32_t last_entry=0u;
-    int have_gpu,have_engine,have_memory,have_ptes,have_diag;
-    int fd,written,close_result;
-    struct vfs_stat report_stat;
-
-    intel_gpu_report_length=0u;
-    intel_gpu_report_buffer[0]=0;
-    cpu_get_identification(&cpu);
-    have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
-    have_engine=intel_gpu_get_engine_snapshot(&eng)==0;
-    have_diag=intel_gpu_get_gt_diagnostics(&diag)==0;
-    have_memory=intel_gpu_memory_get_stats(&mem)==0;
-    have_ptes=have_gpu&&gpu.ggtt_ready&&gpu.ggtt_size>=4096u;
-    if(have_ptes){
-        last_entry=gpu.ggtt_size/4096u-1u;
-        have_ptes=intel_gpu_ggtt_read_entry(0u,&pte_first)==0&&
-                  intel_gpu_ggtt_read_entry(last_entry,&pte_last)==0;
-    }
-
-    /* One concise line per subsystem; omit unrelated CPU inventory. */
-    if(intel_gpu_report_line("LIONOS INTEL GPU DIAGNOSTICS","")!=0||
-       intel_gpu_report_line("CPU: ",cpu.brand)!=0||
-       intel_gpu_report_line("GPU DETECTED: ",have_gpu?"YES":"NO")!=0)
-        return -1;
-
-    if(have_gpu){
-        if(intel_gpu_report_append("PCI: ")!=0||
-           intel_gpu_report_value_hex32(((uint32_t)gpu.vendor_id<<16)|(uint32_t)gpu.device_id)!=0||
-           intel_gpu_report_append(" REV=")!=0||
-           intel_gpu_report_value_hex32(gpu.revision)!=0||
-           intel_gpu_report_append(" BDF=")!=0||
-           intel_gpu_report_value_u32(gpu.bus)!=0||
-           intel_gpu_report_append(":")!=0||
-           intel_gpu_report_value_u32(gpu.slot)!=0||
-           intel_gpu_report_append(".")!=0||
-           intel_gpu_report_value_u32(gpu.function)!=0||
-           intel_gpu_report_end_line()!=0||
-           intel_gpu_report_append("BAR0: ")!=0||
-           intel_gpu_report_value_hex64(gpu.bar0)!=0||
-           intel_gpu_report_append(" SIZE_MiB=")!=0||
-           intel_gpu_report_value_u32((uint32_t)(gpu.bar0_size/(1024u*1024u)))!=0||
-           intel_gpu_report_end_line()!=0||
-           intel_gpu_report_append("MMIO: ")!=0||
-           intel_gpu_report_value_hex32(gpu.mmio_virtual)!=0||
-           intel_gpu_report_append(" MAPPED=")!=0||
-           intel_gpu_report_append(gpu.mmio_mapped?"YES":"NO")!=0||
-           intel_gpu_report_end_line()!=0||
-           intel_gpu_report_append("PLATFORM MATCH: ")!=0||
-           intel_gpu_report_append(gpu.supported_platform?"YES":"NO")!=0||
-           intel_gpu_report_end_line()!=0||
-           intel_gpu_report_append("HOST: GGC=")!=0||
-           intel_gpu_report_value_hex32(gpu.host_ggc)!=0||
-           intel_gpu_report_append(" BDSM=")!=0||
-           intel_gpu_report_value_hex32(gpu.host_bdsm)!=0||
-           intel_gpu_report_append(" BGSM=")!=0||
-           intel_gpu_report_value_hex32(gpu.host_bgsm)!=0||
-           intel_gpu_report_append(" TOLUD=")!=0||
-           intel_gpu_report_value_hex32(gpu.host_tolud)!=0||
-           intel_gpu_report_end_line()!=0||
-           intel_gpu_report_append("GGTT: READY=")!=0||
-           intel_gpu_report_append(gpu.ggtt_ready?"YES":"NO")!=0||
-           intel_gpu_report_append(" OFFSET=")!=0||
-           intel_gpu_report_value_hex32(gpu.ggtt_offset)!=0||
-           intel_gpu_report_append(" SIZE_KiB=")!=0||
-           intel_gpu_report_value_u32(gpu.ggtt_size/1024u)!=0||
-           intel_gpu_report_end_line()!=0)
-            return -1;
-        if(intel_gpu_report_append("GGTT PTE: ")!=0||
-           intel_gpu_report_append(have_ptes?"READ_OK ":"UNAVAILABLE")!=0)
-            return -1;
-        if(have_ptes&&
-           (intel_gpu_report_append("FIRST=")!=0||
-            intel_gpu_report_value_hex64(pte_first)!=0||
-            intel_gpu_report_append(" LAST=")!=0||
-            intel_gpu_report_value_hex64(pte_last)!=0))
-            return -1;
-        if(intel_gpu_report_end_line()!=0)return -1;
-    }
-
-    if(intel_gpu_report_append("FORCEWAKE: ")!=0||
-       intel_gpu_report_append(have_diag?"AVAILABLE":"UNAVAILABLE")!=0)
-        return -1;
-    if(have_diag&&
-       (intel_gpu_report_append(" CODE=")!=0||
-        intel_gpu_report_value_u32(diag.code)!=0||
-        intel_gpu_report_append(" GT_ACK=")!=0||
-        intel_gpu_report_value_hex32(diag.gt_ack_final)!=0||
-        intel_gpu_report_append(" RENDER_ACK=")!=0||
-        intel_gpu_report_value_hex32(diag.render_ack_final)!=0||
-        intel_gpu_report_append(" FALLBACK=")!=0||
-        intel_gpu_report_value_u32(diag.gt_fallback_used)!=0))
-        return -1;
-    if(intel_gpu_report_end_line()!=0)return -1;
-
-    if(intel_gpu_report_append("ENGINE: ")!=0||
-       intel_gpu_report_append(have_engine?"AVAILABLE":"UNAVAILABLE")!=0)
-        return -1;
-    if(have_engine&&
-       (intel_gpu_report_append(" GMD=")!=0||
-        intel_gpu_report_value_hex32(eng.graphics_gmd_id)!=0||
-        intel_gpu_report_append(" RCS_CTL=")!=0||
-        intel_gpu_report_value_hex32(eng.render.control)!=0||
-        intel_gpu_report_append(" BCS_CTL=")!=0||
-        intel_gpu_report_value_hex32(eng.blitter.control)!=0))
-        return -1;
-    if(intel_gpu_report_end_line()!=0)return -1;
-
-    if(intel_gpu_report_append("GPU MEMORY: ")!=0||
-       intel_gpu_report_append(have_memory&&mem.initialized?"READY":"UNAVAILABLE")!=0)
-        return -1;
-    if(have_memory&&
-       (intel_gpu_report_append(" ALLOC=")!=0||
-        intel_gpu_report_value_u32(mem.active_allocations)!=0||
-        intel_gpu_report_append(" PAGES=")!=0||
-        intel_gpu_report_value_u32(mem.allocated_pages)!=0||
-        intel_gpu_report_append(" GGTT_EMPTY=")!=0||
-        intel_gpu_report_value_u32(mem.ggtt_empty_candidates)!=0||
-        intel_gpu_report_append(" VALID=")!=0||
-        intel_gpu_report_value_u32(mem.ggtt_valid_entries)!=0||
-        intel_gpu_report_append(" INVALID=")!=0||
-        intel_gpu_report_value_u32(mem.ggtt_nonzero_invalid_entries)!=0))
-        return -1;
-    if(intel_gpu_report_end_line()!=0||
-       intel_gpu_report_line("GPU COMMAND SUBMISSION: NOT IMPLEMENTED / NOT TESTED","")!=0||
-       intel_gpu_report_line("GPU ACCELERATION: INACTIVE (CPU COMPOSITOR)","")!=0||
-       intel_gpu_report_line("NO GGTT PTE WRITES OR RING PROGRAMMING PERFORMED","")!=0)
-        return -1;
-
-    fd=vfs_open(INTEL_GPU_REPORT_PATH,2u);
-    if(fd>=0){
-        written=vfs_write(fd,intel_gpu_report_buffer,intel_gpu_report_length);
-        close_result=vfs_close(fd);
-        if(written==(int)intel_gpu_report_length&&close_result==0&&
-           vfs_stat_path(INTEL_GPU_REPORT_PATH,&report_stat)==0&&
-           report_stat.size==intel_gpu_report_length)
-            return 0;
-    }
-
-    /*
-     * Diagnostics must remain available even when the optional ATA-backed
-     * DiskFS cannot commit a write. Keep a bounded RAMFS copy for this boot.
-     * RAMFS has the same 4096-byte per-file limit and the report buffer is
-     * capped at 3072 bytes.
-     */
-    if(ramfs_write("intel-gpu-diagnostics.txt",
-                   intel_gpu_report_buffer,intel_gpu_report_length)!=0)
-        return -1;
-    if(vfs_stat_path(INTEL_GPU_REPORT_PATH,&report_stat)!=0||
-       report_stat.backend!=VFS_BACKEND_RAMFS||
-       report_stat.size!=intel_gpu_report_length)
-        return -1;
-    return 0;
-}
 static void draw_system_monitor(void){
     uint32_t sw=framebuffer_width();
     /* Keep the diagnostics card inside the desktop and leave room for full-width hex values. */
     uint32_t w=sw>676u?660u:(sw>32u?sw-16u:sw);
     uint32_t x=sw>w+16u?sw-w-8u:8u;
     uint32_t y=48u,h=600u;
+    cpu_identification_t cpu={0};
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
-    intel_gt_diag_t diag;
-    uint64_t pte_first=0u,pte_last=0u;
+    intel_gt_diag_t diag={0};    uint64_t pte_first=0u,pte_last=0u;
+    cpu_get_identification(&cpu);
     int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
     int have_eng=intel_gpu_get_engine_snapshot(&eng)==0;
-    (void)intel_gpu_get_gt_diagnostics(&diag);
+    int have_diag=intel_gpu_get_gt_diagnostics(&diag)==0;
     int have_ptes=have_gpu&&gpu.ggtt_ready&&
         intel_gpu_ggtt_read_entry(0u,&pte_first)==0&&
         intel_gpu_ggtt_read_entry(gpu.ggtt_size/4096u-1u,&pte_last)==0;
@@ -1144,7 +927,7 @@ static void draw_system_monitor(void){
         draw_hex32(eng.blitter.control,x+296u,y+340u,COL_TEXT,COL_PANEL);
     }else{
         const char *stage="NOT RUN";
-        switch(diag.code){
+        if(!have_diag){stage="UNAVAILABLE";}else switch(diag.code){
             case INTEL_GT_DIAG_GT_FW_MMIO: stage="GT ACK MMIO READ ERROR"; break;
             case INTEL_GT_DIAG_GT_FW_ACK: stage="GT FORCEWAKE ACK TIMEOUT"; break;
             case INTEL_GT_DIAG_GT_ID: stage="GMD_ID INVALID AFTER GT WAKE"; break;
@@ -1177,19 +960,16 @@ static void draw_system_monitor(void){
     draw_hex32(0x00130044u,x+190u,y+422u,COL_TEXT,COL_PANEL);
     draw_hex32(0x00000D84u,x+370u,y+422u,COL_TEXT,COL_PANEL);
     text_line("ACK BEFORE",x+14u,y+440u,COL_DIM,COL_PANEL);
-    draw_hex32(diag.gt_ack_initial,x+190u,y+440u,COL_TEXT,COL_PANEL);
-    draw_hex32(diag.render_ack_initial,x+370u,y+440u,COL_TEXT,COL_PANEL);
+    if(have_diag){draw_hex32(diag.gt_ack_initial,x+190u,y+440u,COL_TEXT,COL_PANEL);draw_hex32(diag.render_ack_initial,x+370u,y+440u,COL_TEXT,COL_PANEL);}else{text_line("N/A",x+190u,y+440u,COL_DIM,COL_PANEL);text_line("N/A",x+370u,y+440u,COL_DIM,COL_PANEL);}
     text_line("ACK AFTER",x+14u,y+458u,COL_DIM,COL_PANEL);
-    draw_hex32(diag.gt_ack_final,x+190u,y+458u,COL_TEXT,COL_PANEL);
-    draw_hex32(diag.render_ack_final,x+370u,y+458u,COL_TEXT,COL_PANEL);
+    if(have_diag){draw_hex32(diag.gt_ack_final,x+190u,y+458u,COL_TEXT,COL_PANEL);draw_hex32(diag.render_ack_final,x+370u,y+458u,COL_TEXT,COL_PANEL);}else{text_line("N/A",x+190u,y+458u,COL_DIM,COL_PANEL);text_line("N/A",x+370u,y+458u,COL_DIM,COL_PANEL);}
     text_line("FALLBACK",x+14u,y+476u,COL_DIM,COL_PANEL);
-    draw_uint(diag.gt_fallback_used,x+190u,y+476u,COL_TEXT,COL_PANEL);
-    draw_uint(diag.render_fallback_used,x+370u,y+476u,COL_TEXT,COL_PANEL);
+    if(have_diag){draw_uint(diag.gt_fallback_used,x+190u,y+476u,COL_TEXT,COL_PANEL);draw_uint(diag.render_fallback_used,x+370u,y+476u,COL_TEXT,COL_PANEL);}else{text_line("N/A",x+190u,y+476u,COL_DIM,COL_PANEL);text_line("N/A",x+370u,y+476u,COL_DIM,COL_PANEL);}
 
     {
         const char *fw_status="NOT RUN";
         uint32_t status_color=COL_DIM;
-        switch(diag.code){
+        if(!have_diag){fw_status="UNAVAILABLE";}else switch(diag.code){
             case INTEL_GT_DIAG_READY:
                 fw_status="FORCEWAKE + MMIO READ OK";
                 status_color=COL_OK;
@@ -1247,12 +1027,10 @@ static void draw_system_monitor(void){
         text_line("RING STATE",x+14u,y+524u,COL_DIM,COL_PANEL);
         text_line(ring_status,x+190u,y+524u,ring_color,COL_PANEL);
     }
-    text_line("REPORT FILE",x+14u,y+544u,COL_DIM,COL_PANEL);
-    text_line(INTEL_GPU_REPORT_PATH,x+190u,y+544u,COL_TEXT,COL_PANEL);
-    text_line("VFS SAVE",x+14u,y+562u,COL_DIM,COL_PANEL);
-    text_line(intel_gpu_report_saved==0?"SAVED - OPEN FILES APP":
-              (intel_gpu_report_saved<0?"SAVE FAILED":"NOT RUN"),
-              x+190u,y+562u,intel_gpu_report_saved==0?COL_OK:COL_DANGER,COL_PANEL);
+    text_line("CPU",x+14u,y+544u,COL_DIM,COL_PANEL);
+    text_line(cpu.brand[0]?cpu.brand:"CPU INFO UNAVAILABLE",x+140u,y+544u,COL_TEXT,COL_PANEL);
+    text_line("GPU COMMANDS",x+14u,y+562u,COL_DIM,COL_PANEL);
+    text_line("NOT IMPLEMENTED / NOT TESTED",x+190u,y+562u,COL_DIM,COL_PANEL);
 }
 static void draw_desktop_background(void){
     /* Static wallpaper only: no animated background effects. */
@@ -1713,8 +1491,6 @@ void gui_start(void){
     /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
     cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
     init_windows();
-    intel_gpu_report_saved=intel_gpu_report_capture_and_save();
-    debug_write(intel_gpu_report_saved==0?"LIONOS:INTEL-GPU-REPORT-SAVED\n":"LIONOS:INTEL-GPU-REPORT-SAVE-FAIL\n");
     mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
     kernel_log(KLOG_INFO, "Graphical desktop ready");
