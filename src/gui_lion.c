@@ -838,16 +838,18 @@ static void draw_system_monitor(void){
     /* Keep the diagnostics card inside the desktop and leave room for full-width hex values. */
     uint32_t w=sw>676u?660u:(sw>32u?sw-16u:sw);
     uint32_t x=sw>w+16u?sw-w-8u:8u;
-    uint32_t y=48u,h=600u;
+    uint32_t y=48u,h=648u;
     cpu_identification_t cpu={0};
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
     intel_gt_diag_t diag={0};
+    intel_gpu_memory_stats_t mem={0};
     uint64_t pte_first=0u,pte_last=0u;
     cpu_get_identification(&cpu);
     int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
     int have_eng=intel_gpu_get_engine_snapshot(&eng)==0;
     int have_diag=intel_gpu_get_gt_diagnostics(&diag)==0;
+    int have_memory=intel_gpu_memory_get_stats(&mem)==0&&mem.initialized;
     int have_ptes=have_gpu&&gpu.ggtt_ready&&gpu.ggtt_size>=4096u&&
         intel_gpu_ggtt_read_entry(0u,&pte_first)==0&&
         intel_gpu_ggtt_read_entry(gpu.ggtt_size/4096u-1u,&pte_last)==0;
@@ -856,8 +858,10 @@ static void draw_system_monitor(void){
     text_line("GPU DETECTED / GT POWER / ENGINE DIAGNOSTICS",x+14u,y+27u,COL_DIM,COL_PANEL);
     fill(x+12u,y+48u,w-24u,1u,COL_GOLD_DIM);
     if(!have_gpu){
-        text_line("GPU NOT DETECTED",x+14u,y+64u,COL_DANGER,COL_PANEL);
-        text_line("PCI DISPLAY FUNCTION UNAVAILABLE",x+14u,y+84u,COL_DIM,COL_PANEL);
+        text_line("CPU",x+14u,y+64u,COL_DIM,COL_PANEL);
+        text_line(cpu.brand[0]?cpu.brand:"CPU INFO UNAVAILABLE",x+140u,y+64u,COL_TEXT,COL_PANEL);
+        text_line("GPU NOT DETECTED",x+14u,y+84u,COL_DANGER,COL_PANEL);
+        text_line("PCI DISPLAY FUNCTION UNAVAILABLE",x+190u,y+84u,COL_DIM,COL_PANEL);
         return;
     }
     text_line("PCI ID",x+14u,y+58u,COL_DIM,COL_PANEL);
@@ -1030,8 +1034,30 @@ static void draw_system_monitor(void){
     }
     text_line("CPU",x+14u,y+544u,COL_DIM,COL_PANEL);
     text_line(cpu.brand[0]?cpu.brand:"CPU INFO UNAVAILABLE",x+140u,y+544u,COL_TEXT,COL_PANEL);
-    text_line("GPU COMMANDS",x+14u,y+562u,COL_DIM,COL_PANEL);
-    text_line("NOT IMPLEMENTED / NOT TESTED",x+190u,y+562u,COL_DIM,COL_PANEL);
+    text_line("GPU MEMORY",x+14u,y+562u,COL_DIM,COL_PANEL);
+    if(have_memory){
+        text_line("ALLOC",x+140u,y+562u,COL_DIM,COL_PANEL);
+        draw_uint(mem.active_allocations,x+212u,y+562u,COL_TEXT,COL_PANEL);
+        text_line("PAGES",x+300u,y+562u,COL_DIM,COL_PANEL);
+        draw_uint(mem.allocated_pages,x+372u,y+562u,COL_TEXT,COL_PANEL);
+    }else{
+        text_line("UNAVAILABLE",x+140u,y+562u,COL_DIM,COL_PANEL);
+    }
+    text_line("GGTT MAP",x+14u,y+580u,COL_DIM,COL_PANEL);
+    if(have_memory){
+        text_line("EMPTY",x+140u,y+580u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_empty_candidates,x+212u,y+580u,COL_TEXT,COL_PANEL);
+        text_line("VALID",x+300u,y+580u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_valid_entries,x+360u,y+580u,COL_TEXT,COL_PANEL);
+        text_line("INVALID",x+444u,y+580u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_nonzero_invalid_entries,x+540u,y+580u,COL_TEXT,COL_PANEL);
+    }else{
+        text_line("UNAVAILABLE",x+140u,y+580u,COL_DIM,COL_PANEL);
+    }
+    text_line("GPU ACCELERATION",x+14u,y+598u,COL_DIM,COL_PANEL);
+    text_line("INACTIVE (CPU COMPOSITOR)",x+190u,y+598u,COL_DIM,COL_PANEL);
+    text_line("GPU COMMANDS",x+14u,y+616u,COL_DIM,COL_PANEL);
+    text_line("NOT IMPLEMENTED / NOT TESTED",x+190u,y+616u,COL_DIM,COL_PANEL);
 }
 static void draw_desktop_background(void){
     /* Static wallpaper only: no animated background effects. */
