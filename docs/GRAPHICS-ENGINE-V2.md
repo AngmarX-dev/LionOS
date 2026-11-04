@@ -56,7 +56,7 @@ The first GPU memory-manager stage is implemented for the matched Alder Lake pat
 
 LionOS now has a pure software encoder for system-RAM GGTT PTE candidates. It follows the generic Gen8+ encoding used by Linux i915 for Alder Lake: physical address bits 45:12 plus Present bit 0. The Local Memory bit (bit 1) is deliberately clear because these backing pages come from system RAM, not local device memory.
 
-The encoder rejects unaligned physical addresses and addresses outside the GGTT PTE address field. Its boot self-test checks valid lower/upper boundary addresses, rejects misaligned and out-of-range addresses, verifies the Present/address fields, verifies Local Memory remains clear, and confirms failed calls do not modify the caller's output value.
+The encoder rejects unaligned physical addresses and addresses outside the GGTT PTE address field. Its boot self-test checks valid lower/upper boundary addresses, rejects misaligned and out-of-range addresses, verifies the Present/address fields, verifies Local Memory remains clear, and confirms failed calls do not modify the caller's output value. The two-page backing-memory self-test also passes each physical address returned by the real high-memory allocator through the encoder and verifies the resulting Present, address, and Local Memory fields.
 
 **Safety boundary:** this is encoding validation only. The test does not write a GGTT PTE, change firmware mappings, perform invalidation, or make any buffer GPU-addressable. It does not establish ownership of an empty GGTT entry.
 
