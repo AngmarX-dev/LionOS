@@ -837,7 +837,7 @@ static void draw_system_monitor(void){
     /* Keep the diagnostics card inside the desktop and leave room for full-width hex values. */
     uint32_t w=sw>676u?660u:(sw>32u?sw-16u:sw);
     uint32_t x=sw>w+16u?sw-w-8u:8u;
-    uint32_t y=48u,h=470u;
+    uint32_t y=48u,h=490u;
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
     intel_gt_diag_t diag;
@@ -939,12 +939,6 @@ static void draw_system_monitor(void){
         }
         text_line(stage,x+14u,y+270u,
                   diag.code==INTEL_GT_DIAG_NOT_RUN?COL_DIM:COL_DANGER,COL_PANEL);
-        text_line("GT ACK IN / OUT",x+14u,y+292u,COL_DIM,COL_PANEL);
-        draw_hex32(diag.gt_ack_initial,x+190u,y+292u,COL_TEXT,COL_PANEL);
-        draw_hex32(diag.gt_ack_final,x+300u,y+292u,COL_TEXT,COL_PANEL);
-        text_line("RENDER ACK IN / OUT",x+14u,y+314u,COL_DIM,COL_PANEL);
-        draw_hex32(diag.render_ack_initial,x+190u,y+314u,COL_TEXT,COL_PANEL);
-        draw_hex32(diag.render_ack_final,x+300u,y+314u,COL_TEXT,COL_PANEL);
     }
 
     /*
@@ -1005,6 +999,25 @@ static void draw_system_monitor(void){
         }
         text_line("DIAGNOSTIC",x+14u,y+442u,COL_DIM,COL_PANEL);
         text_line(fw_status,x+140u,y+442u,status_color,COL_PANEL);
+    }
+
+    {
+        const char *ring_status="UNAVAILABLE";
+        uint32_t ring_color=COL_DIM;
+        if(have_eng){
+            if(eng.render.head==0u && eng.render.tail==0u &&
+               eng.render.start==0u && eng.render.control==0u &&
+               eng.blitter.head==0u && eng.blitter.tail==0u &&
+               eng.blitter.start==0u && eng.blitter.control==0u){
+                ring_status="ZERO / NOT PROGRAMMED";
+                ring_color=COL_DIM;
+            }else{
+                ring_status="NONZERO / NOT VERIFIED";
+                ring_color=COL_OK;
+            }
+        }
+        text_line("RING REGISTERS",x+14u,y+462u,COL_DIM,COL_PANEL);
+        text_line(ring_status,x+190u,y+462u,ring_color,COL_PANEL);
     }
 }
 static void draw_desktop_background(void){
