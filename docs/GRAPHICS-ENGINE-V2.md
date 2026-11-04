@@ -47,6 +47,7 @@ The first GPU memory-manager stage is implemented for the matched Alder Lake pat
 3. Maintain a bounded bitmap allocator for contiguous exactly-zero GGTT entry candidates. Reservations are software metadata only; hardware PTEs are never changed in this stage. An empty PTE is only a candidate and does not establish firmware ownership or permission to program it.
 4. Allocate backing pages from the high physical-memory allocator (256 MiB..64 GiB), map each page into the CPU high-memory window, and zero it before exposing the allocation.
 5. Keep per-allocation physical and CPU virtual page addresses, validate generation-tagged handles, and release mappings/pages/ranges in a controlled order.
+6. Expose a software-only mapping-candidate query that pairs each reserved GGTT index with the encoded system-memory PTE for its backing page. The query validates the handle, page index, reservation bitmap, and PTE encoding; it does not write MMIO or modify firmware PTEs.
 6. On allocation failure, roll back successfully created CPU mappings and physical pages. If unmapping fails, poison the record and retain its backing pages rather than risk freeing memory still mapped by the CPU.
 7. Run the two-page allocate/map/write/read/unmap/free CPU-side self-test during boot. Report exactly-zero PTE candidates, valid PTEs, and nonzero-invalid PTEs separately; never label empty candidates as confirmed free space.
 
