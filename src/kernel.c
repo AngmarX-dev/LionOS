@@ -399,8 +399,12 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             if (intel_gpu_memory_selftest() == 0 &&
                 intel_gpu_memory_get_stats(&gpu_mem_stats) == 0) {
                 console_write("[ OK ] Intel GPU memory allocate/map/write/read/unmap/free\n");
-                console_write("       GGTT free entries: ");
-                boot_dec(gpu_mem_stats.ggtt_free_entries);
+                console_write("       GGTT empty candidates: ");
+                boot_dec(gpu_mem_stats.ggtt_empty_candidates);
+                console_write(" / valid PTEs: ");
+                boot_dec(gpu_mem_stats.ggtt_valid_entries);
+                console_write(" / nonzero invalid PTEs: ");
+                boot_dec(gpu_mem_stats.ggtt_nonzero_invalid_entries);
                 console_write(" / ");
                 boot_dec(gpu_mem_stats.ggtt_total_entries);
                 console_write("\n");

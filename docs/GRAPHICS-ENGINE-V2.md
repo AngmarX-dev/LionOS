@@ -43,12 +43,12 @@ Register offsets and capability handling are cross-checked against Linux i915 de
 The first GPU memory-manager stage is implemented for the matched Alder Lake path:
 
 1. Scan every GGTT PTE through the existing bounded, read-only accessor. If any entry cannot be read consistently, initialization fails closed.
-2. Treat entry zero as reserved and mark every PTE with bit 0 set as occupied. Only zero entries are candidates for software reservation.
-3. Maintain a bounded bitmap allocator for contiguous GGTT entry ranges. Reservations are software metadata only; hardware PTEs are never changed in this stage.
+2. Treat entry zero as reserved. Mark every nonzero PTE as occupied, including nonzero entries with bit 0 clear; only an exactly-zero PTE is counted as an empty candidate. This is a conservative encoding classification, not proof that firmware has relinquished ownership.
+3. Maintain a bounded bitmap allocator for contiguous exactly-zero GGTT entry candidates. Reservations are software metadata only; hardware PTEs are never changed in this stage. An empty PTE is only a candidate and does not establish firmware ownership or permission to program it.
 4. Allocate backing pages from the high physical-memory allocator (256 MiB..64 GiB), map each page into the CPU high-memory window, and zero it before exposing the allocation.
 5. Keep per-allocation physical and CPU virtual page addresses, validate generation-tagged handles, and release mappings/pages/ranges in a controlled order.
 6. On allocation failure, roll back successfully created CPU mappings and physical pages. If unmapping fails, poison the record and retain its backing pages rather than risk freeing memory still mapped by the CPU.
-7. Run a one-page allocate/map/write/read/unmap/free self-test during boot and report the number of currently free GGTT entries.
+7. Run the two-page allocate/map/write/read/unmap/free CPU-side self-test during boot. Report exactly-zero PTE candidates, valid PTEs, and nonzero-invalid PTEs separately; never label empty candidates as confirmed free space.
 
 **Important boundary:** this stage does not write GGTT PTEs, create GPU virtual mappings, touch stolen memory, or make allocations GPU-addressable. The ggtt_mapping_active field therefore remains zero. The firmware framebuffer and CPU compositor remain the only active display path. The manager is BSP-only and externally serialized.
 

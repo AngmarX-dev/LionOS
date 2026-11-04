@@ -803,7 +803,9 @@ typedef struct {
 
 static uint32_t intel_gpu_ggtt_bitmap[INTEL_GPU_GGTT_BITMAP_WORDS];
 static uint32_t intel_gpu_ggtt_entries;
-static uint32_t intel_gpu_ggtt_free;
+static uint32_t intel_gpu_ggtt_empty_candidates;
+static uint32_t intel_gpu_ggtt_valid_entries;
+static uint32_t intel_gpu_ggtt_nonzero_invalid_entries;
 static uint32_t intel_gpu_memory_generation;
 static uint32_t intel_gpu_memory_ready;
 static intel_gpu_memory_record_t intel_gpu_memory_records[INTEL_GPU_MEMORY_MAX_ALLOCS];
@@ -834,7 +836,7 @@ static void intel_gpu_memory_release_ggtt(uint32_t first, uint32_t count)
         uint32_t index = first + i;
         if (index < intel_gpu_ggtt_entries && intel_gpu_ggtt_bit_get(index)) {
             intel_gpu_ggtt_bit_clear(index);
-            ++intel_gpu_ggtt_free;
+            ++intel_gpu_ggtt_empty_candidates;
         }
     }
 }
@@ -855,7 +857,7 @@ static int intel_gpu_memory_find_ggtt_run(uint32_t count, uint32_t *first_out)
             if (run == count) {
                 for (uint32_t n = 0u; n < count; ++n)
                     intel_gpu_ggtt_bit_set(start + n);
-                intel_gpu_ggtt_free -= count;
+                intel_gpu_ggtt_empty_candidates -= count;
                 *first_out = start;
                 return 0;
             }
@@ -893,13 +895,21 @@ int intel_gpu_memory_init(void)
 
     intel_gpu_memory_ready = 0u;
     intel_gpu_ggtt_entries = entries;
-    intel_gpu_ggtt_free = 0u;
+    intel_gpu_ggtt_empty_candidates = 0u;
     for (uint32_t i = 0u; i < INTEL_GPU_GGTT_BITMAP_WORDS; ++i)
         intel_gpu_ggtt_bitmap[i] = 0u;
     for (uint32_t i = 0u; i < INTEL_GPU_MEMORY_MAX_ALLOCS; ++i)
         intel_gpu_memory_records[i].state = 0u;
 
-    /* Read every GGTT entry before declaring any range available. */
+    intel_gpu_ggtt_valid_entries = 0u;
+    intel_gpu_ggtt_nonzero_invalid_entries = 0u;
+    intel_gpu_ggtt_empty_candidates = 0u;
+
+    /*
+     * Read every PTE. Only an exactly-zero PTE is an empty candidate.
+     * Nonzero invalid PTEs are conservatively occupied: bit 0 alone is
+     * not an ownership/free-space indicator.
+     */
     for (uint32_t i = 0u; i < entries; ++i) {
         uint64_t pte = 0u;
         if (intel_gpu_ggtt_read_entry(i, &pte) != 0) {
@@ -907,10 +917,16 @@ int intel_gpu_memory_init(void)
             debug_write("LIONOS:INTEL-GPU-MEM-GGTT-SCAN-FAIL\n");
             return -1;
         }
-        if (i == 0u || (pte & 1u) != 0u) {
+        if (i == 0u) {
             intel_gpu_ggtt_bit_set(i);
+        } else if (pte == 0u) {
+            ++intel_gpu_ggtt_empty_candidates;
         } else {
-            ++intel_gpu_ggtt_free;
+            intel_gpu_ggtt_bit_set(i);
+            if ((pte & 1u) != 0u)
+                ++intel_gpu_ggtt_valid_entries;
+            else
+                ++intel_gpu_ggtt_nonzero_invalid_entries;
         }
     }
 
@@ -1069,7 +1085,9 @@ int intel_gpu_memory_get_stats(intel_gpu_memory_stats_t *out)
         }
     }
     out->ggtt_total_entries = intel_gpu_ggtt_entries;
-    out->ggtt_free_entries = intel_gpu_ggtt_free;
+    out->ggtt_empty_candidates = intel_gpu_ggtt_empty_candidates;
+    out->ggtt_valid_entries = intel_gpu_ggtt_valid_entries;
+    out->ggtt_nonzero_invalid_entries = intel_gpu_ggtt_nonzero_invalid_entries;
     out->active_allocations = allocations;
     out->allocated_pages = pages;
     out->initialized = intel_gpu_memory_ready;

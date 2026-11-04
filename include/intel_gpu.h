@@ -98,7 +98,9 @@ typedef struct {
 
 typedef struct {
     uint32_t ggtt_total_entries;
-    uint32_t ggtt_free_entries;
+    uint32_t ggtt_empty_candidates;
+    uint32_t ggtt_valid_entries;
+    uint32_t ggtt_nonzero_invalid_entries;
     uint32_t active_allocations;
     uint32_t allocated_pages;
     uint32_t initialized;
