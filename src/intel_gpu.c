@@ -1271,6 +1271,16 @@ int intel_gpu_memory_selftest(void)
     if (intel_gpu_memory_get_page(handle, 0u, &physical[0],
                                   &virtual_address[0]) == 0)
         goto fail;
+    {
+        uint32_t stale_index = 0xA5A5A5A5u;
+        uint64_t stale_pte = 0xA5A5A5A5A5A5A5A5ULL;
+        if (intel_gpu_memory_get_mapping_candidate(handle, 0u,
+                                                   &stale_index,
+                                                   &stale_pte) == 0 ||
+            stale_index != 0xA5A5A5A5u ||
+            stale_pte != 0xA5A5A5A5A5A5A5A5ULL)
+            goto fail;
+    }
     if (intel_gpu_memory_get_stats(&after) != 0 ||
         after.active_allocations != before.active_allocations ||
         after.allocated_pages != before.allocated_pages ||
