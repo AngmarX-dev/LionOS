@@ -903,10 +903,14 @@ static void draw_system_monitor(void){
     if(have_ptes)draw_hex64(pte_last,x+140u,y+220u,COL_TEXT,COL_PANEL);
     else text_line("N/A",x+140u,y+220u,COL_DANGER,COL_PANEL);
     fill(x+12u,y+240u,w-24u,1u,COL_GOLD_DIM);
-    text_line("GEN12 GT ENGINE SNAPSHOT (BOOT READ-ONLY)",x+14u,y+248u,COL_GOLD,COL_PANEL);
-    if(have_eng && eng.graphics_gmd_id != 0u && eng.graphics_gmd_id != 0xFFFFFFFFu){
+    text_line("GEN12 GT / ENGINE SNAPSHOT",x+14u,y+248u,COL_GOLD,COL_PANEL);
+    if(have_eng){
         text_line("GMD ID",x+14u,y+268u,COL_DIM,COL_PANEL);
-        draw_hex32(eng.graphics_gmd_id,x+140u,y+268u,COL_TEXT,COL_PANEL);
+        if(eng.graphics_gmd_id_valid && eng.graphics_gmd_id != 0u &&
+           eng.graphics_gmd_id != 0xFFFFFFFFu)
+            draw_hex32(eng.graphics_gmd_id,x+140u,y+268u,COL_TEXT,COL_PANEL);
+        else
+            text_line("N/A (ADL)",x+140u,y+268u,COL_DIM,COL_PANEL);
         text_line("RCS H/T",x+14u,y+286u,COL_DIM,COL_PANEL);
         draw_hex32(eng.render.head,x+140u,y+286u,COL_TEXT,COL_PANEL);
         draw_hex32(eng.render.tail,x+248u,y+286u,COL_TEXT,COL_PANEL);
