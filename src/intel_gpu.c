@@ -291,7 +291,7 @@ static void intel_gpu_probe_engine_registers(void)
      */
     engine_snapshot.graphics_gmd_id = 0u;
     engine_snapshot.graphics_gmd_id_valid = 0u;
-    debug_write("LIONOS:INTEL-GMD-ID-NOT-APPLICABLE-ADL\\n");
+    debug_write("LIONOS:INTEL-GMD-ID-NOT-APPLICABLE-ADL\n");
 
     rc = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_RENDER_REQ,
                                      INTEL_FORCEWAKE_RENDER_ACK, &render_fw);
