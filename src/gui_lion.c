@@ -861,14 +861,14 @@ static int intel_gpu_report_u32(const char *label,uint32_t value){
 }
 static int intel_gpu_report_hex32(const char *label,uint32_t value){
     static const char digits[]="0123456789ABCDEF";
-    char out[11]="0x00000000\n";
+    char out[12]="0x00000000\n";
     for(uint32_t i=0u;i<8u;++i)out[2u+i]=digits[(value>>(28u-i*4u))&0xFu];
     if(intel_gpu_report_append(label)!=0)return -1;
     return intel_gpu_report_append(out);
 }
 static int intel_gpu_report_hex64(const char *label,uint64_t value){
     static const char digits[]="0123456789ABCDEF";
-    char out[19]="0x0000000000000000\n";
+    char out[20]="0x0000000000000000\n";
     for(uint32_t i=0u;i<16u;++i)out[2u+i]=digits[(uint32_t)(value>>(60u-i*4u))&0xFu];
     if(intel_gpu_report_append(label)!=0)return -1;
     return intel_gpu_report_append(out);
