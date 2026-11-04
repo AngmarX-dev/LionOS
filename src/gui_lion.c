@@ -852,27 +852,29 @@ static int intel_gpu_report_line(const char *label,const char *value){
     return intel_gpu_report_append(label)||intel_gpu_report_append(value)||
            intel_gpu_report_append("\n")?-1:0;
 }
-static int intel_gpu_report_u32(const char *label,uint32_t value){
+static int intel_gpu_report_value_u32(uint32_t value){
     char digits[10];uint32_t count=0u;
     do{digits[count++]=(char)('0'+(value%10u));value/=10u;}while(value&&count<10u);
-    if(intel_gpu_report_append(label)!=0)return -1;
     while(count){char one[2]={digits[--count],0};if(intel_gpu_report_append(one)!=0)return -1;}
-    return intel_gpu_report_append("\n");
+    return 0;
 }
-static int intel_gpu_report_hex32(const char *label,uint32_t value){
+static int intel_gpu_report_value_hex32(uint32_t value){
     static const char digits[]="0123456789ABCDEF";
-    char out[12]="0x00000000\n";
-    for(uint32_t i=0u;i<8u;++i)out[2u+i]=digits[(value>>(28u-i*4u))&0xFu];
-    if(intel_gpu_report_append(label)!=0)return -1;
-    return intel_gpu_report_append(out);
+    for(uint32_t i=0u;i<8u;++i){
+        char one[2]={digits[(value>>(28u-i*4u))&0xFu],0};
+        if(intel_gpu_report_append(one)!=0)return -1;
+    }
+    return 0;
 }
-static int intel_gpu_report_hex64(const char *label,uint64_t value){
+static int intel_gpu_report_value_hex64(uint64_t value){
     static const char digits[]="0123456789ABCDEF";
-    char out[20]="0x0000000000000000\n";
-    for(uint32_t i=0u;i<16u;++i)out[2u+i]=digits[(uint32_t)(value>>(60u-i*4u))&0xFu];
-    if(intel_gpu_report_append(label)!=0)return -1;
-    return intel_gpu_report_append(out);
+    for(uint32_t i=0u;i<16u;++i){
+        char one[2]={digits[(uint32_t)(value>>(60u-i*4u))&0xFu],0};
+        if(intel_gpu_report_append(one)!=0)return -1;
+    }
+    return 0;
 }
+static int intel_gpu_report_end_line(void){return intel_gpu_report_append("\n");}
 static int intel_gpu_report_capture_and_save(void){
     cpu_identification_t cpu={0};
     intel_gpu_info_t gpu={0};
@@ -898,66 +900,111 @@ static int intel_gpu_report_capture_and_save(void){
                   intel_gpu_ggtt_read_entry(last_entry,&pte_last)==0;
     }
 
-    /* Keep this file deliberately short: only values needed for GPU bring-up. */
+    /* One concise line per subsystem; omit unrelated CPU inventory. */
     if(intel_gpu_report_line("LIONOS INTEL GPU DIAGNOSTICS","")!=0||
        intel_gpu_report_line("CPU: ",cpu.brand)!=0||
        intel_gpu_report_line("GPU DETECTED: ",have_gpu?"YES":"NO")!=0)
         return -1;
 
     if(have_gpu){
-        if(intel_gpu_report_hex32("PCI ID (VENDOR:DEVICE): ",
-             ((uint32_t)gpu.vendor_id<<16)|(uint32_t)gpu.device_id)!=0||
-           intel_gpu_report_u32("PCI BDF BUS: ",gpu.bus)!=0||
-           intel_gpu_report_u32("PCI BDF SLOT: ",gpu.slot)!=0||
-           intel_gpu_report_u32("PCI BDF FUNCTION: ",gpu.function)!=0||
-           intel_gpu_report_hex64("BAR0 PHYSICAL: ",gpu.bar0)!=0||
-           intel_gpu_report_u32("BAR0 SIZE MiB: ",(uint32_t)(gpu.bar0_size/(1024u*1024u)))!=0||
-           intel_gpu_report_hex32("MMIO VIRTUAL: ",gpu.mmio_virtual)!=0||
-           intel_gpu_report_line("MMIO MAPPED: ",gpu.mmio_mapped?"YES":"NO")!=0||
-           intel_gpu_report_line("PLATFORM MATCH: ",gpu.supported_platform?"YES":"NO")!=0||
-           intel_gpu_report_hex32("GGC: ",gpu.host_ggc)!=0||
-           intel_gpu_report_hex32("BDSM: ",gpu.host_bdsm)!=0||
-           intel_gpu_report_hex32("BGSM: ",gpu.host_bgsm)!=0||
-           intel_gpu_report_hex32("TOLUD: ",gpu.host_tolud)!=0||
-           intel_gpu_report_line("GGTT READY: ",gpu.ggtt_ready?"YES":"NO")!=0||
-           intel_gpu_report_hex32("GGTT OFFSET: ",gpu.ggtt_offset)!=0||
-           intel_gpu_report_u32("GGTT SIZE KiB: ",gpu.ggtt_size/1024u)!=0||
-           intel_gpu_report_line("GGTT PTE READ: ",have_ptes?"PASS":"UNAVAILABLE")!=0)
+        if(intel_gpu_report_append("PCI: ")!=0||
+           intel_gpu_report_value_hex32(((uint32_t)gpu.vendor_id<<16)|(uint32_t)gpu.device_id)!=0||
+           intel_gpu_report_append(" REV=")!=0||
+           intel_gpu_report_value_hex32(gpu.revision)!=0||
+           intel_gpu_report_append(" BDF=")!=0||
+           intel_gpu_report_value_u32(gpu.bus)!=0||
+           intel_gpu_report_append(":")!=0||
+           intel_gpu_report_value_u32(gpu.slot)!=0||
+           intel_gpu_report_append(".")!=0||
+           intel_gpu_report_value_u32(gpu.function)!=0||
+           intel_gpu_report_end_line()!=0||
+           intel_gpu_report_append("BAR0: ")!=0||
+           intel_gpu_report_value_hex64(gpu.bar0)!=0||
+           intel_gpu_report_append(" SIZE_MiB=")!=0||
+           intel_gpu_report_value_u32((uint32_t)(gpu.bar0_size/(1024u*1024u)))!=0||
+           intel_gpu_report_end_line()!=0||
+           intel_gpu_report_append("MMIO: ")!=0||
+           intel_gpu_report_value_hex32(gpu.mmio_virtual)!=0||
+           intel_gpu_report_append(" MAPPED=")!=0||
+           intel_gpu_report_append(gpu.mmio_mapped?"YES":"NO")!=0||
+           intel_gpu_report_end_line()!=0||
+           intel_gpu_report_append("PLATFORM MATCH: ")!=0||
+           intel_gpu_report_append(gpu.supported_platform?"YES":"NO")!=0||
+           intel_gpu_report_end_line()!=0||
+           intel_gpu_report_append("HOST: GGC=")!=0||
+           intel_gpu_report_value_hex32(gpu.host_ggc)!=0||
+           intel_gpu_report_append(" BDSM=")!=0||
+           intel_gpu_report_value_hex32(gpu.host_bdsm)!=0||
+           intel_gpu_report_append(" BGSM=")!=0||
+           intel_gpu_report_value_hex32(gpu.host_bgsm)!=0||
+           intel_gpu_report_append(" TOLUD=")!=0||
+           intel_gpu_report_value_hex32(gpu.host_tolud)!=0||
+           intel_gpu_report_end_line()!=0||
+           intel_gpu_report_append("GGTT: READY=")!=0||
+           intel_gpu_report_append(gpu.ggtt_ready?"YES":"NO")!=0||
+           intel_gpu_report_append(" OFFSET=")!=0||
+           intel_gpu_report_value_hex32(gpu.ggtt_offset)!=0||
+           intel_gpu_report_append(" SIZE_KiB=")!=0||
+           intel_gpu_report_value_u32(gpu.ggtt_size/1024u)!=0||
+           intel_gpu_report_end_line()!=0)
+            return -1;
+        if(intel_gpu_report_append("GGTT PTE: ")!=0||
+           intel_gpu_report_append(have_ptes?"READ_OK ":"UNAVAILABLE")!=0)
             return -1;
         if(have_ptes&&
-           (intel_gpu_report_hex64("GGTT FIRST PTE: ",pte_first)!=0||
-            intel_gpu_report_hex64("GGTT LAST PTE: ",pte_last)!=0))
+           (intel_gpu_report_append("FIRST=")!=0||
+            intel_gpu_report_value_hex64(pte_first)!=0||
+            intel_gpu_report_append(" LAST=")!=0||
+            intel_gpu_report_value_hex64(pte_last)!=0))
             return -1;
+        if(intel_gpu_report_end_line()!=0)return -1;
     }
 
-    if(intel_gpu_report_line("FORCEWAKE DIAGNOSTICS: ",have_diag?"AVAILABLE":"UNAVAILABLE")!=0||
-       intel_gpu_report_line("ENGINE SNAPSHOT: ",have_engine?"AVAILABLE":"UNAVAILABLE")!=0)
+    if(intel_gpu_report_append("FORCEWAKE: ")!=0||
+       intel_gpu_report_append(have_diag?"AVAILABLE":"UNAVAILABLE")!=0)
         return -1;
     if(have_diag&&
-       (intel_gpu_report_u32("GT DIAGNOSTIC CODE: ",diag.code)!=0||
-        intel_gpu_report_hex32("GT ACK INITIAL: ",diag.gt_ack_initial)!=0||
-        intel_gpu_report_hex32("GT ACK FINAL: ",diag.gt_ack_final)!=0||
-        intel_gpu_report_hex32("RENDER ACK INITIAL: ",diag.render_ack_initial)!=0||
-        intel_gpu_report_hex32("RENDER ACK FINAL: ",diag.render_ack_final)!=0||
-        intel_gpu_report_u32("GT / RENDER FALLBACK: ",diag.gt_fallback_used)!=0))
+       (intel_gpu_report_append(" CODE=")!=0||
+        intel_gpu_report_value_u32(diag.code)!=0||
+        intel_gpu_report_append(" GT_ACK=")!=0||
+        intel_gpu_report_value_hex32(diag.gt_ack_final)!=0||
+        intel_gpu_report_append(" RENDER_ACK=")!=0||
+        intel_gpu_report_value_hex32(diag.render_ack_final)!=0||
+        intel_gpu_report_append(" FALLBACK=")!=0||
+        intel_gpu_report_value_u32(diag.gt_fallback_used)!=0))
+        return -1;
+    if(intel_gpu_report_end_line()!=0)return -1;
+
+    if(intel_gpu_report_append("ENGINE: ")!=0||
+       intel_gpu_report_append(have_engine?"AVAILABLE":"UNAVAILABLE")!=0)
         return -1;
     if(have_engine&&
-       (intel_gpu_report_hex32("GMD ID: ",eng.graphics_gmd_id)!=0||
-        intel_gpu_report_hex32("RCS CONTROL: ",eng.render.control)!=0||
-        intel_gpu_report_hex32("BCS CONTROL: ",eng.blitter.control)!=0))
+       (intel_gpu_report_append(" GMD=")!=0||
+        intel_gpu_report_value_hex32(eng.graphics_gmd_id)!=0||
+        intel_gpu_report_append(" RCS_CTL=")!=0||
+        intel_gpu_report_value_hex32(eng.render.control)!=0||
+        intel_gpu_report_append(" BCS_CTL=")!=0||
+        intel_gpu_report_value_hex32(eng.blitter.control)!=0))
         return -1;
+    if(intel_gpu_report_end_line()!=0)return -1;
 
-    if(intel_gpu_report_line("GPU MEMORY MANAGER: ",have_memory&&mem.initialized?"READY":"UNAVAILABLE")!=0)
+    if(intel_gpu_report_append("GPU MEMORY: ")!=0||
+       intel_gpu_report_append(have_memory&&mem.initialized?"READY":"UNAVAILABLE")!=0)
         return -1;
     if(have_memory&&
-       (intel_gpu_report_u32("GPU ALLOCATIONS: ",mem.active_allocations)!=0||
-        intel_gpu_report_u32("GPU BACKING PAGES: ",mem.allocated_pages)!=0||
-        intel_gpu_report_u32("GGTT EMPTY CANDIDATES: ",mem.ggtt_empty_candidates)!=0||
-        intel_gpu_report_u32("GGTT VALID ENTRIES: ",mem.ggtt_valid_entries)!=0||
-        intel_gpu_report_u32("GGTT INVALID NONZERO ENTRIES: ",mem.ggtt_nonzero_invalid_entries)!=0))
+       (intel_gpu_report_append(" ALLOC=")!=0||
+        intel_gpu_report_value_u32(mem.active_allocations)!=0||
+        intel_gpu_report_append(" PAGES=")!=0||
+        intel_gpu_report_value_u32(mem.allocated_pages)!=0||
+        intel_gpu_report_append(" GGTT_EMPTY=")!=0||
+        intel_gpu_report_value_u32(mem.ggtt_empty_candidates)!=0||
+        intel_gpu_report_append(" VALID=")!=0||
+        intel_gpu_report_value_u32(mem.ggtt_valid_entries)!=0||
+        intel_gpu_report_append(" INVALID=")!=0||
+        intel_gpu_report_value_u32(mem.ggtt_nonzero_invalid_entries)!=0))
         return -1;
-
-    if(intel_gpu_report_line("GPU COMMAND SUBMISSION: NOT IMPLEMENTED / NOT TESTED","")!=0||
+    if(intel_gpu_report_end_line()!=0||
+       intel_gpu_report_line("GPU COMMAND SUBMISSION: NOT IMPLEMENTED / NOT TESTED","")!=0||
        intel_gpu_report_line("GPU ACCELERATION: INACTIVE (CPU COMPOSITOR)","")!=0||
        intel_gpu_report_line("NO GGTT PTE WRITES OR RING PROGRAMMING PERFORMED","")!=0)
         return -1;
