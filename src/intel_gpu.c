@@ -276,9 +276,9 @@ static void intel_gpu_probe_engine_registers(void)
     gt_diagnostics.gt_fallback_used = gt_fw.fallback_used;
     if (rc != 0) {
         gt_diagnostics.code = (rc == -2) ? INTEL_GT_DIAG_GT_FW_MMIO : INTEL_GT_DIAG_GT_FW_ACK;
-        debug_write(rc == -2 ? "LIONOS:INTEL-GT-FW-MMIO-FAIL\\n" :
-                               "LIONOS:INTEL-GT-FW-ACK-FAIL\\n");
-        console_write("[ -- ] GT Forcewake failed\\n");
+        debug_write(rc == -2 ? "LIONOS:INTEL-GT-FW-MMIO-FAIL\n" :
+                               "LIONOS:INTEL-GT-FW-ACK-FAIL\n");
+        console_write("[ -- ] GT Forcewake failed\n");
         return;
     }
     gt_acquired = gt_fw.preexisting_kernel_ack ? 0 : 1;
@@ -288,7 +288,7 @@ static void intel_gpu_probe_engine_registers(void)
         engine_snapshot.graphics_gmd_id == 0u ||
         engine_snapshot.graphics_gmd_id == 0xFFFFFFFFu) {
         gt_diagnostics.code = INTEL_GT_DIAG_GT_ID;
-        debug_write("LIONOS:INTEL-GT-ID-INVALID\\n");
+        debug_write("LIONOS:INTEL-GT-ID-INVALID\n");
         goto cleanup;
     }
 
@@ -299,8 +299,8 @@ static void intel_gpu_probe_engine_registers(void)
     gt_diagnostics.render_fallback_used = render_fw.fallback_used;
     if (rc != 0) {
         gt_diagnostics.code = (rc == -2) ? INTEL_GT_DIAG_RENDER_FW_MMIO : INTEL_GT_DIAG_RENDER_FW_ACK;
-        debug_write(rc == -2 ? "LIONOS:INTEL-RENDER-FW-MMIO-FAIL\\n" :
-                               "LIONOS:INTEL-RENDER-FW-ACK-FAIL\\n");
+        debug_write(rc == -2 ? "LIONOS:INTEL-RENDER-FW-MMIO-FAIL\n" :
+                               "LIONOS:INTEL-RENDER-FW-ACK-FAIL\n");
         goto cleanup;
     }
     render_acquired = render_fw.preexisting_kernel_ack ? 0 : 1;
@@ -308,20 +308,20 @@ static void intel_gpu_probe_engine_registers(void)
     if (intel_gpu_read_engine_registers(INTEL_RENDER_RING_BASE,
                                         &engine_snapshot.render) != 0) {
         gt_diagnostics.code = INTEL_GT_DIAG_RCS_READ;
-        debug_write("LIONOS:INTEL-RCS-READ-FAIL\\n");
+        debug_write("LIONOS:INTEL-RCS-READ-FAIL\n");
         goto cleanup;
     }
     if (intel_gpu_read_engine_registers(INTEL_BLITTER_RING_BASE,
                                         &engine_snapshot.blitter) != 0) {
         gt_diagnostics.code = INTEL_GT_DIAG_BCS_READ;
-        debug_write("LIONOS:INTEL-BCS-READ-FAIL\\n");
+        debug_write("LIONOS:INTEL-BCS-READ-FAIL\n");
         goto cleanup;
     }
 
     engine_snapshot.valid = 1u;
     gt_diagnostics.code = INTEL_GT_DIAG_READY;
-    console_write("[ OK ] Gen12 GT/RCS/BCS registers sampled\\n");
-    debug_write("LIONOS:INTEL-GT-I915-FORCEWAKE-PROBE-OK\\n");
+    console_write("[ OK ] Gen12 GT/RCS/BCS registers sampled\n");
+    debug_write("LIONOS:INTEL-GT-I915-FORCEWAKE-PROBE-OK\n");
 
 cleanup:
     if (render_acquired &&
@@ -329,14 +329,14 @@ cleanup:
                                     INTEL_FORCEWAKE_RENDER_ACK,
                                     &render_fw) != 0) {
         gt_diagnostics.code = INTEL_GT_DIAG_RELEASE;
-        debug_write("LIONOS:INTEL-RENDER-FW-RELEASE-FAIL\\n");
+        debug_write("LIONOS:INTEL-RENDER-FW-RELEASE-FAIL\n");
     }
     if (gt_acquired &&
         intel_gpu_forcewake_release(INTEL_FORCEWAKE_GT_REQ,
                                     INTEL_FORCEWAKE_GT_ACK,
                                     &gt_fw) != 0) {
         gt_diagnostics.code = INTEL_GT_DIAG_RELEASE;
-        debug_write("LIONOS:INTEL-GT-FW-RELEASE-FAIL\\n");
+        debug_write("LIONOS:INTEL-GT-FW-RELEASE-FAIL\n");
     }
 }
 static uint32_t pci_key(uint8_t bus, uint8_t slot, uint8_t func, uint8_t reg)
