@@ -40,7 +40,7 @@ Register offsets and capability handling are cross-checked against Linux i915 de
 
 ### Not implemented yet
 
-This is a safe MMIO bootstrap, not a functioning acceleration engine. It does not yet initialize the GT, forcewake domains, GGTT, stolen memory, ring buffers, BLT engine, or display engine. Consequently the compositor continues to render on the CPU.
+This is a safe MMIO bootstrap, not a functioning acceleration engine. It does not yet initialize the GT for sustained operation, manage long-lived forcewake references, configure GGTT or stolen memory, initialize ring buffers, or implement the BLT/display engines. Consequently the compositor continues to render on the CPU.
 
 ### Next milestones
 
