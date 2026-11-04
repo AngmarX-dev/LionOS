@@ -837,7 +837,7 @@ static void draw_system_monitor(void){
     /* Keep the diagnostics card inside the desktop and leave room for full-width hex values. */
     uint32_t w=sw>676u?660u:(sw>32u?sw-16u:sw);
     uint32_t x=sw>w+16u?sw-w-8u:8u;
-    uint32_t y=48u,h=530u;
+    uint32_t y=48u,h=600u;
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
     intel_gt_diag_t diag;
@@ -948,21 +948,24 @@ static void draw_system_monitor(void){
      */
     fill(x+12u,y+360u,w-24u,1u,COL_GOLD_DIM);
     text_line("FORCEWAKE / ENGINE STATUS",x+14u,y+368u,COL_GOLD,COL_PANEL);
-    text_line("GT REQ / ACK REG",x+14u,y+388u,COL_DIM,COL_PANEL);
-    draw_hex32(0x0000A188u,x+190u,y+388u,COL_TEXT,COL_PANEL);
-    draw_hex32(0x00130044u,x+300u,y+388u,COL_TEXT,COL_PANEL);
-    text_line("GT ACK IN / OUT",x+14u,y+406u,COL_DIM,COL_PANEL);
-    draw_hex32(diag.gt_ack_initial,x+190u,y+406u,COL_TEXT,COL_PANEL);
-    draw_hex32(diag.gt_ack_final,x+300u,y+406u,COL_TEXT,COL_PANEL);
-    text_line("RENDER REQ / ACK REG",x+14u,y+424u,COL_DIM,COL_PANEL);
-    draw_hex32(0x0000A278u,x+190u,y+424u,COL_TEXT,COL_PANEL);
-    draw_hex32(0x00000D84u,x+300u,y+424u,COL_TEXT,COL_PANEL);
-    text_line("RENDER ACK IN / OUT",x+14u,y+442u,COL_DIM,COL_PANEL);
-    draw_hex32(diag.render_ack_initial,x+190u,y+442u,COL_TEXT,COL_PANEL);
-    draw_hex32(diag.render_ack_final,x+300u,y+442u,COL_TEXT,COL_PANEL);
-    text_line("FALLBACK GT / RENDER",x+14u,y+460u,COL_DIM,COL_PANEL);
-    draw_uint(diag.gt_fallback_used,x+220u,y+460u,COL_TEXT,COL_PANEL);
-    draw_uint(diag.render_fallback_used,x+330u,y+460u,COL_TEXT,COL_PANEL);
+    text_line("REGISTER",x+14u,y+386u,COL_DIM,COL_PANEL);
+    text_line("GT",x+190u,y+386u,COL_GOLD,COL_PANEL);
+    text_line("RENDER",x+370u,y+386u,COL_GOLD,COL_PANEL);
+    text_line("REQUEST",x+14u,y+404u,COL_DIM,COL_PANEL);
+    draw_hex32(0x0000A188u,x+190u,y+404u,COL_TEXT,COL_PANEL);
+    draw_hex32(0x0000A278u,x+370u,y+404u,COL_TEXT,COL_PANEL);
+    text_line("ACK REG",x+14u,y+422u,COL_DIM,COL_PANEL);
+    draw_hex32(0x00130044u,x+190u,y+422u,COL_TEXT,COL_PANEL);
+    draw_hex32(0x00000D84u,x+370u,y+422u,COL_TEXT,COL_PANEL);
+    text_line("ACK BEFORE",x+14u,y+440u,COL_DIM,COL_PANEL);
+    draw_hex32(diag.gt_ack_initial,x+190u,y+440u,COL_TEXT,COL_PANEL);
+    draw_hex32(diag.render_ack_initial,x+370u,y+440u,COL_TEXT,COL_PANEL);
+    text_line("ACK AFTER",x+14u,y+458u,COL_DIM,COL_PANEL);
+    draw_hex32(diag.gt_ack_final,x+190u,y+458u,COL_TEXT,COL_PANEL);
+    draw_hex32(diag.render_ack_final,x+370u,y+458u,COL_TEXT,COL_PANEL);
+    text_line("FALLBACK",x+14u,y+476u,COL_DIM,COL_PANEL);
+    draw_uint(diag.gt_fallback_used,x+190u,y+476u,COL_TEXT,COL_PANEL);
+    draw_uint(diag.render_fallback_used,x+370u,y+476u,COL_TEXT,COL_PANEL);
 
     {
         const char *fw_status="NOT RUN";
@@ -1003,8 +1006,8 @@ static void draw_system_monitor(void){
             default:
                 break;
         }
-        text_line("DIAGNOSTIC",x+14u,y+480u,COL_DIM,COL_PANEL);
-        text_line(fw_status,x+140u,y+480u,status_color,COL_PANEL);
+        text_line("DIAGNOSTIC",x+14u,y+504u,COL_DIM,COL_PANEL);
+        text_line(fw_status,x+190u,y+504u,status_color,COL_PANEL);
     }
 
     {
@@ -1022,8 +1025,8 @@ static void draw_system_monitor(void){
                 ring_color=COL_OK;
             }
         }
-        text_line("RING REGISTERS",x+14u,y+500u,COL_DIM,COL_PANEL);
-        text_line(ring_status,x+190u,y+500u,ring_color,COL_PANEL);
+        text_line("RING STATE",x+14u,y+524u,COL_DIM,COL_PANEL);
+        text_line(ring_status,x+190u,y+524u,ring_color,COL_PANEL);
     }
 }
 static void draw_desktop_background(void){
