@@ -17,6 +17,29 @@ typedef struct {
     intel_gpu_ring_snapshot_t blitter;
 } intel_gpu_engine_snapshot_t;
 
+typedef enum {
+    INTEL_GT_DIAG_NOT_RUN = 0,
+    INTEL_GT_DIAG_READY,
+    INTEL_GT_DIAG_GT_FW_MMIO,
+    INTEL_GT_DIAG_GT_FW_ACK,
+    INTEL_GT_DIAG_GT_ID,
+    INTEL_GT_DIAG_RENDER_FW_MMIO,
+    INTEL_GT_DIAG_RENDER_FW_ACK,
+    INTEL_GT_DIAG_RCS_READ,
+    INTEL_GT_DIAG_BCS_READ,
+    INTEL_GT_DIAG_RELEASE
+} intel_gt_diag_code_t;
+
+typedef struct {
+    uint32_t code;
+    uint32_t gt_ack_initial;
+    uint32_t gt_ack_final;
+    uint32_t render_ack_initial;
+    uint32_t render_ack_final;
+    uint32_t gt_fallback_used;
+    uint32_t render_fallback_used;
+} intel_gt_diag_t;
+
 typedef struct {
     uint32_t found;
     uint16_t vendor_id;
@@ -54,5 +77,6 @@ int intel_gpu_mmio_read32(uint32_t offset, uint32_t *value);
 int intel_gpu_ggtt_read_entry(uint32_t index, uint64_t *value);
 /* Read-only Alder Lake GT identity and ring-register snapshot. */
 int intel_gpu_get_engine_snapshot(intel_gpu_engine_snapshot_t *out);
+int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out);
 
 #endif
