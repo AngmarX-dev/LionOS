@@ -393,6 +393,23 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ .. ] Initializing Intel graphics PCI/MMIO bootstrap...\n");
     if (intel_gpu_init(framebuffer_available() ? 1u : 0u) == 0 && intel_gpu_mmio_ready()) {
         console_write("[ OK ] Intel GPU MMIO ready; CPU compositor remains active\n");
+        if (intel_gpu_memory_init() == 0) {
+            intel_gpu_memory_stats_t gpu_mem_stats;
+            console_write("[ OK ] Intel GPU backing-memory manager / GGTT read-only scan\n");
+            if (intel_gpu_memory_selftest() == 0 &&
+                intel_gpu_memory_get_stats(&gpu_mem_stats) == 0) {
+                console_write("[ OK ] Intel GPU memory allocate/map/write/read/unmap/free\n");
+                console_write("       GGTT free entries: ");
+                boot_dec(gpu_mem_stats.ggtt_free_entries);
+                console_write(" / ");
+                boot_dec(gpu_mem_stats.ggtt_total_entries);
+                console_write("\n");
+            } else {
+                console_write("[ -- ] Intel GPU memory self-test failed; GPU memory manager retained\n");
+            }
+        } else {
+            console_write("[ -- ] Intel GPU memory manager unavailable; read-only display retained\n");
+        }
     } else {
         console_write("[ -- ] Intel GPU MMIO unavailable; firmware framebuffer remains active\n");
     }
