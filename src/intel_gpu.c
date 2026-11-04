@@ -5,6 +5,7 @@
 #include "intel_gpu.h"
 #include "paging.h"
 #include "memory.h"
+#include "cpu.h"
 
 /*
  * Alder Lake Intel display bootstrap for LionOS.
@@ -776,4 +777,317 @@ int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out)
         return -1;
     *out = gt_diagnostics;
     return 0;
+}
+
+
+/* -------------------------------------------------------------------------
+ * Intel GPU backing-memory manager (stage 1).
+ *
+ * This stage owns system-RAM pages and CPU mappings and reserves contiguous
+ * GGTT entry ranges after a read-only scan. It deliberately does NOT write
+ * GGTT PTEs, invalidate the GPU TLB, touch stolen memory, or program engines.
+ * ------------------------------------------------------------------------- */
+#define INTEL_GPU_GGTT_MAX_ENTRIES 8192u
+#define INTEL_GPU_GGTT_BITMAP_WORDS (INTEL_GPU_GGTT_MAX_ENTRIES / 32u)
+#define INTEL_GPU_MEMORY_MAX_ALLOCS 16u
+#define INTEL_GPU_MEMORY_PAGE_SIZE 4096u
+
+typedef struct {
+    uint32_t state;       /* 0 free, 1 initializing, 2 active, 3 poisoned. */
+    uint32_t generation;
+    uint32_t page_count;
+    uint32_t ggtt_first;
+    uint64_t physical[INTEL_GPU_MEMORY_MAX_PAGES];
+    uint32_t virtual_address[INTEL_GPU_MEMORY_MAX_PAGES];
+} intel_gpu_memory_record_t;
+
+static uint32_t intel_gpu_ggtt_bitmap[INTEL_GPU_GGTT_BITMAP_WORDS];
+static uint32_t intel_gpu_ggtt_entries;
+static uint32_t intel_gpu_ggtt_free;
+static uint32_t intel_gpu_memory_generation;
+static uint32_t intel_gpu_memory_ready;
+static intel_gpu_memory_record_t intel_gpu_memory_records[INTEL_GPU_MEMORY_MAX_ALLOCS];
+
+static int intel_gpu_memory_bsp_only(void)
+{
+    return cpu_current_index() == 0u;
+}
+
+static int intel_gpu_ggtt_bit_get(uint32_t index)
+{
+    return (intel_gpu_ggtt_bitmap[index >> 5] & (1u << (index & 31u))) != 0u;
+}
+
+static void intel_gpu_ggtt_bit_set(uint32_t index)
+{
+    intel_gpu_ggtt_bitmap[index >> 5] |= 1u << (index & 31u);
+}
+
+static void intel_gpu_ggtt_bit_clear(uint32_t index)
+{
+    intel_gpu_ggtt_bitmap[index >> 5] &= ~(1u << (index & 31u));
+}
+
+static void intel_gpu_memory_release_ggtt(uint32_t first, uint32_t count)
+{
+    for (uint32_t i = 0u; i < count; ++i) {
+        uint32_t index = first + i;
+        if (index < intel_gpu_ggtt_entries && intel_gpu_ggtt_bit_get(index)) {
+            intel_gpu_ggtt_bit_clear(index);
+            ++intel_gpu_ggtt_free;
+        }
+    }
+}
+
+static int intel_gpu_memory_find_ggtt_run(uint32_t count, uint32_t *first_out)
+{
+    uint32_t run = 0u;
+    uint32_t start = 1u; /* GGTT entry zero is permanently reserved. */
+
+    if (!first_out || !count || count >= intel_gpu_ggtt_entries)
+        return -1;
+
+    for (uint32_t i = 1u; i < intel_gpu_ggtt_entries; ++i) {
+        if (!intel_gpu_ggtt_bit_get(i)) {
+            if (!run)
+                start = i;
+            ++run;
+            if (run == count) {
+                for (uint32_t n = 0u; n < count; ++n)
+                    intel_gpu_ggtt_bit_set(start + n);
+                intel_gpu_ggtt_free -= count;
+                *first_out = start;
+                return 0;
+            }
+        } else {
+            run = 0u;
+        }
+    }
+    return -1;
+}
+
+int intel_gpu_memory_init(void)
+{
+    intel_gpu_info_t info;
+    uint32_t entries;
+
+    if (!intel_gpu_memory_bsp_only() || !intel_gpu_is_alder_lake() ||
+        intel_gpu_get_info(&info) != 0 || !info.ggtt_ready ||
+        !info.ggtt_size || (info.ggtt_size & (INTEL_GPU_MEMORY_PAGE_SIZE - 1u)))
+        return -1;
+
+    entries = info.ggtt_size / INTEL_GPU_MEMORY_PAGE_SIZE;
+    if (entries < 2u || entries > INTEL_GPU_GGTT_MAX_ENTRIES)
+        return -1;
+
+    intel_gpu_memory_ready = 0u;
+    intel_gpu_ggtt_entries = entries;
+    intel_gpu_ggtt_free = 0u;
+    for (uint32_t i = 0u; i < INTEL_GPU_GGTT_BITMAP_WORDS; ++i)
+        intel_gpu_ggtt_bitmap[i] = 0u;
+    for (uint32_t i = 0u; i < INTEL_GPU_MEMORY_MAX_ALLOCS; ++i)
+        intel_gpu_memory_records[i].state = 0u;
+
+    /* Read every GGTT entry before declaring any range available. */
+    for (uint32_t i = 0u; i < entries; ++i) {
+        uint64_t pte = 0u;
+        if (intel_gpu_ggtt_read_entry(i, &pte) != 0) {
+            intel_gpu_ggtt_entries = 0u;
+            debug_write("LIONOS:INTEL-GPU-MEM-GGTT-SCAN-FAIL\n");
+            return -1;
+        }
+        if (i == 0u || (pte & 1u) != 0u) {
+            intel_gpu_ggtt_bit_set(i);
+        } else {
+            ++intel_gpu_ggtt_free;
+        }
+    }
+
+    intel_gpu_memory_ready = 1u;
+    debug_write("LIONOS:INTEL-GPU-MEM-MANAGER-READY\n");
+    return 0;
+}
+
+int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
+{
+    intel_gpu_memory_record_t *record = 0;
+    uint32_t slot = INTEL_GPU_MEMORY_MAX_ALLOCS;
+    uint32_t first = 0u;
+
+    if (!out || !intel_gpu_memory_bsp_only() || !intel_gpu_memory_ready ||
+        !page_count || page_count > INTEL_GPU_MEMORY_MAX_PAGES)
+        return -1;
+
+    for (uint32_t i = 0u; i < INTEL_GPU_MEMORY_MAX_ALLOCS; ++i) {
+        if (intel_gpu_memory_records[i].state == 0u) {
+            slot = i;
+            record = &intel_gpu_memory_records[i];
+            break;
+        }
+    }
+    if (!record || intel_gpu_memory_find_ggtt_run(page_count, &first) != 0)
+        return -1;
+
+    record->state = 1u;
+    record->generation = ++intel_gpu_memory_generation;
+    if (!record->generation)
+        record->generation = ++intel_gpu_memory_generation;
+    record->page_count = page_count;
+    record->ggtt_first = first;
+
+    for (uint32_t i = 0u; i < page_count; ++i) {
+        uint64_t physical = 0u;
+        uint32_t virtual_address = 0u;
+
+        if (page_alloc_high(&physical) != 0)
+            goto rollback;
+        record->physical[i] = physical;
+
+        if (paging_map_high_page(physical, 0x2u, &virtual_address) != 0)
+            goto rollback;
+        record->virtual_address[i] = virtual_address;
+
+        /* The CPU mapping is writable and uncached policy is not imposed on RAM. */
+        volatile uint32_t *words = (volatile uint32_t *)(uintptr_t)virtual_address;
+        for (uint32_t word = 0u; word < INTEL_GPU_MEMORY_PAGE_SIZE / sizeof(uint32_t); ++word)
+            words[word] = 0u;
+    }
+
+    record->state = 2u;
+    out->handle = (record->generation << 8) | (slot + 1u);
+    out->page_count = page_count;
+    out->ggtt_first_entry = first;
+    out->bytes = page_count * INTEL_GPU_MEMORY_PAGE_SIZE;
+    out->ggtt_mapping_active = 0u;
+    return 0;
+
+rollback:
+    for (uint32_t i = 0u; i < page_count; ++i) {
+        if (record->virtual_address[i]) {
+            if (paging_unmap_high_page(record->virtual_address[i]) != 0) {
+                record->state = 3u; /* Keep every backing page reserved on cleanup failure. */
+                debug_write("LIONOS:INTEL-GPU-MEM-ROLLBACK-UNMAP-FAIL\n");
+                return -1;
+            }
+            record->virtual_address[i] = 0u;
+        }
+        if (record->physical[i]) {
+            page_free_high(record->physical[i]);
+            record->physical[i] = 0u;
+        }
+    }
+    intel_gpu_memory_release_ggtt(first, page_count);
+    record->state = 0u;
+    record->page_count = 0u;
+    return -1;
+}
+
+static intel_gpu_memory_record_t *intel_gpu_memory_lookup(uint32_t handle)
+{
+    uint32_t slot_code = handle & 0xFFu;
+    uint32_t generation = handle >> 8;
+    if (!slot_code || slot_code > INTEL_GPU_MEMORY_MAX_ALLOCS || !generation)
+        return 0;
+    intel_gpu_memory_record_t *record = &intel_gpu_memory_records[slot_code - 1u];
+    if (record->state != 2u || record->generation != generation)
+        return 0;
+    return record;
+}
+
+int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
+                              uint64_t *physical_address,
+                              uint32_t *cpu_virtual_address)
+{
+    intel_gpu_memory_record_t *record;
+    if (!intel_gpu_memory_bsp_only() || !physical_address || !cpu_virtual_address)
+        return -1;
+    record = intel_gpu_memory_lookup(handle);
+    if (!record || page_index >= record->page_count)
+        return -1;
+    *physical_address = record->physical[page_index];
+    *cpu_virtual_address = record->virtual_address[page_index];
+    return 0;
+}
+
+int intel_gpu_memory_free(uint32_t handle)
+{
+    intel_gpu_memory_record_t *record;
+    uint32_t first, count;
+
+    if (!intel_gpu_memory_bsp_only())
+        return -1;
+    record = intel_gpu_memory_lookup(handle);
+    if (!record)
+        return -1;
+
+    first = record->ggtt_first;
+    count = record->page_count;
+
+    /* Unmap all CPU aliases before returning any backing page to the PMM. */
+    for (uint32_t i = 0u; i < count; ++i) {
+        if (paging_unmap_high_page(record->virtual_address[i]) != 0) {
+            record->state = 3u;
+            debug_write("LIONOS:INTEL-GPU-MEM-FREE-UNMAP-FAIL\n");
+            return -1;
+        }
+    }
+    for (uint32_t i = 0u; i < count; ++i)
+        page_free_high(record->physical[i]);
+
+    intel_gpu_memory_release_ggtt(first, count);
+    record->state = 0u;
+    record->page_count = 0u;
+    record->ggtt_first = 0u;
+    return 0;
+}
+
+int intel_gpu_memory_get_stats(intel_gpu_memory_stats_t *out)
+{
+    uint32_t allocations = 0u, pages = 0u;
+    if (!out || !intel_gpu_memory_bsp_only() || !intel_gpu_memory_ready)
+        return -1;
+    for (uint32_t i = 0u; i < INTEL_GPU_MEMORY_MAX_ALLOCS; ++i) {
+        if (intel_gpu_memory_records[i].state == 2u) {
+            ++allocations;
+            pages += intel_gpu_memory_records[i].page_count;
+        }
+    }
+    out->ggtt_total_entries = intel_gpu_ggtt_entries;
+    out->ggtt_free_entries = intel_gpu_ggtt_free;
+    out->active_allocations = allocations;
+    out->allocated_pages = pages;
+    out->initialized = intel_gpu_memory_ready;
+    return 0;
+}
+
+int intel_gpu_memory_selftest(void)
+{
+    intel_gpu_memory_block_t block = {0};
+    uint64_t physical = 0u;
+    uint32_t virtual_address = 0u;
+    volatile uint32_t *words;
+
+    if (intel_gpu_memory_alloc(1u, &block) != 0)
+        return -1;
+    if (intel_gpu_memory_get_page(block.handle, 0u, &physical, &virtual_address) != 0)
+        goto fail;
+
+    words = (volatile uint32_t *)(uintptr_t)virtual_address;
+    for (uint32_t i = 0u; i < INTEL_GPU_MEMORY_PAGE_SIZE / sizeof(uint32_t); ++i)
+        words[i] = 0x4C494F4Eu ^ (i * 0x9E3779B9u);
+    for (uint32_t i = 0u; i < INTEL_GPU_MEMORY_PAGE_SIZE / sizeof(uint32_t); ++i) {
+        if (words[i] != (0x4C494F4Eu ^ (i * 0x9E3779B9u)))
+            goto fail;
+    }
+    if (intel_gpu_memory_free(block.handle) != 0)
+        return -1;
+
+    debug_write("LIONOS:INTEL-GPU-MEM-SELFTEST-OK\n");
+    return 0;
+
+fail:
+    (void)physical;
+    (void)intel_gpu_memory_free(block.handle);
+    debug_write("LIONOS:INTEL-GPU-MEM-SELFTEST-FAIL\n");
+    return -1;
 }
