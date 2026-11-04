@@ -1107,6 +1107,40 @@ int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
     return 0;
 }
 
+/*
+ * Build a software-only GGTT mapping candidate for one backing page.
+ * The returned index is reserved in LionOS metadata, but the hardware PTE
+ * remains untouched until ownership and the platform write protocol are
+ * independently established.
+ */
+int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
+                                           uint32_t page_index,
+                                           uint32_t *ggtt_index,
+                                           uint64_t *pte_value)
+{
+    intel_gpu_memory_record_t *record;
+    uint32_t index;
+    uint64_t encoded;
+
+    if (!intel_gpu_memory_bsp_only() || !ggtt_index || !pte_value)
+        return -1;
+
+    record = intel_gpu_memory_lookup(handle);
+    if (!record || page_index >= record->page_count)
+        return -1;
+
+    index = record->ggtt_first + page_index;
+    if (index == 0u || index >= intel_gpu_ggtt_entries ||
+        !intel_gpu_ggtt_bit_get(index) ||
+        intel_gpu_ggtt_encode_system_pte(record->physical[page_index],
+                                          &encoded) != 0)
+        return -1;
+
+    *ggtt_index = index;
+    *pte_value = encoded;
+    return 0;
+}
+
 int intel_gpu_memory_free(uint32_t handle)
 {
     intel_gpu_memory_record_t *record;
@@ -1196,6 +1230,15 @@ int intel_gpu_memory_selftest(void)
             (encoded_pte & INTEL_GPU_GGTT_PTE_PRESENT) == 0u ||
             (encoded_pte & INTEL_GPU_GGTT_PTE_LOCAL_MEMORY) != 0u ||
             (encoded_pte & INTEL_GPU_GGTT_PTE_ADDRESS_MASK) != physical[page])
+            goto fail;
+
+        uint32_t candidate_index = 0u;
+        uint64_t candidate_pte = 0u;
+        if (intel_gpu_memory_get_mapping_candidate(handle, page,
+                                                   &candidate_index,
+                                                   &candidate_pte) != 0 ||
+            candidate_index != block.ggtt_first_entry + page ||
+            candidate_pte != encoded_pte)
             goto fail;
 
         words[page] = (volatile uint32_t *)(uintptr_t)virtual_address[page];
