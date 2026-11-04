@@ -871,7 +871,18 @@ int intel_gpu_memory_init(void)
     intel_gpu_info_t info;
     uint32_t entries;
 
-    if (!intel_gpu_memory_bsp_only() || !intel_gpu_is_alder_lake() ||
+    if (!intel_gpu_memory_bsp_only())
+        return -1;
+
+    /*
+     * Initialization is intentionally idempotent. Re-scanning by clearing
+     * the records would orphan live high-memory pages and lose GGTT
+     * reservations owned by existing allocations.
+     */
+    if (intel_gpu_memory_ready)
+        return 0;
+
+    if (!intel_gpu_is_alder_lake() ||
         intel_gpu_get_info(&info) != 0 || !info.ggtt_ready ||
         !info.ggtt_size || (info.ggtt_size & (INTEL_GPU_MEMORY_PAGE_SIZE - 1u)))
         return -1;
