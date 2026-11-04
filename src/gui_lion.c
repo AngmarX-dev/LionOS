@@ -420,6 +420,15 @@ static int file_manager_hit(const struct ui_window*w,uint32_t x,uint32_t y,uint3
     *index=idx;
     return 1;
 }
+static int is_intel_gpu_report_name(const char *name){
+    static const char expected[]="intel-gpu-diagnostics.txt";
+    const char *base=name;
+    if(!name)return 0;
+    for(const char *p=name;*p;++p)if(*p=='/')base=p+1;
+    uint32_t i=0u;
+    while(expected[i]&&base[i]==expected[i])++i;
+    return expected[i]==0&&base[i]==0;
+}
 static void file_manager_open_selected(void){
     if(file_selected==0xFFFFFFFFu)return;
     const char *name=vfs_name(file_selected);
@@ -440,6 +449,12 @@ static void file_manager_open_selected(void){
     notepad_cursor=notepad_len;
     notepad_loaded=1u;
     show(WIN_NOTEPAD);
+    /* The diagnostics report contains several long wrapped lines. Maximize
+       its viewer so the complete report is visible without hidden rows. */
+    if(is_intel_gpu_report_name(name)){
+        struct ui_window *w=window_by_id(WIN_NOTEPAD);
+        if(w&&!w->maximized)toggle_max(WIN_NOTEPAD);
+    }
 }
 static int filename_has_suffix(const char *name, const char *suffix){
     uint32_t n=0u,s=0u;
@@ -885,6 +900,7 @@ static int intel_gpu_report_capture_and_save(void){
     uint32_t last_entry=0u;
     int have_gpu,have_engine,have_memory,have_ptes,have_diag;
     int fd,written,close_result;
+    struct vfs_stat report_stat;
 
     intel_gpu_report_length=0u;
     intel_gpu_report_buffer[0]=0;
@@ -1014,6 +1030,8 @@ static int intel_gpu_report_capture_and_save(void){
     written=vfs_write(fd,intel_gpu_report_buffer,intel_gpu_report_length);
     close_result=vfs_close(fd);
     if(written!=(int)intel_gpu_report_length||close_result!=0)return -1;
+    if(vfs_stat_path(INTEL_GPU_REPORT_PATH,&report_stat)!=0||
+       report_stat.size!=intel_gpu_report_length)return -1;
     return 0;
 }
 static void draw_system_monitor(void){
