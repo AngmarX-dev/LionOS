@@ -13,6 +13,7 @@ typedef struct {
 typedef struct {
     uint32_t valid;
     uint32_t graphics_gmd_id;
+    uint32_t graphics_gmd_id_valid;
     intel_gpu_ring_snapshot_t render;
     intel_gpu_ring_snapshot_t blitter;
 } intel_gpu_engine_snapshot_t;
