@@ -842,17 +842,18 @@ static void draw_system_monitor(void){
     cpu_identification_t cpu={0};
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
-    intel_gt_diag_t diag={0};    uint64_t pte_first=0u,pte_last=0u;
+    intel_gt_diag_t diag={0};
+    uint64_t pte_first=0u,pte_last=0u;
     cpu_get_identification(&cpu);
     int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
     int have_eng=intel_gpu_get_engine_snapshot(&eng)==0;
     int have_diag=intel_gpu_get_gt_diagnostics(&diag)==0;
-    int have_ptes=have_gpu&&gpu.ggtt_ready&&
+    int have_ptes=have_gpu&&gpu.ggtt_ready&&gpu.ggtt_size>=4096u&&
         intel_gpu_ggtt_read_entry(0u,&pte_first)==0&&
         intel_gpu_ggtt_read_entry(gpu.ggtt_size/4096u-1u,&pte_last)==0;
     glass_panel(x,y,w,h,16u,COL_PANEL,190u,0u);
     text_line("INTEL UHD DRIVER BRING-UP",x+14u,y+9u,COL_GOLD,COL_PANEL);
-    text_line("GT POWER / ENGINE DIAGNOSTICS",x+14u,y+27u,COL_DIM,COL_PANEL);
+    text_line("GPU DETECTED / GT POWER / ENGINE DIAGNOSTICS",x+14u,y+27u,COL_DIM,COL_PANEL);
     fill(x+12u,y+48u,w-24u,1u,COL_GOLD_DIM);
     if(!have_gpu){
         text_line("GPU NOT DETECTED",x+14u,y+64u,COL_DANGER,COL_PANEL);
@@ -870,7 +871,7 @@ static void draw_system_monitor(void){
     text_line(".",x+200u,y+76u,COL_DIM,COL_PANEL);
     draw_uint(gpu.function,x+212u,y+76u,COL_TEXT,COL_PANEL);
     text_line("PLATFORM",x+350u,y+76u,COL_DIM,COL_PANEL);
-    text_line(gpu.supported_platform?"ADL MATCH":"UNKNOWN",x+470u,y+76u,
+    text_line(gpu.supported_platform?"SUPPORTED":"UNKNOWN",x+470u,y+76u,
               gpu.supported_platform?COL_OK:COL_DANGER,COL_PANEL);
     text_line("BAR0 BASE",x+14u,y+94u,COL_DIM,COL_PANEL);
     draw_hex64(gpu.bar0,x+140u,y+94u,COL_TEXT,COL_PANEL);
