@@ -283,14 +283,15 @@ static void intel_gpu_probe_engine_registers(void)
     }
     gt_acquired = gt_fw.preexisting_kernel_ack ? 0 : 1;
 
-    if (intel_gpu_mmio_read32(INTEL_GMD_ID_GRAPHICS,
-                              &engine_snapshot.graphics_gmd_id) != 0 ||
-        engine_snapshot.graphics_gmd_id == 0u ||
-        engine_snapshot.graphics_gmd_id == 0xFFFFFFFFu) {
-        gt_diagnostics.code = INTEL_GT_DIAG_GT_ID;
-        debug_write("LIONOS:INTEL-GT-ID-INVALID\n");
-        goto cleanup;
-    }
+    /*
+     * Alder Lake (including PCI ID 8086:468B) does not expose GMD_ID as
+     * a supported capability. Linux i915 gates this register through
+     * HAS_GMD_ID; it must not be used as a GT-presence test on Alder Lake.
+     * Keep the optional field invalid and continue with engine diagnostics.
+     */
+    engine_snapshot.graphics_gmd_id = 0u;
+    engine_snapshot.graphics_gmd_id_valid = 0u;
+    debug_write("LIONOS:INTEL-GMD-ID-NOT-APPLICABLE-ADL\\n");
 
     rc = intel_gpu_forcewake_acquire(INTEL_FORCEWAKE_RENDER_REQ,
                                      INTEL_FORCEWAKE_RENDER_ACK, &render_fw);
