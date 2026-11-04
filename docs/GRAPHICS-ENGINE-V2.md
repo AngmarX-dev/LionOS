@@ -47,11 +47,16 @@ The first GPU memory-manager stage is implemented for the matched Alder Lake pat
 3. Maintain a bounded bitmap allocator for contiguous exactly-zero GGTT entry candidates. Reservations are software metadata only; hardware PTEs are never changed in this stage. An empty PTE is only a candidate and does not establish firmware ownership or permission to program it.
 4. Allocate backing pages from the high physical-memory allocator (256 MiB..64 GiB), map each page into the CPU high-memory window, and zero it before exposing the allocation.
 5. Keep per-allocation physical and CPU virtual page addresses, validate generation-tagged handles, and release mappings/pages/ranges in a controlled order.
-6. Expose a software-only mapping-candidate query that pairs each reserved GGTT index with the encoded system-memory PTE for its backing page. The query validates the handle, page index, reservation bitmap, and PTE encoding; it does not write MMIO or modify firmware PTEs.
-6. On allocation failure, roll back successfully created CPU mappings and physical pages. If unmapping fails, poison the record and retain its backing pages rather than risk freeing memory still mapped by the CPU.
-7. Run the two-page allocate/map/write/read/unmap/free CPU-side self-test during boot. Report exactly-zero PTE candidates, valid PTEs, and nonzero-invalid PTEs separately; never label empty candidates as confirmed free space.
+7. On allocation failure, roll back successfully created CPU mappings and physical pages. If unmapping fails, poison the record and retain its backing pages rather than risk freeing memory still mapped by the CPU.
+8. Run the two-page allocate/map/write/read/unmap/free CPU-side self-test during boot. Report exactly-zero PTE candidates, valid PTEs, and nonzero-invalid PTEs separately; never label empty candidates as confirmed free space.
 
 **Important boundary:** this stage does not write GGTT PTEs, create GPU virtual mappings, touch stolen memory, or make allocations GPU-addressable. The ggtt_mapping_active field therefore remains zero. The firmware framebuffer and CPU compositor remain the only active display path. The manager is BSP-only and externally serialized.
+
+### Implemented: software-only GGTT mapping candidates
+
+The manager can now return a reserved GGTT entry index together with the correctly encoded PTE candidate for its corresponding system-RAM page. The query is generation-handle checked, bounds checked, confirms the software reservation bit, and leaves output parameters unchanged on failure. The boot self-test checks the mapping candidate for both allocated pages and verifies that a stale handle is rejected after free.
+
+This is still planning metadata only: no PTE is written to BAR0, no firmware entry is modified, and no GPU virtual mapping is active.
 
 ### Implemented: software-only Gen8+ GGTT PTE encoder validation
 
