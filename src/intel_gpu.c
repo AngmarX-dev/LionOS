@@ -1186,6 +1186,18 @@ int intel_gpu_memory_selftest(void)
         if ((physical[page] & (INTEL_GPU_MEMORY_PAGE_SIZE - 1u)) != 0u ||
             (virtual_address[page] & (INTEL_GPU_MEMORY_PAGE_SIZE - 1u)) != 0u)
             goto fail;
+
+        /*
+         * Validate the actual PMM-provided backing address, not only fixed
+         * test vectors. This remains a software-only check: no GGTT write.
+         */
+        uint64_t encoded_pte = 0u;
+        if (intel_gpu_ggtt_encode_system_pte(physical[page], &encoded_pte) != 0 ||
+            (encoded_pte & INTEL_GPU_GGTT_PTE_PRESENT) == 0u ||
+            (encoded_pte & INTEL_GPU_GGTT_PTE_LOCAL_MEMORY) != 0u ||
+            (encoded_pte & INTEL_GPU_GGTT_PTE_ADDRESS_MASK) != physical[page])
+            goto fail;
+
         words[page] = (volatile uint32_t *)(uintptr_t)virtual_address[page];
     }
 
