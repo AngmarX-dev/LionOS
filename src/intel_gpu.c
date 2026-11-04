@@ -1248,6 +1248,29 @@ int intel_gpu_memory_selftest(void)
         virtual_address[0] == virtual_address[1])
         goto fail;
 
+    {
+        uint32_t invalid_index = 0xA5A5A5A5u;
+        uint64_t invalid_pte = 0xA5A5A5A5A5A5A5A5ULL;
+
+        /* The first out-of-range page and both null-output cases must fail
+           without modifying any caller-owned output storage. */
+        if (intel_gpu_memory_get_mapping_candidate(handle, block.page_count,
+                                                   &invalid_index,
+                                                   &invalid_pte) == 0 ||
+            invalid_index != 0xA5A5A5A5u ||
+            invalid_pte != 0xA5A5A5A5A5A5A5A5ULL)
+            goto fail;
+
+        if (intel_gpu_memory_get_mapping_candidate(handle, 0u, 0,
+                                                   &invalid_pte) == 0 ||
+            invalid_pte != 0xA5A5A5A5A5A5A5A5ULL)
+            goto fail;
+
+        if (intel_gpu_memory_get_mapping_candidate(handle, 0u,
+                                                   &invalid_index, 0) == 0 ||
+            invalid_index != 0xA5A5A5A5u)
+            goto fail;
+    }
     for (uint32_t page = 0u; page < 2u; ++page) {
         for (uint32_t i = 0u;
              i < INTEL_GPU_MEMORY_PAGE_SIZE / sizeof(uint32_t); ++i) {
@@ -1279,29 +1302,6 @@ int intel_gpu_memory_selftest(void)
                                                    &stale_pte) == 0 ||
             stale_index != 0xA5A5A5A5u ||
             stale_pte != 0xA5A5A5A5A5A5A5A5ULL)
-            goto fail;
-    }
-    {
-        uint32_t invalid_index = 0xA5A5A5A5u;
-        uint64_t invalid_pte = 0xA5A5A5A5A5A5A5A5ULL;
-
-        /* The first out-of-range page and both null-output cases must fail
-           without modifying any caller-owned output storage. */
-        if (intel_gpu_memory_get_mapping_candidate(handle, block.page_count,
-                                                   &invalid_index,
-                                                   &invalid_pte) == 0 ||
-            invalid_index != 0xA5A5A5A5u ||
-            invalid_pte != 0xA5A5A5A5A5A5A5A5ULL)
-            goto fail;
-
-        if (intel_gpu_memory_get_mapping_candidate(handle, 0u, 0,
-                                                   &invalid_pte) == 0 ||
-            invalid_pte != 0xA5A5A5A5A5A5A5A5ULL)
-            goto fail;
-
-        if (intel_gpu_memory_get_mapping_candidate(handle, 0u,
-                                                   &invalid_index, 0) == 0 ||
-            invalid_index != 0xA5A5A5A5u)
             goto fail;
     }
     if (intel_gpu_memory_get_stats(&after) != 0 ||
