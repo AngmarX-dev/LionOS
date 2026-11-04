@@ -1026,12 +1026,28 @@ static int intel_gpu_report_capture_and_save(void){
         return -1;
 
     fd=vfs_open(INTEL_GPU_REPORT_PATH,2u);
-    if(fd<0)return -1;
-    written=vfs_write(fd,intel_gpu_report_buffer,intel_gpu_report_length);
-    close_result=vfs_close(fd);
-    if(written!=(int)intel_gpu_report_length||close_result!=0)return -1;
+    if(fd>=0){
+        written=vfs_write(fd,intel_gpu_report_buffer,intel_gpu_report_length);
+        close_result=vfs_close(fd);
+        if(written==(int)intel_gpu_report_length&&close_result==0&&
+           vfs_stat_path(INTEL_GPU_REPORT_PATH,&report_stat)==0&&
+           report_stat.size==intel_gpu_report_length)
+            return 0;
+    }
+
+    /*
+     * Diagnostics must remain available even when the optional ATA-backed
+     * DiskFS cannot commit a write. Keep a bounded RAMFS copy for this boot.
+     * RAMFS has the same 4096-byte per-file limit and the report buffer is
+     * capped at 3072 bytes.
+     */
+    if(ramfs_write("intel-gpu-diagnostics.txt",
+                   intel_gpu_report_buffer,intel_gpu_report_length)!=0)
+        return -1;
     if(vfs_stat_path(INTEL_GPU_REPORT_PATH,&report_stat)!=0||
-       report_stat.size!=intel_gpu_report_length)return -1;
+       report_stat.backend!=VFS_BACKEND_RAMFS||
+       report_stat.size!=intel_gpu_report_length)
+        return -1;
     return 0;
 }
 static void draw_system_monitor(void){
