@@ -840,15 +840,17 @@ static void draw_system_monitor(void){
     uint32_t y=48u,h=390u;
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
+    intel_gt_diag_t diag;
     uint64_t pte_first=0u,pte_last=0u;
     int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
     int have_eng=intel_gpu_get_engine_snapshot(&eng)==0;
+    (void)intel_gpu_get_gt_diagnostics(&diag);
     int have_ptes=have_gpu&&gpu.ggtt_ready&&
         intel_gpu_ggtt_read_entry(0u,&pte_first)==0&&
         intel_gpu_ggtt_read_entry(gpu.ggtt_size/4096u-1u,&pte_last)==0;
     glass_panel(x,y,w,h,16u,COL_PANEL,190u,0u);
     text_line("INTEL UHD DRIVER BRING-UP",x+14u,y+9u,COL_GOLD,COL_PANEL);
-    text_line("READ-ONLY HARDWARE DIAGNOSTICS",x+14u,y+27u,COL_DIM,COL_PANEL);
+    text_line("GT POWER / ENGINE DIAGNOSTICS",x+14u,y+27u,COL_DIM,COL_PANEL);
     fill(x+12u,y+48u,w-24u,1u,COL_GOLD_DIM);
     if(!have_gpu){
         text_line("GPU NOT DETECTED",x+14u,y+64u,COL_DANGER,COL_PANEL);
@@ -918,8 +920,30 @@ static void draw_system_monitor(void){
         draw_hex32(eng.blitter.start,x+188u,y+340u,COL_TEXT,COL_PANEL);
         draw_hex32(eng.blitter.control,x+296u,y+340u,COL_TEXT,COL_PANEL);
     }else{
-        text_line("GT ENGINE SNAPSHOT NOT READY",x+14u,y+276u,COL_DANGER,COL_PANEL);
-        text_line("FORCEWAKE ACK OR ENGINE READ FAILED",x+14u,y+296u,COL_DIM,COL_PANEL);
+        const char *stage="NOT RUN";
+        switch(diag.code){
+            case INTEL_GT_DIAG_GT_FW_MMIO: stage="GT ACK MMIO READ ERROR"; break;
+            case INTEL_GT_DIAG_GT_FW_ACK: stage="GT FORCEWAKE ACK TIMEOUT"; break;
+            case INTEL_GT_DIAG_GT_ID: stage="GMD_ID INVALID AFTER GT WAKE"; break;
+            case INTEL_GT_DIAG_RENDER_FW_MMIO: stage="RENDER ACK MMIO READ ERROR"; break;
+            case INTEL_GT_DIAG_RENDER_FW_ACK: stage="RENDER FORCEWAKE ACK TIMEOUT"; break;
+            case INTEL_GT_DIAG_RCS_READ: stage="RCS REGISTER READ FAILED"; break;
+            case INTEL_GT_DIAG_BCS_READ: stage="BCS REGISTER READ FAILED"; break;
+            case INTEL_GT_DIAG_RELEASE: stage="FORCEWAKE RELEASE ACK FAILED"; break;
+            case INTEL_GT_DIAG_READY: stage="GT SNAPSHOT READY"; break;
+            default: break;
+        }
+        text_line(stage,x+14u,y+270u,
+                  diag.code==INTEL_GT_DIAG_NOT_RUN?COL_DIM:COL_DANGER,COL_PANEL);
+        text_line("GT ACK IN / OUT",x+14u,y+292u,COL_DIM,COL_PANEL);
+        draw_hex32(diag.gt_ack_initial,x+190u,y+292u,COL_TEXT,COL_PANEL);
+        draw_hex32(diag.gt_ack_final,x+300u,y+292u,COL_TEXT,COL_PANEL);
+        text_line("RENDER ACK IN / OUT",x+14u,y+314u,COL_DIM,COL_PANEL);
+        draw_hex32(diag.render_ack_initial,x+190u,y+314u,COL_TEXT,COL_PANEL);
+        draw_hex32(diag.render_ack_final,x+300u,y+314u,COL_TEXT,COL_PANEL);
+        text_line("FALLBACK GT / RENDER",x+14u,y+336u,COL_DIM,COL_PANEL);
+        draw_uint(diag.gt_fallback_used,x+220u,y+336u,COL_TEXT,COL_PANEL);
+        draw_uint(diag.render_fallback_used,x+330u,y+336u,COL_TEXT,COL_PANEL);
     }
 }
 static void draw_desktop_background(void){
