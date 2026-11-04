@@ -38,25 +38,32 @@ The ring values are raw diagnostic snapshots; nonzero or changing values alone d
 
 Register offsets and capability handling are cross-checked against Linux i915 definitions in `gt/intel_gt_regs.h`, `gt/intel_engine_regs.h`, `i915_reg.h`, and the `HAS_GMD_ID` checks in `intel_device_info.c` / `i915_pci.c`. The exact Alder Lake platform specification remains authoritative.
 
+### Implemented: GPU backing-memory manager (stage 1)
+
+The first GPU memory-manager stage is implemented for the matched Alder Lake path:
+
+1. Scan every GGTT PTE through the existing bounded, read-only accessor. If any entry cannot be read consistently, initialization fails closed.
+2. Treat entry zero as reserved and mark every PTE with bit 0 set as occupied. Only zero entries are candidates for software reservation.
+3. Maintain a bounded bitmap allocator for contiguous GGTT entry ranges. Reservations are software metadata only; hardware PTEs are never changed in this stage.
+4. Allocate backing pages from the high physical-memory allocator (256 MiB..64 GiB), map each page into the CPU high-memory window, and zero it before exposing the allocation.
+5. Keep per-allocation physical and CPU virtual page addresses, validate generation-tagged handles, and release mappings/pages/ranges in a controlled order.
+6. On allocation failure, roll back successfully created CPU mappings and physical pages. If unmapping fails, poison the record and retain its backing pages rather than risk freeing memory still mapped by the CPU.
+7. Run a one-page allocate/map/write/read/unmap/free self-test during boot and report the number of currently free GGTT entries.
+
+**Important boundary:** this stage does not write GGTT PTEs, create GPU virtual mappings, touch stolen memory, or make allocations GPU-addressable. The ggtt_mapping_active field therefore remains zero. The firmware framebuffer and CPU compositor remain the only active display path. The manager is BSP-only and externally serialized.
+
 ### Not implemented yet
 
-This is a safe MMIO bootstrap, not a functioning acceleration engine. It does not yet initialize the GT for sustained operation, manage long-lived forcewake references, configure GGTT or stolen memory, initialize ring buffers, or implement the BLT/display engines. Consequently the compositor continues to render on the CPU.
+GGTT PTE programming and TLB invalidation, stolen-memory suballocation, long-lived GT power management, ring-buffer/engine initialization, context setup, command submission, fences, and hardware acceleration remain disabled. A successful memory self-test proves CPU-side allocation and mapping only; it does not prove GPU access.
 
 ### Next milestones
 
-1. Validate BAR sizing and MMIO mapping on the physical Alder Lake laptop.
-2. Add documented, non-destructive register reads for the exact device generation.
-3. Discover firmware memory reservations, stolen memory and GGTT aperture without changing ownership.
-4. Implement a bounded BLT submission path with explicit GPU-visible memory allocation, fences/timeouts and CPU fallback.
-5. Route only verified opaque copy/fill operations from the compositor to the GPU.
-6. Measure correctness, frame time and CPU load on physical hardware before enabling acceleration by default.
-
-### Compatibility constraints
-
-- Keep the firmware framebuffer active until native display initialization is independently validated.
-- No guessed BAR sizes, undocumented register writes, GPU reset, or unbounded waits.
-- Do not modify xHCI, USB keyboard, USB mouse, or other input code as part of this work.
-- QEMU build/boot tests cannot establish physical Intel GPU command completion.
+1. Validate the memory-manager scan and self-test on the physical Alder Lake laptop.
+2. Cross-check the exact Alder Lake GGTT PTE format, reserved ranges, and invalidation sequence against authoritative platform documentation and Linux i915.
+3. Implement a separately reviewed GGTT mapping/unmapping layer with explicit ownership and rollback.
+4. Only after GGTT mapping is validated, initialize a bounded RCS0 ring and context.
+5. Add a minimal command test with a bounded completion/fault path and CPU fallback.
+6. Measure correctness, frame time and CPU load before enabling acceleration by default.
 
 ## CPU topology reporting
 
@@ -93,3 +100,7 @@ The boot self-test allocates one high page, maps it, writes and verifies 4 KiB o
 ### PAE mapping and synchronization safeguards
 
 The kernel mapping API rejects physical addresses that cannot be represented by the PAE PTE address field. Shared kernel mappings are serialized and restricted to the BSP. After updating a PTE, the BSP invalidates its local TLB, sends vector 49 to online APs, and waits for their acknowledgements. The interrupt handler performs `invlpg`, increments the shared acknowledgement counter, and sends LAPIC EOI. This protocol is currently exercised by the high-memory boot self-test; QEMU CI does not replace a physical-hardware test.
+
+### GPU memory manager safety contract
+
+The manager exposes intel_gpu_memory_init, intel_gpu_memory_alloc, intel_gpu_memory_get_page, intel_gpu_memory_free, intel_gpu_memory_get_stats, and intel_gpu_memory_selftest in include/intel_gpu.h. Allocation sizes are page-granular and capped at 256 pages per block; the static descriptor pool is capped at 16 blocks. The handle encodes a generation and pool slot to reject stale references. Operations are BSP-only because the existing high-page mapping window is BSP-owned; callers must serialize access. GGTT ranges returned by the allocator are reservations, not active GPU addresses. No code in this stage writes the GGTT aperture.
