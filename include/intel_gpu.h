@@ -114,6 +114,11 @@ int intel_gpu_memory_free(uint32_t handle);
 int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
                               uint64_t *physical_address,
                               uint32_t *cpu_virtual_address);
+/* Return a software-only GGTT index/PTE candidate; never writes hardware. */
+int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
+                                           uint32_t page_index,
+                                           uint32_t *ggtt_index,
+                                           uint64_t *pte_value);
 int intel_gpu_memory_get_stats(intel_gpu_memory_stats_t *out);
 int intel_gpu_memory_selftest(void);
 
