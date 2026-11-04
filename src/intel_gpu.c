@@ -792,6 +792,73 @@ int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out)
 #define INTEL_GPU_MEMORY_MAX_ALLOCS 16u
 #define INTEL_GPU_MEMORY_PAGE_SIZE 4096u
 
+/*
+ * Alder Lake uses the Gen8+ GGTT system-memory PTE format:
+ * address[45:12] | Present. Bit 1 (LM) must remain clear for system RAM.
+ * This encoder is software-only; it does not write the GGTT aperture.
+ */
+#define INTEL_GPU_GGTT_PTE_PRESENT       (1ULL << 0)
+#define INTEL_GPU_GGTT_PTE_LOCAL_MEMORY  (1ULL << 1)
+#define INTEL_GPU_GGTT_PTE_ADDRESS_MASK  0x00003FFFFFFFF000ULL
+
+static int intel_gpu_ggtt_encode_system_pte(uint64_t physical_address,
+                                             uint64_t *pte_out)
+{
+    if (!pte_out ||
+        (physical_address & 0xFFFu) != 0u ||
+        (physical_address & ~INTEL_GPU_GGTT_PTE_ADDRESS_MASK) != 0u)
+        return -1;
+
+    *pte_out = (physical_address & INTEL_GPU_GGTT_PTE_ADDRESS_MASK) |
+               INTEL_GPU_GGTT_PTE_PRESENT;
+    return 0;
+}
+
+int intel_gpu_ggtt_pte_selftest(void)
+{
+    static const uint64_t valid_addresses[] = {
+        0x0000000010000000ULL,
+        0x000000007C800000ULL,
+        INTEL_GPU_GGTT_PTE_ADDRESS_MASK
+    };
+    static const uint64_t invalid_addresses[] = {
+        0x0000000010000001ULL,
+        0x0000400000000000ULL,
+        0xFFFFFFFFFFFFF000ULL
+    };
+
+    for (uint32_t i = 0u;
+         i < sizeof(valid_addresses) / sizeof(valid_addresses[0]); ++i) {
+        uint64_t pte = 0u;
+        uint64_t expected = valid_addresses[i] |
+                            INTEL_GPU_GGTT_PTE_PRESENT;
+        if (intel_gpu_ggtt_encode_system_pte(valid_addresses[i], &pte) != 0 ||
+            pte != expected ||
+            (pte & INTEL_GPU_GGTT_PTE_PRESENT) == 0u ||
+            (pte & INTEL_GPU_GGTT_PTE_LOCAL_MEMORY) != 0u ||
+            (pte & INTEL_GPU_GGTT_PTE_ADDRESS_MASK) != valid_addresses[i])
+            goto fail;
+    }
+
+    for (uint32_t i = 0u;
+         i < sizeof(invalid_addresses) / sizeof(invalid_addresses[0]); ++i) {
+        uint64_t pte = 0xA5A5A5A5A5A5A5A5ULL;
+        if (intel_gpu_ggtt_encode_system_pte(invalid_addresses[i], &pte) == 0 ||
+            pte != 0xA5A5A5A5A5A5A5A5ULL)
+            goto fail;
+    }
+
+    if (intel_gpu_ggtt_encode_system_pte(0x10000000ULL, 0) == 0)
+        goto fail;
+
+    debug_write("LIONOS:INTEL-GGTT-PTE-ENCODE-SELFTEST-OK\n");
+    return 0;
+
+fail:
+    debug_write("LIONOS:INTEL-GGTT-PTE-ENCODE-SELFTEST-FAIL\n");
+    return -1;
+}
+
 typedef struct {
     uint32_t state;       /* 0 free, 1 initializing, 2 active, 3 poisoned. */
     uint32_t generation;

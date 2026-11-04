@@ -395,6 +395,11 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_write("[ OK ] Intel GPU MMIO ready; CPU compositor remains active\n");
         if (intel_gpu_memory_init() == 0) {
             intel_gpu_memory_stats_t gpu_mem_stats;
+            if (intel_gpu_ggtt_pte_selftest() == 0) {
+                console_write("[ OK ] Intel GGTT system-memory PTE encoding self-test\n");
+            } else {
+                console_write("[ -- ] Intel GGTT PTE encoding self-test failed\n");
+            }
             console_write("[ OK ] Intel GPU backing-memory manager / GGTT read-only scan\n");
             if (intel_gpu_memory_selftest() == 0 &&
                 intel_gpu_memory_get_stats(&gpu_mem_stats) == 0) {

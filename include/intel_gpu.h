@@ -106,6 +106,8 @@ typedef struct {
     uint32_t initialized;
 } intel_gpu_memory_stats_t;
 
+/* Pure Gen8+ system-memory GGTT PTE encoder validation; no MMIO writes. */
+int intel_gpu_ggtt_pte_selftest(void);
 int intel_gpu_memory_init(void);
 int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out);
 int intel_gpu_memory_free(uint32_t handle);
