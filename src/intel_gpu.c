@@ -1079,31 +1079,70 @@ int intel_gpu_memory_get_stats(intel_gpu_memory_stats_t *out)
 int intel_gpu_memory_selftest(void)
 {
     intel_gpu_memory_block_t block = {0};
-    uint64_t physical = 0u;
-    uint32_t virtual_address = 0u;
-    volatile uint32_t *words;
+    intel_gpu_memory_stats_t before = {0}, after = {0};
+    uint64_t physical[2] = {0u, 0u};
+    uint32_t virtual_address[2] = {0u, 0u};
+    volatile uint32_t *words[2] = {0, 0};
+    uint32_t handle;
 
-    if (intel_gpu_memory_alloc(1u, &block) != 0)
+    if (intel_gpu_memory_get_stats(&before) != 0 ||
+        intel_gpu_memory_alloc(2u, &block) != 0)
         return -1;
-    if (intel_gpu_memory_get_page(block.handle, 0u, &physical, &virtual_address) != 0)
+    handle = block.handle;
+
+    if (block.page_count != 2u ||
+        block.bytes != 2u * INTEL_GPU_MEMORY_PAGE_SIZE ||
+        block.ggtt_mapping_active != 0u)
         goto fail;
 
-    words = (volatile uint32_t *)(uintptr_t)virtual_address;
-    for (uint32_t i = 0u; i < INTEL_GPU_MEMORY_PAGE_SIZE / sizeof(uint32_t); ++i)
-        words[i] = 0x4C494F4Eu ^ (i * 0x9E3779B9u);
-    for (uint32_t i = 0u; i < INTEL_GPU_MEMORY_PAGE_SIZE / sizeof(uint32_t); ++i) {
-        if (words[i] != (0x4C494F4Eu ^ (i * 0x9E3779B9u)))
+    for (uint32_t page = 0u; page < 2u; ++page) {
+        if (intel_gpu_memory_get_page(handle, page, &physical[page],
+                                      &virtual_address[page]) != 0)
             goto fail;
+        if ((physical[page] & (INTEL_GPU_MEMORY_PAGE_SIZE - 1u)) != 0u ||
+            (virtual_address[page] & (INTEL_GPU_MEMORY_PAGE_SIZE - 1u)) != 0u)
+            goto fail;
+        words[page] = (volatile uint32_t *)(uintptr_t)virtual_address[page];
     }
-    if (intel_gpu_memory_free(block.handle) != 0)
-        return -1;
 
-    debug_write("LIONOS:INTEL-GPU-MEM-SELFTEST-OK\n");
+    if (physical[0] == physical[1] ||
+        virtual_address[0] == virtual_address[1])
+        goto fail;
+
+    for (uint32_t page = 0u; page < 2u; ++page) {
+        for (uint32_t i = 0u;
+             i < INTEL_GPU_MEMORY_PAGE_SIZE / sizeof(uint32_t); ++i) {
+            words[page][i] = 0x4C494F4Eu ^
+                ((page + 1u) * 0x85EBCA6Bu) ^ (i * 0x9E3779B9u);
+        }
+    }
+
+    for (uint32_t page = 0u; page < 2u; ++page) {
+        for (uint32_t i = 0u;
+             i < INTEL_GPU_MEMORY_PAGE_SIZE / sizeof(uint32_t); ++i) {
+            uint32_t expected = 0x4C494F4Eu ^
+                ((page + 1u) * 0x85EBCA6Bu) ^ (i * 0x9E3779B9u);
+            if (words[page][i] != expected)
+                goto fail;
+        }
+    }
+
+    if (intel_gpu_memory_free(handle) != 0)
+        goto fail;
+    if (intel_gpu_memory_get_page(handle, 0u, &physical[0],
+                                  &virtual_address[0]) == 0)
+        goto fail;
+    if (intel_gpu_memory_get_stats(&after) != 0 ||
+        after.active_allocations != before.active_allocations ||
+        after.allocated_pages != before.allocated_pages ||
+        after.ggtt_free_entries != before.ggtt_free_entries)
+        goto fail;
+
+    debug_write("LIONOS:INTEL-GPU-MEM-2PAGE-SELFTEST-OK\n");
     return 0;
 
 fail:
-    (void)physical;
-    (void)intel_gpu_memory_free(block.handle);
-    debug_write("LIONOS:INTEL-GPU-MEM-SELFTEST-FAIL\n");
+    (void)intel_gpu_memory_free(handle);
+    debug_write("LIONOS:INTEL-GPU-MEM-2PAGE-SELFTEST-FAIL\n");
     return -1;
 }
