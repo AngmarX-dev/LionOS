@@ -903,7 +903,6 @@ int intel_gpu_memory_init(void)
 
     intel_gpu_ggtt_valid_entries = 0u;
     intel_gpu_ggtt_nonzero_invalid_entries = 0u;
-    intel_gpu_ggtt_empty_candidates = 0u;
 
     /*
      * Read every PTE. Only an exactly-zero PTE is an empty candidate.
@@ -1153,7 +1152,9 @@ int intel_gpu_memory_selftest(void)
     if (intel_gpu_memory_get_stats(&after) != 0 ||
         after.active_allocations != before.active_allocations ||
         after.allocated_pages != before.allocated_pages ||
-        after.ggtt_free_entries != before.ggtt_free_entries)
+        after.ggtt_empty_candidates != before.ggtt_empty_candidates ||
+        after.ggtt_valid_entries != before.ggtt_valid_entries ||
+        after.ggtt_nonzero_invalid_entries != before.ggtt_nonzero_invalid_entries)
         goto fail;
 
     debug_write("LIONOS:INTEL-GPU-MEM-2PAGE-SELFTEST-OK\n");
