@@ -412,12 +412,12 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ .. ] Initializing Intel graphics PCI/MMIO bootstrap...\n");
     int intel_gpu_init_rc = intel_gpu_init(framebuffer_available() ? 1u : 0u);
     if (intel_gpu_available()) {
-        if (gfx_backend_report_state(GFX_BACKEND_GPU,
+        if (gfx_backend_report_state(GFX_BACKEND_INTEL_GPU,
                                      GFX_BACKEND_STATE_DETECTED) == 0)
             debug_write("LIONOS:GFX-GPU-BACKEND-DETECTED\n");
     }
     if (intel_gpu_init_rc == 0 && intel_gpu_mmio_ready()) {
-        if (gfx_backend_report_state(GFX_BACKEND_GPU,
+        if (gfx_backend_report_state(GFX_BACKEND_INTEL_GPU,
                                      GFX_BACKEND_STATE_INITIALIZED) == 0)
             debug_write("LIONOS:GFX-GPU-BACKEND-INITIALIZED-NOT-OPERATIONAL\n");
         console_write("[ OK ] Intel GPU MMIO ready; CPU compositor remains active\n");
