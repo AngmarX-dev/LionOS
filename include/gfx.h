@@ -47,6 +47,16 @@ int gfx_cpu_blit(gfx_context_t *context, const gfx_surface_t *source,
                  uint32_t destination_x, uint32_t destination_y,
                  uint32_t width, uint32_t height);
 
+/* Nearest-neighbor scale a source rectangle into a clipped destination rectangle.
+ * The source rectangle must be fully in bounds; source/destination storage
+ * must not overlap. Zero destination size is a no-op.
+ */
+int gfx_cpu_blit_scaled(gfx_context_t *context, const gfx_surface_t *source,
+                        uint32_t source_x, uint32_t source_y,
+                        uint32_t source_width, uint32_t source_height,
+                        uint32_t destination_x, uint32_t destination_y,
+                        uint32_t destination_width, uint32_t destination_height);
+
 /* CPU rasterizer primitives. Coordinates outside the surface are ignored. */
 int gfx_cpu_clear(gfx_context_t *context, uint32_t argb);
 int gfx_cpu_put_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
