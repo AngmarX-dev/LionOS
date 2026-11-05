@@ -138,3 +138,50 @@ The next GGTT stage is a documented no-go decision, not PTE programming. Current
 The exact ownership, firmware scanout reservations, Alder Lake cacheability/coherency policy, PTE update ordering, and invalidation completion semantics remain unverified. Therefore the runtime must continue reporting ownership unverified, must not reserve zero-valued entries, and must not write GGTT PTEs.
 
 The evidence, unresolved requirements, transactional map/unmap rules, and go/no-go checklist are maintained in [INTEL-ALDER-LAKE-GGTT-CONTRACT.md](INTEL-ALDER-LAKE-GGTT-CONTRACT.md). The next safe step is to obtain and validate the exact platform/firmware documentation; if no valid hand-off contract exists, GGTT mapping remains disabled.
+
+## PMM / PAE mapping lifecycle audit (2026-11-05)
+
+The current boot order was checked across `src/kernel.c`, `src/memory.c`,
+`src/paging.c`, and `src/intel_gpu.c`:
+
+1. `memory_init()` builds the low-memory allocator and the separate high-physical
+   availability bitmap from the Multiboot2 memory map. The high allocator tracks
+   the range 256 MiB..64 GiB; its returned values are physical addresses and are
+   not directly dereferenceable.
+2. `paging_init()` installs the low identity map and the 256 MiB kernel MMIO
+   virtual window. The temporary high-page CPU mapping aperture is the separate
+   32 MiB range `0xF2000000..0xF3FFFFFF`.
+3. After PCI enumeration, `intel_gpu_init()` validates and reserves the Intel
+   BAR0 physical aperture when its end-address calculation is valid. For a
+   matched Alder Lake display ID, it also reads the host-bridge GGC/BDSM/BGSM/
+   TOLUD registers and reserves the conservative BGSM..TOLUD interval only
+   when the masked boundaries satisfy
+   `BGSM < BDSM < TOLUD <= 4 GiB`.
+4. Only after `intel_gpu_init()` reports a usable Intel MMIO aperture does
+   `kernel_main()` initialize the GPU backing-memory manager and run its
+   CPU-side allocation/mapping self-test.
+
+This order means the currently implemented Intel reservation calls occur before
+the Intel backing-memory self-test can allocate high pages. The reservation API
+is not a retroactive ownership-transfer mechanism: future callers must reserve
+firmware/device ranges before allocating from those ranges. The current
+BGSM..TOLUD rule is a conservative exclusion based on register snapshots, not
+proof that the driver owns or may modify stolen memory.
+
+The high-memory diagnostic deliberately distinguishes raw Multiboot2 available
+RAM inventory (`memory_high_available_bytes()`) from currently free high pages
+(`memory_high_free_pages())); reservations and allocations affect the latter,
+not the former.
+
+The kernel-wide mapping path serializes BSP mapping changes and waits for TLB
+invalidation acknowledgements from the online APs selected by the current SMP
+topology. It has no timeout: returning and reusing a virtual slot before every
+target has invalidated its stale translation would be unsafe. A non-responding
+online AP can therefore stall the BSP. This remains a reliability limitation
+for a future SMP lifecycle review; this graphics milestone does not weaken the
+acknowledgement requirement or alter the shootdown protocol.
+
+**Result:** the inspected boot order supports the current CPU-only high-memory
+backing allocation path. It does not establish GGTT ownership, GPU addressability,
+or permission to submit commands. No GPU acceleration claim follows from this
+audit.
