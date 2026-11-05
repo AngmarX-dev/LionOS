@@ -44,9 +44,6 @@ int gpu_memory_get_mapping_candidate(const gpu_memory_block_t *block,
                                      uint32_t page_index,
                                      uint32_t *entry_index,
                                      uint64_t *pte_value);
-/* Pins keep backing pages allocated until the matching unpin. */
-int gpu_memory_pin(const gpu_memory_block_t *block);
-int gpu_memory_unpin(const gpu_memory_block_t *block);
 int gpu_memory_free(gpu_memory_block_t *block);
 int gpu_memory_get_stats(gfx_backend_t backend, gpu_memory_stats_t *out);
 /* Allocates, validates and frees one page through the generic provider API. */

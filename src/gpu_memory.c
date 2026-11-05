@@ -154,6 +154,12 @@ int gpu_memory_selftest(gfx_backend_t backend)
         gpu_memory_alloc(backend, 1u, &block) != 0)
         return -1;
 
+    if (gpu_memory_pin(&block) != 0 ||
+        gpu_memory_free(&block) == 0 ||
+        gpu_memory_unpin(&block) != 0 ||
+        gpu_memory_unpin(&block) == 0)
+        goto cleanup;
+
     if (block.backend != backend || block.page_count != 1u ||
         block.size_bytes != 4096u || block.address_space_reserved != 0u ||
         block.address_space_first != UINT32_MAX ||

@@ -128,9 +128,6 @@ int intel_gpu_ggtt_pte_selftest(void);
 int intel_gpu_memory_init(void);
 int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out);
 int intel_gpu_memory_free(uint32_t handle);
-/* BSP-only lifetime pins prevent free while a CPU consumer holds a block. */
-int intel_gpu_memory_pin(uint32_t handle);
-int intel_gpu_memory_unpin(uint32_t handle);
 int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
                               uint64_t *physical_address,
                               uint32_t *cpu_virtual_address);

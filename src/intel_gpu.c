@@ -1364,6 +1364,7 @@ int intel_gpu_memory_selftest(void)
     uint32_t virtual_address[2] = {0u, 0u};
     volatile uint32_t *words[2] = {0, 0};
     uint32_t handle = 0u;
+    uint32_t pin_count = 0u;
     uint32_t ggtt_crc_before = 0u;
     uint32_t ggtt_crc_after = 0u;
 
@@ -1374,13 +1375,21 @@ int intel_gpu_memory_selftest(void)
     handle = block.handle;
 
     /* Active consumer pins must prevent free until every owner releases. */
-    if (intel_gpu_memory_pin(handle) != 0 ||
-        intel_gpu_memory_pin(handle) != 0 ||
-        intel_gpu_memory_free(handle) == 0 ||
-        intel_gpu_memory_unpin(handle) != 0 ||
-        intel_gpu_memory_free(handle) == 0 ||
-        intel_gpu_memory_unpin(handle) != 0 ||
-        intel_gpu_memory_unpin(handle) == 0 ||
+    if (intel_gpu_memory_pin(handle) != 0)
+        goto fail;
+    ++pin_count;
+    if (intel_gpu_memory_pin(handle) != 0)
+        goto fail;
+    ++pin_count;
+    if (intel_gpu_memory_free(handle) == 0 ||
+        intel_gpu_memory_unpin(handle) != 0)
+        goto fail;
+    --pin_count;
+    if (intel_gpu_memory_free(handle) == 0 ||
+        intel_gpu_memory_unpin(handle) != 0)
+        goto fail;
+    --pin_count;
+    if (intel_gpu_memory_unpin(handle) == 0 ||
         intel_gpu_memory_get_page(handle, 0u, &physical[0],
                                   &virtual_address[0]) != 0)
         goto fail;
@@ -1507,6 +1516,11 @@ int intel_gpu_memory_selftest(void)
     return 0;
 
 fail:
+    while (pin_count) {
+        if (intel_gpu_memory_unpin(handle) != 0)
+            break;
+        --pin_count;
+    }
     (void)intel_gpu_memory_free(handle);
     debug_write("LIONOS:INTEL-GPU-MEM-2PAGE-SELFTEST-FAIL\n");
     return -1;
