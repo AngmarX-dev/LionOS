@@ -84,8 +84,16 @@ uint32_t process_fork_current(uint32_t *parent_frame){
         ++cowed;
     }
 
+    /* fork() duplicates the caller's architectural FPU/SSE state. FXSAVE is
+       non-destructive, so the parent continues with identical live registers. */
+    fpu_save(parent);
     slot=process_create_ex_vas_locked(parent->entry,parent->user_stack,pd,pages,vas,count);
     if(!slot)goto restore;
+    if(fpu_enabled&&parent->fpu_valid){
+        for(uint32_t i=0u;i<sizeof(parent->fpu_state);++i)
+            slot->fpu_state[i]=parent->fpu_state[i];
+        slot->fpu_valid=1u;
+    }
     slot->parent_pid=parent->pid;
     slot->tid=next_tid++;if(next_tid==0)next_tid=1;slot->thread_group_pid=parent->thread_group_pid;slot->is_thread=0;slot->owns_address_space=1;
     slot->cpu_owner=cpu_current_index();
