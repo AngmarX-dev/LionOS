@@ -373,3 +373,19 @@ GPU-addressable. GGTT ownership and the hardware submission path remain
 blocked pending an authoritative platform/firmware hand-off contract.
 
 No xHCI files or code paths were changed.
+
+## Sealed command-buffer read-only handoff (2026-11-05)
+
+The CPU-side command-buffer API now exposes `gpu_command_buffer_get_view()`.
+It succeeds only for a valid SEALED buffer and returns a const word pointer plus
+the exact used-dword count. It rejects an output descriptor that overlaps the
+command-buffer descriptor or its backing storage, and leaves the output
+untouched on failure. Reset returns the builder to OPEN, after which obtaining
+a view is rejected.
+
+The view is a borrowed CPU pointer, not a GPU virtual address or DMA mapping.
+It remains valid only while the caller-owned backing storage remains allocated
+and unchanged. Callers must serialize view consumption against reset or reuse;
+this API does not add locks, cache maintenance, fences, or submission. The
+self-test covers OPEN rejection, sealed success, exact count/pointer, output
+alias rejection, and rejection after reset.
