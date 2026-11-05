@@ -278,8 +278,8 @@ int gfx_software_selftest(void) {
                           0xFF556677u) != 0)
         return -1;
 
-    if (storage[0] != 0xFF102030u ||
-        storage[1] != 0xFF102030u ||
+    if (storage[0] != 0xFF80007Fu ||
+        storage[1] != 0x80FF0000u ||
         storage[4] != 0xFF102030u ||
         storage[2u + 1u * 4u] != 0xFFAABBCCu ||
         storage[1u + 2u * 4u] != 0xFF556677u ||
