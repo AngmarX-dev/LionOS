@@ -1540,20 +1540,21 @@ void gui_start(void){
         uint32_t width = 0u, height = 0u, pitch = 0u;
         gfx_surface_t surface;
         gfx_context_t context;
-        if (framebuffer_get_desktop_buffer(&pixels, &width, &height, &pitch) == 0) {
+        if (framebuffer_get_desktop_xrgb8888(&pixels, &width, &height, &pitch) == 0) {
             surface.pixels = pixels;
             surface.width = width;
             surface.height = height;
             surface.pitch_pixels = pitch;
+            surface.pixel_format = GFX_PIXEL_FORMAT_XRGB8888;
             if (gfx_context_init_cpu(&context, &surface) == 0 &&
                 context.backend == GFX_BACKEND_CPU &&
                 context.target.pixels == pixels) {
-                debug_write("LIONOS:GFX-DESKTOP-SURFACE-READY\n");
+                debug_write("LIONOS:GFX-DESKTOP-XRGB8888-READY\n");
             } else {
-                debug_write("LIONOS:GFX-DESKTOP-SURFACE-FAIL\n");
+                debug_write("LIONOS:GFX-DESKTOP-XRGB8888-FAIL\n");
             }
         } else {
-            debug_write("LIONOS:GFX-DESKTOP-SURFACE-UNAVAILABLE\n");
+            debug_write("LIONOS:GFX-DESKTOP-XRGB8888-UNAVAILABLE\n");
         }
     }
     drag_compositor_ready=(uint8_t)(framebuffer_compositor_selftest()==0);
