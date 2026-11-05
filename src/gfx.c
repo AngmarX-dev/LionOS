@@ -93,7 +93,10 @@ int gfx_software_selftest(void) {
     gfx_surface_t surface = {
         storage, 3u, 3u, 4u, GFX_PIXEL_FORMAT_ARGB8888
     };
-    gfx_context_t context = { { 0, 0u, 0u, 0u }, GFX_BACKEND_NONE, 0u };
+    gfx_context_t context = {
+        { 0, 0u, 0u, 0u, GFX_PIXEL_FORMAT_ARGB8888 },
+        GFX_BACKEND_NONE, 0u
+    };
 
     if (gfx_context_init_cpu(&context, &surface) != 0)
         return -1;
@@ -123,6 +126,16 @@ int gfx_software_selftest(void) {
 
     surface.pitch_pixels = 2u;
     if (gfx_surface_validate(&surface) == 0)
+        return -1;
+
+    surface.pitch_pixels = 4u;
+    surface.pixel_format = GFX_PIXEL_FORMAT_XRGB8888;
+    if (gfx_context_init_cpu(&context, &surface) != 0)
+        return -1;
+    if (gfx_cpu_clear(&context, 0xFF102030u) != 0 ||
+        storage[0] != 0x00102030u ||
+        storage[1] != 0x00102030u ||
+        storage[2] != 0x00102030u)
         return -1;
     return 0;
 }
