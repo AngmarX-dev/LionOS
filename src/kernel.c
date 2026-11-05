@@ -442,6 +442,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
                 console_write(" / ");
                 boot_dec(gpu_mem_stats.ggtt_total_entries);
                 console_write("\n");
+                console_write("[ -- ] GGTT ownership unverified; GPU virtual mappings disabled\n");
+                debug_write("LIONOS:INTEL-GGTT-OWNERSHIP-UNVERIFIED\n");
             } else {
                 console_write("[ -- ] Intel GPU memory self-test failed; GPU memory manager retained\n");
             }
