@@ -141,8 +141,10 @@ int gpu_memory_selftest(gfx_backend_t backend)
         return -1;
 
     if (block.backend != backend || block.page_count != 1u ||
-        block.size_bytes != 4096u ||
+        block.size_bytes != 4096u || block.address_space_reserved != 0u ||
+        block.address_space_first != UINT32_MAX ||
         gpu_memory_get_stats(backend, &during) != 0 ||
+        during.address_space_ownership_verified != 0u ||
         during.active_allocations != before.active_allocations + 1u ||
         during.allocated_pages != before.allocated_pages + 1u ||
         gpu_memory_get_page(&block, 0u, &physical, &virtual_address) != 0 ||
@@ -172,6 +174,7 @@ cleanup:
         block.size_bytes != 0u)
         return -1;
     if (gpu_memory_get_stats(backend, &after) != 0 ||
+        after.address_space_ownership_verified != 0u ||
         after.active_allocations != before.active_allocations ||
         after.allocated_pages != before.allocated_pages)
         return -1;
