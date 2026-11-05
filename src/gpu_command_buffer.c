@@ -241,7 +241,13 @@ int gpu_command_buffer_acquire_view(gpu_command_buffer_t *buffer,
     if (!gpu_command_buffer_valid(buffer) || !out_view ||
         buffer->state != GPU_COMMAND_BUFFER_SEALED ||
         buffer->active_lease_mask == UINT32_MAX ||
-        buffer->next_lease_token == UINT32_MAX)
+        buffer->next_lease_token == UINT32_MAX ||
+        gpu_command_ranges_overlap((uintptr_t)out_view, sizeof(*out_view),
+                                   (uintptr_t)buffer, sizeof(*buffer)) ||
+        gpu_command_ranges_overlap((uintptr_t)out_view, sizeof(*out_view),
+                                   (uintptr_t)buffer->storage,
+                                   (uintptr_t)buffer->capacity_dwords *
+                                       GPU_COMMAND_DWORD_BYTES))
         return -1;
     for (slot = 0u; slot < 32u; ++slot) {
         bit = 1u << slot;
@@ -263,8 +269,14 @@ int gpu_command_buffer_release_view(gpu_command_buffer_t *buffer,
 {
     uint32_t slot;
     uint32_t bit;
-    if (!gpu_command_buffer_valid(buffer) || !view || !view->lease_token ||
-        buffer->state != GPU_COMMAND_BUFFER_SEALED ||
+    if (!gpu_command_buffer_valid(buffer) || !view ||
+        gpu_command_ranges_overlap((uintptr_t)view, sizeof(*view),
+                                   (uintptr_t)buffer, sizeof(*buffer)) ||
+        gpu_command_ranges_overlap((uintptr_t)view, sizeof(*view),
+                                   (uintptr_t)buffer->storage,
+                                   (uintptr_t)buffer->capacity_dwords *
+                                       GPU_COMMAND_DWORD_BYTES) ||
+        !view->lease_token || buffer->state != GPU_COMMAND_BUFFER_SEALED ||
         view->words != buffer->storage ||
         view->word_count != buffer->used_dwords ||
         view->generation != buffer->generation)
@@ -387,7 +399,15 @@ int gpu_command_buffer_selftest(void)
         gpu_command_buffer_view_t lease_c = {0};
         if (gpu_command_buffer_acquire_view(&buffer, &lease_a) != 0 ||
             gpu_command_buffer_acquire_view(&buffer, &lease_b) != 0 ||
-            lease_a.lease_token == lease_b.lease_token)
+            lease_a.lease_token == lease_b.lease_token ||
+            gpu_command_buffer_acquire_view(&buffer,
+                (gpu_command_buffer_view_t *)&buffer) == 0 ||
+            gpu_command_buffer_acquire_view(&buffer,
+                (gpu_command_buffer_view_t *)&guarded_storage[1]) == 0 ||
+            gpu_command_buffer_release_view(&buffer,
+                (const gpu_command_buffer_view_t *)&buffer) == 0 ||
+            gpu_command_buffer_release_view(&buffer,
+                (const gpu_command_buffer_view_t *)&guarded_storage[1]) == 0)
             return -1;
         stale_lease = lease_a;
         if (gpu_command_buffer_reset(&buffer) == 0 ||
