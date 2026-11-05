@@ -518,6 +518,38 @@ uint32_t intel_gpu_platform_engine_mask(void)
     }
 }
 
+/*
+ * Mirror the upstream i915 default policy for these PCI platform groups.
+ * This is policy metadata only: it does not detect a loaded firmware image,
+ * select a scheduler in LionOS, or claim that any submission path is active.
+ *
+ * ADL-S defaults to HuC authentication only (GuC submission is not selected).
+ * Other supported Gen12 groups use the upstream default GuC submission policy.
+ */
+const char *intel_gpu_submission_policy(void)
+{
+    if (!gpu_ready)
+        return "NOT DETECTED";
+
+    switch (gpu.device_id) {
+        case 0x4680u: case 0x4682u: case 0x4688u: case 0x468Au:
+        case 0x468Bu: case 0x4690u: case 0x4692u: case 0x4693u:
+            return "EXECLISTS DEFAULT / GUC SUB OFF";
+
+        case 0x46A0u: case 0x46A1u: case 0x46A2u: case 0x46A3u:
+        case 0x46A6u: case 0x46A8u: case 0x46AAu: case 0x462Au:
+        case 0x4626u: case 0x4628u: case 0x46B0u: case 0x46B1u:
+        case 0x46B2u: case 0x46B3u: case 0x46C0u: case 0x46C1u:
+        case 0x46C2u: case 0x46C3u:
+        case 0xA780u: case 0xA781u: case 0xA782u: case 0xA783u:
+        case 0xA788u: case 0xA789u: case 0xA78Au: case 0xA78Bu:
+            return "GUC SUBMISSION DEFAULT";
+
+        default:
+            return "POLICY UNKNOWN";
+    }
+}
+
 static int intel_known_display_id(uint16_t id)
 {
     if (intel_alder_lake_id(id))
