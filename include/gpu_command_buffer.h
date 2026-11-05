@@ -23,6 +23,9 @@ typedef struct {
     uint32_t used_dwords;
     uint32_t generation;
     gpu_command_buffer_state_t state;
+    uint32_t active_lease_mask;
+    gpu_memory_block_t backing_block;
+    uint32_t backing_pinned;
 } gpu_command_buffer_t;
 
 /* Read-only CPU view, available only after the command buffer is sealed. */
@@ -30,6 +33,7 @@ typedef struct {
     const uint32_t *words;
     uint32_t word_count;
     uint32_t generation;
+    uint32_t lease_token;
 } gpu_command_buffer_view_t;
 
 /* Initialize an empty buffer over caller-owned storage. */
@@ -49,10 +53,15 @@ int gpu_command_buffer_seal(gpu_command_buffer_t *buffer);
 int gpu_command_buffer_reset(gpu_command_buffer_t *buffer);
 int gpu_command_buffer_get_view(const gpu_command_buffer_t *buffer,
                                   gpu_command_buffer_view_t *out_view);
+int gpu_command_buffer_acquire_view(gpu_command_buffer_t *buffer,
+                                    gpu_command_buffer_view_t *out_view);
+int gpu_command_buffer_release_view(gpu_command_buffer_t *buffer,
+                                    const gpu_command_buffer_view_t *view);
+int gpu_command_buffer_destroy(gpu_command_buffer_t *buffer);
 /* Reject stale or mismatched views before a consumer reads them. */
 int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
                                      const gpu_command_buffer_view_t *view);
-/* Bind one CPU-mapped backing page; caller retains and frees the block. */
+/* Bind and pin one CPU-mapped backing page until destroy. */
 int gpu_command_buffer_init_from_memory(gpu_command_buffer_t *buffer,
                                         const gpu_memory_block_t *backing);
 

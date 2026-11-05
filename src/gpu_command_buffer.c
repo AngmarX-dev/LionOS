@@ -63,6 +63,9 @@ int gpu_command_buffer_init(gpu_command_buffer_t *buffer,
     initialized.used_dwords = 0u;
     initialized.generation = 1u;
     initialized.state = GPU_COMMAND_BUFFER_OPEN;
+    initialized.active_lease_mask = 0u;
+    initialized.backing_block = (gpu_memory_block_t){0};
+    initialized.backing_pinned = 0u;
     *buffer = initialized;
     return 0;
 }
@@ -138,6 +141,7 @@ int gpu_command_buffer_seal(gpu_command_buffer_t *buffer)
 int gpu_command_buffer_reset(gpu_command_buffer_t *buffer)
 {
     if (!gpu_command_buffer_valid(buffer) ||
+        buffer->active_lease_mask != 0u ||
         buffer->generation == UINT32_MAX)
         return -1;
 
@@ -188,6 +192,7 @@ int gpu_command_buffer_get_view(const gpu_command_buffer_t *buffer,
     view.words = buffer->storage;
     view.word_count = buffer->used_dwords;
     view.generation = buffer->generation;
+    view.lease_token = 0u;
     *out_view = view;
     return 0;
 }
@@ -210,9 +215,67 @@ int gpu_command_buffer_init_from_memory(gpu_command_buffer_t *buffer,
         (cpu_virtual_address & 0xFFFu) != 0u)
         return -1;
 
-    return gpu_command_buffer_init(buffer,
-                                   (uint32_t *)(uintptr_t)cpu_virtual_address,
-                                   4096u / sizeof(uint32_t));
+    if (gpu_memory_pin(backing) != 0)
+        return -1;
+    if (gpu_command_buffer_init(buffer,
+            (uint32_t *)(uintptr_t)cpu_virtual_address,
+            4096u / sizeof(uint32_t)) != 0) {
+        (void)gpu_memory_unpin(backing);
+        return -1;
+    }
+    buffer->backing_block = *backing;
+    buffer->backing_pinned = 1u;
+    return 0;
+}
+
+int gpu_command_buffer_acquire_view(gpu_command_buffer_t *buffer,
+                                    gpu_command_buffer_view_t *out_view)
+{
+    gpu_command_buffer_view_t view;
+    uint32_t available;
+    uint32_t token;
+    if (!gpu_command_buffer_valid(buffer) || !out_view ||
+        buffer->state != GPU_COMMAND_BUFFER_SEALED ||
+        buffer->active_lease_mask == UINT32_MAX)
+        return -1;
+    available = ~buffer->active_lease_mask;
+    token = available & (0u - available);
+    if (!token || gpu_command_buffer_get_view(buffer, &view) != 0)
+        return -1;
+    view.lease_token = token;
+    buffer->active_lease_mask |= token;
+    *out_view = view;
+    return 0;
+}
+
+int gpu_command_buffer_release_view(gpu_command_buffer_t *buffer,
+                                    const gpu_command_buffer_view_t *view)
+{
+    uint32_t token;
+    if (!gpu_command_buffer_valid(buffer) || !view)
+        return -1;
+    token = view->lease_token;
+    if (!token || (token & (token - 1u)) != 0u ||
+        (buffer->active_lease_mask & token) == 0u ||
+        buffer->state != GPU_COMMAND_BUFFER_SEALED ||
+        view->words != buffer->storage ||
+        view->word_count != buffer->used_dwords ||
+        view->generation != buffer->generation)
+        return -1;
+    buffer->active_lease_mask &= ~token;
+    return 0;
+}
+
+int gpu_command_buffer_destroy(gpu_command_buffer_t *buffer)
+{
+    if (!gpu_command_buffer_valid(buffer) ||
+        buffer->active_lease_mask != 0u || buffer->backing_pinned > 1u)
+        return -1;
+    if (buffer->backing_pinned &&
+        gpu_memory_unpin(&buffer->backing_block) != 0)
+        return -1;
+    *buffer = (gpu_command_buffer_t){0};
+    return 0;
 }
 
 int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
@@ -241,7 +304,10 @@ int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
 
     if (view->words != buffer->storage ||
         view->word_count != buffer->used_dwords ||
-        view->generation != buffer->generation)
+        view->generation != buffer->generation ||
+        (view->lease_token != 0u &&
+         ((view->lease_token & (view->lease_token - 1u)) != 0u ||
+          (buffer->active_lease_mask & view->lease_token) == 0u)))
         return -1;
 
     return 0;
@@ -255,8 +321,8 @@ int gpu_command_buffer_selftest(void)
     const uint32_t input[2] = {0x10203040u, 0x50607080u};
     gpu_command_buffer_t buffer = {0};
     gpu_command_buffer_t alias_buffer = {0};
-    gpu_command_buffer_view_t view = {input, 77u, 0u};
-    gpu_command_buffer_view_t stale_view = {0, 0u, 0u};
+    gpu_command_buffer_view_t view = {input, 77u, 0u, 0u};
+    gpu_command_buffer_view_t stale_view = {0, 0u, 0u, 0u};
 
     if (gpu_command_buffer_init(&buffer, &guarded_storage[1], 4u) != 0 ||
         buffer.state != GPU_COMMAND_BUFFER_OPEN ||
@@ -287,6 +353,20 @@ int gpu_command_buffer_selftest(void)
         gpu_command_buffer_view_validate(&buffer, &view) != 0)
         return -1;
 
+    {
+        gpu_command_buffer_view_t lease_a = {0};
+        gpu_command_buffer_view_t lease_b = {0};
+        if (gpu_command_buffer_acquire_view(&buffer, &lease_a) != 0 ||
+            gpu_command_buffer_acquire_view(&buffer, &lease_b) != 0 ||
+            lease_a.lease_token == lease_b.lease_token ||
+            gpu_command_buffer_reset(&buffer) == 0 ||
+            gpu_command_buffer_release_view(&buffer, &lease_a) != 0 ||
+            gpu_command_buffer_release_view(&buffer, &lease_a) == 0 ||
+            gpu_command_buffer_reset(&buffer) == 0 ||
+            gpu_command_buffer_release_view(&buffer, &lease_b) != 0)
+            return -1;
+    }
+
     if (gpu_command_buffer_get_view(&buffer,
             (gpu_command_buffer_view_t *)&buffer) == 0 ||
         gpu_command_buffer_get_view(&buffer,
@@ -298,6 +378,13 @@ int gpu_command_buffer_selftest(void)
         return -1;
 
     stale_view = view;
+    {
+        gpu_command_buffer_view_t lease = {0};
+        if (gpu_command_buffer_acquire_view(&buffer, &lease) != 0 ||
+            gpu_command_buffer_reset(&buffer) == 0 ||
+            gpu_command_buffer_release_view(&buffer, &lease) != 0)
+            goto cleanup;
+    }
     if (gpu_command_buffer_reset(&buffer) != 0 ||
         buffer.state != GPU_COMMAND_BUFFER_OPEN ||
         buffer.used_dwords != 0u || buffer.generation != 2u ||
@@ -328,7 +415,9 @@ int gpu_command_buffer_selftest(void)
         buffer.state != GPU_COMMAND_BUFFER_SEALED)
         return -1;
 
-    if (gpu_command_buffer_init(&alias_buffer,
+    if (gpu_command_buffer_destroy(&buffer) != 0 ||
+        gpu_command_buffer_destroy(&buffer) == 0 ||
+        gpu_command_buffer_init(&alias_buffer,
             (uint32_t *)&alias_buffer, 4u) == 0 ||
         guarded_storage[0] != 0x13579BDFu ||
         guarded_storage[5] != 0x2468ACE0u)
@@ -341,8 +430,8 @@ int gpu_command_buffer_memory_selftest(gfx_backend_t backend)
 {
     gpu_memory_block_t backing = {0};
     gpu_command_buffer_t buffer = {0};
-    gpu_command_buffer_view_t view = {0, 0u, 0u};
-    gpu_command_buffer_view_t stale_view = {0, 0u, 0u};
+    gpu_command_buffer_view_t view = {0, 0u, 0u, 0u};
+    gpu_command_buffer_view_t stale_view = {0, 0u, 0u, 0u};
     uint64_t physical_address = 0u;
     uint32_t cpu_virtual_address = 0u;
     int result = -1;
@@ -364,6 +453,7 @@ int gpu_command_buffer_memory_selftest(gfx_backend_t backend)
 
     if (buffer.storage != (uint32_t *)(uintptr_t)cpu_virtual_address ||
         buffer.capacity_dwords != 1024u ||
+        gpu_memory_free(&backing) == 0 ||
         gpu_command_buffer_append_u32(&buffer, 0xC001D00Du) != 0 ||
         gpu_command_buffer_append_u32(&buffer, 0x51A1E5EDu) != 0 ||
         gpu_command_buffer_seal(&buffer) != 0 ||
@@ -387,8 +477,7 @@ int gpu_command_buffer_memory_selftest(gfx_backend_t backend)
     result = 0;
 
 cleanup:
-    /* Invalidate views before the provider unmaps and frees the backing page. */
-    if (buffer_initialized && gpu_command_buffer_reset(&buffer) != 0)
+    if (buffer_initialized && gpu_command_buffer_destroy(&buffer) != 0)
         result = -1;
     if (gpu_memory_free(&backing) != 0)
         return -1;
