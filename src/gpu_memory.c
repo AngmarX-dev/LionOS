@@ -41,10 +41,16 @@ int gpu_memory_alloc(gfx_backend_t backend, uint32_t page_count,
 
 static int gpu_memory_block_valid(const gpu_memory_block_t *block)
 {
-    return block && block->provider_handle != 0u &&
-           block->page_count != 0u &&
-           block->size_bytes != 0u &&
-           gpu_memory_backend_supported(block->backend);
+    if (!block || !block->provider_handle || !block->page_count ||
+        block->page_count > UINT32_MAX / 4096u ||
+        block->size_bytes != block->page_count * 4096u ||
+        !gpu_memory_backend_supported(block->backend) ||
+        block->address_space_reserved > 1u)
+        return 0;
+
+    if (block->address_space_reserved)
+        return block->address_space_first != UINT32_MAX;
+    return block->address_space_first == UINT32_MAX;
 }
 
 int gpu_memory_get_page(const gpu_memory_block_t *block, uint32_t page_index,
@@ -75,8 +81,10 @@ int gpu_memory_get_mapping_candidate(const gpu_memory_block_t *block,
 
     if (!gpu_memory_block_valid(block) || !entry_index || !pte_value ||
         !block->address_space_reserved || page_index >= block->page_count ||
+        block->address_space_first > UINT32_MAX - page_index ||
         intel_gpu_memory_get_mapping_candidate(block->provider_handle,
-                                               page_index, &index, &pte) != 0)
+                                               page_index, &index, &pte) != 0 ||
+        index != block->address_space_first + page_index)
         return -1;
 
     *entry_index = index;
@@ -155,7 +163,9 @@ int gpu_memory_selftest(gfx_backend_t backend)
     result = 0;
 
 cleanup:
-    if (gpu_memory_free(&block) != 0)
+    if (gpu_memory_free(&block) != 0 ||
+        block.provider_handle != 0u || block.page_count != 0u ||
+        block.size_bytes != 0u)
         return -1;
     if (gpu_memory_get_stats(backend, &after) != 0 ||
         after.active_allocations != before.active_allocations ||
