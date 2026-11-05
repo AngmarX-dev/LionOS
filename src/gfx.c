@@ -579,7 +579,7 @@ int gfx_software_selftest(void) {
         if (gfx_cpu_blit_scaled(&scale_context, &scale_source,
                                 0u, 0u, 2u, 2u, 3u, 3u, 2u, 2u) != 0 ||
             scale_destination_pixels[18] != 0xFF112233u ||
-            scale_destination_pixels[17] != 0xDEADBEEFu)
+            scale_destination_pixels[17] != 0xFFAABBCCu)
             return -1;
         if (gfx_cpu_blit_scaled(&scale_context, &scale_source,
                                 1u, 1u, 2u, 1u, 0u, 0u, 2u, 2u) != -1)
