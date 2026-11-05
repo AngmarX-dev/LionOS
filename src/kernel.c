@@ -414,11 +414,11 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     /* Validate one-shot CPU completion fences; no hardware completion is implied. */
     if (gpu_fence_selftest() == 0) {
-        debug_write("LIONOS:GPU-FENCE-SELFTEST-OK\\n");
-        console_write("[ OK ] GPU fence / CPU-only atomic lifecycle self-test\\n");
+        debug_write("LIONOS:GPU-FENCE-SELFTEST-OK\n");
+        console_write("[ OK ] GPU fence / CPU-only atomic lifecycle self-test\n");
     } else {
-        debug_write("LIONOS:GPU-FENCE-SELFTEST-FAIL\\n");
-        console_write("[ERR] GPU fence / CPU-only self-test\\n");
+        debug_write("LIONOS:GPU-FENCE-SELFTEST-FAIL\n");
+        console_write("[ERR] GPU fence / CPU-only self-test\n");
     }
 
     /* Verify safe backend selection and mandatory CPU fallback. */
