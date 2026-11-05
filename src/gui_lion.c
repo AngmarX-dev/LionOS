@@ -838,7 +838,7 @@ static void draw_system_monitor(void){
     /* Keep the diagnostics card inside the desktop and leave room for full-width hex values. */
     uint32_t w=sw>676u?660u:(sw>32u?sw-16u:sw);
     uint32_t x=sw>w+16u?sw-w-8u:8u;
-    uint32_t y=48u,h=672u;
+    uint32_t y=48u,h=648u;
     cpu_identification_t cpu={0};
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
@@ -1012,8 +1012,8 @@ static void draw_system_monitor(void){
             default:
                 break;
         }
-        text_line("DIAGNOSTIC",x+14u,y+504u,COL_DIM,COL_PANEL);
-        text_line(fw_status,x+190u,y+504u,status_color,COL_PANEL);
+        text_line("DIAGNOSTIC",x+14u,y+496u,COL_DIM,COL_PANEL);
+        text_line(fw_status,x+190u,y+496u,status_color,COL_PANEL);
     }
 
     {
@@ -1031,36 +1031,34 @@ static void draw_system_monitor(void){
                 ring_color=COL_OK;
             }
         }
-        text_line("RING STATE",x+14u,y+524u,COL_DIM,COL_PANEL);
-        text_line(ring_status,x+190u,y+524u,ring_color,COL_PANEL);
+        text_line("RING STATE",x+14u,y+512u,COL_DIM,COL_PANEL);
+        text_line(ring_status,x+190u,y+512u,ring_color,COL_PANEL);
     }
-    text_line("CPU",x+14u,y+544u,COL_DIM,COL_PANEL);
-    text_line(cpu.brand[0]?cpu.brand:"CPU INFO UNAVAILABLE",x+140u,y+544u,COL_TEXT,COL_PANEL);
-    text_line("GPU MEMORY",x+14u,y+562u,COL_DIM,COL_PANEL);
+    text_line("CPU",x+14u,y+528u,COL_DIM,COL_PANEL);
+    text_line(cpu.brand[0]?cpu.brand:"CPU INFO UNAVAILABLE",x+140u,y+528u,COL_TEXT,COL_PANEL);
+    text_line("GPU MEMORY",x+14u,y+544u,COL_DIM,COL_PANEL);
     if(have_memory){
-        text_line("ALLOC",x+140u,y+562u,COL_DIM,COL_PANEL);
-        draw_uint(mem.active_allocations,x+212u,y+562u,COL_TEXT,COL_PANEL);
-        text_line("PAGES",x+300u,y+562u,COL_DIM,COL_PANEL);
-        draw_uint(mem.allocated_pages,x+372u,y+562u,COL_TEXT,COL_PANEL);
+        text_line("ALLOC",x+140u,y+544u,COL_DIM,COL_PANEL);
+        draw_uint(mem.active_allocations,x+212u,y+544u,COL_TEXT,COL_PANEL);
+        text_line("PAGES",x+300u,y+544u,COL_DIM,COL_PANEL);
+        draw_uint(mem.allocated_pages,x+372u,y+544u,COL_TEXT,COL_PANEL);
     }else{
-        text_line("UNAVAILABLE",x+140u,y+562u,COL_DIM,COL_PANEL);
+        text_line("UNAVAILABLE",x+140u,y+544u,COL_DIM,COL_PANEL);
     }
-    text_line("GGTT MAP",x+14u,y+580u,COL_DIM,COL_PANEL);
+    text_line("GGTT MAP",x+14u,y+560u,COL_DIM,COL_PANEL);
     if(have_memory){
-        text_line("EMPTY",x+140u,y+580u,COL_DIM,COL_PANEL);
-        draw_uint(mem.ggtt_empty_candidates,x+212u,y+580u,COL_TEXT,COL_PANEL);
-        text_line("VALID",x+300u,y+580u,COL_DIM,COL_PANEL);
-        draw_uint(mem.ggtt_valid_entries,x+360u,y+580u,COL_TEXT,COL_PANEL);
-        text_line("INVALID",x+444u,y+580u,COL_DIM,COL_PANEL);
-        draw_uint(mem.ggtt_nonzero_invalid_entries,x+540u,y+580u,COL_TEXT,COL_PANEL);
+        text_line("EMPTY",x+140u,y+560u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_empty_candidates,x+212u,y+560u,COL_TEXT,COL_PANEL);
+        text_line("VALID",x+300u,y+560u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_valid_entries,x+360u,y+560u,COL_TEXT,COL_PANEL);
+        text_line("INVALID",x+444u,y+560u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_nonzero_invalid_entries,x+540u,y+560u,COL_TEXT,COL_PANEL);
     }else{
-        text_line("UNAVAILABLE",x+140u,y+580u,COL_DIM,COL_PANEL);
+        text_line("UNAVAILABLE",x+140u,y+560u,COL_DIM,COL_PANEL);
     }
-    text_line("GPU ACCELERATION",x+14u,y+598u,COL_DIM,COL_PANEL);
-    text_line("INACTIVE (CPU COMPOSITOR)",x+190u,y+598u,COL_DIM,COL_PANEL);
-    text_line("GPU COMMANDS",x+14u,y+616u,COL_DIM,COL_PANEL);
-    text_line("NOT IMPLEMENTED / NOT TESTED",x+190u,y+616u,COL_DIM,COL_PANEL);
-    text_line("PLATFORM ENGINES",x+14u,y+636u,COL_DIM,COL_PANEL);
+    text_line("GPU STATUS",x+14u,y+576u,COL_DIM,COL_PANEL);
+    text_line("CPU COMPOSITOR / COMMANDS UNTESTED",x+190u,y+576u,COL_DIM,COL_PANEL);
+    text_line("PLATFORM ENGINES",x+14u,y+592u,COL_DIM,COL_PANEL);
     if((platform_engines & (INTEL_GPU_ENGINE_RCS0 | INTEL_GPU_ENGINE_BCS0 |
                             INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
                             INTEL_GPU_ENGINE_VCS2)) ==
@@ -1068,7 +1066,7 @@ static void draw_system_monitor(void){
         INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
         INTEL_GPU_ENGINE_VCS2)){
         text_line("RCS0 BCS0 VECS0 VCS0 VCS2 (CAPABILITY)",
-                  x+190u,y+636u,COL_TEXT,COL_PANEL);
+                  x+190u,y+592u,COL_TEXT,COL_PANEL);
     }else if(platform_engines==0u){
         text_line("UNKNOWN",x+190u,y+636u,COL_DIM,COL_PANEL);
     }else{
