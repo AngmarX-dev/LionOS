@@ -129,3 +129,12 @@ The kernel mapping API rejects physical addresses that cannot be represented by 
 ### GPU memory manager safety contract
 
 The manager exposes intel_gpu_memory_init, intel_gpu_memory_alloc, intel_gpu_memory_get_page, intel_gpu_memory_get_mapping_candidate, intel_gpu_memory_free, intel_gpu_memory_get_stats, and intel_gpu_memory_selftest in include/intel_gpu.h. Allocation sizes are page-granular and capped at 256 pages per block; the static descriptor pool is capped at 16 blocks. The handle encodes a generation and pool slot to reject stale references. Operations are BSP-only because the existing high-page mapping window is BSP-owned; callers must serialize access. No GGTT ranges are returned or reserved: all allocations remain CPU-only until GGTT ownership is explicitly verified. No code in this stage writes the GGTT aperture.
+
+
+### GGTT ownership-contract research checkpoint
+
+The next GGTT stage is a documented no-go decision, not PTE programming. Current upstream Linux i915 code was cross-checked for Gen8+ PTE fields, platform-specific PAT handling, write/readback behavior, and generation-/GuC-dependent invalidation. This is implementation evidence, not proof of firmware hand-off or an authoritative Alder Lake platform contract.
+
+The exact ownership, firmware scanout reservations, Alder Lake cacheability/coherency policy, PTE update ordering, and invalidation completion semantics remain unverified. Therefore the runtime must continue reporting ownership unverified, must not reserve zero-valued entries, and must not write GGTT PTEs.
+
+The evidence, unresolved requirements, transactional map/unmap rules, and go/no-go checklist are maintained in [INTEL-ALDER-LAKE-GGTT-CONTRACT.md](INTEL-ALDER-LAKE-GGTT-CONTRACT.md). The next safe step is to obtain and validate the exact platform/firmware documentation; if no valid hand-off contract exists, GGTT mapping remains disabled.
