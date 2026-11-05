@@ -213,22 +213,55 @@ int gfx_cpu_blit_scaled(gfx_context_t *context, const gfx_surface_t *source,
     if (clipped_height > context->target.height - destination_y)
         clipped_height = context->target.height - destination_y;
 
+    /*
+     * Incremental quotient/remainder stepping implements
+     * floor(destination_index * source_size / destination_size) using only
+     * 32-bit division. This avoids freestanding __udivdi3 dependencies.
+     */
+    const uint32_t x_step = source_width / destination_width;
+    const uint32_t x_remainder = source_width % destination_width;
+    const uint32_t y_step = source_height / destination_height;
+    const uint32_t y_remainder = source_height % destination_height;
+    uint32_t y_sample = 0u;
+    uint32_t y_accumulator = 0u;
+
     for (uint32_t row = 0u; row < clipped_height; ++row) {
-        const uint32_t sample_y = (uint32_t)(
-            ((uint64_t)row * source_height) / destination_height);
         const uint32_t *source_row = source->pixels +
-            (source_y + sample_y) * source->pitch_pixels + source_x;
+            (source_y + y_sample) * source->pitch_pixels + source_x;
         uint32_t *destination_row = context->target.pixels +
             (destination_y + row) * context->target.pitch_pixels +
             destination_x;
+        uint32_t x_sample = 0u;
+        uint32_t x_accumulator = 0u;
+
         for (uint32_t column = 0u; column < clipped_width; ++column) {
-            const uint32_t sample_x = (uint32_t)(
-                ((uint64_t)column * source_width) / destination_width);
-            uint32_t pixel = source_row[sample_x];
+            uint32_t pixel = source_row[x_sample];
             if (source->pixel_format == GFX_PIXEL_FORMAT_XRGB8888)
                 pixel |= 0xFF000000u;
             destination_row[column] =
                 gfx_store_pixel(&context->target, pixel);
+
+            x_sample += x_step;
+            if (x_remainder != 0u) {
+                const uint32_t threshold = destination_width - x_remainder;
+                if (x_accumulator >= threshold) {
+                    x_accumulator -= threshold;
+                    ++x_sample;
+                } else {
+                    x_accumulator += x_remainder;
+                }
+            }
+        }
+
+        y_sample += y_step;
+        if (y_remainder != 0u) {
+            const uint32_t threshold = destination_height - y_remainder;
+            if (y_accumulator >= threshold) {
+                y_accumulator -= threshold;
+                ++y_sample;
+            } else {
+                y_accumulator += y_remainder;
+            }
         }
     }
     return 0;
