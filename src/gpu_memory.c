@@ -49,7 +49,8 @@ static int gpu_memory_block_valid(const gpu_memory_block_t *block)
         return 0;
 
     if (block->address_space_reserved)
-        return block->address_space_first != UINT32_MAX;
+        return block->address_space_first != 0u &&
+               block->address_space_first != UINT32_MAX;
     return block->address_space_first == UINT32_MAX;
 }
 
