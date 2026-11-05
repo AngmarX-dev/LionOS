@@ -3,6 +3,15 @@
 
 #include <stdint.h>
 
+/* Engine presence advertised by the upstream PCI platform table.
+ * These bits describe platform capability, not initialized/operational engines.
+ */
+#define INTEL_GPU_ENGINE_RCS0  (1u << 0)
+#define INTEL_GPU_ENGINE_BCS0  (1u << 1)
+#define INTEL_GPU_ENGINE_VECS0 (1u << 2)
+#define INTEL_GPU_ENGINE_VCS0  (1u << 3)
+#define INTEL_GPU_ENGINE_VCS2  (1u << 4)
+
 typedef struct {
     uint32_t head;
     uint32_t tail;
@@ -70,6 +79,7 @@ int intel_gpu_init(uint32_t firmware_framebuffer_active);
 int intel_gpu_available(void);
 const char *intel_gpu_platform_name(void);
 const char *intel_gpu_gmd_id_status(void);
+uint32_t intel_gpu_platform_engine_mask(void);
 int intel_gpu_is_alder_lake(void);
 int intel_gpu_mmio_ready(void);
 int intel_gpu_get_info(intel_gpu_info_t *out);
