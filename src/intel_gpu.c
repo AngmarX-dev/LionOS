@@ -1493,8 +1493,8 @@ int intel_gpu_memory_selftest(void)
         after.ggtt_nonzero_invalid_entries != before.ggtt_nonzero_invalid_entries)
         goto fail;
 
-    debug_write("LIONOS:INTEL-GPU-GGTT-SNAPSHOT-STABLE\\n");
-    debug_write("LIONOS:INTEL-GPU-MEM-2PAGE-SELFTEST-OK\\n");
+    debug_write("LIONOS:INTEL-GPU-GGTT-SNAPSHOT-STABLE\n");
+    debug_write("LIONOS:INTEL-GPU-MEM-2PAGE-SELFTEST-OK\n");
     return 0;
 
 fail:
