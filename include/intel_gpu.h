@@ -68,6 +68,8 @@ typedef struct {
 /* PCI discovery and conservative, read-only MMIO aperture setup. */
 int intel_gpu_init(uint32_t firmware_framebuffer_active);
 int intel_gpu_available(void);
+const char *intel_gpu_platform_name(void);
+const char *intel_gpu_gmd_id_status(void);
 int intel_gpu_is_alder_lake(void);
 int intel_gpu_mmio_ready(void);
 int intel_gpu_get_info(intel_gpu_info_t *out);
