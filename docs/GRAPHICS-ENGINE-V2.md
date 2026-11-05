@@ -286,3 +286,29 @@ x2APIC support, or a general unknown-CPU recovery path.
 AP startup sequencing, interrupt routing, TLB shootdown, scheduler policy,
 GPU mappings, or xHCI code. CI/QEMU checks cannot replace a physical SMP
 bring-up test on the Alder Lake laptop.
+
+## SMP scheduler reschedule-request isolation audit (2026-11-05)
+
+The scheduler uses per-CPU current-process pointers and per-CPU scheduler
+counters, while the process table and transitions are serialized by the
+shared `process_lock`. The reschedule request was the exception: it was a
+single global atomic flag consumed by whichever CPU next entered
+`process_schedule()`.
+
+That global flag allowed a request raised by one CPU (for example, a
+yield/exit/blocking syscall) to be consumed by another CPU's timer tick.
+Consequently, the requesting CPU could continue its current time slice while
+an unrelated CPU performed an unnecessary early scheduling decision.
+
+The flag is now an array indexed by `cpu_current_index()`. A request is
+published only to the calling CPU, and that CPU's scheduler consumes only its
+own flag with an acquire-release atomic exchange. All entries are explicitly
+reset during `process_init()`. The global process table lock and the
+non-blocking scheduler try-lock policy are unchanged.
+
+This is not a per-CPU run-queue implementation: the process table remains
+globally serialized, cross-CPU work stealing remains disabled, and task
+migration/retirement semantics are unchanged. The correction isolates the
+reschedule signal only. No xHCI source, interrupt routing, or GPU code was
+modified. CI and QEMU tests do not replace stress testing with multiple
+physical CPUs under concurrent yield/exit/block/wakeup workloads.
