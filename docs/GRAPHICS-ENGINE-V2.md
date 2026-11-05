@@ -351,3 +351,25 @@ the existing disabled-state path.
 This does not add XSAVE/AVX state support, lazy switching, or per-CPU FPU
 ownership. Physical SMP and x87/SSE fork stress tests remain necessary. No
 xHCI source, interrupt routing, GPU code, or scheduler policy was changed.
+
+## CPU-side GPU command-buffer foundation (2026-11-05)
+
+Added a vendor-neutral, bounded command-stream storage API in
+`include/gpu_command_buffer.h` and `src/gpu_command_buffer.c`. The caller
+supplies 32-bit-aligned storage; the API tracks capacity and used dwords,
+rejects arithmetic overflow, rejects source/destination aliasing for bulk
+appends, and enforces an explicit OPEN/SEALED lifecycle. Reset reopens the
+buffer without taking ownership of or freeing caller storage.
+
+The boot self-test checks append ordering, capacity rejection, alias rejection,
+seal behavior, append rejection after sealing, reset behavior, zero-length
+append handling, and surrounding canaries.
+
+**Strict boundary:** entries are opaque dwords. This module defines no Intel
+MI opcodes, packet formats, GPU virtual addresses, cache policy, fences, or
+submission registers. It does not map storage into GGTT, write MMIO, program a
+ring, or submit work. The buffer remains CPU-owned RAM and cannot be treated as
+GPU-addressable. GGTT ownership and the hardware submission path remain
+blocked pending an authoritative platform/firmware hand-off contract.
+
+No xHCI files or code paths were changed.
