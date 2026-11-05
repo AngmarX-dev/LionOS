@@ -325,8 +325,8 @@ void cpu_init(uint32_t multiboot_info){
 uint32_t cpu_count_hint(void){return cpu_hint;}
 /*
  * APIC identity is established by MADT before AP startup. Resolve the CPU
- * even while its online flag is still clear: AP initialization uses per-CPU
- * paging/TSS state before publishing the online transition.
+ * even while its online flag is still clear: AP initialization selects its
+ * per-CPU paging state before publishing the online transition.
  */
 uint32_t cpu_current_index(void){
     uint32_t id=lapic_id();
