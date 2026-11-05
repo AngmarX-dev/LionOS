@@ -87,6 +87,46 @@ int gfx_cpu_fill_rect(gfx_context_t *context, uint32_t x, uint32_t y,
     return 0;
 }
 
+int gfx_cpu_draw_line(gfx_context_t *context, uint32_t x0, uint32_t y0,
+                      uint32_t x1, uint32_t y1, uint32_t argb) {
+    if (!gfx_cpu_context_valid(context))
+        return -1;
+
+    const gfx_surface_t *surface = &context->target;
+    if (x0 >= surface->width || x1 >= surface->width ||
+        y0 >= surface->height || y1 >= surface->height)
+        return 0;
+
+    /* Surface validation bounds coordinates well below INT64_MAX. */
+    int64_t x = (int64_t)x0;
+    int64_t y = (int64_t)y0;
+    const int64_t end_x = (int64_t)x1;
+    const int64_t end_y = (int64_t)y1;
+    const int64_t dx = x0 <= x1 ? (int64_t)x1 - x0 : (int64_t)x0 - x1;
+    const int64_t dy = y0 <= y1 ? (int64_t)y1 - y0 : (int64_t)y0 - y1;
+    const int64_t step_x = x0 < x1 ? 1 : -1;
+    const int64_t step_y = y0 < y1 ? 1 : -1;
+    int64_t error = dx - dy;
+    const uint32_t pixel = gfx_store_pixel(surface, argb);
+
+    for (;;) {
+        surface->pixels[(uint32_t)y * surface->pitch_pixels + (uint32_t)x] = pixel;
+        if (x == end_x && y == end_y)
+            break;
+
+        const int64_t doubled_error = error * 2;
+        if (doubled_error > -dy) {
+            error -= dy;
+            x += step_x;
+        }
+        if (doubled_error < dx) {
+            error += dx;
+            y += step_y;
+        }
+    }
+    return 0;
+}
+
 int gfx_software_selftest(void) {
     uint32_t storage[4u * 3u];
     for (uint32_t i = 0u; i < 12u; ++i)
@@ -120,6 +160,17 @@ int gfx_software_selftest(void) {
         storage[2u + 2u * 4u] != 0xFF556677u)
         return -1;
 
+    if (gfx_cpu_draw_line(&context, 0u, 0u, 2u, 2u,
+                           0xFFABCDEFu) != 0 ||
+        storage[0] != 0xFFABCDEFu ||
+        storage[5] != 0xFFABCDEFu ||
+        storage[10] != 0xFFABCDEFu)
+        return -1;
+    if (gfx_cpu_draw_line(&context, 0u, 0u, 3u, 2u,
+                           0xFFFFFFFFu) != 0 ||
+        storage[0] != 0xFFABCDEFu)
+        return -1;
+
     /* Padding pixels must remain untouched by every raster operation. */
     if (storage[3] != 0xDEADBEEFu ||
         storage[7] != 0xDEADBEEFu ||
@@ -135,6 +186,7 @@ int gfx_software_selftest(void) {
     if (gfx_context_init_cpu(&context, &surface) != 0)
         return -1;
     if (gfx_cpu_clear(&context, 0xFF102030u) != 0 ||
+        gfx_cpu_draw_line(&context, 0u, 2u, 2u, 2u, 0xFFABCDEFu) != 0 ||
         storage[0] != 0x00102030u ||
         storage[1] != 0x00102030u ||
         storage[2] != 0x00102030u ||
