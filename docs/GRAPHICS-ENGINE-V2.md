@@ -4,6 +4,14 @@
 
 This branch separates desktop frame pacing from the process scheduler and provides an ARGB software-compositor layer path. Native GPU command submission is not enabled by this milestone.
 
+## CPU software rasterizer primitives
+
+The hardware-independent graphics API now provides a bounded CPU path for clearing a surface, writing a pixel, filling a clipped rectangle, drawing an in-bounds line, and filling a triangle. ARGB8888 preserves the supplied alpha byte; XRGB8888 always clears the high byte. All operations validate the context and respect the surface pitch, leaving row padding untouched.
+
+The filled-triangle routine uses signed 64-bit edge functions, clips its iteration to the triangle's in-bounds bounding box, accepts either vertex winding, and treats degenerate triangles as a no-op. All three vertices must be inside the target surface; a triangle with any out-of-bounds vertex is rejected without writing. Its deterministic boot self-test covers ARGB and XRGB output, winding-independent coverage, degenerate/out-of-bounds handling, and row-padding preservation.
+
+This is CPU rasterization only. It does not submit GPU commands or imply hardware acceleration.
+
 ## Intel UHD Graphics: Alder Lake
 
 The first physical GPU target is the integrated Intel graphics function reported by the user's laptop:
