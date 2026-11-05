@@ -319,11 +319,23 @@ int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
 
     if (view->words != buffer->storage ||
         view->word_count != buffer->used_dwords ||
-        view->generation != buffer->generation ||
-        (view->lease_token != 0u &&
-         ((view->lease_token & (view->lease_token - 1u)) != 0u ||
-          (buffer->active_lease_mask & view->lease_token) == 0u)))
+        view->generation != buffer->generation)
         return -1;
+
+    if (view->lease_token != 0u) {
+        uint32_t slot;
+        int found = 0;
+        for (slot = 0u; slot < 32u; ++slot) {
+            uint32_t bit = 1u << slot;
+            if ((buffer->active_lease_mask & bit) != 0u &&
+                buffer->lease_tokens[slot] == view->lease_token) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found)
+            return -1;
+    }
 
     return 0;
 }
@@ -401,13 +413,6 @@ int gpu_command_buffer_selftest(void)
         return -1;
 
     stale_view = view;
-    {
-        gpu_command_buffer_view_t lease = {0};
-        if (gpu_command_buffer_acquire_view(&buffer, &lease) != 0 ||
-            gpu_command_buffer_reset(&buffer) == 0 ||
-            gpu_command_buffer_release_view(&buffer, &lease) != 0)
-            goto cleanup;
-    }
     if (gpu_command_buffer_reset(&buffer) != 0 ||
         buffer.state != GPU_COMMAND_BUFFER_OPEN ||
         buffer.used_dwords != 0u || buffer.generation != 2u ||
@@ -487,6 +492,14 @@ int gpu_command_buffer_memory_selftest(gfx_backend_t backend)
         goto cleanup;
 
     stale_view = view;
+    {
+        gpu_command_buffer_view_t lease = {0};
+        if (gpu_command_buffer_acquire_view(&buffer, &lease) != 0 ||
+            gpu_command_buffer_view_validate(&buffer, &lease) != 0 ||
+            gpu_command_buffer_reset(&buffer) == 0 ||
+            gpu_command_buffer_release_view(&buffer, &lease) != 0)
+            goto cleanup;
+    }
     if (gpu_command_buffer_reset(&buffer) != 0 ||
         gpu_command_buffer_view_validate(&buffer, &stale_view) == 0 ||
         gpu_command_buffer_append_u32(&buffer, 0xC001D00Du) != 0 ||
