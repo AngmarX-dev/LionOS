@@ -185,3 +185,71 @@ acknowledgement requirement or alter the shootdown protocol.
 backing allocation path. It does not establish GGTT ownership, GPU addressability,
 or permission to submit commands. No GPU acceleration claim follows from this
 audit.
+
+## SMP / kernel TLB shootdown lifecycle audit (2026-11-05)
+
+The shared kernel mapping path and its AP interrupt path were reviewed across
+`src/paging.c`, `src/smp.c`, `src/cpu.c`, `src/lapic.c`,
+`src/idt.c`, `src/spinlock.c`, and `boot/boot.asm`.
+
+### Verified ordering and synchronization
+
+1. The BSP initializes the shared IDT, LAPIC, paging structures, and SMP
+   topology before AP startup. Each AP loads the shared IDT and enables its
+   local APIC before enabling interrupts and publishing its `online` flag.
+2. IDT vector 49 is installed as an interrupt gate. The common assembly stub
+   preserves the interrupted register/segment frame, and
+   `interrupt_dispatch()` routes vector 49 to
+   `paging_tlb_shootdown_interrupt()`.
+3. The handler reads the published virtual address, executes local
+   `invlpg`, increments the acknowledgement counter with release ordering,
+   and sends LAPIC EOI. It does not acquire the kernel mapping lock, so it
+   does not depend on a lock held by the waiting BSP.
+4. The BSP mapping transaction is restricted to CPU index zero and serialized
+   by `kernel_map_lock` with local interrupts disabled. It updates the PTE,
+   invalidates locally, snapshots the number of eligible online AP targets,
+   publishes the address, sends vector 49 to those APs, and waits for the
+   acknowledgement count before releasing the lock or returning.
+5. The high-page unmap path clears the PTE and completes the same shootdown
+   before returning the virtual slot to the high-map bitmap. This ordering
+   prevents a slot from being reused while an online AP may retain its old
+   translation.
+6. The AP online flag is published only after its IDT and LAPIC are ready and
+   local interrupts have been enabled. Thus a CPU is not included in the
+   shootdown target set before it can service the IPI.
+
+### Limitations and follow-up requirements
+
+- The shootdown protocol has no transaction timeout or recovery path. A target
+  that is marked online but cannot service vector 49 can stall the BSP
+  indefinitely. This is fail-closed with respect to stale-translation reuse,
+  but it is not fault tolerant.
+- `lapic_send_ipi()` has a void return contract. Its bounded ICR wait does
+  not report whether delivery completed; the acknowledgement loop is the
+  eventual end-to-end check, but currently has no deadline or diagnostic
+  escalation.
+- The target count and send pass independently inspect the online topology.
+  The current SMP implementation has no CPU-offline transition, so the online
+  set is effectively monotonic after startup. Any future hotplug/offline
+  support must make target selection an immutable per-transaction snapshot
+  and coordinate CPU removal with in-flight shootdowns.
+- `cpu_current_index()` returns BSP index zero when the current AP is not yet
+  marked online. The present AP startup calls
+  `paging_switch_address_space(paging_kernel_directory())` during that
+  interval; it loads the same kernel CR3 and therefore does not change the
+  BSP's address-space value. However, the fallback is not a general per-CPU
+  identity mechanism. Future AP initialization must not use per-CPU state
+  before the AP can be identified independently of its online state.
+- APIC IDs above 255 are not started by the current xAPIC-only startup path,
+  and the shootdown target filter likewise accepts only IDs up to 255.
+  Supporting x2APIC or wider IDs requires a separate LAPIC/IPI implementation,
+  not merely removing the filter.
+- This audit does not validate interrupt delivery on physical multi-socket
+  hardware. QEMU CI validates build/test regressions but is not a substitute
+  for a physical SMP stress test.
+
+**Result:** the current BSP/AP ordering and acknowledgement protocol are
+internally consistent for the supported online xAPIC CPUs. Mapping removal
+continues to wait for every selected AP acknowledgement before a virtual slot
+can be reused. No timeout, CPU hotplug, x2APIC support, or GPU mapping behavior
+is claimed. No xHCI source was modified by this audit.
