@@ -2,6 +2,7 @@
 #define LIONOS_GPU_COMMAND_BUFFER_H
 
 #include <stdint.h>
+#include "gpu_memory.h"
 
 /*
  * CPU-side command-stream storage only.
@@ -51,8 +52,13 @@ int gpu_command_buffer_get_view(const gpu_command_buffer_t *buffer,
 /* Reject stale or mismatched views before a consumer reads them. */
 int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
                                      const gpu_command_buffer_view_t *view);
+/* Bind one CPU-mapped backing page; caller retains and frees the block. */
+int gpu_command_buffer_init_from_memory(gpu_command_buffer_t *buffer,
+                                        const gpu_memory_block_t *backing);
 
 /* Deterministic RAM-only bounds/state/aliasing test. */
 int gpu_command_buffer_selftest(void);
+/* Exercise a one-page CPU mapping through the generic memory provider. */
+int gpu_command_buffer_memory_selftest(gfx_backend_t backend);
 
 #endif
