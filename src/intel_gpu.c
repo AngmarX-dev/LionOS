@@ -1286,6 +1286,7 @@ int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
     intel_gpu_memory_record_t *record;
     uint32_t index;
     uint64_t encoded;
+    uint64_t observed_pte = UINT64_MAX;
 
     if (!intel_gpu_memory_bsp_only() || !ggtt_index || !pte_value)
         return -1;
@@ -1299,6 +1300,20 @@ int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
         !intel_gpu_ggtt_bit_get(index) ||
         intel_gpu_ggtt_encode_system_pte(record->physical[page_index],
                                           &encoded) != 0)
+        return -1;
+
+    /*
+     * Revalidate the hardware slot immediately before returning a plan.
+     * A slot that was zero during the initial scan may since have been
+     * populated by firmware or another agent. Never treat the software
+     * reservation bitmap as proof that the hardware entry is still empty.
+     *
+     * This remains read-only validation, NOT proof of firmware ownership
+     * and NOT authorization to write the PTE. A later mapping stage needs
+     * an explicit platform ownership contract and serialization.
+     */
+    if (intel_gpu_ggtt_read_entry(index, &observed_pte) != 0 ||
+        observed_pte != 0u)
         return -1;
 
     *ggtt_index = index;
