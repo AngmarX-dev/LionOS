@@ -2,6 +2,7 @@
 #include "gui.h"
 #include "debug.h"
 #include "framebuffer.h"
+#include "gfx.h"
 #include "keyboard.h"
 #include "mouse.h"
 #include "memory.h"
@@ -1530,6 +1531,31 @@ void gui_start(void){
     if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\n");return;}
+    /*
+     * Bind the compositor-owned ARGB backbuffer to the generic graphics API.
+     * This validates the adapter without changing the active rendering path.
+     */
+    {
+        uint32_t *pixels = 0;
+        uint32_t width = 0u, height = 0u, pitch = 0u;
+        gfx_surface_t surface;
+        gfx_context_t context;
+        if (framebuffer_get_desktop_buffer(&pixels, &width, &height, &pitch) == 0) {
+            surface.pixels = pixels;
+            surface.width = width;
+            surface.height = height;
+            surface.pitch_pixels = pitch;
+            if (gfx_context_init_cpu(&context, &surface) == 0 &&
+                context.backend == GFX_BACKEND_CPU &&
+                context.target.pixels == pixels) {
+                debug_write("LIONOS:GFX-DESKTOP-SURFACE-READY\\n");
+            } else {
+                debug_write("LIONOS:GFX-DESKTOP-SURFACE-FAIL\\n");
+            }
+        } else {
+            debug_write("LIONOS:GFX-DESKTOP-SURFACE-UNAVAILABLE\\n");
+        }
+    }
     drag_compositor_ready=(uint8_t)(framebuffer_compositor_selftest()==0);
     debug_write(drag_compositor_ready
         ? "LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK\n"
