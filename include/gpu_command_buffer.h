@@ -23,6 +23,12 @@ typedef struct {
     gpu_command_buffer_state_t state;
 } gpu_command_buffer_t;
 
+/* Read-only CPU view, available only after the command buffer is sealed. */
+typedef struct {
+    const uint32_t *words;
+    uint32_t word_count;
+} gpu_command_buffer_view_t;
+
 /* Initialize an empty buffer over caller-owned storage. */
 int gpu_command_buffer_init(gpu_command_buffer_t *buffer,
                             uint32_t *storage,
@@ -38,6 +44,8 @@ int gpu_command_buffer_append_words(gpu_command_buffer_t *buffer,
 /* Sealing prevents further appends until reset. */
 int gpu_command_buffer_seal(gpu_command_buffer_t *buffer);
 int gpu_command_buffer_reset(gpu_command_buffer_t *buffer);
+int gpu_command_buffer_get_view(const gpu_command_buffer_t *buffer,
+                                  gpu_command_buffer_view_t *out_view);
 
 /* Deterministic RAM-only bounds/state/aliasing test. */
 int gpu_command_buffer_selftest(void);
