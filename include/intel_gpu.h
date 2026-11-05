@@ -129,7 +129,9 @@ int intel_gpu_memory_free(uint32_t handle);
 int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
                               uint64_t *physical_address,
                               uint32_t *cpu_virtual_address);
-/* Return a software-only GGTT index/PTE candidate; never writes hardware. */
+/* Re-read and validate that the reserved GGTT slot is still exactly zero,
+ * then return a software-only index/PTE plan. This does not prove ownership
+ * or authorize a hardware PTE write. */
 int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
                                            uint32_t page_index,
                                            uint32_t *ggtt_index,
