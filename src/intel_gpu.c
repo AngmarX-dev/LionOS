@@ -1043,49 +1043,6 @@ static void intel_gpu_ggtt_bit_set(uint32_t index)
     intel_gpu_ggtt_bitmap[index >> 5] |= 1u << (index & 31u);
 }
 
-static void intel_gpu_ggtt_bit_clear(uint32_t index)
-{
-    intel_gpu_ggtt_bitmap[index >> 5] &= ~(1u << (index & 31u));
-}
-
-static void intel_gpu_memory_release_ggtt(uint32_t first, uint32_t count)
-{
-    for (uint32_t i = 0u; i < count; ++i) {
-        uint32_t index = first + i;
-        if (index < intel_gpu_ggtt_entries && intel_gpu_ggtt_bit_get(index)) {
-            intel_gpu_ggtt_bit_clear(index);
-            ++intel_gpu_ggtt_empty_candidates;
-        }
-    }
-}
-
-static int intel_gpu_memory_find_ggtt_run(uint32_t count, uint32_t *first_out)
-{
-    uint32_t run = 0u;
-    uint32_t start = 1u; /* GGTT entry zero is permanently reserved. */
-
-    if (!first_out || !count || count >= intel_gpu_ggtt_entries)
-        return -1;
-
-    for (uint32_t i = 1u; i < intel_gpu_ggtt_entries; ++i) {
-        if (!intel_gpu_ggtt_bit_get(i)) {
-            if (!run)
-                start = i;
-            ++run;
-            if (run == count) {
-                for (uint32_t n = 0u; n < count; ++n)
-                    intel_gpu_ggtt_bit_set(start + n);
-                intel_gpu_ggtt_empty_candidates -= count;
-                *first_out = start;
-                return 0;
-            }
-        } else {
-            run = 0u;
-        }
-    }
-    return -1;
-}
-
 int intel_gpu_memory_init(void)
 {
     intel_gpu_info_t info;
@@ -1156,7 +1113,6 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
 {
     intel_gpu_memory_record_t *record = 0;
     uint32_t slot = INTEL_GPU_MEMORY_MAX_ALLOCS;
-    uint32_t first = 0u;
     uint32_t ggtt_reserved = 0u;
 
     if (!out || !intel_gpu_memory_bsp_only() || !intel_gpu_memory_ready ||
@@ -1174,13 +1130,13 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
         return -1;
 
     /*
-     * Backing RAM ownership is independent from GGTT availability. Firmware
-     * may legitimately populate every GGTT entry for its active scanout.
-     * In that case allocate/test CPU backing pages, but do not claim a GPU
-     * virtual address or overwrite any firmware-owned PTE.
+     * A zero PTE is only an observed empty candidate; it does not establish
+     * ownership of that GGTT slot. Until platform documentation and firmware
+     * hand-off provide an explicit ownership contract, do not reserve GGTT
+     * entries or expose GPU virtual addresses. Backing RAM remains usable
+     * through the CPU-only path.
      */
-    if (intel_gpu_memory_find_ggtt_run(page_count, &first) == 0)
-        ggtt_reserved = 1u;
+    ggtt_reserved = 0u;
 
     record->state = 1u;
     intel_gpu_memory_generation = (intel_gpu_memory_generation + 1u) & 0x00FFFFFFu;
@@ -1192,7 +1148,7 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
         record->physical[i] = 0u;
         record->virtual_address[i] = 0u;
     }
-    record->ggtt_first = first;
+    record->ggtt_first = 0u;
     record->ggtt_reserved = ggtt_reserved;
 
     for (uint32_t i = 0u; i < page_count; ++i) {
@@ -1216,7 +1172,7 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
     record->state = 2u;
     out->handle = (record->generation << 8) | (slot + 1u);
     out->page_count = page_count;
-    out->ggtt_first_entry = ggtt_reserved ? first : UINT32_MAX;
+    out->ggtt_first_entry = UINT32_MAX;
     out->bytes = page_count * INTEL_GPU_MEMORY_PAGE_SIZE;
     out->ggtt_mapping_active = 0u;
     return 0;
@@ -1236,8 +1192,6 @@ rollback:
             record->physical[i] = 0u;
         }
     }
-    if (record->ggtt_reserved)
-        intel_gpu_memory_release_ggtt(first, page_count);
     record->state = 0u;
     record->page_count = 0u;
     record->ggtt_first = 0u;
@@ -1324,7 +1278,7 @@ int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
 int intel_gpu_memory_free(uint32_t handle)
 {
     intel_gpu_memory_record_t *record;
-    uint32_t first, count;
+    uint32_t count;
 
     if (!intel_gpu_memory_bsp_only())
         return -1;
@@ -1332,7 +1286,6 @@ int intel_gpu_memory_free(uint32_t handle)
     if (!record)
         return -1;
 
-    first = record->ggtt_first;
     count = record->page_count;
 
     /* Unmap all CPU aliases before returning any backing page to the PMM. */
@@ -1346,8 +1299,6 @@ int intel_gpu_memory_free(uint32_t handle)
     for (uint32_t i = 0u; i < count; ++i)
         page_free_high(record->physical[i]);
 
-    if (record->ggtt_reserved)
-        intel_gpu_memory_release_ggtt(first, count);
     record->state = 0u;
     record->page_count = 0u;
     record->ggtt_first = 0u;
