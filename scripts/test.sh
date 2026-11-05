@@ -94,6 +94,7 @@ run_gui_smoke() {
     grep -q 'LIONOS:GUI-READY' "$log_file"
     grep -q 'LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK' "$log_file"
     grep -q 'LIONOS:GFX-CPU-SELFTEST-OK' "$log_file"
+    grep -q 'LIONOS:GFX-DESKTOP-XRGB8888-READY' "$log_file"
 
     python3 - "$GUI_MONITOR_SOCKET" <<'PY'
 import socket
