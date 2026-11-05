@@ -241,12 +241,22 @@ int gfx_software_selftest(void) {
         storage[8] != 0xFF13579Bu ||
         storage[6] != 0xFF102030u)
         return -1;
+    /* Reverse winding must cover the same triangle. */
+    if (gfx_cpu_fill_triangle(&context, 0u, 2u, 2u, 0u, 0u, 0u,
+                              0xFF2468ACu) != 0 ||
+        storage[0] != 0xFF2468ACu ||
+        storage[1] != 0xFF2468ACu ||
+        storage[2] != 0xFF2468ACu ||
+        storage[4] != 0xFF2468ACu ||
+        storage[5] != 0xFF2468ACu ||
+        storage[8] != 0xFF2468ACu)
+        return -1;
     /* Out-of-bounds and degenerate triangles must not write pixels. */
     if (gfx_cpu_fill_triangle(&context, 0u, 0u, 2u, 0u, 3u, 2u,
                               0xFFFFFFFFu) != 0 ||
         gfx_cpu_fill_triangle(&context, 0u, 0u, 1u, 1u, 2u, 2u,
                               0xFFFFFFFFu) != 0 ||
-        storage[0] != 0xFF13579Bu ||
+        storage[0] != 0xFF2468ACu ||
         storage[6] != 0xFF102030u)
         return -1;
 
@@ -266,7 +276,7 @@ int gfx_software_selftest(void) {
         return -1;
     if (gfx_cpu_clear(&context, 0xFF102030u) != 0 ||
         gfx_cpu_draw_line(&context, 0u, 2u, 2u, 2u, 0xFFABCDEFu) != 0 ||
-        gfx_cpu_fill_triangle(&context, 0u, 0u, 2u, 0u, 0u, 2u,
+        gfx_cpu_fill_triangle(&context, 0u, 2u, 2u, 0u, 0u, 0u,
                               0xFF13579Bu) != 0 ||
         storage[0] != 0x0013579Bu ||
         storage[1] != 0x0013579Bu ||
@@ -274,9 +284,7 @@ int gfx_software_selftest(void) {
         storage[4] != 0x0013579Bu ||
         storage[5] != 0x0013579Bu ||
         storage[8] != 0x0013579Bu ||
-        storage[1] != 0x00102030u ||
-        storage[2] != 0x00102030u ||
-        storage[8] != 0x00ABCDEFu ||
+        storage[6] != 0x00102030u ||
         storage[9] != 0x00ABCDEFu ||
         storage[10] != 0x00ABCDEFu ||
         storage[3] != 0xDEADBEEFu ||
