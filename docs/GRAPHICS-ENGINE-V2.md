@@ -450,3 +450,46 @@ interrupt, poll a device register, or prove hardware completion. The caller
 must keep the fence alive and serialize its initialization/publication before
 producers and observers access it. No Intel submission registers, GGTT PTEs,
 or xHCI code paths are changed.
+
+
+## CPU command-buffer / fence lifetime contract audit (2026-11-05)
+
+The one-shot fence and sealed command-buffer view were reviewed together
+before introducing any queue or hardware submission path.
+
+### Required ownership contract
+
+1. A command buffer may be exposed to a consumer only while it is SEALED and
+   its view matches the current storage pointer, used-dword count, and
+   generation.
+2. The backing allocation and command-buffer descriptor must outlive every
+   consumer that can still read the view. A terminal fence is not sufficient
+   by itself to release storage until the completion producer is known to
+   represent the final access to that storage.
+3. Reset, reuse, or free must not occur while a consumer may still access the
+   previous generation. The current command-buffer API does not enforce this
+   rule against arbitrary callers; it requires external serialization.
+4. A CPU fence may represent a software producer's completion only. It must
+   not be signaled merely because a command buffer was sealed, queued in
+   software, or accepted by a future device interface.
+5. A future hardware queue must define who owns the command buffer, backing
+   pages, fence, and queue entry on every success and error path, including
+   timeout, device reset, partial submission, and teardown.
+
+### Findings and decision
+
+The current primitives are individually bounded and useful as foundations,
+but they are not yet integrated into a submission object. In particular,
+there is no queue, no consumer ownership token, no reset/free exclusion while
+a consumer is active, and no hardware completion source. The memory provider's
+free operation has no knowledge of command-buffer views or fences.
+
+**Decision: NO-GO for queue submission and asynchronous lifetime management
+until an explicit ownership mechanism is implemented and tested.** The next
+implementation unit must first make command-buffer reuse/free exclusion
+observable and enforceable at the CPU API boundary, then add a CPU-only
+submission lifecycle test. It must not claim DMA safety or GPU completion.
+
+This audit changes no runtime behavior and does not modify xHCI code. It does
+not relax the existing GGTT ownership restriction or authorize MMIO/ring
+programming.
