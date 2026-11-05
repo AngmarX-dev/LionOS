@@ -1546,7 +1546,7 @@ void gui_start(void){
             surface.height = height;
             surface.pitch_pixels = pitch;
             surface.pixel_format = GFX_PIXEL_FORMAT_XRGB8888;
-            if (gfx_context_init_cpu(&context, &surface) == 0 &&
+            if (gfx_context_init_auto(&context, &surface) == 0 &&
                 context.backend == GFX_BACKEND_CPU &&
                 context.target.pixels == pixels &&
                 context.target.width == width &&
