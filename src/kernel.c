@@ -464,6 +464,13 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
                 debug_write("LIONOS:GPU-MEMORY-API-SELFTEST-FAIL\n");
                 console_write("[ -- ] Vendor-neutral GPU memory API self-test failed\n");
             }
+            if (gpu_command_buffer_memory_selftest(GFX_BACKEND_INTEL_GPU) == 0) {
+                debug_write("LIONOS:GPU-COMMAND-BUFFER-MEMORY-SELFTEST-OK\n");
+                console_write("[ OK ] Command buffer / CPU-mapped backing page integration test\n");
+            } else {
+                debug_write("LIONOS:GPU-COMMAND-BUFFER-MEMORY-SELFTEST-FAIL\n");
+                console_write("[ -- ] Command buffer backing-page integration test failed\n");
+            }
         } else {
             console_write("[ -- ] GPU memory provider unavailable; read-only display retained\n");
         }
