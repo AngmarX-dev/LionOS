@@ -137,3 +137,24 @@ Until all items are checked, the expected runtime state is:
 ## Next safe work item
 
 The next implementation work, if authoritative documents become available, is a read-only contract validator and test plan—not a PTE writer. It should report the exact evidence and unsupported conditions, and preserve fail-closed behavior. If the firmware hand-off cannot be proven, the project must keep GGTT mapping disabled and pursue a different supported interface rather than guessing.
+
+
+## Pinned upstream implementation cross-check
+
+To avoid relying on a moving `master` URL, the source observations above were rechecked against Linux commit:
+
+- Commit: `8b1858aaaa20255a42d8eefe7e913c161331af0c`
+- Date: 2026-04-08
+- Files:
+  - https://github.com/torvalds/linux/blob/8b1858aaaa20255a42d8eefe7e913c161331af0c/drivers/gpu/drm/i915/gt/intel_ggtt.c
+  - https://github.com/torvalds/linux/blob/8b1858aaaa20255a42d8eefe7e913c161331af0c/drivers/gpu/drm/i915/gt/intel_gtt.h
+
+Specific observations from that pinned revision:
+
+1. `gen8_ggtt_pte_encode()` returns the DMA address with `GEN8_PAGE_PRESENT`, and conditionally adds `GEN12_GGTT_PTE_LM`. The separate `mtl_ggtt_pte_encode()` adds MTL GGTT PAT bits 52/53. This confirms that the MTL PAT extension must not be applied to Alder Lake merely because both use a Gen12-era PTE family.
+2. `GEN12_GGTT_PTE_ADDR_MASK` is bits 45:12; `GEN12_GGTT_PTE_LM` is bit 1; `GEN8_PAGE_PRESENT` is bit 0. This is an upstream implementation definition, not a replacement for the Alder Lake programming reference or a complete reserved-bit specification.
+3. The ordinary Gen8 GGTT path uses `writeq()` / `readq()` for PTE access. The implementation's mapping-type comments explain why certain generations cannot safely use write-combining mappings for GGTT writes. LionOS must not assume its current uncached BAR mapping alone establishes every required ordering/coherency property.
+4. The pinned `guc_ggtt_invalidate()` first invokes the generic GGTT flush helper, then iterates GTs: it uses GuC TLB invalidation when available; otherwise, for graphics version 12 and later, it writes `GEN12_GUC_TLB_INV_CR`; older paths use `GEN8_GTCR`. This is conditional on GT/GuC state and is not a single unconditional Alder Lake register recipe.
+5. The source includes a readback check discussion for dropped writes with WC mappings, and notes that an uncached MMIO write flushes the write-combining buffer before the relevant invalidate on platforms where that flush is needed. That does not establish LionOS's own BAR mapping attributes, CPU cache policy, or completion/wait contract.
+
+This pinned-source review narrows the software implementation comparison, but it does **not** close the ownership, firmware hand-off, Alder Lake cacheability, or invalidation-completion blockers. The no-go decision is unchanged: no GGTT PTE writes and no ownership claims.
