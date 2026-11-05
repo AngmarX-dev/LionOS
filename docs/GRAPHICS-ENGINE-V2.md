@@ -336,3 +336,18 @@ per-CPU FPU ownership tracking, or a new scheduler architecture. LionOS still
 uses the existing 512-byte FXSAVE/FXRSTOR state format, and physical SMP/FPU
 stress testing remains required. No xHCI source, interrupt routing, GPU code,
 or run-queue policy was changed.
+
+## FPU/SSE state inheritance across fork (2026-11-05)
+
+The fork path now snapshots the calling process's current 512-byte FXSAVE
+image before constructing the child. FXSAVE does not modify the live x87/SSE
+register file, so the parent continues without a register-state change. When
+FPU/SSE support is enabled and the parent has a valid snapshot, the child
+receives an exact byte-for-byte copy and its `fpu_valid` flag is set. The
+existing restore path therefore starts the child with the parent's state at
+the fork boundary. If FPU/SSE is unavailable, both processes continue through
+the existing disabled-state path.
+
+This does not add XSAVE/AVX state support, lazy switching, or per-CPU FPU
+ownership. Physical SMP and x87/SSE fork stress tests remain necessary. No
+xHCI source, interrupt routing, GPU code, or scheduler policy was changed.
