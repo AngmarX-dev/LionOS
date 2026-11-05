@@ -7,7 +7,7 @@
  * Hardware-independent graphics surface.
  * Pixels use either 0xAARRGGBB ARGB8888 or 0x00RRGGBB XRGB8888.
  * XRGB writes discard the high byte. pitch_pixels is measured in uint32_t pixels.
- * The caller owns the pixel storage and its lifetime.
+ * Storage must remain valid for the context lifetime; ownership is not transferred.
  */
 typedef enum {
     GFX_PIXEL_FORMAT_ARGB8888 = 1,
