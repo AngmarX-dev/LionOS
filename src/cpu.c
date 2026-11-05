@@ -323,7 +323,18 @@ void cpu_init(uint32_t multiboot_info){
     }
 }
 uint32_t cpu_count_hint(void){return cpu_hint;}
-uint32_t cpu_current_index(void){uint32_t id=lapic_id();if(id!=0xFFFFFFFFu)for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i)if(cpus[i].online&&cpus[i].apic_id==id)return i;return 0u;}
+/*
+ * APIC identity is established by MADT before AP startup. Resolve the CPU
+ * even while its online flag is still clear: AP initialization uses per-CPU
+ * paging/TSS state before publishing the online transition.
+ */
+uint32_t cpu_current_index(void){
+    uint32_t id=lapic_id();
+    if(id==0xFFFFFFFFu)return 0u;
+    for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i)
+        if(cpus[i].apic_id==id)return i;
+    return 0u;
+}
 const struct cpu_info*cpu_get(uint32_t index){if(index>=LIONOS_MAX_CPUS)return 0;__sync_synchronize();return &cpus[index];}
 void cpu_mark_online(uint32_t index,uint32_t apic_id){if(index>=LIONOS_MAX_CPUS)return;cpus[index].apic_id=apic_id;cpus[index].logical_per_package=1u;__sync_synchronize();cpus[index].online=1u;__sync_synchronize();}
 
