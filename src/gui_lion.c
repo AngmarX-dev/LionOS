@@ -1065,7 +1065,7 @@ static void draw_system_monitor(void){
        (INTEL_GPU_ENGINE_RCS0 | INTEL_GPU_ENGINE_BCS0 |
         INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
         INTEL_GPU_ENGINE_VCS2)){
-        text_line("RCS0 BCS0 VECS0 VCS0 VCS2 (CAPABILITY)",
+        text_line("RCS0 BCS0 VECS0 VCS0 VCS2",
                   x+190u,y+592u,COL_TEXT,COL_PANEL);
     }else if(platform_engines==0u){
         text_line("UNKNOWN",x+190u,y+592u,COL_DIM,COL_PANEL);
