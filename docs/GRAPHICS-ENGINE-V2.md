@@ -312,3 +312,27 @@ migration/retirement semantics are unchanged. The correction isolates the
 reschedule signal only. No xHCI source, interrupt routing, or GPU code was
 modified. CI and QEMU tests do not replace stress testing with multiple
 physical CPUs under concurrent yield/exit/block/wakeup workloads.
+
+
+## Scheduler FPU/SSE switch-out preservation audit (2026-11-05)
+
+The scheduler's FPU/SSE save path was reviewed for ordinary preemption and
+state-transition exits. Previously, `fpu_save(prev)` ran only when the outgoing
+process still had state `PROCESS_RUNNING` and another READY process was selected.
+A task that entered `PROCESS_WAITING`, `PROCESS_STOPPED`, or
+`PROCESS_ZOMBIE` before the scheduling decision could therefore be switched
+away without saving its live x87/SSE register state. The same omission existed
+when the BSP returned to the bootstrap process because no READY task was found.
+
+The switch-out path now saves the outgoing process whenever a different READY
+process is selected, independent of the outgoing process state. The BSP
+bootstrap fallback also saves the outgoing task before changing address spaces
+and kernel stacks. The incoming process is still restored through the existing
+`fpu_restore(next)` path. The early-return path that keeps the same RUNNING
+process does not perform an unnecessary save/restore.
+
+This change does not introduce lazy FPU switching, XSAVE/AVX state support,
+per-CPU FPU ownership tracking, or a new scheduler architecture. LionOS still
+uses the existing 512-byte FXSAVE/FXRSTOR state format, and physical SMP/FPU
+stress testing remains required. No xHCI source, interrupt routing, GPU code,
+or run-queue policy was changed.
