@@ -845,9 +845,11 @@ static void draw_system_monitor(void){
     intel_gt_diag_t diag={0};
     intel_gpu_memory_stats_t mem={0};
     uint32_t platform_engines;
+    const char *submission_policy;
     uint64_t pte_first=0u,pte_last=0u;
     cpu_get_identification(&cpu);
     platform_engines=intel_gpu_platform_engine_mask();
+    submission_policy=intel_gpu_submission_policy();
     int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
     int have_eng=intel_gpu_get_engine_snapshot(&eng)==0;
     int have_diag=intel_gpu_get_gt_diagnostics(&diag)==0;
@@ -1073,6 +1075,8 @@ static void draw_system_monitor(void){
         text_line("PARTIAL / SEE PLATFORM TABLE",
                   x+190u,y+592u,COL_DIM,COL_PANEL);
     }
+    text_line("I915 POLICY",x+14u,y+608u,COL_DIM,COL_PANEL);
+    text_line(submission_policy,x+190u,y+608u,COL_DIM,COL_PANEL);
 
 }
 static void draw_desktop_background(void){
