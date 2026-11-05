@@ -487,6 +487,37 @@ const char *intel_gpu_gmd_id_status(void)
     }
 }
 
+uint32_t intel_gpu_platform_engine_mask(void)
+{
+    if (!gpu_ready)
+        return 0u;
+
+    switch (gpu.device_id) {
+        /* Upstream i915 ADL-S platform_engine_mask. */
+        case 0x4680u: case 0x4682u: case 0x4688u: case 0x468Au:
+        case 0x468Bu: case 0x4690u: case 0x4692u: case 0x4693u:
+        /* Raptor Lake-S currently reuses the ADL-S device-info table. */
+        case 0xA780u: case 0xA781u: case 0xA782u: case 0xA783u:
+        case 0xA788u: case 0xA789u: case 0xA78Au: case 0xA78Bu:
+            return INTEL_GPU_ENGINE_RCS0 | INTEL_GPU_ENGINE_BCS0 |
+                   INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
+                   INTEL_GPU_ENGINE_VCS2;
+
+        /* Upstream i915 ADL-P platform_engine_mask. */
+        case 0x46A0u: case 0x46A1u: case 0x46A2u: case 0x46A3u:
+        case 0x46A6u: case 0x46A8u: case 0x46AAu: case 0x462Au:
+        case 0x4626u: case 0x4628u: case 0x46B0u: case 0x46B1u:
+        case 0x46B2u: case 0x46B3u: case 0x46C0u: case 0x46C1u:
+        case 0x46C2u: case 0x46C3u:
+            return INTEL_GPU_ENGINE_RCS0 | INTEL_GPU_ENGINE_BCS0 |
+                   INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
+                   INTEL_GPU_ENGINE_VCS2;
+
+        default:
+            return 0u;
+    }
+}
+
 static int intel_known_display_id(uint16_t id)
 {
     if (intel_alder_lake_id(id))
