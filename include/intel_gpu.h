@@ -105,9 +105,10 @@ int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out);
 typedef struct {
     uint32_t handle;
     uint32_t page_count;
+    /* UINT32_MAX means backing RAM exists but no free GGTT run was available. */
     uint32_t ggtt_first_entry;
     uint32_t bytes;
-    uint32_t ggtt_mapping_active; /* Always zero in this stage. */
+    uint32_t ggtt_mapping_active; /* Always zero until hardware PTE programming is validated. */
 } intel_gpu_memory_block_t;
 
 typedef struct {
