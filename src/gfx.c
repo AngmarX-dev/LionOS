@@ -8,6 +8,9 @@ int gfx_surface_validate(const gfx_surface_t *surface) {
         return -1;
     if (surface->pitch_pixels < surface->width)
         return -1;
+    if (surface->pixel_format != GFX_PIXEL_FORMAT_ARGB8888 &&
+        surface->pixel_format != GFX_PIXEL_FORMAT_XRGB8888)
+        return -1;
     if (surface->height > GFX_MAX_PIXEL_COUNT / surface->pitch_pixels)
         return -1;
     return 0;
@@ -21,6 +24,11 @@ int gfx_context_init_cpu(gfx_context_t *context, const gfx_surface_t *target) {
     context->backend = GFX_BACKEND_CPU;
     context->initialized = 1u;
     return 0;
+}
+
+static uint32_t gfx_store_pixel(const gfx_surface_t *surface, uint32_t pixel) {
+    return surface->pixel_format == GFX_PIXEL_FORMAT_XRGB8888
+        ? (pixel & 0x00FFFFFFu) : pixel;
 }
 
 static int gfx_cpu_context_valid(const gfx_context_t *context) {
@@ -37,7 +45,7 @@ int gfx_cpu_clear(gfx_context_t *context, uint32_t argb) {
         uint32_t *row = context->target.pixels +
                         y * context->target.pitch_pixels;
         for (uint32_t x = 0u; x < context->target.width; ++x)
-            row[x] = argb;
+            row[x] = gfx_store_pixel(&context->target, argb);
     }
     return 0;
 }
@@ -49,7 +57,8 @@ int gfx_cpu_put_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
     if (x >= context->target.width || y >= context->target.height)
         return 0;
 
-    context->target.pixels[y * context->target.pitch_pixels + x] = argb;
+    context->target.pixels[y * context->target.pitch_pixels + x] =
+        gfx_store_pixel(&context->target, argb);
     return 0;
 }
 
@@ -71,7 +80,7 @@ int gfx_cpu_fill_rect(gfx_context_t *context, uint32_t x, uint32_t y,
         uint32_t *row = context->target.pixels +
             (y + row_index) * context->target.pitch_pixels + x;
         for (uint32_t column = 0u; column < width; ++column)
-            row[column] = argb;
+            row[column] = gfx_store_pixel(&context->target, argb);
     }
     return 0;
 }
@@ -81,7 +90,9 @@ int gfx_software_selftest(void) {
     for (uint32_t i = 0u; i < 12u; ++i)
         storage[i] = 0xDEADBEEFu;
 
-    gfx_surface_t surface = { storage, 3u, 3u, 4u };
+    gfx_surface_t surface = {
+        storage, 3u, 3u, 4u, GFX_PIXEL_FORMAT_ARGB8888
+    };
     gfx_context_t context = { { 0, 0u, 0u, 0u }, GFX_BACKEND_NONE, 0u };
 
     if (gfx_context_init_cpu(&context, &surface) != 0)
