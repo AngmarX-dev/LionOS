@@ -298,7 +298,10 @@ uint32_t *process_schedule(uint32_t *frame){
      * and migration-safe run-queue handling are implemented.
      */
     if(next){
-        if(prev&&prev->state==PROCESS_RUNNING){prev->state=PROCESS_READY;fpu_save(prev);}
+        /* Preserve the outgoing CPU's FPU/SSE state on every real switch,
+           including tasks that blocked, stopped, or exited before scheduling. */
+        if(prev)fpu_save(prev);
+        if(prev&&prev->state==PROCESS_RUNNING)prev->state=PROCESS_READY;
         fpu_restore(next);
         set_current_local(next);
         next->cpu_owner=cpu;
@@ -313,6 +316,7 @@ uint32_t *process_schedule(uint32_t *frame){
     }
     if(prev&&(prev->state==PROCESS_ZOMBIE||prev->state==PROCESS_STOPPED||prev->state==PROCESS_WAITING)){
         if(cpu==0){
+            fpu_save(prev);
             struct process*b=&processes[0];
             set_current_local(b);
             b->cpu_owner=0;
