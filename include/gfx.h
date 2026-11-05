@@ -9,11 +9,17 @@
  * pitch_pixels is the distance between rows, in uint32_t pixels.
  * The caller owns the pixel storage and its lifetime.
  */
+typedef enum {
+    GFX_PIXEL_FORMAT_ARGB8888 = 1,
+    GFX_PIXEL_FORMAT_XRGB8888 = 2
+} gfx_pixel_format_t;
+
 typedef struct {
     uint32_t *pixels;
     uint32_t width;
     uint32_t height;
     uint32_t pitch_pixels;
+    gfx_pixel_format_t pixel_format;
 } gfx_surface_t;
 
 typedef enum {
