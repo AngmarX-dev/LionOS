@@ -1053,8 +1053,8 @@ int intel_gpu_memory_init(void)
 
     /*
      * Initialization is intentionally idempotent. Re-scanning by clearing
-     * the records would orphan live high-memory pages and lose GGTT
-     * reservations owned by existing allocations.
+     * the records would orphan live high-memory pages. GGTT entries are
+     * diagnostic-only and are never reserved by this manager.
      */
     if (intel_gpu_memory_ready)
         return 0;
@@ -1113,7 +1113,6 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
 {
     intel_gpu_memory_record_t *record = 0;
     uint32_t slot = INTEL_GPU_MEMORY_MAX_ALLOCS;
-    uint32_t ggtt_reserved = 0u;
 
     if (!out || !intel_gpu_memory_bsp_only() || !intel_gpu_memory_ready ||
         !page_count || page_count > INTEL_GPU_MEMORY_MAX_PAGES)
@@ -1136,8 +1135,6 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
      * entries or expose GPU virtual addresses. Backing RAM remains usable
      * through the CPU-only path.
      */
-    ggtt_reserved = 0u;
-
     record->state = 1u;
     intel_gpu_memory_generation = (intel_gpu_memory_generation + 1u) & 0x00FFFFFFu;
     if (!intel_gpu_memory_generation)
@@ -1149,7 +1146,7 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
         record->virtual_address[i] = 0u;
     }
     record->ggtt_first = 0u;
-    record->ggtt_reserved = ggtt_reserved;
+    record->ggtt_reserved = 0u;
 
     for (uint32_t i = 0u; i < page_count; ++i) {
         uint64_t physical = 0u;
@@ -1228,9 +1225,9 @@ int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
 
 /*
  * Build a software-only GGTT mapping candidate for one backing page.
- * The returned index is reserved in LionOS metadata, but the hardware PTE
- * remains untouched until ownership and the platform write protocol are
- * independently established.
+ * Currently no slot is considered owned, so this routine fails closed.
+ * It may return a plan only after a future platform ownership contract
+ * explicitly permits reservation and mapping.
  */
 int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
                                            uint32_t page_index,
@@ -1372,7 +1369,7 @@ int intel_gpu_memory_selftest(void)
         uint32_t candidate_index = 0xA5A5A5A5u;
         uint64_t candidate_pte = 0xA5A5A5A5A5A5A5A5ULL;
         if (block.ggtt_first_entry == UINT32_MAX) {
-            /* No free GGTT run: backing memory is valid but not GPU-mapped. */
+            /* GGTT ownership is unverified; backing RAM is CPU-only. */
             if (intel_gpu_memory_get_mapping_candidate(handle, page,
                                                        &candidate_index,
                                                        &candidate_pte) == 0 ||
@@ -1457,7 +1454,9 @@ int intel_gpu_memory_selftest(void)
         after.allocated_pages != before.allocated_pages ||
         after.ggtt_empty_candidates != before.ggtt_empty_candidates ||
         after.ggtt_valid_entries != before.ggtt_valid_entries ||
-        after.ggtt_nonzero_invalid_entries != before.ggtt_nonzero_invalid_entries)
+        after.ggtt_nonzero_invalid_entries != before.ggtt_nonzero_invalid_entries ||
+        before.ggtt_ownership_verified != 0u ||
+        after.ggtt_ownership_verified != 0u)
         goto fail;
 
     debug_write("LIONOS:INTEL-GPU-GGTT-SNAPSHOT-STABLE\n");
