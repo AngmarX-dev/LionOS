@@ -30,6 +30,7 @@
 #include "exec.h"
 #include "kernel_diag.h"
 #include "pci.h"
+#include "gfx.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -388,6 +389,15 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_write(" desktop mode\n");
         /* Keep boot diagnostics on VGA while the full-screen splash remains visible. */
         BOOT_STAGE(34u, "DISPLAY READY");
+    }
+
+    /* Exercise the hardware-independent CPU renderer on isolated RAM. */
+    if (gfx_software_selftest() == 0) {
+        debug_write("LIONOS:GFX-CPU-SELFTEST-OK\n");
+        console_write("[ OK ] Graphics API / CPU rasterizer self-test\n");
+    } else {
+        debug_write("LIONOS:GFX-CPU-SELFTEST-FAIL\n");
+        console_write("[ERR] Graphics API / CPU rasterizer self-test\n");
     }
 
     console_write("[ .. ] Initializing Intel graphics PCI/MMIO bootstrap...\n");
