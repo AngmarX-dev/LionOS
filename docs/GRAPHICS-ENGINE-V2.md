@@ -389,3 +389,10 @@ and unchanged. Callers must serialize view consumption against reset or reuse;
 this API does not add locks, cache maintenance, fences, or submission. The
 self-test covers OPEN rejection, sealed success, exact count/pointer, output
 alias rejection, and rejection after reset.
+
+
+## Command-buffer view generations (2026-11-05)
+
+A sealed CPU command-buffer view carries the generation of the buffer from which it was created. Initialization starts at generation 1; each successful reset advances the generation. Reset fails closed at `UINT32_MAX` rather than wrapping and potentially making an old view appear current. `gpu_command_buffer_view_validate()` verifies that the buffer remains valid and sealed and that the view's storage pointer, used-word count, and generation match. It also rejects a view descriptor that aliases the buffer descriptor or backing storage.
+
+The self-test validates a current view and rejects a stale view after reset and after the same storage is repopulated with the same word count and sealed again. Failed view acquisition must preserve the caller's output descriptor. This remains a CPU-side stale-view guard, not a concurrency primitive: callers must serialize reset/reuse against consumers, keep storage alive, and avoid modifying sealed storage through another alias. No GPU command parsing, address mapping, cache maintenance, fence, MMIO, or submission is performed.
