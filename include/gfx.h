@@ -38,6 +38,15 @@ typedef struct {
 int gfx_surface_validate(const gfx_surface_t *surface);
 int gfx_context_init_cpu(gfx_context_t *context, const gfx_surface_t *target);
 
+/* Copy a clipped rectangle between non-overlapping caller-owned surfaces.
+ * XRGB source pixels become opaque when copied to ARGB; ARGB alpha is preserved.
+ * Returns -1 for invalid surfaces or overlapping storage, 0 otherwise.
+ */
+int gfx_cpu_blit(gfx_context_t *context, const gfx_surface_t *source,
+                 uint32_t source_x, uint32_t source_y,
+                 uint32_t destination_x, uint32_t destination_y,
+                 uint32_t width, uint32_t height);
+
 /* CPU rasterizer primitives. Coordinates outside the surface are ignored. */
 int gfx_cpu_clear(gfx_context_t *context, uint32_t argb);
 int gfx_cpu_put_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
