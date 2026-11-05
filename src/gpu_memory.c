@@ -120,6 +120,8 @@ int gpu_memory_get_stats(gfx_backend_t backend, gpu_memory_stats_t *out)
     out->active_allocations = provider_stats.active_allocations;
     out->allocated_pages = provider_stats.allocated_pages;
     out->initialized = provider_stats.initialized;
+    out->address_space_ownership_verified =
+        provider_stats.ggtt_ownership_verified;
     return 0;
 }
 
@@ -134,6 +136,7 @@ int gpu_memory_selftest(gfx_backend_t backend)
     if (!gpu_memory_backend_supported(backend) ||
         gpu_memory_get_stats(backend, &before) != 0 ||
         !before.initialized ||
+        before.address_space_ownership_verified != 0u ||
         gpu_memory_alloc(backend, 1u, &block) != 0)
         return -1;
 
