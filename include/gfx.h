@@ -25,7 +25,12 @@ typedef struct {
 typedef enum {
     GFX_BACKEND_NONE = 0,
     GFX_BACKEND_CPU = 1,
-    GFX_BACKEND_GPU = 2
+    GFX_BACKEND_INTEL_GPU = 2,
+    GFX_BACKEND_AMD_GPU = 3,
+    GFX_BACKEND_NVIDIA_GPU = 4,
+    GFX_BACKEND_COUNT = 5,
+    /* Compatibility alias for the first GPU backend. */
+    GFX_BACKEND_GPU = GFX_BACKEND_INTEL_GPU
 } gfx_backend_t;
 
 typedef struct {
