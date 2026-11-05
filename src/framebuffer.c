@@ -359,6 +359,20 @@ int framebuffer_begin_desktop(void) {
     return 0;
 }
 
+int framebuffer_get_desktop_buffer(uint32_t **pixels, uint32_t *width,
+                                    uint32_t *height, uint32_t *pitch_pixels) {
+    if (!pixels || !width || !height || !pitch_pixels ||
+        !enabled || !desktop_mode || !desktop_buffer ||
+        !fb_width_value || !fb_height_value)
+        return -1;
+
+    *pixels = desktop_buffer;
+    *width = fb_width_value;
+    *height = fb_height_value;
+    *pitch_pixels = fb_width_value;
+    return 0;
+}
+
 void framebuffer_end_desktop(void) {
     framebuffer_cursor_hide();
     framebuffer_end_layer();
