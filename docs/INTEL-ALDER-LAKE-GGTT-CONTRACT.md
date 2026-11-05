@@ -1,0 +1,139 @@
+# Alder Lake GGTT Ownership Contract — Research Checkpoint
+
+## Status
+
+**Decision: NO-GO for GGTT writes.** This document records the current evidence and the minimum contract required before LionOS may reserve, map, or unmap any GGTT entry.
+
+Target currently observed on the test laptop:
+
+- Display PCI function: Intel `8086:468B`, revision `0x0C`, BDF `00:02.0`.
+- Platform classification: Alder Lake-S.
+- GTTMMADR BAR0: `0x0000006202000000`, reported size 16 MiB.
+- Read-only GGTT aperture: BAR0 + 8 MiB; current diagnostics report an 8 MiB aperture.
+- Firmware scanout remains active.
+- LionOS has not established exclusive ownership of any GGTT entry. The allocator is disabled and the mapping-candidate API must continue to fail closed.
+
+These values are observations from one machine, not a portable Alder Lake contract.
+
+## Source cross-check performed
+
+The current upstream Linux i915 source was inspected as an implementation cross-check:
+
+- `drivers/gpu/drm/i915/gt/intel_ggtt.c`
+  - `gen8_ggtt_pte_encode()` constructs the Gen8+ PTE from the DMA address and Present bit, and conditionally sets the Local Memory bit.
+  - The Meteor Lake-specific encoder additionally handles PAT bits 52 and 53. This is a warning not to copy a newer platform's PAT encoding into Alder Lake code.
+  - `gen8_ggtt_insert_page()` writes a PTE and then calls the platform-selected GGTT invalidate callback.
+  - The GGTT invalidate path is selected by platform and may involve GuC TLB invalidation or generation-specific GT registers. It is not a universal single-register operation.
+  - The source explicitly discusses write-combining buffer flush ordering for applicable GGTT mappings and uses readback checks to detect dropped writes on affected platforms.
+- `drivers/gpu/drm/i915/gt/intel_gtt.h`
+  - Defines `GEN12_GGTT_PTE_ADDR_MASK` as bits 45:12 and `GEN12_GGTT_PTE_LM` as bit 1.
+  - Defines separate PPGTT PAT fields and Meteor Lake GGTT PAT fields. These must not be conflated.
+  - Defines Gen8 Present as bit 0.
+
+References (moving upstream source; pin a reviewed kernel commit before implementation):
+
+- https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/gt/intel_ggtt.c
+- https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/gt/intel_gtt.h
+
+**Important limitation:** Linux source is valuable evidence of a working driver implementation, but it is not a substitute for the exact Intel Alder Lake platform/volume programming reference or the firmware interface contract of this machine. The current source review does not prove that LionOS may take over the firmware's GGTT, nor does it settle every Alder Lake cacheability and invalidation detail.
+
+## Findings and unresolved questions
+
+### 1. Ownership and firmware hand-off — unresolved, blocking
+
+A zero-valued PTE proves only that the sampled entry read as zero. It does not prove that firmware, display hardware, a management engine, or another driver has relinquished the address. A nonzero PTE also cannot safely be overwritten merely because it appears unused by LionOS.
+
+Before any range can be allocated, authoritative evidence must identify:
+
+- Who owns the GGTT during firmware boot and after the OS loader transfers control.
+- Whether the firmware explicitly hands over the entire GGTT or only a defined subrange.
+- Which entries/ranges are reserved for firmware framebuffer scanout, display planes, cursors, overlays, or other agents.
+- Whether a documented hand-off flag, mailbox, ownership register, or firmware table exists and how it is validated.
+- Whether the display engine continues consuming GGTT translations after the hand-off.
+- Whether LionOS can preserve active scanout while managing a disjoint range.
+
+No such hand-off contract has been verified for this target. Therefore **no GGTT range is currently allocatable**.
+
+### 2. PTE format — partially cross-checked, not implementation-ready
+
+The Linux Gen8+ definitions support the address field at bits 45:12, Present at bit 0, and Local Memory at bit 1. However, the exact Alder Lake GGTT PTE requirements still need confirmation from the matching platform documentation, including:
+
+- All reserved and must-be-zero bits.
+- System-memory versus local-memory encoding.
+- Whether any platform-specific PAT or cacheability bits apply to this generation and GGTT path.
+- Required address width and physical-address restrictions.
+- Whether the firmware-configured GGTT mode changes the interpretation.
+
+The existing pure encoder self-test is software validation only. It does not authorize PTE writes.
+
+### 3. Cacheability and CPU/GPU coherency — unresolved, blocking
+
+A valid address/PRESENT encoding alone is insufficient. Before mapping CPU-written backing pages, LionOS must establish the Alder Lake policy for:
+
+- GGTT cacheability attributes and the applicable PAT/PPAT configuration.
+- CPU cache visibility and GPU cache visibility for the selected memory type.
+- Required flush, invalidate, or fence operations when CPU and GPU access the same pages.
+- Ordering between page contents, PTE writes, MMIO readback, and invalidation.
+- Whether the chosen physical pages are suitable for GPU access under the platform's memory and DMA rules.
+
+Do not infer a cache policy from the kernel's default PTE value or from another Intel generation.
+
+### 4. PTE update and invalidation sequence — unresolved, blocking
+
+Linux i915 demonstrates that invalidation is platform-selected and may differ depending on GuC support and graphics generation. Its implementation also couples write ordering to the GGTT mapping type.
+
+LionOS must identify, from the exact Alder Lake specification and a pinned, matching i915 implementation:
+
+1. The permitted access width and atomicity requirements for a 64-bit PTE update.
+2. Required MMIO mapping attributes for the GGTT aperture.
+3. Required write barriers and readback behavior.
+4. The correct Alder Lake GGTT/GT TLB invalidation mechanism and completion condition.
+5. Required GT power/forcewake references and safe release behavior.
+6. Whether display-side translation caches require separate treatment.
+7. The correct clear/unmap sequence and proof that no in-flight GPU/display access can still use the mapping.
+
+No invalidation register should be guessed from a neighboring generation or copied without confirming the exact device path.
+
+### 5. Transactional mapping and lifetime — required design
+
+Once the platform contract is established, the mapping layer must satisfy all of the following:
+
+- Reserve only a firmware-authorized, explicitly LionOS-owned range.
+- Revalidate the selected entries immediately before modifying them.
+- Record the prior PTE values and ownership token for every entry.
+- Map only pages owned by the corresponding live allocation.
+- Write entries using the documented width/order and verify readback.
+- Invalidate and wait for documented completion before reporting the mapping usable.
+- On partial failure, roll back only entries still proven to be owned by this allocation.
+- If rollback, readback, or invalidation is uncertain, poison the allocation and retain its backing pages; never return potentially GPU-referenced pages to the PMM.
+- Before unmapping, prove all GPU work and display references to the range have completed.
+- Clear only entries owned by the allocation, invalidate again, and free backing pages only after completion is confirmed.
+
+The current BSP-only/external-serialization restriction remains until a concurrency model is designed and tested.
+
+## Go/no-go checklist
+
+GGTT PTE writes remain prohibited until every item below has evidence attached to the code review:
+
+- [ ] Exact Alder Lake platform documentation and applicable stepping identified.
+- [ ] Firmware-to-OS GGTT ownership/handoff contract identified and validated at runtime.
+- [ ] Firmware scanout and all reserved GGTT ranges accounted for.
+- [ ] Exact GGTT PTE bit layout and address constraints confirmed.
+- [ ] Alder Lake cacheability/PAT and CPU/GPU coherency policy confirmed.
+- [ ] Exact PTE write width, ordering, readback, and MMIO mapping requirements confirmed.
+- [ ] Exact invalidation path and completion semantics confirmed.
+- [ ] Transactional map/unmap, rollback, and page-lifetime design reviewed.
+- [ ] Hardware test plan can verify mapping and unmapping without disrupting firmware scanout.
+
+Until all items are checked, the expected runtime state is:
+
+- `ggtt_ownership_verified = 0`
+- `address_space_ownership_verified = 0`
+- no GGTT slot reservation
+- no GGTT PTE writes
+- no GPU-visible allocation
+- CPU software compositor remains the active graphics path
+
+## Next safe work item
+
+The next implementation work, if authoritative documents become available, is a read-only contract validator and test plan—not a PTE writer. It should report the exact evidence and unsupported conditions, and preserve fail-closed behavior. If the firmware hand-off cannot be proven, the project must keep GGTT mapping disabled and pursue a different supported interface rather than guessing.
