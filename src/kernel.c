@@ -403,7 +403,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             console_write("[ OK ] Intel GPU backing-memory manager / GGTT read-only scan\n");
             if (intel_gpu_memory_selftest() == 0 &&
                 intel_gpu_memory_get_stats(&gpu_mem_stats) == 0) {
-                console_write("[ OK ] Intel GPU memory allocate/map/write/read/unmap/free\n");
+                console_write("[ OK ] Intel GPU backing RAM allocate/CPU-map/write/read/unmap/free; GGTT unchanged\n");
                 console_write("       GGTT empty candidates: ");
                 boot_dec(gpu_mem_stats.ggtt_empty_candidates);
                 console_write(" / valid PTEs: ");
