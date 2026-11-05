@@ -1548,12 +1548,12 @@ void gui_start(void){
             if (gfx_context_init_cpu(&context, &surface) == 0 &&
                 context.backend == GFX_BACKEND_CPU &&
                 context.target.pixels == pixels) {
-                debug_write("LIONOS:GFX-DESKTOP-SURFACE-READY\\n");
+                debug_write("LIONOS:GFX-DESKTOP-SURFACE-READY\n");
             } else {
-                debug_write("LIONOS:GFX-DESKTOP-SURFACE-FAIL\\n");
+                debug_write("LIONOS:GFX-DESKTOP-SURFACE-FAIL\n");
             }
         } else {
-            debug_write("LIONOS:GFX-DESKTOP-SURFACE-UNAVAILABLE\\n");
+            debug_write("LIONOS:GFX-DESKTOP-SURFACE-UNAVAILABLE\n");
         }
     }
     drag_compositor_ready=(uint8_t)(framebuffer_compositor_selftest()==0);
