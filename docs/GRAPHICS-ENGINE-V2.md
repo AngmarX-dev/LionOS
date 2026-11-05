@@ -50,22 +50,22 @@ Register offsets and capability handling are cross-checked against Linux i915 de
 
 The first GPU memory-manager stage is implemented for the matched Alder Lake path:
 
-1. Scan every GGTT PTE through the existing bounded, read-only accessor. If any entry cannot be read consistently, initialization fails closed.
-2. Treat entry zero as reserved. Mark every nonzero PTE as occupied, including nonzero entries with bit 0 clear; only an exactly-zero PTE is counted as an empty candidate. This is a conservative encoding classification, not proof that firmware has relinquished ownership.
-3. Maintain a bounded bitmap allocator for contiguous exactly-zero GGTT entry candidates. Reservations are software metadata only; hardware PTEs are never changed in this stage. An empty PTE is only a candidate and does not establish firmware ownership or permission to program it.
-4. Allocate backing pages from the high physical-memory allocator (256 MiB..64 GiB), map each page into the CPU high-memory window, and zero it before exposing the allocation.
-5. Keep per-allocation physical and CPU virtual page addresses, validate generation-tagged handles, and release mappings/pages/ranges in a controlled order.
-6. Expose a software-only mapping-candidate query that pairs each reserved GGTT index with the encoded system-memory PTE for its backing page. The query validates the handle, page index, reservation bitmap, and PTE encoding; it does not write MMIO or modify firmware PTEs.
+1. Scan every GGTT PTE through the bounded, read-only accessor. If any entry cannot be read consistently, initialization fails closed.
+2. Classify entry zero as reserved; count nonzero valid PTEs, nonzero invalid PTEs, and exactly-zero observations separately. A zero PTE is only an empty observation, not proof that firmware or another agent has relinquished the slot.
+3. Do not reserve any GGTT slot. Without a documented platform hand-off/ownership contract, the driver treats every zero entry as unowned and unavailable for allocation. The old software range allocator has been removed.
+4. Allocate backing pages from the high physical-memory allocator (256 MiB..64 GiB), map each page into the CPU high-memory window, and zero it before exposing the allocation. These buffers are CPU-accessible system RAM only.
+5. Keep per-allocation physical and CPU virtual page addresses and validate generation-tagged handles. CPU mappings/pages are released in a controlled order; no GGTT range is reserved or released.
+6. Keep the mapping-candidate API fail-closed. It cannot return a GGTT index/PTE plan until an explicit ownership contract is implemented and validated.
 7. On allocation failure, roll back successfully created CPU mappings and physical pages. If unmapping fails, poison the record and retain its backing pages rather than risk freeing memory still mapped by the CPU.
-8. Run the two-page allocate/map/write/read/unmap/free CPU-side self-test during boot. Report exactly-zero PTE candidates, valid PTEs, and nonzero-invalid PTEs separately; never label empty candidates as confirmed free space.
+8. Run the two-page allocate/map/write/read/unmap/free CPU-side self-test during boot. Verify that GGTT ownership remains unverified and that the GGTT snapshot is unchanged.
 
 **Important boundary:** this stage does not write GGTT PTEs, create GPU virtual mappings, touch stolen memory, or make allocations GPU-addressable. The ggtt_mapping_active field therefore remains zero. The firmware framebuffer and CPU compositor remain the only active display path. The manager is BSP-only and externally serialized.
 
 ### Implemented: software-only GGTT mapping candidates
 
-The manager can now return a reserved GGTT entry index together with the correctly encoded PTE candidate for its corresponding system-RAM page. The query is generation-handle checked, bounds checked, confirms the software reservation bit, and leaves output parameters unchanged on failure. The boot self-test checks the mapping candidate for both allocated pages and verifies that a stale handle is rejected after free.
+The mapping-candidate API remains present for the future provider contract, but it currently fails closed because LionOS has not established ownership of any GGTT entry. It leaves output parameters unchanged. The backing-memory self-test confirms that CPU-side allocations work while no GGTT slot is claimed.
 
-This is still planning metadata only: no PTE is written to BAR0, no firmware entry is modified, and no GPU virtual mapping is active.
+A zero-valued PTE is not an ownership token. The software allocator for zero-valued GGTT entries has therefore been disabled and removed. Runtime stats expose `ggtt_ownership_verified = 0`, and boot diagnostics explicitly report that GPU virtual mappings are disabled.
 
 ### Implemented: software-only Gen8+ GGTT PTE encoder validation
 
@@ -83,11 +83,11 @@ GGTT PTE programming and TLB invalidation, stolen-memory suballocation, long-liv
 
 ### Next milestones
 
-1. Validate the memory-manager scan and self-test on the physical Alder Lake laptop.
-2. Cross-check the exact Alder Lake GGTT PTE format, reserved ranges, and invalidation sequence against authoritative platform documentation and Linux i915.
-3. Implement a separately reviewed GGTT mapping/unmapping layer with explicit ownership and rollback.
-4. Only after GGTT mapping is validated, initialize a bounded RCS0 ring and context.
-5. Add a minimal command test with a bounded completion/fault path and CPU fallback.
+1. Validate the read-only memory-manager scan and CPU-side self-test on the physical Alder Lake laptop.
+2. Establish an authoritative GGTT ownership/firmware hand-off contract for the exact platform, including reserved ranges and arbitration with display firmware.
+3. Cross-check the exact Alder Lake PTE format, cache policy, invalidation sequence, and synchronization requirements against authoritative platform documentation and Linux i915.
+4. Only after ownership is proven, implement a separately reviewed GGTT mapping/unmapping layer with transactional rollback.
+5. Only after mapping is validated, initialize a bounded RCS0 ring and context, then add a minimal command test with bounded completion/fault handling and CPU fallback.
 6. Measure correctness, frame time and CPU load before enabling acceleration by default.
 
 ## CPU topology reporting
@@ -128,4 +128,4 @@ The kernel mapping API rejects physical addresses that cannot be represented by 
 
 ### GPU memory manager safety contract
 
-The manager exposes intel_gpu_memory_init, intel_gpu_memory_alloc, intel_gpu_memory_get_page, intel_gpu_memory_get_mapping_candidate, intel_gpu_memory_free, intel_gpu_memory_get_stats, and intel_gpu_memory_selftest in include/intel_gpu.h. Allocation sizes are page-granular and capped at 256 pages per block; the static descriptor pool is capped at 16 blocks. The handle encodes a generation and pool slot to reject stale references. Operations are BSP-only because the existing high-page mapping window is BSP-owned; callers must serialize access. GGTT ranges returned by the allocator are reservations, not active GPU addresses. No code in this stage writes the GGTT aperture.
+The manager exposes intel_gpu_memory_init, intel_gpu_memory_alloc, intel_gpu_memory_get_page, intel_gpu_memory_get_mapping_candidate, intel_gpu_memory_free, intel_gpu_memory_get_stats, and intel_gpu_memory_selftest in include/intel_gpu.h. Allocation sizes are page-granular and capped at 256 pages per block; the static descriptor pool is capped at 16 blocks. The handle encodes a generation and pool slot to reject stale references. Operations are BSP-only because the existing high-page mapping window is BSP-owned; callers must serialize access. No GGTT ranges are returned or reserved: all allocations remain CPU-only until GGTT ownership is explicitly verified. No code in this stage writes the GGTT aperture.
