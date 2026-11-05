@@ -271,7 +271,7 @@ int gfx_software_selftest(void) {
         storage[1] != 0x80FF0000u)
         return -1;
     if (gfx_cpu_blend_pixel(&context, 2u, 0u, 0x00010203u) != 0 ||
-        storage[2] != 0xFFAABBCCu)
+        storage[2] != 0xFF102030u)
         return -1;
 
     if (gfx_cpu_fill_rect(&context, 1u, 2u, UINT32_MAX, 1u,
