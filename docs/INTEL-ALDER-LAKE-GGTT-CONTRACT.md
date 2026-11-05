@@ -158,3 +158,22 @@ Specific observations from that pinned revision:
 5. The source includes a readback check discussion for dropped writes with WC mappings, and notes that an uncached MMIO write flushes the write-combining buffer before the relevant invalidate on platforms where that flush is needed. That does not establish LionOS's own BAR mapping attributes, CPU cache policy, or completion/wait contract.
 
 This pinned-source review narrows the software implementation comparison, but it does **not** close the ownership, firmware hand-off, Alder Lake cacheability, or invalidation-completion blockers. The no-go decision is unchanged: no GGTT PTE writes and no ownership claims.
+
+
+## GRUB / Multiboot2 hand-off audit
+
+The active boot path was inspected at the current `feature/graphics-engine-v2` branch revision:
+
+- `boot/grub.cfg` loads `/boot/lionos.bin` with `multiboot2`, selects `gfxmode=auto`, and uses `gfxpayload=keep`. These settings preserve the firmware/GRUB-selected framebuffer mode; they do not describe ownership transfer of Intel GGTT entries.
+- `boot/boot.asm` contains a Multiboot2 header with a framebuffer request tag. The 32-bit entry point passes the Multiboot2 information pointer (EBX) and boot magic (EAX) to `kernel_main`.
+- `src/kernel.c` validates the Multiboot2 boot magic before proceeding.
+- `src/memory.c` consumes the Multiboot2 memory-map and module tags for physical-memory accounting.
+- `src/framebuffer.c` consumes the Multiboot2 framebuffer tag and reserves the reported framebuffer physical range before mapping it for CPU display output.
+
+The inspected boot contract exposes memory-map, module, and framebuffer information to LionOS. No Intel-specific GGTT ownership token, reserved-entry map, firmware arbitration result, or documented GGTT hand-off structure is requested or consumed by this boot path.
+
+**Conclusion:** the current GRUB/Multiboot2 hand-off provides no evidence that firmware has relinquished any GGTT range. `gfxpayload=keep` is a framebuffer continuity setting, not a GPU memory-ownership guarantee. This audit therefore confirms the existing no-go decision; it does not prove that firmware retains every GGTT entry, and it does not authorize LionOS to modify any entry.
+
+### Required follow-up
+
+A future ownership implementation must obtain an authoritative Alder Lake firmware/platform hand-off mechanism independent of the generic Multiboot2 framebuffer and memory-map tags, or use a documented OS-visible interface that explicitly grants a disjoint GGTT range. Until such evidence exists, the runtime must continue to report ownership as unverified and keep GGTT mapping disabled.
