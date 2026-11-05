@@ -94,6 +94,7 @@ run_gui_smoke() {
     grep -q 'LIONOS:GUI-READY' "$log_file"
     grep -q 'LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK' "$log_file"
     grep -q 'LIONOS:GFX-CPU-SELFTEST-OK' "$log_file"
+    grep -q 'LIONOS:GPU-COMMAND-BUFFER-SELFTEST-OK' "$log_file"
     # The generic CPU surface can bind only when the firmware exposes
     # the compositor backbuffer as XRGB8888. Other framebuffer formats use
     # the existing packed-pixel compositor path and must not fail GUI smoke.
