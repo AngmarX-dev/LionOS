@@ -93,6 +93,20 @@ int gpu_memory_get_mapping_candidate(const gpu_memory_block_t *block,
     return 0;
 }
 
+int gpu_memory_pin(const gpu_memory_block_t *block)
+{
+    if (!gpu_memory_block_valid(block))
+        return -1;
+    return intel_gpu_memory_pin(block->provider_handle);
+}
+
+int gpu_memory_unpin(const gpu_memory_block_t *block)
+{
+    if (!gpu_memory_block_valid(block))
+        return -1;
+    return intel_gpu_memory_unpin(block->provider_handle);
+}
+
 int gpu_memory_free(gpu_memory_block_t *block)
 {
     if (!gpu_memory_block_valid(block) ||

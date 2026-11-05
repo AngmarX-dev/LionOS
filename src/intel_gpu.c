@@ -983,6 +983,7 @@ typedef struct {
     uint32_t state;       /* 0 free, 1 initializing, 2 active, 3 poisoned. */
     uint32_t generation;
     uint32_t page_count;
+    uint32_t pin_count;
     uint32_t ggtt_first;
     uint32_t ggtt_reserved;
     uint64_t physical[INTEL_GPU_MEMORY_MAX_PAGES];
@@ -1141,6 +1142,7 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
         intel_gpu_memory_generation = 1u;
     record->generation = intel_gpu_memory_generation;
     record->page_count = page_count;
+    record->pin_count = 0u;
     for (uint32_t i = 0u; i < page_count; ++i) {
         record->physical[i] = 0u;
         record->virtual_address[i] = 0u;
@@ -1272,6 +1274,34 @@ int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
     return 0;
 }
 
+int intel_gpu_memory_pin(uint32_t handle)
+{
+    intel_gpu_memory_record_t *record;
+
+    if (!intel_gpu_memory_bsp_only())
+        return -1;
+    record = intel_gpu_memory_lookup(handle);
+    if (!record || record->pin_count == UINT32_MAX)
+        return -1;
+
+    ++record->pin_count;
+    return 0;
+}
+
+int intel_gpu_memory_unpin(uint32_t handle)
+{
+    intel_gpu_memory_record_t *record;
+
+    if (!intel_gpu_memory_bsp_only())
+        return -1;
+    record = intel_gpu_memory_lookup(handle);
+    if (!record || !record->pin_count)
+        return -1;
+
+    --record->pin_count;
+    return 0;
+}
+
 int intel_gpu_memory_free(uint32_t handle)
 {
     intel_gpu_memory_record_t *record;
@@ -1280,7 +1310,7 @@ int intel_gpu_memory_free(uint32_t handle)
     if (!intel_gpu_memory_bsp_only())
         return -1;
     record = intel_gpu_memory_lookup(handle);
-    if (!record)
+    if (!record || record->pin_count)
         return -1;
 
     count = record->page_count;
@@ -1298,6 +1328,7 @@ int intel_gpu_memory_free(uint32_t handle)
 
     record->state = 0u;
     record->page_count = 0u;
+    record->pin_count = 0u;
     record->ggtt_first = 0u;
     record->ggtt_reserved = 0u;
     return 0;
@@ -1341,6 +1372,18 @@ int intel_gpu_memory_selftest(void)
         intel_gpu_memory_alloc(2u, &block) != 0)
         return -1;
     handle = block.handle;
+
+    /* Active consumer pins must prevent free until every owner releases. */
+    if (intel_gpu_memory_pin(handle) != 0 ||
+        intel_gpu_memory_pin(handle) != 0 ||
+        intel_gpu_memory_free(handle) == 0 ||
+        intel_gpu_memory_unpin(handle) != 0 ||
+        intel_gpu_memory_free(handle) == 0 ||
+        intel_gpu_memory_unpin(handle) != 0 ||
+        intel_gpu_memory_unpin(handle) == 0 ||
+        intel_gpu_memory_get_page(handle, 0u, &physical[0],
+                                  &virtual_address[0]) != 0)
+        goto fail;
 
     if (block.page_count != 2u ||
         block.bytes != 2u * INTEL_GPU_MEMORY_PAGE_SIZE ||
