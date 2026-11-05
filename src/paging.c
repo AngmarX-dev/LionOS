@@ -132,7 +132,7 @@ void paging_init(void) {
 
     /*
      * Map the F0000000..FFFFFFFF virtual range for MMIO/framebuffers.
-     * This reserves 128 MiB = 64 page-directory entries for framebuffer and MMIO mappings.
+     * This reserves 256 MiB = 128 page-directory entries for framebuffer and MMIO mappings.
      */
     for (uint32_t table = 0; table < KERNEL_MMIO_PT_COUNT; ++table) {
         kernel_pd[3][KERNEL_MMIO_PD_INDEX + table] =
