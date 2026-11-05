@@ -497,7 +497,7 @@ programming.
 
 ## CPU command-buffer consumer leases and backing-memory pinning (2026-11-05)
 
-The CPU command-buffer API now supports bounded consumer leases. Each acquired view receives a unique one-hot token from a 32-slot mask. A release must present the matching token, storage pointer, used-word count, and generation; duplicate, forged, stale, or mismatched releases are rejected. Reset is refused while any lease remains active. The legacy borrowed-view API remains available for synchronous callers and does not create a lease.
+The CPU command-buffer API now supports bounded consumer leases. Each acquired view receives a monotonically increasing, non-reused token stored in one of 32 active lease slots. Token exhaustion fails closed instead of wrapping, preventing a released stale copy from releasing a later lease in the same buffer generation. A release must present the matching token, storage pointer, used-word count, and generation; duplicate, forged, stale, or mismatched releases are rejected. Reset is refused while any lease remains active. The legacy borrowed-view API remains available for synchronous callers and does not create a lease.
 
 The one-page memory adapter pins its provider allocation before exposing the mapping and retains a copy of the allocation descriptor. The pin prevents gpu_memory_free from unmapping or returning those pages while the command buffer exists. gpu_command_buffer_destroy refuses to run with active leases, releases the retained pin, and invalidates the descriptor; the owner may then free the original memory block. Failed initialization rolls back the pin.
 

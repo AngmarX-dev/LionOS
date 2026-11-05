@@ -24,6 +24,8 @@ typedef struct {
     uint32_t generation;
     gpu_command_buffer_state_t state;
     uint32_t active_lease_mask;
+    uint32_t next_lease_token;
+    uint32_t lease_tokens[32];
     gpu_memory_block_t backing_block;
     uint32_t backing_pinned;
 } gpu_command_buffer_t;

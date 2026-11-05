@@ -64,6 +64,9 @@ int gpu_command_buffer_init(gpu_command_buffer_t *buffer,
     initialized.generation = 1u;
     initialized.state = GPU_COMMAND_BUFFER_OPEN;
     initialized.active_lease_mask = 0u;
+    initialized.next_lease_token = 0u;
+    for (uint32_t i = 0u; i < 32u; ++i)
+        initialized.lease_tokens[i] = 0u;
     initialized.backing_block = (gpu_memory_block_t){0};
     initialized.backing_pinned = 0u;
     *buffer = initialized;
@@ -232,18 +235,25 @@ int gpu_command_buffer_acquire_view(gpu_command_buffer_t *buffer,
                                     gpu_command_buffer_view_t *out_view)
 {
     gpu_command_buffer_view_t view;
-    uint32_t available;
+    uint32_t slot;
+    uint32_t bit;
     uint32_t token;
     if (!gpu_command_buffer_valid(buffer) || !out_view ||
         buffer->state != GPU_COMMAND_BUFFER_SEALED ||
-        buffer->active_lease_mask == UINT32_MAX)
+        buffer->active_lease_mask == UINT32_MAX ||
+        buffer->next_lease_token == UINT32_MAX)
         return -1;
-    available = ~buffer->active_lease_mask;
-    token = available & (0u - available);
-    if (!token || gpu_command_buffer_get_view(buffer, &view) != 0)
+    for (slot = 0u; slot < 32u; ++slot) {
+        bit = 1u << slot;
+        if ((buffer->active_lease_mask & bit) == 0u)
+            break;
+    }
+    if (slot == 32u || gpu_command_buffer_get_view(buffer, &view) != 0)
         return -1;
+    token = ++buffer->next_lease_token;
+    buffer->lease_tokens[slot] = token;
     view.lease_token = token;
-    buffer->active_lease_mask |= token;
+    buffer->active_lease_mask |= bit;
     *out_view = view;
     return 0;
 }
@@ -251,19 +261,24 @@ int gpu_command_buffer_acquire_view(gpu_command_buffer_t *buffer,
 int gpu_command_buffer_release_view(gpu_command_buffer_t *buffer,
                                     const gpu_command_buffer_view_t *view)
 {
-    uint32_t token;
-    if (!gpu_command_buffer_valid(buffer) || !view)
-        return -1;
-    token = view->lease_token;
-    if (!token || (token & (token - 1u)) != 0u ||
-        (buffer->active_lease_mask & token) == 0u ||
+    uint32_t slot;
+    uint32_t bit;
+    if (!gpu_command_buffer_valid(buffer) || !view || !view->lease_token ||
         buffer->state != GPU_COMMAND_BUFFER_SEALED ||
         view->words != buffer->storage ||
         view->word_count != buffer->used_dwords ||
         view->generation != buffer->generation)
         return -1;
-    buffer->active_lease_mask &= ~token;
-    return 0;
+    for (slot = 0u; slot < 32u; ++slot) {
+        bit = 1u << slot;
+        if ((buffer->active_lease_mask & bit) != 0u &&
+            buffer->lease_tokens[slot] == view->lease_token) {
+            buffer->lease_tokens[slot] = 0u;
+            buffer->active_lease_mask &= ~bit;
+            return 0;
+        }
+    }
+    return -1;
 }
 
 int gpu_command_buffer_destroy(gpu_command_buffer_t *buffer)
@@ -356,14 +371,22 @@ int gpu_command_buffer_selftest(void)
     {
         gpu_command_buffer_view_t lease_a = {0};
         gpu_command_buffer_view_t lease_b = {0};
+        gpu_command_buffer_view_t stale_lease;
+        gpu_command_buffer_view_t lease_c = {0};
         if (gpu_command_buffer_acquire_view(&buffer, &lease_a) != 0 ||
             gpu_command_buffer_acquire_view(&buffer, &lease_b) != 0 ||
-            lease_a.lease_token == lease_b.lease_token ||
-            gpu_command_buffer_reset(&buffer) == 0 ||
+            lease_a.lease_token == lease_b.lease_token)
+            return -1;
+        stale_lease = lease_a;
+        if (gpu_command_buffer_reset(&buffer) == 0 ||
             gpu_command_buffer_release_view(&buffer, &lease_a) != 0 ||
             gpu_command_buffer_release_view(&buffer, &lease_a) == 0 ||
+            gpu_command_buffer_acquire_view(&buffer, &lease_c) != 0 ||
+            lease_c.lease_token == stale_lease.lease_token ||
+            gpu_command_buffer_release_view(&buffer, &stale_lease) == 0 ||
             gpu_command_buffer_reset(&buffer) == 0 ||
-            gpu_command_buffer_release_view(&buffer, &lease_b) != 0)
+            gpu_command_buffer_release_view(&buffer, &lease_b) != 0 ||
+            gpu_command_buffer_release_view(&buffer, &lease_c) != 0)
             return -1;
     }
 
