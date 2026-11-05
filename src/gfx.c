@@ -190,6 +190,9 @@ int gfx_software_selftest(void) {
         storage[0] != 0x00102030u ||
         storage[1] != 0x00102030u ||
         storage[2] != 0x00102030u ||
+        storage[8] != 0x00ABCDEFu ||
+        storage[9] != 0x00ABCDEFu ||
+        storage[10] != 0x00ABCDEFu ||
         storage[3] != 0xDEADBEEFu ||
         storage[7] != 0xDEADBEEFu ||
         storage[11] != 0xDEADBEEFu)
