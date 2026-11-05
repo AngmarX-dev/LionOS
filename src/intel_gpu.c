@@ -1324,6 +1324,7 @@ int intel_gpu_memory_get_stats(intel_gpu_memory_stats_t *out)
     out->active_allocations = allocations;
     out->allocated_pages = pages;
     out->initialized = intel_gpu_memory_ready;
+    out->ggtt_ownership_verified = 0u;
     return 0;
 }
 
