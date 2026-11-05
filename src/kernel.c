@@ -31,6 +31,7 @@
 #include "kernel_diag.h"
 #include "pci.h"
 #include "gfx.h"
+#include "gpu_memory.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -421,7 +422,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
                                      GFX_BACKEND_STATE_INITIALIZED) == 0)
             debug_write("LIONOS:GFX-GPU-BACKEND-INITIALIZED-NOT-OPERATIONAL\n");
         console_write("[ OK ] Intel GPU MMIO ready; CPU compositor remains active\n");
-        if (intel_gpu_memory_init() == 0) {
+        if (gpu_memory_init(GFX_BACKEND_INTEL_GPU) == 0) {
             intel_gpu_memory_stats_t gpu_mem_stats;
             if (intel_gpu_ggtt_pte_selftest() == 0) {
                 console_write("[ OK ] Intel GGTT system-memory PTE encoding self-test\n");
@@ -444,8 +445,15 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
             } else {
                 console_write("[ -- ] Intel GPU memory self-test failed; GPU memory manager retained\n");
             }
+            if (gpu_memory_selftest(GFX_BACKEND_INTEL_GPU) == 0) {
+                debug_write("LIONOS:GPU-MEMORY-API-SELFTEST-OK\n");
+                console_write("[ OK ] Vendor-neutral GPU memory API / Intel provider self-test\n");
+            } else {
+                debug_write("LIONOS:GPU-MEMORY-API-SELFTEST-FAIL\n");
+                console_write("[ -- ] Vendor-neutral GPU memory API self-test failed\n");
+            }
         } else {
-            console_write("[ -- ] Intel GPU memory manager unavailable; read-only display retained\n");
+            console_write("[ -- ] GPU memory provider unavailable; read-only display retained\n");
         }
     } else {
         console_write("[ -- ] Intel GPU MMIO unavailable; firmware framebuffer remains active\n");
