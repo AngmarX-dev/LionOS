@@ -89,6 +89,7 @@ int gfx_backend_registry_selftest(void) {
     gfx_surface_t surface;
     gfx_context_t context;
     uint32_t pixels[4] = {0u, 0u, 0u, 0u};
+    int result = 0;
 
     surface.pixels = pixels;
     surface.width = 2u;
@@ -111,9 +112,15 @@ int gfx_backend_registry_selftest(void) {
         context.initialized != 1u ||
         gfx_cpu_clear(&context, 0xFF123456u) != 0 ||
         pixels[0] != 0xFF123456u || pixels[3] != 0xFF123456u)
-        return -1;
+        result = -1;
 
-    return 0;
+    /* Tests must not leave synthetic hardware state in the live registry. */
+    if (gfx_backend_report_state(GFX_BACKEND_GPU,
+                                 GFX_BACKEND_STATE_UNAVAILABLE) != 0 ||
+        gfx_backend_get_state(GFX_BACKEND_GPU) != GFX_BACKEND_STATE_UNAVAILABLE)
+        result = -1;
+
+    return result;
 }
 
 int gfx_surface_validate(const gfx_surface_t *surface) {
