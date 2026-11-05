@@ -984,6 +984,7 @@ typedef struct {
     uint32_t generation;
     uint32_t page_count;
     uint32_t ggtt_first;
+    uint32_t ggtt_reserved;
     uint64_t physical[INTEL_GPU_MEMORY_MAX_PAGES];
     uint32_t virtual_address[INTEL_GPU_MEMORY_MAX_PAGES];
 } intel_gpu_memory_record_t;
@@ -1126,6 +1127,7 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
     intel_gpu_memory_record_t *record = 0;
     uint32_t slot = INTEL_GPU_MEMORY_MAX_ALLOCS;
     uint32_t first = 0u;
+    uint32_t ggtt_reserved = 0u;
 
     if (!out || !intel_gpu_memory_bsp_only() || !intel_gpu_memory_ready ||
         !page_count || page_count > INTEL_GPU_MEMORY_MAX_PAGES)
@@ -1138,8 +1140,17 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
             break;
         }
     }
-    if (!record || intel_gpu_memory_find_ggtt_run(page_count, &first) != 0)
+    if (!record)
         return -1;
+
+    /*
+     * Backing RAM ownership is independent from GGTT availability. Firmware
+     * may legitimately populate every GGTT entry for its active scanout.
+     * In that case allocate/test CPU backing pages, but do not claim a GPU
+     * virtual address or overwrite any firmware-owned PTE.
+     */
+    if (intel_gpu_memory_find_ggtt_run(page_count, &first) == 0)
+        ggtt_reserved = 1u;
 
     record->state = 1u;
     intel_gpu_memory_generation = (intel_gpu_memory_generation + 1u) & 0x00FFFFFFu;
@@ -1152,6 +1163,7 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
         record->virtual_address[i] = 0u;
     }
     record->ggtt_first = first;
+    record->ggtt_reserved = ggtt_reserved;
 
     for (uint32_t i = 0u; i < page_count; ++i) {
         uint64_t physical = 0u;
@@ -1174,7 +1186,7 @@ int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out)
     record->state = 2u;
     out->handle = (record->generation << 8) | (slot + 1u);
     out->page_count = page_count;
-    out->ggtt_first_entry = first;
+    out->ggtt_first_entry = ggtt_reserved ? first : UINT32_MAX;
     out->bytes = page_count * INTEL_GPU_MEMORY_PAGE_SIZE;
     out->ggtt_mapping_active = 0u;
     return 0;
@@ -1194,9 +1206,12 @@ rollback:
             record->physical[i] = 0u;
         }
     }
-    intel_gpu_memory_release_ggtt(first, page_count);
+    if (record->ggtt_reserved)
+        intel_gpu_memory_release_ggtt(first, page_count);
     record->state = 0u;
     record->page_count = 0u;
+    record->ggtt_first = 0u;
+    record->ggtt_reserved = 0u;
     return -1;
 }
 
@@ -1246,7 +1261,7 @@ int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
         return -1;
 
     record = intel_gpu_memory_lookup(handle);
-    if (!record || page_index >= record->page_count)
+    if (!record || !record->ggtt_reserved || page_index >= record->page_count)
         return -1;
 
     index = record->ggtt_first + page_index;
@@ -1286,10 +1301,12 @@ int intel_gpu_memory_free(uint32_t handle)
     for (uint32_t i = 0u; i < count; ++i)
         page_free_high(record->physical[i]);
 
-    intel_gpu_memory_release_ggtt(first, count);
+    if (record->ggtt_reserved)
+        intel_gpu_memory_release_ggtt(first, count);
     record->state = 0u;
     record->page_count = 0u;
     record->ggtt_first = 0u;
+    record->ggtt_reserved = 0u;
     return 0;
 }
 
@@ -1352,14 +1369,23 @@ int intel_gpu_memory_selftest(void)
             (encoded_pte & INTEL_GPU_GGTT_PTE_ADDRESS_MASK) != physical[page])
             goto fail;
 
-        uint32_t candidate_index = 0u;
-        uint64_t candidate_pte = 0u;
-        if (intel_gpu_memory_get_mapping_candidate(handle, page,
-                                                   &candidate_index,
-                                                   &candidate_pte) != 0 ||
-            candidate_index != block.ggtt_first_entry + page ||
-            candidate_pte != encoded_pte)
+        uint32_t candidate_index = 0xA5A5A5A5u;
+        uint64_t candidate_pte = 0xA5A5A5A5A5A5A5A5ULL;
+        if (block.ggtt_first_entry == UINT32_MAX) {
+            /* No free GGTT run: backing memory is valid but not GPU-mapped. */
+            if (intel_gpu_memory_get_mapping_candidate(handle, page,
+                                                       &candidate_index,
+                                                       &candidate_pte) == 0 ||
+                candidate_index != 0xA5A5A5A5u ||
+                candidate_pte != 0xA5A5A5A5A5A5A5A5ULL)
+                goto fail;
+        } else if (intel_gpu_memory_get_mapping_candidate(handle, page,
+                                                           &candidate_index,
+                                                           &candidate_pte) != 0 ||
+                   candidate_index != block.ggtt_first_entry + page ||
+                   candidate_pte != encoded_pte) {
             goto fail;
+        }
 
         words[page] = (volatile uint32_t *)(uintptr_t)virtual_address[page];
     }
