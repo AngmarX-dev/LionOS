@@ -59,6 +59,7 @@ int gpu_command_buffer_init(gpu_command_buffer_t *buffer,
     initialized.storage = storage;
     initialized.capacity_dwords = capacity_dwords;
     initialized.used_dwords = 0u;
+    initialized.generation = 1u;
     initialized.state = GPU_COMMAND_BUFFER_OPEN;
     *buffer = initialized;
     return 0;
@@ -134,9 +135,11 @@ int gpu_command_buffer_seal(gpu_command_buffer_t *buffer)
 
 int gpu_command_buffer_reset(gpu_command_buffer_t *buffer)
 {
-    if (!gpu_command_buffer_valid(buffer))
+    if (!gpu_command_buffer_valid(buffer) ||
+        buffer->generation == UINT32_MAX)
         return -1;
 
+    ++buffer->generation;
     buffer->used_dwords = 0u;
     buffer->state = GPU_COMMAND_BUFFER_OPEN;
     return 0;
@@ -182,7 +185,40 @@ int gpu_command_buffer_get_view(const gpu_command_buffer_t *buffer,
 
     view.words = buffer->storage;
     view.word_count = buffer->used_dwords;
+    view.generation = buffer->generation;
     *out_view = view;
+    return 0;
+}
+
+int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
+                                     const gpu_command_buffer_view_t *view)
+{
+    uintptr_t view_start;
+    uintptr_t descriptor_start;
+    uintptr_t storage_start;
+    uintptr_t storage_bytes;
+
+    if (!gpu_command_buffer_valid(buffer) || !view ||
+        buffer->state != GPU_COMMAND_BUFFER_SEALED)
+        return -1;
+
+    view_start = (uintptr_t)view;
+    descriptor_start = (uintptr_t)buffer;
+    storage_start = (uintptr_t)buffer->storage;
+    storage_bytes = (uintptr_t)buffer->capacity_dwords *
+                    GPU_COMMAND_DWORD_BYTES;
+
+    if (gpu_command_ranges_overlap(view_start, sizeof(*view),
+                                   descriptor_start, sizeof(*buffer)) ||
+        gpu_command_ranges_overlap(view_start, sizeof(*view),
+                                   storage_start, storage_bytes))
+        return -1;
+
+    if (view->words != buffer->storage ||
+        view->word_count != buffer->used_dwords ||
+        view->generation != buffer->generation)
+        return -1;
+
     return 0;
 }
 
@@ -194,7 +230,8 @@ int gpu_command_buffer_selftest(void)
     const uint32_t input[2] = {0x10203040u, 0x50607080u};
     gpu_command_buffer_t buffer = {0};
     gpu_command_buffer_t alias_buffer = {0};
-    gpu_command_buffer_view_t view = {input, 77u};
+    gpu_command_buffer_view_t view = {input, 77u, 0u};
+    gpu_command_buffer_view_t stale_view = {0, 0u, 0u};
 
     if (gpu_command_buffer_init(&buffer, &guarded_storage[1], 4u) != 0 ||
         buffer.state != GPU_COMMAND_BUFFER_OPEN ||
@@ -214,17 +251,26 @@ int gpu_command_buffer_selftest(void)
         buffer.state != GPU_COMMAND_BUFFER_SEALED ||
         gpu_command_buffer_get_view(&buffer, &view) != 0 ||
         view.words != &guarded_storage[1] || view.word_count != 3u ||
+        view.generation != buffer.generation ||
+        gpu_command_buffer_view_validate(&buffer, &view) != 0 ||
         gpu_command_buffer_get_view(&buffer,
             (gpu_command_buffer_view_t *)&buffer) == 0 ||
         gpu_command_buffer_get_view(&buffer,
             (gpu_command_buffer_view_t *)&guarded_storage[1]) == 0 ||
         gpu_command_buffer_append_u32(&buffer, 0u) == 0 ||
         gpu_command_buffer_seal(&buffer) == 0 ||
-        gpu_command_buffer_reset(&buffer) != 0 ||
+        (stale_view = view, gpu_command_buffer_reset(&buffer)) != 0 ||
         gpu_command_buffer_get_view(&buffer, &view) == 0 ||
+        gpu_command_buffer_view_validate(&buffer, &stale_view) == 0 ||
         view.words != &guarded_storage[1] || view.word_count != 3u ||
         buffer.state != GPU_COMMAND_BUFFER_OPEN ||
         buffer.used_dwords != 0u ||
+        gpu_command_buffer_append_u32(&buffer, 0xAABBCCDDu) != 0 ||
+        gpu_command_buffer_append_words(&buffer, input, 2u) != 0 ||
+        gpu_command_buffer_seal(&buffer) != 0 ||
+        gpu_command_buffer_view_validate(&buffer, &stale_view) == 0 ||
+        gpu_command_buffer_get_view(&buffer, &view) != 0 ||
+        gpu_command_buffer_view_validate(&buffer, &view) != 0 ||
         gpu_command_buffer_append_words(&buffer, 0, 0u) != 0 ||
         gpu_command_buffer_init(&alias_buffer, (uint32_t *)&alias_buffer, 4u) == 0 ||
         guarded_storage[0] != 0x13579BDFu ||
