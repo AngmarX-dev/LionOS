@@ -1532,7 +1532,7 @@ void gui_start(void){
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\n");return;}
     /*
-     * Bind the compositor-owned ARGB backbuffer to the generic graphics API.
+     * Bind the compositor-owned XRGB backbuffer to the generic graphics API.
      * This validates the adapter without changing the active rendering path.
      */
     {
