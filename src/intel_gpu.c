@@ -449,10 +449,6 @@ static const char *intel_gpu_platform_name_for_id(uint16_t id)
         case 0x46C2u: case 0x46C3u:
             return "ALDER LAKE-P";
 
-        case 0x46D0u: case 0x46D1u: case 0x46D2u:
-        case 0x46D3u: case 0x46D4u:
-            return "ALDER LAKE-N";
-
         case 0xA780u: case 0xA781u: case 0xA782u: case 0xA783u:
         case 0xA788u: case 0xA789u: case 0xA78Au: case 0xA78Bu:
             return "RAPTOR LAKE-S";
@@ -483,6 +479,9 @@ const char *intel_gpu_gmd_id_status(void)
         case 0x46B2u: case 0x46B3u: case 0x46C0u: case 0x46C1u:
         case 0x46C2u: case 0x46C3u:
             return "N/A (ADL-P)";
+        case 0xA780u: case 0xA781u: case 0xA782u: case 0xA783u:
+        case 0xA788u: case 0xA789u: case 0xA78Au: case 0xA78Bu:
+            return "N/A (RPL-S)";
         default:
             return "NOT REPORTED";
     }
