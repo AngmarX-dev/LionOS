@@ -239,7 +239,7 @@ int gfx_software_selftest(void) {
         storage[4] != 0xFF13579Bu ||
         storage[5] != 0xFF13579Bu ||
         storage[8] != 0xFF13579Bu ||
-        storage[6] != 0xFF102030u)
+        storage[6] != 0xFFAABBCCu)
         return -1;
     /* Reverse winding must cover the same triangle. */
     if (gfx_cpu_fill_triangle(&context, 0u, 2u, 2u, 0u, 0u, 0u,
@@ -257,7 +257,7 @@ int gfx_software_selftest(void) {
         gfx_cpu_fill_triangle(&context, 0u, 0u, 1u, 1u, 2u, 2u,
                               0xFFFFFFFFu) != 0 ||
         storage[0] != 0xFF2468ACu ||
-        storage[6] != 0xFF102030u)
+        storage[6] != 0xFFAABBCCu)
         return -1;
 
     /* Padding pixels must remain untouched by every raster operation. */
