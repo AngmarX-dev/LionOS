@@ -118,6 +118,61 @@ int gfx_cpu_blend_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
     return 0;
 }
 
+int gfx_cpu_blit(gfx_context_t *context, const gfx_surface_t *source,
+                 uint32_t source_x, uint32_t source_y,
+                 uint32_t destination_x, uint32_t destination_y,
+                 uint32_t width, uint32_t height) {
+    if (!gfx_cpu_context_valid(context) || gfx_surface_validate(source) != 0)
+        return -1;
+    if (width == 0u || height == 0u ||
+        source_x >= source->width || source_y >= source->height ||
+        destination_x >= context->target.width ||
+        destination_y >= context->target.height)
+        return 0;
+
+    /* Reject aliasing conservatively; this keeps row traversal deterministic. */
+    const uintptr_t source_begin = (uintptr_t)source->pixels;
+    const uintptr_t destination_begin = (uintptr_t)context->target.pixels;
+    const uintptr_t source_bytes =
+        (uintptr_t)source->pitch_pixels * source->height * sizeof(uint32_t);
+    const uintptr_t destination_bytes =
+        (uintptr_t)context->target.pitch_pixels *
+        context->target.height * sizeof(uint32_t);
+    if (source_bytes > UINTPTR_MAX - source_begin ||
+        destination_bytes > UINTPTR_MAX - destination_begin)
+        return -1;
+    const uintptr_t source_end = source_begin + source_bytes;
+    const uintptr_t destination_end = destination_begin + destination_bytes;
+    if (source_begin < destination_end && destination_begin < source_end)
+        return -1;
+
+    /* Subtraction-based clipping avoids overflow in coordinate additions. */
+    if (width > source->width - source_x)
+        width = source->width - source_x;
+    if (width > context->target.width - destination_x)
+        width = context->target.width - destination_x;
+    if (height > source->height - source_y)
+        height = source->height - source_y;
+    if (height > context->target.height - destination_y)
+        height = context->target.height - destination_y;
+
+    for (uint32_t row = 0u; row < height; ++row) {
+        const uint32_t *source_row = source->pixels +
+            (source_y + row) * source->pitch_pixels + source_x;
+        uint32_t *destination_row = context->target.pixels +
+            (destination_y + row) * context->target.pitch_pixels +
+            destination_x;
+        for (uint32_t column = 0u; column < width; ++column) {
+            uint32_t pixel = source_row[column];
+            if (source->pixel_format == GFX_PIXEL_FORMAT_XRGB8888)
+                pixel |= 0xFF000000u;
+            destination_row[column] =
+                gfx_store_pixel(&context->target, pixel);
+        }
+    }
+    return 0;
+}
+
 int gfx_cpu_fill_rect(gfx_context_t *context, uint32_t x, uint32_t y,
                       uint32_t width, uint32_t height, uint32_t argb) {
     if (!gfx_cpu_context_valid(context))
@@ -332,6 +387,62 @@ int gfx_software_selftest(void) {
     if (storage[3] != 0xDEADBEEFu ||
         storage[7] != 0xDEADBEEFu ||
         storage[11] != 0xDEADBEEFu)
+        return -1;
+
+    /* Clipped ARGB -> XRGB blit; source and destination pitches differ. */
+    uint32_t source_pixels[2u * 4u] = {
+        0xFF010203u, 0x80445566u, 0xFF778899u, 0xDEADBEEFu,
+        0xFF102030u, 0xFF405060u, 0xFF708090u, 0xDEADBEEFu
+    };
+    uint32_t destination_pixels[3u * 5u];
+    for (uint32_t i = 0u; i < 15u; ++i)
+        destination_pixels[i] = 0xCAFEBABEu;
+    gfx_surface_t source_surface = {
+        source_pixels, 3u, 2u, 4u, GFX_PIXEL_FORMAT_ARGB8888
+    };
+    gfx_surface_t destination_surface = {
+        destination_pixels, 4u, 3u, 5u, GFX_PIXEL_FORMAT_XRGB8888
+    };
+    gfx_context_t blit_context = {
+        { 0, 0u, 0u, 0u, GFX_PIXEL_FORMAT_ARGB8888 },
+        GFX_BACKEND_NONE, 0u
+    };
+    if (gfx_context_init_cpu(&blit_context, &destination_surface) != 0 ||
+        gfx_cpu_blit(&blit_context, &source_surface, 1u, 0u, 2u, 1u,
+                     UINT32_MAX, 2u) != 0 ||
+        destination_pixels[7] != 0x00445566u ||
+        destination_pixels[8] != 0x00778899u ||
+        destination_pixels[12] != 0x00405060u ||
+        destination_pixels[13] != 0x00708090u ||
+        destination_pixels[5] != 0xCAFEBABEu ||
+        destination_pixels[9] != 0xCAFEBABEu ||
+        destination_pixels[14] != 0xCAFEBABEu)
+        return -1;
+
+    /* XRGB -> ARGB must produce opaque pixels, not transparent ones. */
+    source_surface.pixel_format = GFX_PIXEL_FORMAT_XRGB8888;
+    source_pixels[0] = 0x00112233u;
+    destination_surface.pixels = storage;
+    destination_surface.width = 3u;
+    destination_surface.height = 3u;
+    destination_surface.pitch_pixels = 4u;
+    destination_surface.pixel_format = GFX_PIXEL_FORMAT_ARGB8888;
+    if (gfx_context_init_cpu(&blit_context, &destination_surface) != 0 ||
+        gfx_cpu_blit(&blit_context, &source_surface, 0u, 0u, 1u, 1u,
+                     1u, 1u) != 0 ||
+        storage[5] != 0xFF112233u)
+        return -1;
+
+    /* Overlapping source/destination storage is rejected without writes. */
+    source_surface.pixels = storage;
+    source_surface.width = 3u;
+    source_surface.height = 3u;
+    source_surface.pitch_pixels = 4u;
+    source_surface.pixel_format = GFX_PIXEL_FORMAT_ARGB8888;
+    const uint32_t overlap_guard = storage[0];
+    if (gfx_cpu_blit(&blit_context, &source_surface, 0u, 0u, 1u, 1u,
+                     1u, 1u) != -1 ||
+        storage[0] != overlap_guard)
         return -1;
 
     surface.pitch_pixels = 2u;
