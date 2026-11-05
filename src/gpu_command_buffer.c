@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "gpu_command_buffer.h"
+#include "gpu_memory.h"
 
 #define GPU_COMMAND_DWORD_BYTES 4u
 
@@ -191,6 +192,29 @@ int gpu_command_buffer_get_view(const gpu_command_buffer_t *buffer,
     return 0;
 }
 
+int gpu_command_buffer_init_from_memory(gpu_command_buffer_t *buffer,
+                                        const gpu_memory_block_t *backing)
+{
+    uint64_t physical_address;
+    uint32_t cpu_virtual_address;
+
+    if (!buffer || !backing ||
+        gpu_command_ranges_overlap((uintptr_t)buffer, sizeof(*buffer),
+                                   (uintptr_t)backing, sizeof(*backing)) ||
+        backing->page_count != 1u || backing->size_bytes != 4096u ||
+        backing->address_space_reserved != 0u ||
+        gpu_memory_get_page(backing, 0u, &physical_address,
+                            &cpu_virtual_address) != 0 ||
+        !cpu_virtual_address ||
+        (physical_address & 0xFFFu) != 0u ||
+        (cpu_virtual_address & 0xFFFu) != 0u)
+        return -1;
+
+    return gpu_command_buffer_init(buffer,
+                                   (uint32_t *)(uintptr_t)cpu_virtual_address,
+                                   4096u / sizeof(uint32_t));
+}
+
 int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
                                      const gpu_command_buffer_view_t *view)
 {
@@ -311,4 +335,62 @@ int gpu_command_buffer_selftest(void)
         return -1;
 
     return 0;
+}
+
+int gpu_command_buffer_memory_selftest(gfx_backend_t backend)
+{
+    gpu_memory_block_t backing = {0};
+    gpu_command_buffer_t buffer = {0};
+    gpu_command_buffer_view_t view = {0, 0u, 0u};
+    gpu_command_buffer_view_t stale_view = {0, 0u, 0u};
+    uint64_t physical_address = 0u;
+    uint32_t cpu_virtual_address = 0u;
+    int result = -1;
+    int buffer_initialized = 0;
+
+    if (gpu_memory_alloc(backend, 1u, &backing) != 0)
+        return -1;
+
+    if (backing.page_count != 1u || backing.size_bytes != 4096u ||
+        backing.address_space_reserved != 0u ||
+        gpu_memory_get_page(&backing, 0u, &physical_address,
+                            &cpu_virtual_address) != 0 ||
+        !cpu_virtual_address ||
+        (physical_address & 0xFFFu) != 0u ||
+        (cpu_virtual_address & 0xFFFu) != 0u ||
+        gpu_command_buffer_init_from_memory(&buffer, &backing) != 0)
+        goto cleanup;
+    buffer_initialized = 1;
+
+    if (buffer.storage != (uint32_t *)(uintptr_t)cpu_virtual_address ||
+        buffer.capacity_dwords != 1024u ||
+        gpu_command_buffer_append_u32(&buffer, 0xC001D00Du) != 0 ||
+        gpu_command_buffer_append_u32(&buffer, 0x51A1E5EDu) != 0 ||
+        gpu_command_buffer_seal(&buffer) != 0 ||
+        gpu_command_buffer_get_view(&buffer, &view) != 0 ||
+        view.word_count != 2u || view.words[0] != 0xC001D00Du ||
+        view.words[1] != 0x51A1E5EDu ||
+        gpu_command_buffer_view_validate(&buffer, &view) != 0)
+        goto cleanup;
+
+    stale_view = view;
+    if (gpu_command_buffer_reset(&buffer) != 0 ||
+        gpu_command_buffer_view_validate(&buffer, &stale_view) == 0 ||
+        gpu_command_buffer_append_u32(&buffer, 0xC001D00Du) != 0 ||
+        gpu_command_buffer_append_u32(&buffer, 0x51A1E5EDu) != 0 ||
+        gpu_command_buffer_seal(&buffer) != 0 ||
+        gpu_command_buffer_view_validate(&buffer, &stale_view) == 0 ||
+        gpu_command_buffer_get_view(&buffer, &view) != 0 ||
+        gpu_command_buffer_view_validate(&buffer, &view) != 0)
+        goto cleanup;
+
+    result = 0;
+
+cleanup:
+    /* Invalidate views before the provider unmaps and frees the backing page. */
+    if (buffer_initialized && gpu_command_buffer_reset(&buffer) != 0)
+        result = -1;
+    if (gpu_memory_free(&backing) != 0)
+        return -1;
+    return result;
 }
