@@ -3,7 +3,7 @@
 
 #define GFX_MAX_PIXEL_COUNT (UINT32_MAX / (uint32_t)sizeof(uint32_t))
 
-#define GFX_BACKEND_REGISTRY_COUNT 3u
+#define GFX_BACKEND_REGISTRY_COUNT ((uint32_t)GFX_BACKEND_COUNT)
 
 typedef struct {
     gfx_backend_t backend;
@@ -52,12 +52,20 @@ int gfx_backend_report_state(gfx_backend_t backend, gfx_backend_state_t state) {
         state > GFX_BACKEND_STATE_INITIALIZED)
         return -1;
 
-    /* CPU state is owned by this module; GPU reports cannot claim operation
-       until a real GPU dispatch table and completion tests are implemented. */
-    if (backend != GFX_BACKEND_GPU)
+    /* CPU state is owned by this module. Only vendor GPU entries may report
+       detection/initialization; operational requires a future real dispatch. */
+    if (backend < GFX_BACKEND_INTEL_GPU || backend >= GFX_BACKEND_COUNT)
         return -1;
     entry = gfx_backend_registry_find(backend);
     if (!entry)
+        return -1;
+    if (state == GFX_BACKEND_STATE_DETECTED &&
+        entry->state != GFX_BACKEND_STATE_UNAVAILABLE &&
+        entry->state != GFX_BACKEND_STATE_DETECTED)
+        return -1;
+    if (state == GFX_BACKEND_STATE_INITIALIZED &&
+        entry->state != GFX_BACKEND_STATE_DETECTED &&
+        entry->state != GFX_BACKEND_STATE_INITIALIZED)
         return -1;
     entry->state = state;
     entry->dispatch_ready = 0u;
@@ -99,14 +107,17 @@ int gfx_backend_registry_selftest(void) {
 
     if (gfx_backend_registry_init() != 0 ||
         gfx_backend_get_state(GFX_BACKEND_CPU) != GFX_BACKEND_STATE_OPERATIONAL ||
-        gfx_backend_get_state(GFX_BACKEND_GPU) != GFX_BACKEND_STATE_UNAVAILABLE ||
-        gfx_backend_report_state(GFX_BACKEND_GPU, GFX_BACKEND_STATE_DETECTED) != 0 ||
-        gfx_backend_get_state(GFX_BACKEND_GPU) != GFX_BACKEND_STATE_DETECTED ||
+        gfx_backend_get_state(GFX_BACKEND_INTEL_GPU) != GFX_BACKEND_STATE_UNAVAILABLE ||
+        gfx_backend_get_state(GFX_BACKEND_AMD_GPU) != GFX_BACKEND_STATE_UNAVAILABLE ||
+        gfx_backend_get_state(GFX_BACKEND_NVIDIA_GPU) != GFX_BACKEND_STATE_UNAVAILABLE ||
+        gfx_backend_report_state(GFX_BACKEND_AMD_GPU, GFX_BACKEND_STATE_INITIALIZED) == 0 ||
+        gfx_backend_report_state(GFX_BACKEND_INTEL_GPU, GFX_BACKEND_STATE_DETECTED) != 0 ||
+        gfx_backend_get_state(GFX_BACKEND_INTEL_GPU) != GFX_BACKEND_STATE_DETECTED ||
         gfx_backend_select() != GFX_BACKEND_CPU ||
-        gfx_backend_report_state(GFX_BACKEND_GPU, GFX_BACKEND_STATE_INITIALIZED) != 0 ||
+        gfx_backend_report_state(GFX_BACKEND_INTEL_GPU, GFX_BACKEND_STATE_INITIALIZED) != 0 ||
         gfx_backend_select() != GFX_BACKEND_CPU ||
-        gfx_backend_report_state(GFX_BACKEND_GPU, GFX_BACKEND_STATE_OPERATIONAL) == 0 ||
-        gfx_backend_report_state(GFX_BACKEND_GPU, (gfx_backend_state_t)-1) == 0 ||
+        gfx_backend_report_state(GFX_BACKEND_INTEL_GPU, GFX_BACKEND_STATE_OPERATIONAL) == 0 ||
+        gfx_backend_report_state(GFX_BACKEND_INTEL_GPU, (gfx_backend_state_t)-1) == 0 ||
         gfx_context_init_auto(&context, &surface) != 0 ||
         context.backend != GFX_BACKEND_CPU ||
         context.initialized != 1u ||
@@ -115,9 +126,9 @@ int gfx_backend_registry_selftest(void) {
         result = -1;
 
     /* Tests must not leave synthetic hardware state in the live registry. */
-    if (gfx_backend_report_state(GFX_BACKEND_GPU,
+    if (gfx_backend_report_state(GFX_BACKEND_INTEL_GPU,
                                  GFX_BACKEND_STATE_UNAVAILABLE) != 0 ||
-        gfx_backend_get_state(GFX_BACKEND_GPU) != GFX_BACKEND_STATE_UNAVAILABLE)
+        gfx_backend_get_state(GFX_BACKEND_INTEL_GPU) != GFX_BACKEND_STATE_UNAVAILABLE)
         result = -1;
 
     return result;
