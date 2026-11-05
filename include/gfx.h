@@ -47,6 +47,11 @@ int gfx_cpu_fill_rect(gfx_context_t *context, uint32_t x, uint32_t y,
 /* Draws a line when both endpoints are inside the target surface. */
 int gfx_cpu_draw_line(gfx_context_t *context, uint32_t x0, uint32_t y0,
                       uint32_t x1, uint32_t y1, uint32_t argb);
+/* Fills a triangle; all three vertices must be inside the target surface. */
+int gfx_cpu_fill_triangle(gfx_context_t *context,
+                          uint32_t x0, uint32_t y0,
+                          uint32_t x1, uint32_t y1,
+                          uint32_t x2, uint32_t y2, uint32_t argb);
 
 /* Deterministic in-memory test; does not touch the active framebuffer. */
 int gfx_software_selftest(void);
