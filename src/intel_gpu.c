@@ -430,6 +430,64 @@ static int intel_alder_lake_id(uint16_t id)
     }
 }
 
+/*
+ * PCI device IDs are grouped by Intel's upstream i915 platform tables.
+ * Keep the displayed family precise: ADL-S and ADL-P are distinct
+ * platform families even though both use the Alder Lake display IP.
+ */
+static const char *intel_gpu_platform_name_for_id(uint16_t id)
+{
+    switch (id) {
+        case 0x4680u: case 0x4682u: case 0x4688u: case 0x468Au:
+        case 0x468Bu: case 0x4690u: case 0x4692u: case 0x4693u:
+            return "ALDER LAKE-S";
+
+        case 0x46A0u: case 0x46A1u: case 0x46A2u: case 0x46A3u:
+        case 0x46A6u: case 0x46A8u: case 0x46AAu: case 0x462Au:
+        case 0x4626u: case 0x4628u: case 0x46B0u: case 0x46B1u:
+        case 0x46B2u: case 0x46B3u: case 0x46C0u: case 0x46C1u:
+        case 0x46C2u: case 0x46C3u:
+            return "ALDER LAKE-P";
+
+        case 0x46D0u: case 0x46D1u: case 0x46D2u:
+        case 0x46D3u: case 0x46D4u:
+            return "ALDER LAKE-N";
+
+        case 0xA780u: case 0xA781u: case 0xA782u: case 0xA783u:
+        case 0xA788u: case 0xA789u: case 0xA78Au: case 0xA78Bu:
+            return "RAPTOR LAKE-S";
+
+        default:
+            return "SUPPORTED / OTHER";
+    }
+}
+
+const char *intel_gpu_platform_name(void)
+{
+    if (!gpu_ready)
+        return "NOT DETECTED";
+    return intel_gpu_platform_name_for_id(gpu.device_id);
+}
+
+const char *intel_gpu_gmd_id_status(void)
+{
+    if (!gpu_ready)
+        return "NOT DETECTED";
+    switch (gpu.device_id) {
+        case 0x4680u: case 0x4682u: case 0x4688u: case 0x468Au:
+        case 0x468Bu: case 0x4690u: case 0x4692u: case 0x4693u:
+            return "N/A (ADL-S)";
+        case 0x46A0u: case 0x46A1u: case 0x46A2u: case 0x46A3u:
+        case 0x46A6u: case 0x46A8u: case 0x46AAu: case 0x462Au:
+        case 0x4626u: case 0x4628u: case 0x46B0u: case 0x46B1u:
+        case 0x46B2u: case 0x46B3u: case 0x46C0u: case 0x46C1u:
+        case 0x46C2u: case 0x46C3u:
+            return "N/A (ADL-P)";
+        default:
+            return "NOT REPORTED";
+    }
+}
+
 static int intel_known_display_id(uint16_t id)
 {
     if (intel_alder_lake_id(id))
