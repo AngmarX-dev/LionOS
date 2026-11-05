@@ -34,6 +34,25 @@ typedef struct {
     uint32_t initialized;
 } gfx_context_t;
 
+typedef enum {
+    GFX_BACKEND_STATE_UNAVAILABLE = 0,
+    GFX_BACKEND_STATE_DETECTED = 1,
+    GFX_BACKEND_STATE_INITIALIZED = 2,
+    GFX_BACKEND_STATE_OPERATIONAL = 3
+} gfx_backend_state_t;
+
+/*
+ * Registry status is deliberately separate from PCI/device detection.
+ * A backend is selectable only after its complete rendering dispatch exists.
+ * This milestone registers the CPU renderer; GPU backends remain non-selectable.
+ */
+int gfx_backend_registry_init(void);
+gfx_backend_state_t gfx_backend_get_state(gfx_backend_t backend);
+int gfx_backend_report_state(gfx_backend_t backend, gfx_backend_state_t state);
+gfx_backend_t gfx_backend_select(void);
+int gfx_context_init_auto(gfx_context_t *context, const gfx_surface_t *target);
+int gfx_backend_registry_selftest(void);
+
 /* Validate and attach caller-owned pixel memory; no allocation occurs. */
 int gfx_surface_validate(const gfx_surface_t *surface);
 int gfx_context_init_cpu(gfx_context_t *context, const gfx_surface_t *target);
