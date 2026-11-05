@@ -98,7 +98,7 @@ int gfx_software_selftest(void) {
 
     if (storage[0] != 0xFF102030u ||
         storage[1] != 0xFF102030u ||
-        storage[6] != 0xFF102030u ||
+        storage[4] != 0xFF102030u ||
         storage[2u + 1u * 4u] != 0xFFAABBCCu ||
         storage[1u + 2u * 4u] != 0xFF556677u ||
         storage[2u + 2u * 4u] != 0xFF556677u)
