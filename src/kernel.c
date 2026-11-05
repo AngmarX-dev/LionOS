@@ -400,6 +400,15 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_write("[ERR] Graphics API / CPU rasterizer self-test\n");
     }
 
+    /* Verify safe backend selection and mandatory CPU fallback. */
+    if (gfx_backend_registry_selftest() == 0) {
+        debug_write("LIONOS:GFX-BACKEND-REGISTRY-SELFTEST-OK\n");
+        console_write("[ OK ] Graphics backend registry / CPU fallback self-test\n");
+    } else {
+        debug_write("LIONOS:GFX-BACKEND-REGISTRY-SELFTEST-FAIL\n");
+        console_write("[ERR] Graphics backend registry / CPU fallback self-test\n");
+    }
+
     console_write("[ .. ] Initializing Intel graphics PCI/MMIO bootstrap...\n");
     if (intel_gpu_init(framebuffer_available() ? 1u : 0u) == 0 && intel_gpu_mmio_ready()) {
         console_write("[ OK ] Intel GPU MMIO ready; CPU compositor remains active\n");
