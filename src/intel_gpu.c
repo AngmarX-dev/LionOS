@@ -998,6 +998,36 @@ static uint32_t intel_gpu_memory_generation;
 static uint32_t intel_gpu_memory_ready;
 static intel_gpu_memory_record_t intel_gpu_memory_records[INTEL_GPU_MEMORY_MAX_ALLOCS];
 
+/*
+ * Read-only fingerprint of the complete GGTT aperture. This is a diagnostic
+ * guard around CPU-side memory tests; it is not an ownership or mapping test.
+ */
+static int intel_gpu_ggtt_snapshot_crc32(uint32_t *crc_out)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+
+    if (!crc_out || !intel_gpu_memory_ready || !intel_gpu_ggtt_entries)
+        return -1;
+
+    for (uint32_t entry = 0u; entry < intel_gpu_ggtt_entries; ++entry) {
+        uint64_t pte = 0u;
+
+        if (intel_gpu_ggtt_read_entry(entry, &pte) != 0)
+            return -1;
+
+        for (uint32_t byte = 0u; byte < 8u; ++byte) {
+            crc ^= (uint32_t)((pte >> (byte * 8u)) & 0xFFu);
+            for (uint32_t bit = 0u; bit < 8u; ++bit) {
+                uint32_t mask = 0u - (crc & 1u);
+                crc = (crc >> 1) ^ (0xEDB88320u & mask);
+            }
+        }
+    }
+
+    *crc_out = ~crc;
+    return 0;
+}
+
 static int intel_gpu_memory_bsp_only(void)
 {
     return cpu_current_index() == 0u;
@@ -1338,9 +1368,12 @@ int intel_gpu_memory_selftest(void)
     uint64_t physical[2] = {0u, 0u};
     uint32_t virtual_address[2] = {0u, 0u};
     volatile uint32_t *words[2] = {0, 0};
-    uint32_t handle;
+    uint32_t handle = 0u;
+    uint32_t ggtt_crc_before = 0u;
+    uint32_t ggtt_crc_after = 0u;
 
     if (intel_gpu_memory_get_stats(&before) != 0 ||
+        intel_gpu_ggtt_snapshot_crc32(&ggtt_crc_before) != 0 ||
         intel_gpu_memory_alloc(2u, &block) != 0)
         return -1;
     handle = block.handle;
@@ -1450,7 +1483,9 @@ int intel_gpu_memory_selftest(void)
             stale_pte != 0xA5A5A5A5A5A5A5A5ULL)
             goto fail;
     }
-    if (intel_gpu_memory_get_stats(&after) != 0 ||
+    if (intel_gpu_ggtt_snapshot_crc32(&ggtt_crc_after) != 0 ||
+        ggtt_crc_after != ggtt_crc_before ||
+        intel_gpu_memory_get_stats(&after) != 0 ||
         after.active_allocations != before.active_allocations ||
         after.allocated_pages != before.allocated_pages ||
         after.ggtt_empty_candidates != before.ggtt_empty_candidates ||
@@ -1458,7 +1493,8 @@ int intel_gpu_memory_selftest(void)
         after.ggtt_nonzero_invalid_entries != before.ggtt_nonzero_invalid_entries)
         goto fail;
 
-    debug_write("LIONOS:INTEL-GPU-MEM-2PAGE-SELFTEST-OK\n");
+    debug_write("LIONOS:INTEL-GPU-GGTT-SNAPSHOT-STABLE\\n");
+    debug_write("LIONOS:INTEL-GPU-MEM-2PAGE-SELFTEST-OK\\n");
     return 0;
 
 fail:
