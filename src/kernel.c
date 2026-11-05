@@ -33,6 +33,7 @@
 #include "gfx.h"
 #include "gpu_memory.h"
 #include "gpu_command_buffer.h"
+#include "gpu_fence.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -409,6 +410,15 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     } else {
         debug_write("LIONOS:GPU-COMMAND-BUFFER-SELFTEST-FAIL\n");
         console_write("[ERR] GPU command buffer / CPU-only self-test\n");
+    }
+
+    /* Validate one-shot CPU completion fences; no hardware completion is implied. */
+    if (gpu_fence_selftest() == 0) {
+        debug_write("LIONOS:GPU-FENCE-SELFTEST-OK\\n");
+        console_write("[ OK ] GPU fence / CPU-only atomic lifecycle self-test\\n");
+    } else {
+        debug_write("LIONOS:GPU-FENCE-SELFTEST-FAIL\\n");
+        console_write("[ERR] GPU fence / CPU-only self-test\\n");
     }
 
     /* Verify safe backend selection and mandatory CPU fallback. */
