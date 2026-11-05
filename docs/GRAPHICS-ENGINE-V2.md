@@ -262,8 +262,10 @@ The AP startup path was checked across `src/cpu.c`, `src/smp.c`,
 MADT enumeration populates each discovered processor's APIC ID before
 `smp_init()` sends INIT/SIPI. The AP then initializes its TSS and switches
 to the shared kernel CR3 before `cpu_mark_online()` publishes its online
-state. Those early operations use `cpu_current_index()` to select per-CPU
-state.
+state. In particular, `paging_switch_address_space()` selects the current
+CPU's directory slot through `cpu_current_index()`; `tss_init_cpu()` receives
+the target index explicitly. Interrupt diagnostics and later per-CPU scheduler
+lookups also depend on a correct current-CPU identity.
 
 Previously, `cpu_current_index()` matched an APIC ID only when the matching
 CPU record was already marked online. During the AP bring-up interval, the AP
