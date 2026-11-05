@@ -64,6 +64,58 @@ int gfx_cpu_put_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
     return 0;
 }
 
+
+int gfx_cpu_blend_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
+                        uint32_t source_argb) {
+    if (!gfx_cpu_context_valid(context))
+        return -1;
+    if (x >= context->target.width || y >= context->target.height)
+        return 0;
+
+    gfx_surface_t *surface = &context->target;
+    uint32_t *destination = &surface->pixels[y * surface->pitch_pixels + x];
+    const uint32_t source_alpha = source_argb >> 24;
+    if (source_alpha == 0u)
+        return 0;
+
+    const uint32_t destination_pixel = *destination;
+    const uint32_t destination_alpha =
+        surface->pixel_format == GFX_PIXEL_FORMAT_XRGB8888
+            ? 255u : (destination_pixel >> 24);
+    const uint32_t inverse_source_alpha = 255u - source_alpha;
+    const uint64_t output_alpha_numerator =
+        (uint64_t)source_alpha * 255u +
+        (uint64_t)destination_alpha * inverse_source_alpha;
+
+    if (output_alpha_numerator == 0u) {
+        *destination = 0u;
+        return 0;
+    }
+
+    uint32_t output = 0u;
+    for (uint32_t shift = 0u; shift <= 16u; shift += 8u) {
+        const uint32_t source_channel = (source_argb >> shift) & 0xFFu;
+        const uint32_t destination_channel =
+            (destination_pixel >> shift) & 0xFFu;
+        const uint64_t channel_numerator =
+            (uint64_t)source_channel * source_alpha * 255u +
+            (uint64_t)destination_channel * destination_alpha *
+                inverse_source_alpha;
+        const uint32_t channel = (uint32_t)(
+            (channel_numerator + output_alpha_numerator / 2u) /
+            output_alpha_numerator);
+        output |= channel << shift;
+    }
+
+    if (surface->pixel_format == GFX_PIXEL_FORMAT_ARGB8888) {
+        const uint32_t output_alpha = (uint32_t)(
+            (output_alpha_numerator + 127u) / 255u);
+        output |= output_alpha << 24;
+    }
+    *destination = output;
+    return 0;
+}
+
 int gfx_cpu_fill_rect(gfx_context_t *context, uint32_t x, uint32_t y,
                       uint32_t width, uint32_t height, uint32_t argb) {
     if (!gfx_cpu_context_valid(context))
@@ -208,6 +260,20 @@ int gfx_software_selftest(void) {
         return -1;
     if (gfx_cpu_put_pixel(&context, 3u, 1u, 0xFFFFFFFFu) != 0)
         return -1;
+
+    /* Straight-alpha source-over on opaque and transparent ARGB targets. */
+    if (gfx_cpu_put_pixel(&context, 0u, 0u, 0xFF0000FFu) != 0 ||
+        gfx_cpu_blend_pixel(&context, 0u, 0u, 0x80FF0000u) != 0 ||
+        storage[0] != 0xFF80007Fu)
+        return -1;
+    if (gfx_cpu_put_pixel(&context, 1u, 0u, 0x00000000u) != 0 ||
+        gfx_cpu_blend_pixel(&context, 1u, 0u, 0x80FF0000u) != 0 ||
+        storage[1] != 0x80FF0000u)
+        return -1;
+    if (gfx_cpu_blend_pixel(&context, 2u, 0u, 0x00010203u) != 0 ||
+        storage[2] != 0xFFAABBCCu)
+        return -1;
+
     if (gfx_cpu_fill_rect(&context, 1u, 2u, UINT32_MAX, 1u,
                           0xFF556677u) != 0)
         return -1;
@@ -290,6 +356,13 @@ int gfx_software_selftest(void) {
         storage[3] != 0xDEADBEEFu ||
         storage[7] != 0xDEADBEEFu ||
         storage[11] != 0xDEADBEEFu)
+        return -1;
+
+    if (gfx_cpu_put_pixel(&context, 0u, 0u, 0x000000FFu) != 0 ||
+        gfx_cpu_blend_pixel(&context, 0u, 0u, 0x80FF0000u) != 0 ||
+        storage[0] != 0x0080007Fu ||
+        gfx_cpu_blend_pixel(&context, 1u, 0u, 0x00FFFFFFu) != 0 ||
+        storage[1] != 0x0013579Bu)
         return -1;
     return 0;
 }
