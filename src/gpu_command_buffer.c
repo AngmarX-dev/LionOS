@@ -7,6 +7,8 @@ static int gpu_command_buffer_valid(const gpu_command_buffer_t *buffer)
 {
     uintptr_t start;
     uintptr_t bytes;
+    uintptr_t descriptor_start;
+    uintptr_t descriptor_bytes = sizeof(*buffer);
 
     if (!buffer || !buffer->storage || !buffer->capacity_dwords ||
         buffer->capacity_dwords > UINT32_MAX / GPU_COMMAND_DWORD_BYTES ||
@@ -18,7 +20,13 @@ static int gpu_command_buffer_valid(const gpu_command_buffer_t *buffer)
 
     start = (uintptr_t)buffer->storage;
     bytes = (uintptr_t)buffer->capacity_dwords * GPU_COMMAND_DWORD_BYTES;
-    if (start > UINTPTR_MAX - bytes)
+    descriptor_start = (uintptr_t)buffer;
+    if (start > UINTPTR_MAX - bytes ||
+        descriptor_start > UINTPTR_MAX - descriptor_bytes)
+        return 0;
+
+    if (start < descriptor_start + descriptor_bytes &&
+        descriptor_start < start + bytes)
         return 0;
 
     return 1;
@@ -29,12 +37,23 @@ int gpu_command_buffer_init(gpu_command_buffer_t *buffer,
                             uint32_t capacity_dwords)
 {
     gpu_command_buffer_t initialized;
+    uintptr_t descriptor_start;
+    uintptr_t storage_start;
+    uintptr_t storage_bytes;
 
     if (!buffer || !storage || !capacity_dwords ||
         capacity_dwords > UINT32_MAX / GPU_COMMAND_DWORD_BYTES ||
         ((uintptr_t)storage & (GPU_COMMAND_DWORD_BYTES - 1u)) != 0u ||
         (uintptr_t)storage >
             UINTPTR_MAX - (uintptr_t)capacity_dwords * GPU_COMMAND_DWORD_BYTES)
+        return -1;
+
+    descriptor_start = (uintptr_t)buffer;
+    storage_start = (uintptr_t)storage;
+    storage_bytes = (uintptr_t)capacity_dwords * GPU_COMMAND_DWORD_BYTES;
+    if (descriptor_start > UINTPTR_MAX - sizeof(*buffer) ||
+        (storage_start < descriptor_start + sizeof(*buffer) &&
+         descriptor_start < storage_start + storage_bytes))
         return -1;
 
     initialized.storage = storage;
@@ -130,6 +149,7 @@ int gpu_command_buffer_selftest(void)
     };
     const uint32_t input[2] = {0x10203040u, 0x50607080u};
     gpu_command_buffer_t buffer = {0};
+    gpu_command_buffer_t alias_buffer = {0};
 
     if (gpu_command_buffer_init(&buffer, &guarded_storage[1], 4u) != 0 ||
         buffer.state != GPU_COMMAND_BUFFER_OPEN ||
@@ -151,6 +171,7 @@ int gpu_command_buffer_selftest(void)
         buffer.state != GPU_COMMAND_BUFFER_OPEN ||
         buffer.used_dwords != 0u ||
         gpu_command_buffer_append_words(&buffer, 0, 0u) != 0 ||
+        gpu_command_buffer_init(&alias_buffer, (uint32_t *)&alias_buffer, 4u) == 0 ||
         guarded_storage[0] != 0x13579BDFu ||
         guarded_storage[5] != 0x2468ACE0u)
         return -1;
