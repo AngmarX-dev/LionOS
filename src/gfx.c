@@ -48,6 +48,7 @@ gfx_backend_state_t gfx_backend_get_state(gfx_backend_t backend) {
 int gfx_backend_report_state(gfx_backend_t backend, gfx_backend_state_t state) {
     gfx_backend_registry_entry_t *entry;
     if (gfx_backend_registry_init() != 0 ||
+        (int)state < (int)GFX_BACKEND_STATE_UNAVAILABLE ||
         state > GFX_BACKEND_STATE_INITIALIZED)
         return -1;
 
@@ -68,8 +69,8 @@ gfx_backend_t gfx_backend_select(void) {
         return GFX_BACKEND_NONE;
 
     /* Never select a backend without an operational state and full dispatch. */
-    for (uint32_t i = 1u; i < GFX_BACKEND_REGISTRY_COUNT; ++i) {
-        gfx_backend_registry_entry_t *entry = &gfx_backend_registry[i];
+    for (uint32_t i = GFX_BACKEND_REGISTRY_COUNT; i > 1u; --i) {
+        gfx_backend_registry_entry_t *entry = &gfx_backend_registry[i - 1u];
         if (entry->state == GFX_BACKEND_STATE_OPERATIONAL &&
             entry->dispatch_ready)
             return entry->backend;
@@ -104,6 +105,7 @@ int gfx_backend_registry_selftest(void) {
         gfx_backend_report_state(GFX_BACKEND_GPU, GFX_BACKEND_STATE_INITIALIZED) != 0 ||
         gfx_backend_select() != GFX_BACKEND_CPU ||
         gfx_backend_report_state(GFX_BACKEND_GPU, GFX_BACKEND_STATE_OPERATIONAL) == 0 ||
+        gfx_backend_report_state(GFX_BACKEND_GPU, (gfx_backend_state_t)-1) == 0 ||
         gfx_context_init_auto(&context, &surface) != 0 ||
         context.backend != GFX_BACKEND_CPU ||
         context.initialized != 1u ||
