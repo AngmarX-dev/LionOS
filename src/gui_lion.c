@@ -838,14 +838,16 @@ static void draw_system_monitor(void){
     /* Keep the diagnostics card inside the desktop and leave room for full-width hex values. */
     uint32_t w=sw>676u?660u:(sw>32u?sw-16u:sw);
     uint32_t x=sw>w+16u?sw-w-8u:8u;
-    uint32_t y=48u,h=648u;
+    uint32_t y=48u,h=672u;
     cpu_identification_t cpu={0};
     intel_gpu_info_t gpu;
     intel_gpu_engine_snapshot_t eng;
     intel_gt_diag_t diag={0};
     intel_gpu_memory_stats_t mem={0};
+    uint32_t platform_engines;
     uint64_t pte_first=0u,pte_last=0u;
     cpu_get_identification(&cpu);
+    platform_engines=intel_gpu_platform_engine_mask();
     int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
     int have_eng=intel_gpu_get_engine_snapshot(&eng)==0;
     int have_diag=intel_gpu_get_gt_diagnostics(&diag)==0;
@@ -1058,6 +1060,22 @@ static void draw_system_monitor(void){
     text_line("INACTIVE (CPU COMPOSITOR)",x+190u,y+598u,COL_DIM,COL_PANEL);
     text_line("GPU COMMANDS",x+14u,y+616u,COL_DIM,COL_PANEL);
     text_line("NOT IMPLEMENTED / NOT TESTED",x+190u,y+616u,COL_DIM,COL_PANEL);
+    text_line("PLATFORM ENGINES",x+14u,y+636u,COL_DIM,COL_PANEL);
+    if((platform_engines & (INTEL_GPU_ENGINE_RCS0 | INTEL_GPU_ENGINE_BCS0 |
+                            INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
+                            INTEL_GPU_ENGINE_VCS2)) ==
+       (INTEL_GPU_ENGINE_RCS0 | INTEL_GPU_ENGINE_BCS0 |
+        INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
+        INTEL_GPU_ENGINE_VCS2)){
+        text_line("RCS0 BCS0 VECS0 VCS0 VCS2 (CAPABILITY)",
+                  x+190u,y+636u,COL_TEXT,COL_PANEL);
+    }else if(platform_engines==0u){
+        text_line("UNKNOWN",x+190u,y+636u,COL_DIM,COL_PANEL);
+    }else{
+        text_line("PARTIAL / SEE PLATFORM TABLE",
+                  x+190u,y+636u,COL_DIM,COL_PANEL);
+    }
+
 }
 static void draw_desktop_background(void){
     /* Static wallpaper only: no animated background effects. */
