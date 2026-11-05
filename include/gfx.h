@@ -45,6 +45,7 @@ typedef enum {
  * Registry status is deliberately separate from PCI/device detection.
  * A backend is selectable only after its complete rendering dispatch exists.
  * This milestone registers the CPU renderer; GPU backends remain non-selectable.
+ * Registry updates are BSP-only and require external serialization.
  */
 int gfx_backend_registry_init(void);
 gfx_backend_state_t gfx_backend_get_state(gfx_backend_t backend);
