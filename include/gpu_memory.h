@@ -38,7 +38,9 @@ int gpu_memory_alloc(gfx_backend_t backend, uint32_t page_count,
 int gpu_memory_get_page(const gpu_memory_block_t *block, uint32_t page_index,
                         uint64_t *physical_address,
                         uint32_t *cpu_virtual_address);
-/* Returns a software-only address-space candidate; never writes a GPU PTE. */
+/* Revalidates that the reserved hardware slot is still zero and returns
+ * a software-only mapping plan. This is not proof of ownership and never
+ * writes a GPU PTE. */
 int gpu_memory_get_mapping_candidate(const gpu_memory_block_t *block,
                                      uint32_t page_index,
                                      uint32_t *entry_index,
