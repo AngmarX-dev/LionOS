@@ -5,8 +5,8 @@
 
 /*
  * Hardware-independent graphics surface.
- * Pixels use canonical 0xAARRGGBB ARGB8888 values in system RAM.
- * pitch_pixels is the distance between rows, in uint32_t pixels.
+ * Pixels use either 0xAARRGGBB ARGB8888 or 0x00RRGGBB XRGB8888.
+ * XRGB writes discard the high byte. pitch_pixels is measured in uint32_t pixels.
  * The caller owns the pixel storage and its lifetime.
  */
 typedef enum {
@@ -34,7 +34,7 @@ typedef struct {
     uint32_t initialized;
 } gfx_context_t;
 
-/* Validate and attach caller-owned ARGB8888 memory; no allocation occurs. */
+/* Validate and attach caller-owned pixel memory; no allocation occurs. */
 int gfx_surface_validate(const gfx_surface_t *surface);
 int gfx_context_init_cpu(gfx_context_t *context, const gfx_surface_t *target);
 
