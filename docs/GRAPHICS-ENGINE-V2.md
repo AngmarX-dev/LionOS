@@ -170,7 +170,7 @@ proof that the driver owns or may modify stolen memory.
 
 The high-memory diagnostic deliberately distinguishes raw Multiboot2 available
 RAM inventory (`memory_high_available_bytes()`) from currently free high pages
-(`memory_high_free_pages())); reservations and allocations affect the latter,
+(`memory_high_free_pages()`); reservations and allocations affect the latter,
 not the former.
 
 The kernel-wide mapping path serializes BSP mapping changes and waits for TLB
