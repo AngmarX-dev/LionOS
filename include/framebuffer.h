@@ -18,8 +18,8 @@ void framebuffer_console_clear(void);
 void framebuffer_console_putc(char c, uint32_t row, uint32_t col, uint32_t fg, uint32_t bg);
 int framebuffer_begin_desktop(void);
 /* Valid only while desktop mode is active; storage remains framebuffer-owned. */
-int framebuffer_get_desktop_buffer(uint32_t **pixels, uint32_t *width,
-                                    uint32_t *height, uint32_t *pitch_pixels);
+int framebuffer_get_desktop_xrgb8888(uint32_t **pixels, uint32_t *width,
+                                     uint32_t *height, uint32_t *pitch_pixels);
 int framebuffer_begin_layer(uint32_t *pixels,uint32_t width,uint32_t height,uint32_t origin_x,uint32_t origin_y);
 void framebuffer_end_layer(void);
 void framebuffer_composite_layer(const uint32_t *pixels,uint32_t width,uint32_t height,uint32_t x,uint32_t y);
