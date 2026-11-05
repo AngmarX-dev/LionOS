@@ -7,10 +7,10 @@
 /*
  * Vendor-neutral GPU backing-store interface.
  *
- * Blocks own CPU-accessible system RAM. A reserved address-space slot is
- * metadata only: this API does not program GPU page tables or make a block
- * GPU-addressable. All operations are BSP-only until the memory subsystem
- * provides a serialized multi-CPU contract.
+ * Blocks own CPU-accessible system RAM. GGTT zero entries are not considered
+ * owned by LionOS, so address_space_reserved remains false. This API does not
+ * program GPU page tables or make a block GPU-addressable. All operations are
+ * BSP-only until the memory subsystem provides a serialized multi-CPU contract.
  */
 typedef struct {
     gfx_backend_t backend;
@@ -30,6 +30,7 @@ typedef struct {
     uint32_t active_allocations;
     uint32_t allocated_pages;
     uint32_t initialized;
+    uint32_t address_space_ownership_verified;
 } gpu_memory_stats_t;
 
 int gpu_memory_init(gfx_backend_t backend);
@@ -38,9 +39,7 @@ int gpu_memory_alloc(gfx_backend_t backend, uint32_t page_count,
 int gpu_memory_get_page(const gpu_memory_block_t *block, uint32_t page_index,
                         uint64_t *physical_address,
                         uint32_t *cpu_virtual_address);
-/* Revalidates that the reserved hardware slot is still zero and returns
- * a software-only mapping plan. This is not proof of ownership and never
- * writes a GPU PTE. */
+/* Currently fails closed: no address-space ownership contract exists yet. */
 int gpu_memory_get_mapping_candidate(const gpu_memory_block_t *block,
                                      uint32_t page_index,
                                      uint32_t *entry_index,
