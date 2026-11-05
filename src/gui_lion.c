@@ -1548,7 +1548,11 @@ void gui_start(void){
             surface.pixel_format = GFX_PIXEL_FORMAT_XRGB8888;
             if (gfx_context_init_cpu(&context, &surface) == 0 &&
                 context.backend == GFX_BACKEND_CPU &&
-                context.target.pixels == pixels) {
+                context.target.pixels == pixels &&
+                context.target.width == width &&
+                context.target.height == height &&
+                context.target.pitch_pixels == pitch &&
+                context.target.pixel_format == GFX_PIXEL_FORMAT_XRGB8888) {
                 debug_write("LIONOS:GFX-DESKTOP-XRGB8888-READY\n");
             } else {
                 debug_write("LIONOS:GFX-DESKTOP-XRGB8888-FAIL\n");
