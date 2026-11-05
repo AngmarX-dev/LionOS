@@ -3,6 +3,117 @@
 
 #define GFX_MAX_PIXEL_COUNT (UINT32_MAX / (uint32_t)sizeof(uint32_t))
 
+#define GFX_BACKEND_REGISTRY_COUNT 3u
+
+typedef struct {
+    gfx_backend_t backend;
+    gfx_backend_state_t state;
+    uint32_t dispatch_ready;
+} gfx_backend_registry_entry_t;
+
+static gfx_backend_registry_entry_t gfx_backend_registry[GFX_BACKEND_REGISTRY_COUNT];
+static uint32_t gfx_backend_registry_ready;
+
+static gfx_backend_registry_entry_t *gfx_backend_registry_find(gfx_backend_t backend) {
+    if ((uint32_t)backend >= GFX_BACKEND_REGISTRY_COUNT)
+        return 0;
+    return &gfx_backend_registry[(uint32_t)backend];
+}
+
+int gfx_backend_registry_init(void) {
+    if (gfx_backend_registry_ready)
+        return 0;
+
+    for (uint32_t i = 0u; i < GFX_BACKEND_REGISTRY_COUNT; ++i) {
+        gfx_backend_registry[i].backend = (gfx_backend_t)i;
+        gfx_backend_registry[i].state = GFX_BACKEND_STATE_UNAVAILABLE;
+        gfx_backend_registry[i].dispatch_ready = 0u;
+    }
+
+    /* CPU is the only backend with a complete, tested raster API today. */
+    gfx_backend_registry[GFX_BACKEND_CPU].state = GFX_BACKEND_STATE_OPERATIONAL;
+    gfx_backend_registry[GFX_BACKEND_CPU].dispatch_ready = 1u;
+    gfx_backend_registry_ready = 1u;
+    return 0;
+}
+
+gfx_backend_state_t gfx_backend_get_state(gfx_backend_t backend) {
+    gfx_backend_registry_entry_t *entry;
+    if (gfx_backend_registry_init() != 0)
+        return GFX_BACKEND_STATE_UNAVAILABLE;
+    entry = gfx_backend_registry_find(backend);
+    return entry ? entry->state : GFX_BACKEND_STATE_UNAVAILABLE;
+}
+
+int gfx_backend_report_state(gfx_backend_t backend, gfx_backend_state_t state) {
+    gfx_backend_registry_entry_t *entry;
+    if (gfx_backend_registry_init() != 0 ||
+        state > GFX_BACKEND_STATE_INITIALIZED)
+        return -1;
+
+    /* CPU state is owned by this module; GPU reports cannot claim operation
+       until a real GPU dispatch table and completion tests are implemented. */
+    if (backend != GFX_BACKEND_GPU)
+        return -1;
+    entry = gfx_backend_registry_find(backend);
+    if (!entry)
+        return -1;
+    entry->state = state;
+    entry->dispatch_ready = 0u;
+    return 0;
+}
+
+gfx_backend_t gfx_backend_select(void) {
+    if (gfx_backend_registry_init() != 0)
+        return GFX_BACKEND_NONE;
+
+    /* Never select a backend without an operational state and full dispatch. */
+    for (uint32_t i = 1u; i < GFX_BACKEND_REGISTRY_COUNT; ++i) {
+        gfx_backend_registry_entry_t *entry = &gfx_backend_registry[i];
+        if (entry->state == GFX_BACKEND_STATE_OPERATIONAL &&
+            entry->dispatch_ready)
+            return entry->backend;
+    }
+    return GFX_BACKEND_CPU;
+}
+
+int gfx_context_init_auto(gfx_context_t *context, const gfx_surface_t *target) {
+    gfx_backend_t selected = gfx_backend_select();
+    if (selected == GFX_BACKEND_CPU)
+        return gfx_context_init_cpu(context, target);
+    return -1;
+}
+
+int gfx_backend_registry_selftest(void) {
+    gfx_surface_t surface;
+    gfx_context_t context;
+    uint32_t pixels[4] = {0u, 0u, 0u, 0u};
+
+    surface.pixels = pixels;
+    surface.width = 2u;
+    surface.height = 2u;
+    surface.pitch_pixels = 2u;
+    surface.pixel_format = GFX_PIXEL_FORMAT_ARGB8888;
+
+    if (gfx_backend_registry_init() != 0 ||
+        gfx_backend_get_state(GFX_BACKEND_CPU) != GFX_BACKEND_STATE_OPERATIONAL ||
+        gfx_backend_get_state(GFX_BACKEND_GPU) != GFX_BACKEND_STATE_UNAVAILABLE ||
+        gfx_backend_report_state(GFX_BACKEND_GPU, GFX_BACKEND_STATE_DETECTED) != 0 ||
+        gfx_backend_get_state(GFX_BACKEND_GPU) != GFX_BACKEND_STATE_DETECTED ||
+        gfx_backend_select() != GFX_BACKEND_CPU ||
+        gfx_backend_report_state(GFX_BACKEND_GPU, GFX_BACKEND_STATE_INITIALIZED) != 0 ||
+        gfx_backend_select() != GFX_BACKEND_CPU ||
+        gfx_backend_report_state(GFX_BACKEND_GPU, GFX_BACKEND_STATE_OPERATIONAL) == 0 ||
+        gfx_context_init_auto(&context, &surface) != 0 ||
+        context.backend != GFX_BACKEND_CPU ||
+        context.initialized != 1u ||
+        gfx_cpu_clear(&context, 0xFF123456u) != 0 ||
+        pixels[0] != 0xFF123456u || pixels[3] != 0xFF123456u)
+        return -1;
+
+    return 0;
+}
+
 int gfx_surface_validate(const gfx_surface_t *surface) {
     if (!surface || !surface->pixels || !surface->width || !surface->height)
         return -1;
