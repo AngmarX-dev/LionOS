@@ -32,6 +32,7 @@
 #include "pci.h"
 #include "gfx.h"
 #include "gpu_memory.h"
+#include "gpu_command_buffer.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -399,6 +400,15 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     } else {
         debug_write("LIONOS:GFX-CPU-SELFTEST-FAIL\n");
         console_write("[ERR] Graphics API / CPU rasterizer self-test\n");
+    }
+
+    /* Exercise bounded command-stream storage in RAM; no GPU submission. */
+    if (gpu_command_buffer_selftest() == 0) {
+        debug_write("LIONOS:GPU-COMMAND-BUFFER-SELFTEST-OK\n");
+        console_write("[ OK ] GPU command buffer / CPU-only bounds and state self-test\n");
+    } else {
+        debug_write("LIONOS:GPU-COMMAND-BUFFER-SELFTEST-FAIL\n");
+        console_write("[ERR] GPU command buffer / CPU-only self-test\n");
     }
 
     /* Verify safe backend selection and mandatory CPU fallback. */
