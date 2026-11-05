@@ -396,3 +396,29 @@ alias rejection, and rejection after reset.
 A sealed CPU command-buffer view carries the generation of the buffer from which it was created. Initialization starts at generation 1; each successful reset advances the generation. Reset fails closed at `UINT32_MAX` rather than wrapping and potentially making an old view appear current. `gpu_command_buffer_view_validate()` verifies that the buffer remains valid and sealed and that the view's storage pointer, used-word count, and generation match. It also rejects a view descriptor that aliases the buffer descriptor or backing storage.
 
 The self-test validates a current view and rejects a stale view after reset and after the same storage is repopulated with the same word count and sealed again. Failed view acquisition must preserve the caller's output descriptor. This remains a CPU-side stale-view guard, not a concurrency primitive: callers must serialize reset/reuse against consumers, keep storage alive, and avoid modifying sealed storage through another alias. No GPU command parsing, address mapping, cache maintenance, fence, MMIO, or submission is performed.
+
+
+## Command-buffer integration with CPU-mapped backing RAM (2026-11-05)
+
+The command-buffer API now has an adapter for exactly one page from the
+vendor-neutral GPU backing-memory provider. It accepts only a one-page,
+4096-byte block whose GPU address-space reservation flag is clear, obtains
+the provider's CPU virtual mapping, verifies physical and virtual page
+alignment, and initializes a 1024-dword command buffer over that mapping.
+The adapter does not allocate, own, or free the memory block; the caller must
+keep the block alive and must not free it until every consumer has stopped
+using the command buffer and its views.
+
+The boot integration self-test allocates one page through the generic memory
+API, writes and reads opaque dwords through the command-buffer interface,
+seals and validates a view, resets and proves the previous generation stale,
+then resets again before freeing the provider block. This validates the actual
+CPU mapping lifecycle of the current Intel provider, not GPU addressability.
+The provider retains its per-page CPU mappings for the block lifetime and
+unmaps them before returning physical pages to the PMM.
+
+The current high-memory mapper can expose individual pages at separate virtual
+addresses; this adapter intentionally supports only a single page and does
+not assume multi-page virtual contiguity. It does not map GGTT, program PTEs,
+perform cache maintenance, submit GPU commands, or change the unverified
+GGTT ownership status.
