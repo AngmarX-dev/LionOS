@@ -875,8 +875,8 @@ static void draw_system_monitor(void){
     text_line(".",x+200u,y+76u,COL_DIM,COL_PANEL);
     draw_uint(gpu.function,x+212u,y+76u,COL_TEXT,COL_PANEL);
     text_line("PLATFORM",x+350u,y+76u,COL_DIM,COL_PANEL);
-    text_line(gpu.supported_platform?"SUPPORTED":"UNKNOWN",x+470u,y+76u,
-              gpu.supported_platform?COL_OK:COL_DANGER,COL_PANEL);
+    text_line(gpu.supported_platform?intel_gpu_platform_name():"UNKNOWN",
+              x+470u,y+76u,gpu.supported_platform?COL_OK:COL_DANGER,COL_PANEL);
     text_line("BAR0 BASE",x+14u,y+94u,COL_DIM,COL_PANEL);
     draw_hex64(gpu.bar0,x+140u,y+94u,COL_TEXT,COL_PANEL);
     text_line("BAR0 SIZE",x+14u,y+112u,COL_DIM,COL_PANEL);
@@ -917,7 +917,7 @@ static void draw_system_monitor(void){
            eng.graphics_gmd_id != 0xFFFFFFFFu)
             draw_hex32(eng.graphics_gmd_id,x+140u,y+268u,COL_TEXT,COL_PANEL);
         else
-            text_line("N/A (ADL)",x+140u,y+268u,COL_DIM,COL_PANEL);
+            text_line(intel_gpu_gmd_id_status(),x+140u,y+268u,COL_DIM,COL_PANEL);
         text_line("RCS H/T",x+14u,y+286u,COL_DIM,COL_PANEL);
         draw_hex32(eng.render.head,x+140u,y+286u,COL_TEXT,COL_PANEL);
         draw_hex32(eng.render.tail,x+248u,y+286u,COL_TEXT,COL_PANEL);
