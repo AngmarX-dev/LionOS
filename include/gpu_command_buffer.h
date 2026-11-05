@@ -20,6 +20,7 @@ typedef struct {
     uint32_t *storage;
     uint32_t capacity_dwords;
     uint32_t used_dwords;
+    uint32_t generation;
     gpu_command_buffer_state_t state;
 } gpu_command_buffer_t;
 
@@ -27,6 +28,7 @@ typedef struct {
 typedef struct {
     const uint32_t *words;
     uint32_t word_count;
+    uint32_t generation;
 } gpu_command_buffer_view_t;
 
 /* Initialize an empty buffer over caller-owned storage. */
@@ -46,6 +48,9 @@ int gpu_command_buffer_seal(gpu_command_buffer_t *buffer);
 int gpu_command_buffer_reset(gpu_command_buffer_t *buffer);
 int gpu_command_buffer_get_view(const gpu_command_buffer_t *buffer,
                                   gpu_command_buffer_view_t *out_view);
+/* Reject stale or mismatched views before a consumer reads them. */
+int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
+                                     const gpu_command_buffer_view_t *view);
 
 /* Deterministic RAM-only bounds/state/aliasing test. */
 int gpu_command_buffer_selftest(void);
