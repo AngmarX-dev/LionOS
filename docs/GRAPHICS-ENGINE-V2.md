@@ -253,3 +253,34 @@ internally consistent for the supported online xAPIC CPUs. Mapping removal
 continues to wait for every selected AP acknowledgement before a virtual slot
 can be reused. No timeout, CPU hotplug, x2APIC support, or GPU mapping behavior
 is claimed. No xHCI source was modified by this audit.
+
+## AP identity during CPU bring-up audit (2026-11-05)
+
+The AP startup path was checked across `src/cpu.c`, `src/smp.c`,
+`src/paging.c`, `src/tss.c`, `src/idt.c`, and the SMP trampoline.
+
+MADT enumeration populates each discovered processor's APIC ID before
+`smp_init()` sends INIT/SIPI. The AP then initializes its TSS and switches
+to the shared kernel CR3 before `cpu_mark_online()` publishes its online
+state. Those early operations use `cpu_current_index()` to select per-CPU
+state.
+
+Previously, `cpu_current_index()` matched an APIC ID only when the matching
+CPU record was already marked online. During the AP bring-up interval, the AP
+therefore fell through to index zero and could address the BSP's per-CPU
+directory slot. The current AP code loads the same kernel CR3, so this did not
+change the active page tables, but the lookup violated the per-CPU identity
+contract and was unsafe as a basis for future AP-local initialization.
+
+The lookup now resolves a configured APIC ID independently of the online
+lifecycle flag. MADT-populated AP records are therefore addressable during
+early AP initialization; `online` remains the separate indication that the
+CPU has completed initialization and may participate in SMP operations.
+If LAPIC identity is unavailable or does not match a configured record, the
+legacy BSP fallback remains in place; this change does not add CPU hotplug,
+x2APIC support, or a general unknown-CPU recovery path.
+
+**Review boundary:** this is a CPU-identity correction only. It does not alter
+AP startup sequencing, interrupt routing, TLB shootdown, scheduler policy,
+GPU mappings, or xHCI code. CI/QEMU checks cannot replace a physical SMP
+bring-up test on the Alder Lake laptop.
