@@ -42,6 +42,9 @@ int gfx_context_init_cpu(gfx_context_t *context, const gfx_surface_t *target);
 int gfx_cpu_clear(gfx_context_t *context, uint32_t argb);
 int gfx_cpu_put_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
                       uint32_t argb);
+/* Source-over alpha compositing using straight-alpha ARGB input. */
+int gfx_cpu_blend_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
+                        uint32_t source_argb);
 int gfx_cpu_fill_rect(gfx_context_t *context, uint32_t x, uint32_t y,
                       uint32_t width, uint32_t height, uint32_t argb);
 /* Draws a line when both endpoints are inside the target surface. */
