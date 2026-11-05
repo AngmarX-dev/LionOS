@@ -96,16 +96,17 @@ int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out);
 
 /*
  * GPU backing-memory manager, first bring-up stage.
- * GGTT entries are scanned and reserved in software only; no GGTT PTE is
- * modified and buffers are NOT GPU-addressable until the later mapping stage.
- * All manager operations are BSP-only and must be externally serialized.
+ * GGTT entries are scanned read-only. Zero-valued entries are observations,
+ * not proof of ownership, so no GGTT slots are reserved and no PTE is modified.
+ * Buffers remain CPU-accessible system RAM only. All operations are BSP-only
+ * and must be externally serialized.
  */
 #define INTEL_GPU_MEMORY_MAX_PAGES 256u
 
 typedef struct {
     uint32_t handle;
     uint32_t page_count;
-    /* UINT32_MAX means backing RAM exists but no free GGTT run was available. */
+    /* Always UINT32_MAX until GGTT ownership is explicitly established. */
     uint32_t ggtt_first_entry;
     uint32_t bytes;
     uint32_t ggtt_mapping_active; /* Always zero until hardware PTE programming is validated. */
@@ -119,6 +120,7 @@ typedef struct {
     uint32_t active_allocations;
     uint32_t allocated_pages;
     uint32_t initialized;
+    uint32_t ggtt_ownership_verified; /* Always zero until platform hand-off is proven. */
 } intel_gpu_memory_stats_t;
 
 /* Pure Gen8+ system-memory GGTT PTE encoder validation; no MMIO writes. */
@@ -129,9 +131,8 @@ int intel_gpu_memory_free(uint32_t handle);
 int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
                               uint64_t *physical_address,
                               uint32_t *cpu_virtual_address);
-/* Re-read and validate that the reserved GGTT slot is still exactly zero,
- * then return a software-only index/PTE plan. This does not prove ownership
- * or authorize a hardware PTE write. */
+/* Reserved until a documented GGTT ownership contract is implemented.
+ * Currently always fails without modifying caller outputs. */
 int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
                                            uint32_t page_index,
                                            uint32_t *ggtt_index,
