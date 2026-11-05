@@ -127,6 +127,66 @@ int gfx_cpu_draw_line(gfx_context_t *context, uint32_t x0, uint32_t y0,
     return 0;
 }
 
+static int64_t gfx_edge_value(int64_t ax, int64_t ay,
+                               int64_t bx, int64_t by,
+                               int64_t px, int64_t py) {
+    return (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+}
+
+int gfx_cpu_fill_triangle(gfx_context_t *context,
+                          uint32_t x0, uint32_t y0,
+                          uint32_t x1, uint32_t y1,
+                          uint32_t x2, uint32_t y2, uint32_t argb) {
+    if (!gfx_cpu_context_valid(context))
+        return -1;
+
+    const gfx_surface_t *surface = &context->target;
+    if (x0 >= surface->width || x1 >= surface->width ||
+        x2 >= surface->width || y0 >= surface->height ||
+        y1 >= surface->height || y2 >= surface->height)
+        return 0;
+
+    /*
+     * A valid surface contains at most UINT32_MAX / 4 pixels, so each
+     * coordinate difference is bounded and the edge products fit int64_t.
+     */
+    const int64_t ax = (int64_t)x0;
+    const int64_t ay = (int64_t)y0;
+    const int64_t bx = (int64_t)x1;
+    const int64_t by = (int64_t)y1;
+    const int64_t cx = (int64_t)x2;
+    const int64_t cy = (int64_t)y2;
+    const int64_t area = gfx_edge_value(ax, ay, bx, by, cx, cy);
+    if (area == 0)
+        return 0;
+
+    uint32_t min_x = x0 < x1 ? x0 : x1;
+    uint32_t min_y = y0 < y1 ? y0 : y1;
+    uint32_t max_x = x0 > x1 ? x0 : x1;
+    uint32_t max_y = y0 > y1 ? y0 : y1;
+    if (x2 < min_x) min_x = x2;
+    if (y2 < min_y) min_y = y2;
+    if (x2 > max_x) max_x = x2;
+    if (y2 > max_y) max_y = y2;
+
+    const uint32_t pixel = gfx_store_pixel(surface, argb);
+    for (uint32_t y = min_y; y <= max_y; ++y) {
+        uint32_t *row = surface->pixels + y * surface->pitch_pixels;
+        for (uint32_t x = min_x; x <= max_x; ++x) {
+            const int64_t px = (int64_t)x;
+            const int64_t py = (int64_t)y;
+            const int64_t w0 = gfx_edge_value(bx, by, cx, cy, px, py);
+            const int64_t w1 = gfx_edge_value(cx, cy, ax, ay, px, py);
+            const int64_t w2 = gfx_edge_value(ax, ay, bx, by, px, py);
+
+            if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0))
+                row[x] = pixel;
+        }
+    }
+    return 0;
+}
+
 int gfx_software_selftest(void) {
     uint32_t storage[4u * 3u];
     for (uint32_t i = 0u; i < 12u; ++i)
@@ -171,6 +231,25 @@ int gfx_software_selftest(void) {
         storage[0] != 0xFFABCDEFu)
         return -1;
 
+    if (gfx_cpu_fill_triangle(&context, 0u, 0u, 2u, 0u, 0u, 2u,
+                              0xFF13579Bu) != 0 ||
+        storage[0] != 0xFF13579Bu ||
+        storage[1] != 0xFF13579Bu ||
+        storage[2] != 0xFF13579Bu ||
+        storage[4] != 0xFF13579Bu ||
+        storage[5] != 0xFF13579Bu ||
+        storage[8] != 0xFF13579Bu ||
+        storage[6] != 0xFF102030u)
+        return -1;
+    /* Out-of-bounds and degenerate triangles must not write pixels. */
+    if (gfx_cpu_fill_triangle(&context, 0u, 0u, 2u, 0u, 3u, 2u,
+                              0xFFFFFFFFu) != 0 ||
+        gfx_cpu_fill_triangle(&context, 0u, 0u, 1u, 1u, 2u, 2u,
+                              0xFFFFFFFFu) != 0 ||
+        storage[0] != 0xFF13579Bu ||
+        storage[6] != 0xFF102030u)
+        return -1;
+
     /* Padding pixels must remain untouched by every raster operation. */
     if (storage[3] != 0xDEADBEEFu ||
         storage[7] != 0xDEADBEEFu ||
@@ -187,7 +266,14 @@ int gfx_software_selftest(void) {
         return -1;
     if (gfx_cpu_clear(&context, 0xFF102030u) != 0 ||
         gfx_cpu_draw_line(&context, 0u, 2u, 2u, 2u, 0xFFABCDEFu) != 0 ||
-        storage[0] != 0x00102030u ||
+        gfx_cpu_fill_triangle(&context, 0u, 0u, 2u, 0u, 0u, 2u,
+                              0xFF13579Bu) != 0 ||
+        storage[0] != 0x0013579Bu ||
+        storage[1] != 0x0013579Bu ||
+        storage[2] != 0x0013579Bu ||
+        storage[4] != 0x0013579Bu ||
+        storage[5] != 0x0013579Bu ||
+        storage[8] != 0x0013579Bu ||
         storage[1] != 0x00102030u ||
         storage[2] != 0x00102030u ||
         storage[8] != 0x00ABCDEFu ||
