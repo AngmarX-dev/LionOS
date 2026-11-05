@@ -83,33 +83,35 @@ int gfx_cpu_blend_pixel(gfx_context_t *context, uint32_t x, uint32_t y,
         surface->pixel_format == GFX_PIXEL_FORMAT_XRGB8888
             ? 255u : (destination_pixel >> 24);
     const uint32_t inverse_source_alpha = 255u - source_alpha;
-    const uint64_t output_alpha_numerator =
-        (uint64_t)source_alpha * 255u +
-        (uint64_t)destination_alpha * inverse_source_alpha;
 
-    if (output_alpha_numerator == 0u) {
-        *destination = 0u;
-        return 0;
-    }
+    /*
+     * Both numerators are bounded: alpha <= 255*255 (65025), and each
+     * channel numerator <= 255*65025 (16581375). uint32_t arithmetic is
+     * therefore sufficient and avoids compiler runtime 64-bit division
+     * helpers that are unavailable in the freestanding kernel.
+     */
+    const uint32_t output_alpha_numerator =
+        source_alpha * 255u +
+        destination_alpha * inverse_source_alpha;
 
     uint32_t output = 0u;
     for (uint32_t shift = 0u; shift <= 16u; shift += 8u) {
         const uint32_t source_channel = (source_argb >> shift) & 0xFFu;
         const uint32_t destination_channel =
             (destination_pixel >> shift) & 0xFFu;
-        const uint64_t channel_numerator =
-            (uint64_t)source_channel * source_alpha * 255u +
-            (uint64_t)destination_channel * destination_alpha *
+        const uint32_t channel_numerator =
+            source_channel * source_alpha * 255u +
+            destination_channel * destination_alpha *
                 inverse_source_alpha;
-        const uint32_t channel = (uint32_t)(
+        const uint32_t channel =
             (channel_numerator + output_alpha_numerator / 2u) /
-            output_alpha_numerator);
+            output_alpha_numerator;
         output |= channel << shift;
     }
 
     if (surface->pixel_format == GFX_PIXEL_FORMAT_ARGB8888) {
-        const uint32_t output_alpha = (uint32_t)(
-            (output_alpha_numerator + 127u) / 255u);
+        const uint32_t output_alpha =
+            (output_alpha_numerator + 127u) / 255u;
         output |= output_alpha << 24;
     }
     *destination = output;
