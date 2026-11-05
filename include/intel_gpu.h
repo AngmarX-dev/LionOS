@@ -80,6 +80,8 @@ int intel_gpu_available(void);
 const char *intel_gpu_platform_name(void);
 const char *intel_gpu_gmd_id_status(void);
 uint32_t intel_gpu_platform_engine_mask(void);
+/* Upstream i915 default submission policy; not a runtime mode detector. */
+const char *intel_gpu_submission_policy(void);
 int intel_gpu_is_alder_lake(void);
 int intel_gpu_mmio_ready(void);
 int intel_gpu_get_info(intel_gpu_info_t *out);
