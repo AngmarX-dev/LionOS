@@ -6,6 +6,8 @@
 int gfx_surface_validate(const gfx_surface_t *surface) {
     if (!surface || !surface->pixels || !surface->width || !surface->height)
         return -1;
+    if (((uintptr_t)surface->pixels & 3u) != 0u)
+        return -1;
     if (surface->pitch_pixels < surface->width)
         return -1;
     if (surface->pixel_format != GFX_PIXEL_FORMAT_ARGB8888 &&
@@ -135,7 +137,10 @@ int gfx_software_selftest(void) {
     if (gfx_cpu_clear(&context, 0xFF102030u) != 0 ||
         storage[0] != 0x00102030u ||
         storage[1] != 0x00102030u ||
-        storage[2] != 0x00102030u)
+        storage[2] != 0x00102030u ||
+        storage[3] != 0xDEADBEEFu ||
+        storage[7] != 0xDEADBEEFu ||
+        storage[11] != 0xDEADBEEFu)
         return -1;
     return 0;
 }
