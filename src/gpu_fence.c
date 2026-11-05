@@ -176,10 +176,11 @@ int gpu_fence_selftest(void)
                              (uint32_t *)&signaled) == 0)
         return -1;
 
-    /* Invalid queries must preserve both caller outputs. */
+    /* Uninitialized descriptors and invalid queries must preserve outputs. */
     status = GPU_FENCE_STATUS_FAILED;
     error_code = 0xA5A5A5A5u;
-    if (gpu_fence_get_status(0, &status, &error_code) == 0 ||
+    if (gpu_fence_get_status(&untouched, &status, &error_code) == 0 ||
+        gpu_fence_get_status(0, &status, &error_code) == 0 ||
         status != GPU_FENCE_STATUS_FAILED ||
         error_code != 0xA5A5A5A5u)
         return -1;
