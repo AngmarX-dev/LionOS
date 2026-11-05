@@ -422,3 +422,31 @@ addresses; this adapter intentionally supports only a single page and does
 not assume multi-page virtual contiguity. It does not map GGTT, program PTEs,
 perform cache maintenance, submit GPU commands, or change the unverified
 GGTT ownership status.
+
+
+## One-shot CPU completion fence foundation (2026-11-05)
+
+Added `include/gpu_fence.h` and `src/gpu_fence.c` as a vendor-neutral,
+one-shot CPU-visible completion primitive. A fence is initialized with a
+nonzero caller-supplied sequence and moves from PENDING through an internal
+COMPLETING state to exactly one terminal state: SIGNALED or FAILED. An atomic
+compare/exchange elects the sole completing producer. The producer publishes
+the error code before a release-store of the terminal state; status readers
+use acquire-load semantics, so data published before completion is visible
+after a terminal status is observed.
+
+The status query is non-blocking. It reports the transient COMPLETING state as
+PENDING, writes outputs only after validating all arguments and alias ranges,
+and returns the failure code only for a FAILED fence. Duplicate completion,
+zero failure codes, invalid sequence values, stale/uninitialized descriptors,
+and aliased output descriptors are rejected. Fences have no reset operation:
+a new submission must receive a new fence/sequence, avoiding reuse-related
+ABA ambiguity. The self-test covers pending, successful completion, failure,
+duplicate completion rejection, invalid inputs, and output preservation.
+
+**Strict boundary:** this is a software lifecycle primitive only. It does not
+wait, sleep, schedule, own command buffers, release GPU memory, acknowledge an
+interrupt, poll a device register, or prove hardware completion. The caller
+must keep the fence alive and serialize its initialization/publication before
+producers and observers access it. No Intel submission registers, GGTT PTEs,
+or xHCI code paths are changed.
