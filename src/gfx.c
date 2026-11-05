@@ -173,6 +173,67 @@ int gfx_cpu_blit(gfx_context_t *context, const gfx_surface_t *source,
     return 0;
 }
 
+int gfx_cpu_blit_scaled(gfx_context_t *context, const gfx_surface_t *source,
+                        uint32_t source_x, uint32_t source_y,
+                        uint32_t source_width, uint32_t source_height,
+                        uint32_t destination_x, uint32_t destination_y,
+                        uint32_t destination_width, uint32_t destination_height) {
+    if (!gfx_cpu_context_valid(context) || gfx_surface_validate(source) != 0)
+        return -1;
+    if (source_x > source->width || source_y > source->height ||
+        source_width > source->width - source_x ||
+        source_height > source->height - source_y)
+        return -1;
+    if (source_width == 0u || source_height == 0u ||
+        destination_width == 0u || destination_height == 0u ||
+        destination_x >= context->target.width ||
+        destination_y >= context->target.height)
+        return 0;
+
+    /* Reject aliasing conservatively; scaling has no in-place semantics. */
+    const uintptr_t source_begin = (uintptr_t)source->pixels;
+    const uintptr_t destination_begin = (uintptr_t)context->target.pixels;
+    const uintptr_t source_bytes =
+        (uintptr_t)source->pitch_pixels * source->height * sizeof(uint32_t);
+    const uintptr_t destination_bytes =
+        (uintptr_t)context->target.pitch_pixels *
+        context->target.height * sizeof(uint32_t);
+    if (source_bytes > UINTPTR_MAX - source_begin ||
+        destination_bytes > UINTPTR_MAX - destination_begin)
+        return -1;
+    const uintptr_t source_end = source_begin + source_bytes;
+    const uintptr_t destination_end = destination_begin + destination_bytes;
+    if (source_begin < destination_end && destination_begin < source_end)
+        return -1;
+
+    uint32_t clipped_width = destination_width;
+    uint32_t clipped_height = destination_height;
+    if (clipped_width > context->target.width - destination_x)
+        clipped_width = context->target.width - destination_x;
+    if (clipped_height > context->target.height - destination_y)
+        clipped_height = context->target.height - destination_y;
+
+    for (uint32_t row = 0u; row < clipped_height; ++row) {
+        const uint32_t sample_y = (uint32_t)(
+            ((uint64_t)row * source_height) / destination_height);
+        const uint32_t *source_row = source->pixels +
+            (source_y + sample_y) * source->pitch_pixels + source_x;
+        uint32_t *destination_row = context->target.pixels +
+            (destination_y + row) * context->target.pitch_pixels +
+            destination_x;
+        for (uint32_t column = 0u; column < clipped_width; ++column) {
+            const uint32_t sample_x = (uint32_t)(
+                ((uint64_t)column * source_width) / destination_width);
+            uint32_t pixel = source_row[sample_x];
+            if (source->pixel_format == GFX_PIXEL_FORMAT_XRGB8888)
+                pixel |= 0xFF000000u;
+            destination_row[column] =
+                gfx_store_pixel(&context->target, pixel);
+        }
+    }
+    return 0;
+}
+
 int gfx_cpu_fill_rect(gfx_context_t *context, uint32_t x, uint32_t y,
                       uint32_t width, uint32_t height, uint32_t argb) {
     if (!gfx_cpu_context_valid(context))
@@ -444,6 +505,57 @@ int gfx_software_selftest(void) {
                      1u, 1u) != -1 ||
         storage[0] != overlap_guard)
         return -1;
+
+    /* Nearest-neighbor scaling, destination clipping, and row padding. */
+    {
+        uint32_t scale_source_pixels[4] = {
+            0xFF112233u, 0xFF445566u,
+            0xFF778899u, 0xFFAABBCCu
+        };
+        uint32_t scale_destination_pixels[4u * 5u];
+        for (uint32_t i = 0u; i < 20u; ++i)
+            scale_destination_pixels[i] = 0xDEADBEEFu;
+        gfx_surface_t scale_source = {
+            scale_source_pixels, 2u, 2u, 2u, GFX_PIXEL_FORMAT_ARGB8888
+        };
+        gfx_surface_t scale_destination = {
+            scale_destination_pixels, 4u, 4u, 5u,
+            GFX_PIXEL_FORMAT_ARGB8888
+        };
+        gfx_context_t scale_context = {
+            { 0, 0u, 0u, 0u, GFX_PIXEL_FORMAT_ARGB8888 },
+            GFX_BACKEND_NONE, 0u
+        };
+        if (gfx_context_init_cpu(&scale_context, &scale_destination) != 0 ||
+            gfx_cpu_blit_scaled(&scale_context, &scale_source,
+                                0u, 0u, 2u, 2u, 0u, 0u, 4u, 4u) != 0)
+            return -1;
+        if (scale_destination_pixels[0] != 0xFF112233u ||
+            scale_destination_pixels[1] != 0xFF112233u ||
+            scale_destination_pixels[2] != 0xFF445566u ||
+            scale_destination_pixels[3] != 0xFF445566u ||
+            scale_destination_pixels[5] != 0xFF112233u ||
+            scale_destination_pixels[7] != 0xFF445566u ||
+            scale_destination_pixels[10] != 0xFF778899u ||
+            scale_destination_pixels[12] != 0xFFAABBCCu ||
+            scale_destination_pixels[4] != 0xDEADBEEFu ||
+            scale_destination_pixels[9] != 0xDEADBEEFu ||
+            scale_destination_pixels[14] != 0xDEADBEEFu ||
+            scale_destination_pixels[19] != 0xDEADBEEFu)
+            return -1;
+        if (gfx_cpu_blit_scaled(&scale_context, &scale_source,
+                                0u, 0u, 2u, 2u, 3u, 3u, 2u, 2u) != 0 ||
+            scale_destination_pixels[18] != 0xFF112233u ||
+            scale_destination_pixels[17] != 0xDEADBEEFu)
+            return -1;
+        if (gfx_cpu_blit_scaled(&scale_context, &scale_source,
+                                1u, 1u, 2u, 1u, 0u, 0u, 2u, 2u) != -1)
+            return -1;
+        if (gfx_cpu_blit_scaled(&scale_context, &scale_source,
+                                0u, 0u, UINT32_MAX, 1u,
+                                0u, 0u, 2u, 2u) != -1)
+            return -1;
+    }
 
     surface.pitch_pixels = 2u;
     if (gfx_surface_validate(&surface) == 0)
