@@ -1028,7 +1028,7 @@ static void draw_system_monitor(void){
                 ring_color=COL_DIM;
             }else{
                 ring_status="NONZERO / NOT VERIFIED";
-                ring_color=COL_OK;
+                ring_color=COL_DIM;
             }
         }
         text_line("RING STATE",x+14u,y+512u,COL_DIM,COL_PANEL);
@@ -1068,10 +1068,10 @@ static void draw_system_monitor(void){
         text_line("RCS0 BCS0 VECS0 VCS0 VCS2 (CAPABILITY)",
                   x+190u,y+592u,COL_TEXT,COL_PANEL);
     }else if(platform_engines==0u){
-        text_line("UNKNOWN",x+190u,y+636u,COL_DIM,COL_PANEL);
+        text_line("UNKNOWN",x+190u,y+592u,COL_DIM,COL_PANEL);
     }else{
         text_line("PARTIAL / SEE PLATFORM TABLE",
-                  x+190u,y+636u,COL_DIM,COL_PANEL);
+                  x+190u,y+592u,COL_DIM,COL_PANEL);
     }
 
 }
