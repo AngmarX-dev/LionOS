@@ -20,13 +20,18 @@ typedef enum {
 } gpu_submission_state_t;
 
 typedef struct {
+    uint32_t magic;
     gpu_command_buffer_t *buffer;
     gpu_command_buffer_view_t view;
     gpu_fence_t fence;
     gpu_submission_state_t state;
 } gpu_submission_t;
 
-/* Begin a CPU consumer lifetime over an already sealed command buffer. */
+/*
+ * Begin a CPU consumer lifetime over an already sealed command buffer.
+ * The descriptor must be zero-initialized before its first use and must not
+ * be reinitialized while active or after completion.
+ */
 int gpu_submission_begin(gpu_submission_t *submission,
                          gpu_command_buffer_t *buffer,
                          uint32_t sequence);
