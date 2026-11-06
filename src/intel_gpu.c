@@ -78,7 +78,7 @@ static int intel_gpu_mmio_pat_uc_ready(void)
 int intel_gpu_mmio_pat_selftest(void)
 {
     const uint64_t reset_pat = 0x0007040600070406ULL;
-    const uint64_t altered_pat = reset_pat & ~(0xFFULL << 24);
+    const uint64_t altered_pat = (reset_pat & ~(0xFFULL << 24)) | (6ULL << 24);
 
     if (intel_gpu_pat_entry_type(reset_pat, MMIO_PAT_INDEX) != 0u ||
         intel_gpu_pat_entry_type(reset_pat, 0u) != 6u ||
