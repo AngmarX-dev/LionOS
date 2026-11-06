@@ -706,11 +706,11 @@ int intel_gpu_bar0_validation_selftest(void)
                                 &base, &base) == 0)
         goto fail;
 
-    debug_write("LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-OK\\n");
+    debug_write("LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-OK\n");
     return 0;
 
 fail:
-    debug_write("LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-FAIL\\n");
+    debug_write("LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-FAIL\n");
     return -1;
 }
 
