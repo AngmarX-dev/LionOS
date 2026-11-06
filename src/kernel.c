@@ -440,6 +440,11 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_write("[ERR] Graphics backend registry / CPU fallback self-test\n");
     }
 
+    if (intel_gpu_ggtt_ownership_report_selftest() == 0)
+        console_write("[ OK ] Intel GGTT ownership report contract self-test\n");
+    else
+        console_write("[ERR] Intel GGTT ownership report contract self-test\n");
+
     console_write("[ .. ] Initializing Intel graphics PCI/MMIO bootstrap...\n");
     int intel_gpu_init_rc = intel_gpu_init(framebuffer_available() ? 1u : 0u);
     if (intel_gpu_available()) {
