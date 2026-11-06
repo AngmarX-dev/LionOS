@@ -609,6 +609,111 @@ static int pci_restore_bar0_state(uint8_t bus, uint8_t slot, uint8_t func,
     return 0;
 }
 
+#define PCI_BAR0_ADDRESS_MASK 0xFFFFFFFFFFFFFFF0ULL
+
+/*
+ * Validate the result of a 64-bit memory BAR sizing probe without touching
+ * PCI configuration space. Outputs are committed only after every check.
+ */
+static int intel_gpu_validate_bar0(uint32_t original_lo,
+                                  uint32_t original_hi,
+                                  uint32_t mask_lo,
+                                  uint32_t mask_hi,
+                                  uint64_t *base_out,
+                                  uint64_t *size_out)
+{
+    uint64_t base;
+    uint64_t mask;
+    uint64_t size;
+
+    if (!base_out || !size_out || base_out == size_out)
+        return -1;
+    if ((original_lo & 1u) != 0u ||
+        ((original_lo >> 1) & 3u) != 2u)
+        return -1;
+
+    base = ((uint64_t)original_hi << 32) |
+           (uint64_t)(original_lo & 0xFFFFFFF0u);
+    if (!base || base > 0x000FFFFFFFFFFFFFULL)
+        return -1;
+
+    mask = ((uint64_t)mask_hi << 32) |
+           (uint64_t)(mask_lo & 0xFFFFFFF0u);
+    if (!mask || (mask & ~PCI_BAR0_ADDRESS_MASK) != 0u)
+        return -1;
+
+    size = (~mask) + 1u;
+    if (size < PAGE_SIZE || size > MMIO_MAX_SIZE ||
+        (size & (size - 1u)) != 0u)
+        return -1;
+    if (mask != ~(size - 1u))
+        return -1;
+    if ((base & (size - 1u)) != 0u ||
+        size - 1u > 0x000FFFFFFFFFFFFFULL - base)
+        return -1;
+
+    *base_out = base;
+    *size_out = size;
+    return 0;
+}
+
+int intel_gpu_bar0_validation_selftest(void)
+{
+    uint64_t base = 0xA5A5A5A5A5A5A5A5ULL;
+    uint64_t size = 0x5A5A5A5A5A5A5A5AULL;
+
+    if (intel_gpu_validate_bar0(0x62000004u, 0u,
+                                0xFF000004u, 0xFFFFFFFFu,
+                                &base, &size) != 0 ||
+        base != 0x62000000ULL || size != 0x01000000ULL)
+        goto fail;
+
+    if (intel_gpu_validate_bar0(0x70000004u, 0u,
+                                0xFFFFF004u, 0xFFFFFFFFu,
+                                &base, &size) != 0 ||
+        base != 0x70000000ULL || size != PAGE_SIZE)
+        goto fail;
+
+    base = 0xA5A5A5A5A5A5A5A5ULL;
+    size = 0x5A5A5A5A5A5A5A5AULL;
+    if (intel_gpu_validate_bar0(0x62000004u, 0u,
+                                0xFE100004u, 0xFFFFFFFFu,
+                                &base, &size) == 0 ||
+        base != 0xA5A5A5A5A5A5A5A5ULL ||
+        size != 0x5A5A5A5A5A5A5A5AULL)
+        goto fail;
+
+    if (intel_gpu_validate_bar0(0x60000004u, 0u,
+                                0xF8000004u, 0xFFFFFFFFu,
+                                &base, &size) == 0)
+        goto fail;
+
+    if (intel_gpu_validate_bar0(0x61000004u, 0u,
+                                0xFF000004u, 0xFFFFFFFFu,
+                                &base, &size) == 0)
+        goto fail;
+
+    if (intel_gpu_validate_bar0(0x62000005u, 0u,
+                                0xFF000005u, 0xFFFFFFFFu,
+                                &base, &size) == 0)
+        goto fail;
+
+    if (intel_gpu_validate_bar0(0x62000004u, 0u,
+                                0xFF000004u, 0xFFFFFFFFu,
+                                0, &size) == 0 ||
+        intel_gpu_validate_bar0(0x62000004u, 0u,
+                                0xFF000004u, 0xFFFFFFFFu,
+                                &base, &base) == 0)
+        goto fail;
+
+    debug_write("LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-OK\\n");
+    return 0;
+
+fail:
+    debug_write("LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-FAIL\\n");
+    return -1;
+}
+
 /*
  * Determine BAR0's true resource size. PCI decoding is temporarily disabled
  * only for this function and the original command/BAR values are restored
@@ -622,7 +727,7 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
     uint32_t type = (original_lo >> 1) & 3u;
     uint16_t command;
     uint32_t mask_lo, mask_hi = 0u;
-    uint64_t base, mask, size;
+    uint64_t base, size;
 
     if ((original_lo & 1u) || type != 2u)
         return -1; /* BAR0 must be a 64-bit memory BAR. */
@@ -655,25 +760,8 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
                                original_hi, command) != 0)
         return -1;
 
-    mask = ((uint64_t)mask_hi << 32) |
-           (uint64_t)(mask_lo & 0xFFFFFFF0u);
-    if (!mask)
-        return -1;
-
-    size = (~mask) + 1u;
-    if (size < PAGE_SIZE || size > MMIO_MAX_SIZE)
-        return -1;
-    if ((size & (size - 1u)) != 0u)
-        return -1;
-    if ((base & (size - 1u)) != 0u)
-        return -1;
-    if (base > 0x000FFFFFFFFFFFFFULL ||
-        size - 1u > 0x000FFFFFFFFFFFFFULL - base)
-        return -1;
-
-    *base_out = base;
-    *size_out = size;
-    return 0;
+    return intel_gpu_validate_bar0(original_lo, original_hi,
+                                    mask_lo, mask_hi, base_out, size_out);
 }
 
 static int map_gpu_mmio(uint64_t physical, uint64_t size)
