@@ -49,11 +49,19 @@ static uint8_t intel_gpu_pat_entry_type(uint64_t pat, uint32_t index)
     return (uint8_t)((pat >> (index * 8u)) & 0xFFu);
 }
 
+static uint32_t intel_gpu_pat_index_from_pte_flags(uint32_t flags)
+{
+    return ((flags >> 3) & 1u) |
+           (((flags >> 4) & 1u) << 1) |
+           (((flags >> 7) & 1u) << 2);
+}
+
 /* The selected PTE cache index must resolve to architectural UC, not UC-. */
 static int intel_gpu_mmio_pat_uc_ready(void)
 {
     uint32_t eax = 1u, ebx, ecx, edx;
     uint32_t low, high;
+    uint32_t pat_index = intel_gpu_pat_index_from_pte_flags(MMIO_PTE_FLAGS);
     uint64_t pat;
 
     if (cpu_current_index() != 0u)
@@ -72,7 +80,8 @@ static int intel_gpu_mmio_pat_uc_ready(void)
                      : "=a"(low), "=d"(high)
                      : "c"(IA32_PAT_MSR));
     pat = ((uint64_t)high << 32) | low;
-    return intel_gpu_pat_entry_type(pat, MMIO_PAT_INDEX) == 0u;
+    return pat_index == MMIO_PAT_INDEX &&
+           intel_gpu_pat_entry_type(pat, pat_index) == 0u;
 }
 
 int intel_gpu_mmio_pat_selftest(void)
@@ -80,7 +89,8 @@ int intel_gpu_mmio_pat_selftest(void)
     const uint64_t reset_pat = 0x0007040600070406ULL;
     const uint64_t altered_pat = (reset_pat & ~(0xFFULL << 24)) | (6ULL << 24);
 
-    if (intel_gpu_pat_entry_type(reset_pat, MMIO_PAT_INDEX) != 0u ||
+    if (intel_gpu_pat_index_from_pte_flags(MMIO_PTE_FLAGS) != MMIO_PAT_INDEX ||
+        intel_gpu_pat_entry_type(reset_pat, MMIO_PAT_INDEX) != 0u ||
         intel_gpu_pat_entry_type(reset_pat, 0u) != 6u ||
         intel_gpu_pat_entry_type(reset_pat, 2u) != 7u ||
         intel_gpu_pat_entry_type(altered_pat, MMIO_PAT_INDEX) != 6u ||
