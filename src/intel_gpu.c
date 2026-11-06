@@ -644,8 +644,6 @@ static int intel_gpu_validate_bar0(uint32_t original_lo,
     if (size < PAGE_SIZE || size > MMIO_MAX_SIZE ||
         (size & (size - 1u)) != 0u)
         return -1;
-    if (mask != ~(size - 1u))
-        return -1;
     if ((base & (size - 1u)) != 0u ||
         size - 1u > 0x000FFFFFFFFFFFFFULL - base)
         return -1;
@@ -693,6 +691,15 @@ int intel_gpu_bar0_validation_selftest(void)
 
     if (intel_gpu_validate_bar0(0x62000005u, 0u,
                                 0xFF000005u, 0xFFFFFFFFu,
+                                &base, &size) == 0)
+        goto fail;
+
+    if (intel_gpu_validate_bar0(0x62000004u, 0u,
+                                0u, 0u, &base, &size) == 0)
+        goto fail;
+
+    if (intel_gpu_validate_bar0(0x62000004u, 0x00100000u,
+                                0xFF000004u, 0xFFFFFFFFu,
                                 &base, &size) == 0)
         goto fail;
 
