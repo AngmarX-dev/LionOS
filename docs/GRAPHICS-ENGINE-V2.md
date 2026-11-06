@@ -532,3 +532,20 @@ accessing the view before calling complete/fail. The submission object and
 command-buffer descriptor must remain alive until status observation ends.
 All operations remain BSP-only with external serialization. GGTT ownership
 remains unverified and no xHCI code was modified.
+
+
+## GGTT ownership evidence report (read-only)
+
+The Intel backend exposes `intel_gpu_ggtt_get_ownership_report()` as a structured diagnostic. It reports aperture availability, entry count, firmware-framebuffer continuity, an evidence mask, unresolved blocker mask, ownership status, and mapping permission.
+
+The current boot contract supplies no authoritative GGTT hand-off token or reserved-entry map. Therefore the evidence mask remains zero, ownership remains unverified, and mapping permission remains denied. The report explicitly lists these blockers:
+
+- Firmware-to-OS GGTT ownership hand-off is not established.
+- Firmware/display GGTT reservations are not enumerated.
+- The complete Alder Lake GGTT PTE contract is not proven by the available platform documentation.
+- CPU/GPU cacheability and coherency rules are not fully established.
+- GGTT invalidation and completion semantics are not validated for LionOS.
+
+A missing, malformed, or unavailable aperture adds a separate blocker. The software self-test validates blocker-bit separation and confirms that the aperture blocker is distinct from the platform ownership blockers. This is a diagnostic contract test, not hardware ownership proof.
+
+**No hardware behavior changes:** this stage adds no GGTT writes, no entry reservation, no TLB invalidation, no engine programming, and no command submission. CPU rendering remains the active backend. The xHCI subsystem is untouched.
