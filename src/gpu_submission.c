@@ -31,14 +31,16 @@ int gpu_submission_begin(gpu_submission_t *submission,
                          uint32_t sequence)
 {
     gpu_submission_t initialized = {0};
+    gpu_command_buffer_view_t probe = {0};
 
     if (!submission || !buffer || !sequence ||
+        gpu_command_buffer_get_view(buffer, &probe) != 0 ||
         gpu_submission_ranges_overlap((uintptr_t)submission,
                                       sizeof(*submission),
                                       (uintptr_t)buffer, sizeof(*buffer)) ||
         gpu_submission_ranges_overlap((uintptr_t)submission,
                                       sizeof(*submission),
-                                      (uintptr_t)buffer->storage,
+                                      (uintptr_t)probe.words,
                                       (uintptr_t)buffer->capacity_dwords *
                                           sizeof(uint32_t)))
         return -1;
@@ -62,7 +64,11 @@ int gpu_submission_get_view(const gpu_submission_t *submission,
                                       sizeof(*submission)) ||
         gpu_submission_ranges_overlap((uintptr_t)out_view, sizeof(*out_view),
                                       (uintptr_t)submission->buffer,
-                                      sizeof(*submission->buffer)))
+                                      sizeof(*submission->buffer)) ||
+        gpu_submission_ranges_overlap((uintptr_t)out_view, sizeof(*out_view),
+                                      (uintptr_t)submission->view.words,
+                                      (uintptr_t)submission->buffer->capacity_dwords *
+                                          sizeof(uint32_t)))
         return -1;
 
     *out_view = submission->view;
@@ -110,10 +116,18 @@ int gpu_submission_get_status(const gpu_submission_t *submission,
                               gpu_fence_status_t *out_status,
                               uint32_t *out_error_code)
 {
-    if (!submission ||
+    if (!submission || !out_status || !out_error_code ||
         (submission->state != GPU_SUBMISSION_ACTIVE &&
          submission->state != GPU_SUBMISSION_COMPLETED &&
-         submission->state != GPU_SUBMISSION_BROKEN))
+         submission->state != GPU_SUBMISSION_BROKEN) ||
+        gpu_submission_ranges_overlap((uintptr_t)out_status,
+                                      sizeof(*out_status),
+                                      (uintptr_t)submission,
+                                      sizeof(*submission)) ||
+        gpu_submission_ranges_overlap((uintptr_t)out_error_code,
+                                      sizeof(*out_error_code),
+                                      (uintptr_t)submission,
+                                      sizeof(*submission)))
         return -1;
 
     return gpu_fence_get_status(&submission->fence,
