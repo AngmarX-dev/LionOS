@@ -3,6 +3,53 @@
 
 #include <stdint.h>
 
+/* Engine presence advertised by the upstream PCI platform table.
+ * These bits describe platform capability, not initialized/operational engines.
+ */
+#define INTEL_GPU_ENGINE_RCS0  (1u << 0)
+#define INTEL_GPU_ENGINE_BCS0  (1u << 1)
+#define INTEL_GPU_ENGINE_VECS0 (1u << 2)
+#define INTEL_GPU_ENGINE_VCS0  (1u << 3)
+#define INTEL_GPU_ENGINE_VCS2  (1u << 4)
+
+typedef struct {
+    uint32_t head;
+    uint32_t tail;
+    uint32_t start;
+    uint32_t control;
+} intel_gpu_ring_snapshot_t;
+
+typedef struct {
+    uint32_t valid;
+    uint32_t graphics_gmd_id;
+    uint32_t graphics_gmd_id_valid;
+    intel_gpu_ring_snapshot_t render;
+    intel_gpu_ring_snapshot_t blitter;
+} intel_gpu_engine_snapshot_t;
+
+typedef enum {
+    INTEL_GT_DIAG_NOT_RUN = 0,
+    INTEL_GT_DIAG_READY,
+    INTEL_GT_DIAG_GT_FW_MMIO,
+    INTEL_GT_DIAG_GT_FW_ACK,
+    INTEL_GT_DIAG_GT_ID,
+    INTEL_GT_DIAG_RENDER_FW_MMIO,
+    INTEL_GT_DIAG_RENDER_FW_ACK,
+    INTEL_GT_DIAG_RCS_READ,
+    INTEL_GT_DIAG_BCS_READ,
+    INTEL_GT_DIAG_RELEASE
+} intel_gt_diag_code_t;
+
+typedef struct {
+    uint32_t code;
+    uint32_t gt_ack_initial;
+    uint32_t gt_ack_final;
+    uint32_t render_ack_initial;
+    uint32_t render_ack_final;
+    uint32_t gt_fallback_used;
+    uint32_t render_fallback_used;
+} intel_gt_diag_t;
+
 typedef struct {
     uint32_t found;
     uint16_t vendor_id;
@@ -12,14 +59,114 @@ typedef struct {
     uint8_t slot;
     uint8_t function;
     uint64_t bar0;
+    uint64_t bar0_size;
+    uint32_t mmio_virtual;
+    uint32_t mmio_mapped;
     uint32_t supported_platform;
     uint32_t firmware_framebuffer;
+    uint32_t host_bridge_found;
+    uint32_t host_ggc;
+    uint32_t host_bdsm;
+    uint32_t host_bgsm;
+    uint32_t host_tolud;
+    uint32_t ggtt_offset;
+    uint32_t ggtt_size;
+    uint32_t ggtt_ready;
 } intel_gpu_info_t;
 
-/* Probe the PCI graphics function without replacing the firmware display. */
+/* PCI discovery and conservative, read-only MMIO aperture setup. */
 int intel_gpu_init(uint32_t firmware_framebuffer_active);
 int intel_gpu_available(void);
+const char *intel_gpu_platform_name(void);
+const char *intel_gpu_gmd_id_status(void);
+uint32_t intel_gpu_platform_engine_mask(void);
+/* Upstream i915 default submission policy; not a runtime mode detector. */
+const char *intel_gpu_submission_policy(void);
 int intel_gpu_is_alder_lake(void);
+int intel_gpu_mmio_ready(void);
 int intel_gpu_get_info(intel_gpu_info_t *out);
+
+/* Read-only MMIO accessor. Returns -1 for an unmapped/out-of-range access. */
+int intel_gpu_mmio_read32(uint32_t offset, uint32_t *value);
+/* Read one existing Gen8+ GGTT PTE without modifying the table. */
+int intel_gpu_ggtt_read_entry(uint32_t index, uint64_t *value);
+/* Read-only Alder Lake GT identity and ring-register snapshot. */
+int intel_gpu_get_engine_snapshot(intel_gpu_engine_snapshot_t *out);
+int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out);
+
+/* Read-only ownership evidence report; never grants GGTT mapping permission. */
+#define INTEL_GGTT_BLOCKER_FIRMWARE_HANDOFF       (1u << 0)
+#define INTEL_GGTT_BLOCKER_DISPLAY_RESERVATIONS   (1u << 1)
+#define INTEL_GGTT_BLOCKER_PTE_CONTRACT           (1u << 2)
+#define INTEL_GGTT_BLOCKER_CPU_GPU_COHERENCY      (1u << 3)
+#define INTEL_GGTT_BLOCKER_INVALIDATION           (1u << 4)
+#define INTEL_GGTT_BLOCKER_APERTURE_UNAVAILABLE   (1u << 5)
+
+typedef struct {
+    uint32_t aperture_ready;
+    uint32_t entry_count;
+    uint32_t firmware_framebuffer_active;
+    uint32_t evidence_mask;
+    uint32_t blocker_mask;
+    uint32_t ownership_verified;
+    uint32_t mapping_permitted;
+} intel_gpu_ggtt_ownership_report_t;
+
+int intel_gpu_ggtt_get_ownership_report(
+    intel_gpu_ggtt_ownership_report_t *out);
+int intel_gpu_ggtt_ownership_report_selftest(void);
+/* Pure PCI BAR0 size/base validation; no config-space or MMIO access. */
+int intel_gpu_bar0_validation_selftest(void);
+/* Verifies the PTE cache-index decoding used for Intel MMIO. */
+int intel_gpu_mmio_pat_selftest(void);
+
+/*
+ * GPU backing-memory manager, first bring-up stage.
+ * GGTT entries are scanned read-only. Zero-valued entries are observations,
+ * not proof of ownership, so no GGTT slots are reserved and no PTE is modified.
+ * Buffers remain CPU-accessible system RAM only. All operations are BSP-only
+ * and must be externally serialized.
+ */
+#define INTEL_GPU_MEMORY_MAX_PAGES 256u
+
+typedef struct {
+    uint32_t handle;
+    uint32_t page_count;
+    /* Always UINT32_MAX until GGTT ownership is explicitly established. */
+    uint32_t ggtt_first_entry;
+    uint32_t bytes;
+    uint32_t ggtt_mapping_active; /* Always zero until hardware PTE programming is validated. */
+} intel_gpu_memory_block_t;
+
+typedef struct {
+    uint32_t ggtt_total_entries;
+    uint32_t ggtt_empty_candidates;
+    uint32_t ggtt_valid_entries;
+    uint32_t ggtt_nonzero_invalid_entries;
+    uint32_t active_allocations;
+    uint32_t allocated_pages;
+    uint32_t initialized;
+    uint32_t ggtt_ownership_verified; /* Always zero until platform hand-off is proven. */
+} intel_gpu_memory_stats_t;
+
+/* Pure Gen8+ system-memory GGTT PTE encoder validation; no MMIO writes. */
+int intel_gpu_ggtt_pte_selftest(void);
+int intel_gpu_memory_init(void);
+int intel_gpu_memory_alloc(uint32_t page_count, intel_gpu_memory_block_t *out);
+int intel_gpu_memory_free(uint32_t handle);
+/* BSP-only lifetime pins prevent free while a CPU consumer holds a block. */
+int intel_gpu_memory_pin(uint32_t handle);
+int intel_gpu_memory_unpin(uint32_t handle);
+int intel_gpu_memory_get_page(uint32_t handle, uint32_t page_index,
+                              uint64_t *physical_address,
+                              uint32_t *cpu_virtual_address);
+/* Reserved until a documented GGTT ownership contract is implemented.
+ * Currently always fails without modifying caller outputs. */
+int intel_gpu_memory_get_mapping_candidate(uint32_t handle,
+                                           uint32_t page_index,
+                                           uint32_t *ggtt_index,
+                                           uint64_t *pte_value);
+int intel_gpu_memory_get_stats(intel_gpu_memory_stats_t *out);
+int intel_gpu_memory_selftest(void);
 
 #endif

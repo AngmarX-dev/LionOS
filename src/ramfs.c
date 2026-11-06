@@ -2,7 +2,7 @@
 #include "ramfs.h"
 #define RAMFS_MAX_FILES 32u
 #define RAMFS_NAME_MAX 64u
-#define RAMFS_DATA_MAX 256u
+#define RAMFS_DATA_MAX 4096u
 struct ramfs_file { char name[RAMFS_NAME_MAX]; char data[RAMFS_DATA_MAX]; uint32_t size; };
 static struct ramfs_file files[RAMFS_MAX_FILES]; static uint32_t count;
 extern const uint8_t _binary_hello_elf_start[],_binary_hello_elf_end[];

@@ -1,0 +1,75 @@
+#ifndef LIONOS_GPU_COMMAND_BUFFER_H
+#define LIONOS_GPU_COMMAND_BUFFER_H
+
+#include <stdint.h>
+#include "gpu_memory.h"
+
+/*
+ * CPU-side command-stream storage only.
+ *
+ * The buffer owns no memory: storage is caller-provided, 32-bit aligned, and
+ * remains valid for the buffer lifetime. This module does not define vendor
+ * opcodes, map storage into a GPU address space, or submit commands.
+ */
+typedef enum {
+    GPU_COMMAND_BUFFER_UNINITIALIZED = 0,
+    GPU_COMMAND_BUFFER_OPEN = 1,
+    GPU_COMMAND_BUFFER_SEALED = 2
+} gpu_command_buffer_state_t;
+
+typedef struct {
+    uint32_t *storage;
+    uint32_t capacity_dwords;
+    uint32_t used_dwords;
+    uint32_t generation;
+    gpu_command_buffer_state_t state;
+    uint32_t active_lease_mask;
+    uint32_t next_lease_token;
+    uint32_t lease_tokens[32];
+    gpu_memory_block_t backing_block;
+    uint32_t backing_pinned;
+} gpu_command_buffer_t;
+
+/* Read-only CPU view, available only after the command buffer is sealed. */
+typedef struct {
+    const uint32_t *words;
+    uint32_t word_count;
+    uint32_t generation;
+    uint32_t lease_token;
+} gpu_command_buffer_view_t;
+
+/* Initialize an empty buffer over caller-owned storage. */
+int gpu_command_buffer_init(gpu_command_buffer_t *buffer,
+                            uint32_t *storage,
+                            uint32_t capacity_dwords);
+
+/* Append opaque dwords; no interpretation or hardware submission occurs. */
+int gpu_command_buffer_append_u32(gpu_command_buffer_t *buffer,
+                                  uint32_t value);
+int gpu_command_buffer_append_words(gpu_command_buffer_t *buffer,
+                                    const uint32_t *words,
+                                    uint32_t word_count);
+
+/* Sealing prevents further appends until reset. */
+int gpu_command_buffer_seal(gpu_command_buffer_t *buffer);
+int gpu_command_buffer_reset(gpu_command_buffer_t *buffer);
+int gpu_command_buffer_get_view(const gpu_command_buffer_t *buffer,
+                                  gpu_command_buffer_view_t *out_view);
+int gpu_command_buffer_acquire_view(gpu_command_buffer_t *buffer,
+                                    gpu_command_buffer_view_t *out_view);
+int gpu_command_buffer_release_view(gpu_command_buffer_t *buffer,
+                                    const gpu_command_buffer_view_t *view);
+int gpu_command_buffer_destroy(gpu_command_buffer_t *buffer);
+/* Reject stale or mismatched views before a consumer reads them. */
+int gpu_command_buffer_view_validate(const gpu_command_buffer_t *buffer,
+                                     const gpu_command_buffer_view_t *view);
+/* Bind and pin one CPU-mapped backing page until destroy. */
+int gpu_command_buffer_init_from_memory(gpu_command_buffer_t *buffer,
+                                        const gpu_memory_block_t *backing);
+
+/* Deterministic RAM-only bounds/state/aliasing test. */
+int gpu_command_buffer_selftest(void);
+/* Exercise a one-page CPU mapping through the generic memory provider. */
+int gpu_command_buffer_memory_selftest(gfx_backend_t backend);
+
+#endif

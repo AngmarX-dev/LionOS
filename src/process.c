@@ -23,7 +23,7 @@ static struct scheduler_cpu_state scheduler_cpu[LIONOS_MAX_CPUS];
 static uint32_t next_pid;
 static uint32_t next_tid;
 static struct spinlock process_lock;
-static volatile uint32_t reschedule_requested;
+static volatile uint32_t reschedule_requested[LIONOS_MAX_CPUS];
 static uint32_t fpu_enabled;
 static uint8_t fpu_initial_state[512] __attribute__((aligned(16)));
 
@@ -42,7 +42,7 @@ static int write_user_u32(const struct process *p,uint32_t ptr,uint32_t value) {
 static void clear_process(struct process *p) { p->pid=0;p->state=PROCESS_UNUSED;p->parent_pid=0;p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_channel=0; p->reap_pending=0;p->deferred_kernel_stack=0;p->page_directory=0;p->entry=0;p->user_stack=0; p->kernel_stack_top=0;p->saved_frame=0;p->user_code_page=0;p->user_stack_page=0;p->user_page_count=0;p->pending_signals=0;p->cpu_owner=0;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=0;p->ticks_used=0;p->fpu_valid=0;p->tid=0;p->thread_group_pid=0;p->is_thread=0;p->owns_address_space=0;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0; for(uint32_t i=0;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} }
 static void init_interrupt_frame(struct process *p) { uint32_t *f=(uint32_t *)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=USER_DATA_SEL;f[1]=USER_DATA_SEL;f[2]=USER_DATA_SEL;f[3]=USER_DATA_SEL; f[14]=p->entry;f[15]=USER_CODE_SEL;f[16]=0x202u;f[17]=p->user_stack;f[18]=USER_DATA_SEL; p->saved_frame=(uint32_t)(uintptr_t)f; }
 static void init_bootstrap_frame(void) { struct process *b=&processes[0]; void *s=page_alloc(); if(!s){b->kernel_stack_top=0;b->saved_frame=0;return;} b->kernel_stack_top=(uint32_t)(uintptr_t)s+4096u;b->page_directory=paging_kernel_directory(); b->entry=(uint32_t)(uintptr_t)&process_schedule;b->user_stack=b->kernel_stack_top; uint32_t *f=(uint32_t *)(uintptr_t)(b->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=0x10u;f[1]=0x10u;f[2]=0x10u;f[3]=0x10u;f[14]=(uint32_t)(uintptr_t)&lionos_kernel_idle; f[15]=0x08u;f[16]=0x202u;f[17]=b->kernel_stack_top;f[18]=0x10u; b->saved_frame=(uint32_t)(uintptr_t)f; }
-void process_init(void) { fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u; if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");} spinlock_init(&process_lock); uint32_t flags=spinlock_irqsave_acquire(&process_lock); for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) clear_process(&processes[i]); for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i){current_by_cpu[i]=0;scheduler_cpu[i].cursor=0;scheduler_cpu[i].schedule_count=0;scheduler_cpu[i].steal_count=0;} next_pid=2;next_tid=1;processes[0].pid=1;processes[0].state=PROCESS_RUNNING;init_bootstrap_frame(); set_current_local(&processes[0]); spinlock_irqrestore_release(&process_lock,flags); }
+void process_init(void) { fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u; if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");} spinlock_init(&process_lock); uint32_t flags=spinlock_irqsave_acquire(&process_lock); for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) clear_process(&processes[i]); for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i){current_by_cpu[i]=0;scheduler_cpu[i].cursor=0;scheduler_cpu[i].schedule_count=0;scheduler_cpu[i].steal_count=0;reschedule_requested[i]=0u;} next_pid=2;next_tid=1;processes[0].pid=1;processes[0].state=PROCESS_RUNNING;init_bootstrap_frame(); set_current_local(&processes[0]); spinlock_irqrestore_release(&process_lock,flags); }
 struct process *process_current(void){return current_local();}
 uint32_t process_current_tid(void){struct process*p=current_local();return p?p->tid:0u;}
 struct process *process_at(uint32_t i){return i<LIONOS_PROCESS_MAX?&processes[i]:0;}
@@ -84,8 +84,16 @@ uint32_t process_fork_current(uint32_t *parent_frame){
         ++cowed;
     }
 
+    /* fork() duplicates the caller's architectural FPU/SSE state. FXSAVE is
+       non-destructive, so the parent continues with identical live registers. */
+    fpu_save(parent);
     slot=process_create_ex_vas_locked(parent->entry,parent->user_stack,pd,pages,vas,count);
     if(!slot)goto restore;
+    if(fpu_enabled&&parent->fpu_valid){
+        for(uint32_t i=0u;i<sizeof(parent->fpu_state);++i)
+            slot->fpu_state[i]=parent->fpu_state[i];
+        slot->fpu_valid=1u;
+    }
     slot->parent_pid=parent->pid;
     slot->tid=next_tid++;if(next_tid==0)next_tid=1;slot->thread_group_pid=parent->thread_group_pid;slot->is_thread=0;slot->owns_address_space=1;
     slot->cpu_owner=cpu_current_index();
@@ -232,7 +240,11 @@ int32_t process_join_thread(uint32_t tid,uint32_t status_ptr){
     spinlock_irqrestore_release(&process_lock,flags);return -1;
 }
 
-void process_request_reschedule(void){__atomic_store_n(&reschedule_requested,1u,__ATOMIC_RELEASE);}
+void process_request_reschedule(void){
+    uint32_t cpu=cpu_current_index();
+    if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
+    __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+}
 
 int process_set_priority(struct process*p,uint32_t priority){
     if(!p||priority>=PROCESS_PRIORITY_LEVELS)return -1;
@@ -260,7 +272,7 @@ uint32_t *process_schedule(uint32_t *frame){
     if(prev)prev->saved_frame=(uint32_t)(uintptr_t)frame;
 
     if(prev && prev->state==PROCESS_RUNNING){
-        if(__atomic_exchange_n(&reschedule_requested,0u,__ATOMIC_ACQ_REL)==0u){
+        if(__atomic_exchange_n(&reschedule_requested[cpu],0u,__ATOMIC_ACQ_REL)==0u){
             ++prev->ticks_used;
             if(prev->ticks_used < prev->time_slice){
                 spinlock_irqrestore_release(&process_lock,flags);
@@ -294,7 +306,10 @@ uint32_t *process_schedule(uint32_t *frame){
      * and migration-safe run-queue handling are implemented.
      */
     if(next){
-        if(prev&&prev->state==PROCESS_RUNNING){prev->state=PROCESS_READY;fpu_save(prev);}
+        /* Preserve the outgoing CPU's FPU/SSE state on every real switch,
+           including tasks that blocked, stopped, or exited before scheduling. */
+        if(prev)fpu_save(prev);
+        if(prev&&prev->state==PROCESS_RUNNING)prev->state=PROCESS_READY;
         fpu_restore(next);
         set_current_local(next);
         next->cpu_owner=cpu;
@@ -309,6 +324,7 @@ uint32_t *process_schedule(uint32_t *frame){
     }
     if(prev&&(prev->state==PROCESS_ZOMBIE||prev->state==PROCESS_STOPPED||prev->state==PROCESS_WAITING)){
         if(cpu==0){
+            fpu_save(prev);
             struct process*b=&processes[0];
             set_current_local(b);
             b->cpu_owner=0;

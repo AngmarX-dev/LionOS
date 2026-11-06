@@ -84,7 +84,7 @@ static int append_log_file_locked(const char *line, uint32_t length) {
     if (!line || !length || ensure_log_file(&st) != 0) return -1;
 
     uint32_t limit = st.backend == VFS_BACKEND_DISKFS
-        ? DISKFS_MAX_FILE_SIZE : 256u;
+        ? DISKFS_MAX_FILE_SIZE : 4096u;
     if (length > limit) return -1;
 
     if (st.size + length > limit) {
@@ -115,7 +115,7 @@ static int append_log_file_locked(const char *line, uint32_t length) {
 
         if (vfs_stat_path(KLOG_FILE_PATH, &st) != 0) return -1;
         limit = st.backend == VFS_BACKEND_DISKFS
-            ? DISKFS_MAX_FILE_SIZE : 256u;
+            ? DISKFS_MAX_FILE_SIZE : 4096u;
         if (st.size + length > limit) return -1;
     }
 
@@ -157,7 +157,11 @@ int kernel_log_persistence_init(void) {
             if (n > 0) {
                 previous_session_complete = contains_bytes(
                     persistence_io_buffer, (uint32_t)n,
-                    "LionOS boot completed; starting desktop");
+                    "LionOS boot completed; starting desktop") ||
+                    (contains_bytes(persistence_io_buffer, (uint32_t)n,
+                                    "CPU / INTEL GRAPHICS HARDWARE REPORT") &&
+                     contains_bytes(persistence_io_buffer, (uint32_t)n,
+                                    "GRAPHICAL DESKTOP READY"));
             }
         }
     }

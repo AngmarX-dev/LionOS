@@ -80,7 +80,9 @@ run_gui_smoke() {
         >/dev/null 2>&1 &
     GUI_QEMU_PID=$!
 
-    for _ in $(seq 1 100); do
+    # The kernel deliberately holds the hardware report for ten seconds
+    # before entering the desktop. Allow that pause plus slow CI startup.
+    for _ in $(seq 1 250); do
         if [ -f "$log_file" ] && grep -q 'LIONOS:GUI-READY' "$log_file"; then
             break
         fi
@@ -90,6 +92,16 @@ run_gui_smoke() {
     grep -q 'LIONOS:READY' "$log_file"
     grep -q 'LIONOS:GUI-ENTER' "$log_file"
     grep -q 'LIONOS:GUI-READY' "$log_file"
+    grep -q 'LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK' "$log_file"
+    grep -q 'LIONOS:GFX-CPU-SELFTEST-OK' "$log_file"
+    grep -q 'LIONOS:GPU-COMMAND-BUFFER-SELFTEST-OK' "$log_file"
+    grep -q 'LIONOS:GPU-FENCE-SELFTEST-OK' "$log_file"
+    grep -q 'LIONOS:GPU-SUBMISSION-SELFTEST-OK' "$log_file"
+    grep -q 'LIONOS:INTEL-GGTT-OWNERSHIP-REPORT-SELFTEST-OK' "$log_file"
+    # The generic CPU surface can bind only when the firmware exposes
+    # the compositor backbuffer as XRGB8888. Other framebuffer formats use
+    # the existing packed-pixel compositor path and must not fail GUI smoke.
+    grep -Eq 'LIONOS:GFX-DESKTOP-XRGB8888-(READY|UNAVAILABLE)' "$log_file"
 
     python3 - "$GUI_MONITOR_SOCKET" <<'PY'
 import socket
@@ -136,14 +148,14 @@ PY
 }
 
 echo "== LionOS stability + VFS integration + Phase 26 GUI smoke test =="
-echo "[1/5] Building kernel, userspace, ISO, and persistent disk"
+echo "[1/6] Building kernel, userspace, ISO, and persistent disk"
 make clean
 make
 make userland
 make iso
 make disk
 
-echo "[2/5] Validating every userspace ELF"
+echo "[2/6] Validating every userspace ELF"
 for elf in build/*.elf; do
     test -s "$elf"
     test "$(stat -c%s "$elf")" -le 16384
@@ -152,12 +164,16 @@ for elf in build/*.elf; do
     readelf -l "$elf" | grep -q 'LOAD'
 done
 
-echo "[3/5] First SMP boot / filesystem initialization"
+echo "[3/6] First SMP boot / filesystem initialization"
 echo "SMP AP entry symbol:"
 nm -n build/lionos.bin | grep -E " smp_ap_main$| page_root$|kernel_pd|identity_pt| _kernel_end$" || true
 objdump -d --disassemble=smp_ap_main build/lionos.bin | head -n 24
 run_qemu build/qemu-first.log
 grep -q 'LIONOS:READY' build/qemu-first.log
+grep -q 'LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-OK' build/qemu-first.log
+grep -q 'LIONOS:INTEL-MMIO-PAT-SELFTEST-OK' build/qemu-first.log
+grep -q 'LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK' build/qemu-first.log
+grep -Eq 'LIONOS:GUI-FRAME-TIMER-120HZ|LIONOS:GUI-FRAME-TIMER-PIT-FALLBACK' build/qemu-first.log
 grep -q 'LIONOS:PERSIST-LOG-READY' build/qemu-first.log
 grep -q 'LIONOS:PERSIST-LOG-DISK-READY' build/qemu-first.log
 if grep -q 'LIONOS:PERSIST-LOG-WRITE-FAILED' build/qemu-first.log; then
@@ -171,7 +187,13 @@ grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-first.log
 
-echo "[4/5] Second SMP boot / persistence verification"
+echo "[4/6] High-memory allocator + cross-CPU TLB shootdown"
+QEMU_MEMORY=512M run_qemu build/qemu-highmem.log
+grep -q 'LIONOS:HIGH-MEMORY-TEST-OK' build/qemu-highmem.log
+grep -q 'LIONOS:TLB-SHOOTDOWN-ACKED' build/qemu-highmem.log
+grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-highmem.log
+
+echo "[5/6] Second SMP boot / persistence verification"
 run_qemu build/qemu-second.log
 grep -q 'LIONOS:READY' build/qemu-second.log
 grep -q 'LIONOS:PERSIST-OK' build/qemu-second.log
@@ -186,6 +208,6 @@ grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-second.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
-echo "[5/5] Graphical desktop / keyboard escape smoke test"
+echo "[6/6] Graphical desktop / keyboard escape smoke test"
 run_gui_smoke build/qemu-gui.log
 echo "LionOS stability + VFS integration + Phase 26 GUI test: PASS"
