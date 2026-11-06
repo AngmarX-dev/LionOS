@@ -170,6 +170,7 @@ nm -n build/lionos.bin | grep -E " smp_ap_main$| page_root$|kernel_pd|identity_p
 objdump -d --disassemble=smp_ap_main build/lionos.bin | head -n 24
 run_qemu build/qemu-first.log
 grep -q 'LIONOS:READY' build/qemu-first.log
+grep -q 'LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-OK' build/qemu-first.log
 grep -q 'LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK' build/qemu-first.log
 grep -Eq 'LIONOS:GUI-FRAME-TIMER-120HZ|LIONOS:GUI-FRAME-TIMER-PIT-FALLBACK' build/qemu-first.log
 grep -q 'LIONOS:PERSIST-LOG-READY' build/qemu-first.log
