@@ -594,15 +594,38 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
     pci_write_command(bus, slot, func,
                       (uint16_t)(command & (uint16_t)~PCI_COMMAND_MEMORY));
 
+    /* Do not probe BAR sizing unless memory decoding is observably disabled. */
+    if ((pci_read_command(bus, slot, func) & PCI_COMMAND_MEMORY) != 0u) {
+        pci_write_command(bus, slot, func, command);
+        return -1;
+    }
+
     pci_write32(bus, slot, func, PCI_BAR0, 0xFFFFFFFFu);
     pci_write32(bus, slot, func, PCI_BAR0 + 4u, 0xFFFFFFFFu);
     mask_lo = pci_read32(bus, slot, func, PCI_BAR0);
     mask_hi = pci_read32(bus, slot, func, PCI_BAR0 + 4u);
 
-    /* Restore the BAR pair before restoring PCI command decoding. */
+    /*
+     * Restore the BAR pair before restoring PCI command decoding. Verify
+     * every restored value; a failed config-space write must not be treated
+     * as a valid BAR measurement.
+     */
     pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
     pci_write32(bus, slot, func, PCI_BAR0, original_lo);
     pci_write_command(bus, slot, func, command);
+
+    if (pci_read32(bus, slot, func, PCI_BAR0) != original_lo ||
+        pci_read32(bus, slot, func, PCI_BAR0 + 4u) != original_hi ||
+        pci_read_command(bus, slot, func) != command) {
+        /* One bounded restoration retry, still with no BAR decode probing. */
+        pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
+        pci_write32(bus, slot, func, PCI_BAR0, original_lo);
+        pci_write_command(bus, slot, func, command);
+        if (pci_read32(bus, slot, func, PCI_BAR0) != original_lo ||
+            pci_read32(bus, slot, func, PCI_BAR0 + 4u) != original_hi ||
+            pci_read_command(bus, slot, func) != command)
+            return -1;
+    }
 
     mask = ((uint64_t)mask_hi << 32) |
            (uint64_t)(mask_lo & 0xFFFFFFF0u);
