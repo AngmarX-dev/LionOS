@@ -568,6 +568,21 @@ static int intel_known_display_id(uint16_t id)
 }
 
 /*
+ * Restore and verify PCI_COMMAND without touching BARs. This is used when
+ * memory decoding could not be confirmed disabled, so BAR writes are unsafe.
+ */
+static int pci_restore_command(uint8_t bus, uint8_t slot, uint8_t func,
+                               uint16_t original_command)
+{
+    for (uint32_t attempt = 0u; attempt < 2u; ++attempt) {
+        pci_write_command(bus, slot, func, original_command);
+        if (pci_read_command(bus, slot, func) == original_command)
+            return 0;
+    }
+    return -1;
+}
+
+/*
  * Restore and verify the PCI BAR pair and command register. A bounded retry
  * handles a transient config-space write/readback failure without accepting
  * an uncertain resource configuration.
@@ -579,11 +594,11 @@ static int pci_restore_bar0_state(uint8_t bus, uint8_t slot, uint8_t func,
     for (uint32_t attempt = 0u; attempt < 2u; ++attempt) {
         pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
         pci_write32(bus, slot, func, PCI_BAR0, original_lo);
-        pci_write_command(bus, slot, func, original_command);
+        if (pci_restore_command(bus, slot, func, original_command) != 0)
+            continue;
 
         if (pci_read32(bus, slot, func, PCI_BAR0) == original_lo &&
-            pci_read32(bus, slot, func, PCI_BAR0 + 4u) == original_hi &&
-            pci_read_command(bus, slot, func) == original_command)
+            pci_read32(bus, slot, func, PCI_BAR0 + 4u) == original_hi)
             return 0;
     }
     return -1;
@@ -618,8 +633,7 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
 
     /* Do not probe BAR sizing unless memory decoding is observably disabled. */
     if ((pci_read_command(bus, slot, func) & PCI_COMMAND_MEMORY) != 0u) {
-        (void)pci_restore_bar0_state(bus, slot, func, original_lo,
-                                    original_hi, command);
+        (void)pci_restore_command(bus, slot, func, command);
         return -1;
     }
 
