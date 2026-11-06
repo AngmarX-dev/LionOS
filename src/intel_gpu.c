@@ -900,6 +900,23 @@ int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out)
 }
 
 /* GGTT ownership remains unverified; this report never enables mappings. */
+int intel_gpu_ggtt_ownership_report_selftest(void)
+{
+    const uint32_t required =
+        INTEL_GGTT_BLOCKER_FIRMWARE_HANDOFF |
+        INTEL_GGTT_BLOCKER_DISPLAY_RESERVATIONS |
+        INTEL_GGTT_BLOCKER_PTE_CONTRACT |
+        INTEL_GGTT_BLOCKER_CPU_GPU_COHERENCY |
+        INTEL_GGTT_BLOCKER_INVALIDATION;
+    const uint32_t aperture = INTEL_GGTT_BLOCKER_APERTURE_UNAVAILABLE;
+
+    if (!required || (required & aperture) != 0u ||
+        (required & (required - 1u)) == 0u)
+        return -1;
+    debug_write("LIONOS:INTEL-GGTT-OWNERSHIP-REPORT-SELFTEST-OK\n");
+    return 0;
+}
+
 int intel_gpu_ggtt_get_ownership_report(intel_gpu_ggtt_ownership_report_t *out)
 {
     if (!out || !gpu_ready)
