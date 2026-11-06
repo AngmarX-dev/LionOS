@@ -942,8 +942,11 @@ int intel_gpu_ggtt_get_ownership_report(intel_gpu_ggtt_ownership_report_t *out)
     out->aperture_ready = gpu.ggtt_ready ? 1u : 0u;
     out->entry_count = gpu.ggtt_ready ? gpu.ggtt_size / 4096u : 0u;
     out->firmware_framebuffer_active = gpu.firmware_framebuffer ? 1u : 0u;
+    out->evidence_mask = 0u;
     out->blocker_mask = intel_gpu_ggtt_report_blockers(
         gpu.ggtt_ready, gpu.ggtt_size);
+    out->ownership_verified = 0u;
+    out->mapping_permitted = 0u;
     return 0;
 }
 
@@ -951,8 +954,8 @@ int intel_gpu_ggtt_get_ownership_report(intel_gpu_ggtt_ownership_report_t *out)
 /* -------------------------------------------------------------------------
  * Intel GPU backing-memory manager (stage 1).
  *
- * This stage owns system-RAM pages and CPU mappings and reserves contiguous
- * GGTT entry ranges after a read-only scan. It deliberately does NOT write
+ * This stage owns system-RAM pages and CPU mappings. GGTT entries are
+ * scanned read-only; no GGTT slots are reserved. It deliberately does NOT write
  * GGTT PTEs, invalidate the GPU TLB, touch stolen memory, or program engines.
  * ------------------------------------------------------------------------- */
 #define INTEL_GPU_GGTT_MAX_ENTRIES 8192u
