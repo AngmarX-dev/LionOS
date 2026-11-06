@@ -63,6 +63,8 @@ static int intel_gpu_mmio_pat_uc_ready(void)
                      : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
                      :
                      : "memory");
+    (void)ebx;
+    (void)ecx;
     if ((edx & (1u << 16)) == 0u)
         return 0;
 
