@@ -502,3 +502,30 @@ The CPU command-buffer API now supports bounded consumer leases. Each acquired v
 The one-page memory adapter pins its provider allocation before exposing the mapping and retains a copy of the allocation descriptor. The pin prevents gpu_memory_free from unmapping or returning those pages while the command buffer exists. gpu_command_buffer_destroy refuses to run with active leases, releases the retained pin, and invalidates the descriptor; the owner may then free the original memory block. Failed initialization rolls back the pin.
 
 This lifecycle is BSP-only. It is not safe for concurrent acquire/release/reset calls from multiple CPUs; external serialization remains mandatory. A lease is a CPU-reader lifetime claim only, not a device completion signal, DMA mapping, GGTT ownership, or hardware queue submission. A consumer must release its lease only after its last CPU access has ended. Self-tests cover multiple leases, reset refusal, duplicate release rejection, pinned-free refusal, destroy, and final free. No xHCI code was changed.
+
+
+## CPU-only submission lifetime wrapper (2026-11-06)
+
+Added a vendor-neutral submission wrapper that composes a sealed command-buffer
+consumer lease with a one-shot CPU fence. Begin validates a sealed command
+buffer, acquires a unique lease, and initializes a nonzero software sequence.
+While active, the consumer can obtain a validated copy of the leased view.
+Completion and failure both require the caller to declare that its final CPU
+access has ended; the wrapper releases the lease first and only then publishes
+the fence's terminal state. Duplicate completion is rejected, and an invalid
+release leaves the fence pending and the lease retained.
+
+The boot self-test covers successful and failed consumer lifetimes, view
+contents, pending status, reset exclusion while a lease is held, terminal
+fence status, duplicate completion rejection, and buffer reuse after release.
+The QEMU smoke test requires the
+`LIONOS:GPU-SUBMISSION-SELFTEST-OK` marker.
+
+**Strict boundary:** this is a synchronous CPU ownership/lifetime abstraction,
+not an asynchronous hardware queue. No device command is emitted, no GPU
+address is assigned, no DMA or cache-coherency operation is performed, and
+the software fence does not establish GPU completion. The consumer must stop
+accessing the view before calling complete/fail. The submission object and
+command-buffer descriptor must remain alive until status observation ends.
+All operations remain BSP-only with external serialization. GGTT ownership
+remains unverified and no xHCI code was modified.
