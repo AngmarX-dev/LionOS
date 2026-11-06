@@ -94,6 +94,28 @@ int intel_gpu_ggtt_read_entry(uint32_t index, uint64_t *value);
 int intel_gpu_get_engine_snapshot(intel_gpu_engine_snapshot_t *out);
 int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out);
 
+/* Read-only ownership evidence report; never grants GGTT mapping permission. */
+#define INTEL_GGTT_BLOCKER_FIRMWARE_HANDOFF       (1u << 0)
+#define INTEL_GGTT_BLOCKER_DISPLAY_RESERVATIONS   (1u << 1)
+#define INTEL_GGTT_BLOCKER_PTE_CONTRACT           (1u << 2)
+#define INTEL_GGTT_BLOCKER_CPU_GPU_COHERENCY      (1u << 3)
+#define INTEL_GGTT_BLOCKER_INVALIDATION           (1u << 4)
+#define INTEL_GGTT_BLOCKER_APERTURE_UNAVAILABLE   (1u << 5)
+
+typedef struct {
+    uint32_t aperture_ready;
+    uint32_t entry_count;
+    uint32_t firmware_framebuffer_active;
+    uint32_t evidence_mask;
+    uint32_t blocker_mask;
+    uint32_t ownership_verified;
+    uint32_t mapping_permitted;
+} intel_gpu_ggtt_ownership_report_t;
+
+int intel_gpu_ggtt_get_ownership_report(
+    intel_gpu_ggtt_ownership_report_t *out);
+int intel_gpu_ggtt_ownership_report_selftest(void);
+
 /*
  * GPU backing-memory manager, first bring-up stage.
  * GGTT entries are scanned read-only. Zero-valued entries are observations,
