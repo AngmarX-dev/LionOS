@@ -609,8 +609,6 @@ static int pci_restore_bar0_state(uint8_t bus, uint8_t slot, uint8_t func,
     return 0;
 }
 
-#define PCI_BAR0_ADDRESS_MASK 0xFFFFFFFFFFFFFFF0ULL
-
 /*
  * Validate the result of a 64-bit memory BAR sizing probe without touching
  * PCI configuration space. Outputs are committed only after every check.
@@ -639,7 +637,7 @@ static int intel_gpu_validate_bar0(uint32_t original_lo,
 
     mask = ((uint64_t)mask_hi << 32) |
            (uint64_t)(mask_lo & 0xFFFFFFF0u);
-    if (!mask || (mask & ~PCI_BAR0_ADDRESS_MASK) != 0u)
+    if (!mask)
         return -1;
 
     size = (~mask) + 1u;
