@@ -684,7 +684,7 @@ int intel_gpu_bar0_validation_selftest(void)
                                 &base, &size) == 0)
         goto fail;
 
-    if (intel_gpu_validate_bar0(0x61000004u, 0u,
+    if (intel_gpu_validate_bar0(0x61800004u, 0u,
                                 0xFF000004u, 0xFFFFFFFFu,
                                 &base, &size) == 0)
         goto fail;
