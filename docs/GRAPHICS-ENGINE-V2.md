@@ -515,9 +515,12 @@ access has ended; the wrapper releases the lease first and only then publishes
 the fence's terminal state. Duplicate completion is rejected, and an invalid
 release leaves the fence pending and the lease retained.
 
-The boot self-test covers successful and failed consumer lifetimes, view
-contents, pending status, reset exclusion while a lease is held, terminal
-fence status, duplicate completion rejection, and buffer reuse after release.
+The submission descriptor must be zero-initialized before first use and
+cannot be reinitialized while active or after completion. The boot self-test
+covers successful and failed consumer lifetimes, view contents, pending
+status, reset exclusion while a lease is held, terminal fence status,
+duplicate completion and reinitialization rejection, and buffer reuse after
+release.
 The QEMU smoke test requires the
 `LIONOS:GPU-SUBMISSION-SELFTEST-OK` marker.
 
