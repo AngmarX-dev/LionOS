@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include "gpu_submission.h"
 
+#define GPU_SUBMISSION_MAGIC 0x47535542u
+
 static int gpu_submission_ranges_overlap(uintptr_t first,
                                          uintptr_t first_size,
                                          uintptr_t second,
@@ -17,7 +19,9 @@ static int gpu_submission_ranges_overlap(uintptr_t first,
 
 static int gpu_submission_valid_active(const gpu_submission_t *submission)
 {
-    if (!submission || submission->state != GPU_SUBMISSION_ACTIVE ||
+    if (!submission ||
+        submission->magic != GPU_SUBMISSION_MAGIC ||
+        submission->state != GPU_SUBMISSION_ACTIVE ||
         !submission->buffer ||
         gpu_command_buffer_view_validate(submission->buffer,
                                          &submission->view) != 0)
@@ -34,6 +38,7 @@ int gpu_submission_begin(gpu_submission_t *submission,
     gpu_command_buffer_view_t probe = {0};
 
     if (!submission || !buffer || !sequence ||
+        submission->magic == GPU_SUBMISSION_MAGIC ||
         gpu_command_buffer_get_view(buffer, &probe) != 0 ||
         gpu_submission_ranges_overlap((uintptr_t)submission,
                                       sizeof(*submission),
@@ -49,6 +54,7 @@ int gpu_submission_begin(gpu_submission_t *submission,
         gpu_command_buffer_acquire_view(buffer, &initialized.view) != 0)
         return -1;
 
+    initialized.magic = GPU_SUBMISSION_MAGIC;
     initialized.buffer = buffer;
     initialized.state = GPU_SUBMISSION_ACTIVE;
     *submission = initialized;
@@ -116,7 +122,8 @@ int gpu_submission_get_status(const gpu_submission_t *submission,
                               gpu_fence_status_t *out_status,
                               uint32_t *out_error_code)
 {
-    if (!submission || !out_status || !out_error_code ||
+    if (!submission || submission->magic != GPU_SUBMISSION_MAGIC ||
+        !out_status || !out_error_code ||
         (submission->state != GPU_SUBMISSION_ACTIVE &&
          submission->state != GPU_SUBMISSION_COMPLETED &&
          submission->state != GPU_SUBMISSION_BROKEN) ||
@@ -152,7 +159,14 @@ int gpu_submission_selftest(void)
         goto cleanup;
 
     if (gpu_submission_begin(&success, &buffer, 1u) != 0 ||
+        gpu_submission_begin(&success, &buffer, 99u) == 0 ||
         gpu_submission_get_view(&success, &view) != 0 ||
+        gpu_submission_get_view(&success,
+            (gpu_command_buffer_view_t *)&success) == 0 ||
+        gpu_submission_get_view(&success,
+            (gpu_command_buffer_view_t *)storage) == 0 ||
+        gpu_submission_get_status(&success, &status,
+            (uint32_t *)&success) == 0 ||
         view.word_count != 2u || view.words[0] != 0xC001D00Du ||
         view.words[1] != 0x51A1E5EDu ||
         gpu_command_buffer_reset(&buffer) == 0 ||
