@@ -732,7 +732,7 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
     uint32_t type = (original_lo >> 1) & 3u;
     uint16_t command;
     uint32_t mask_lo, mask_hi = 0u;
-    uint64_t base, size;
+    uint64_t base;
 
     if ((original_lo & 1u) || type != 2u)
         return -1; /* BAR0 must be a 64-bit memory BAR. */
