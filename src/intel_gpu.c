@@ -36,10 +36,61 @@
 #define MMIO_MAX_SIZE        0x04000000u
 #define PAGE_SIZE            4096u
 #define MMIO_PTE_FLAGS       0x01Au /* PWT | PCD | writable; present is added by paging. */
+#define IA32_PAT_MSR          0x277u
+#define MMIO_PAT_INDEX        3u /* PWT=1, PCD=1, PAT=0 for 4 KiB PTEs. */
 
 static intel_gpu_info_t gpu;
 static uint32_t gpu_ready;
 static uint32_t mmio_ready;
+static uint8_t intel_gpu_pat_entry_type(uint64_t pat, uint32_t index)
+{
+    if (index >= 8u)
+        return 0xFFu;
+    return (uint8_t)((pat >> (index * 8u)) & 0xFFu);
+}
+
+/* The selected PTE cache index must resolve to architectural UC, not UC-. */
+static int intel_gpu_mmio_pat_uc_ready(void)
+{
+    uint32_t eax = 1u, ebx, ecx, edx;
+    uint32_t low, high;
+    uint64_t pat;
+
+    if (cpu_current_index() != 0u)
+        return 0;
+
+    __asm__ volatile("cpuid"
+                     : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                     :
+                     : "memory");
+    if ((edx & (1u << 16)) == 0u)
+        return 0;
+
+    __asm__ volatile("rdmsr"
+                     : "=a"(low), "=d"(high)
+                     : "c"(IA32_PAT_MSR));
+    pat = ((uint64_t)high << 32) | low;
+    return intel_gpu_pat_entry_type(pat, MMIO_PAT_INDEX) == 0u;
+}
+
+int intel_gpu_mmio_pat_selftest(void)
+{
+    const uint64_t reset_pat = 0x0007040600070406ULL;
+    const uint64_t altered_pat = reset_pat & ~(0xFFULL << 24);
+
+    if (intel_gpu_pat_entry_type(reset_pat, MMIO_PAT_INDEX) != 0u ||
+        intel_gpu_pat_entry_type(reset_pat, 0u) != 6u ||
+        intel_gpu_pat_entry_type(reset_pat, 2u) != 7u ||
+        intel_gpu_pat_entry_type(altered_pat, MMIO_PAT_INDEX) != 6u ||
+        intel_gpu_pat_entry_type(reset_pat, 8u) != 0xFFu) {
+        debug_write("LIONOS:INTEL-MMIO-PAT-SELFTEST-FAIL\n");
+        return -1;
+    }
+
+    debug_write("LIONOS:INTEL-MMIO-PAT-SELFTEST-OK\n");
+    return 0;
+}
+
 
 /* Read-only Gen12 GT/engine register snapshot; no command submission. */
 #define INTEL_GMD_ID_GRAPHICS       0x00000D8Cu
@@ -56,7 +107,7 @@ static void intel_gpu_hex32(uint32_t value);
 
 static int intel_gpu_mmio_write32(uint32_t offset, uint32_t value)
 {
-    if (!mmio_ready || (offset & 3u) ||
+    if (!mmio_ready || cpu_current_index() != 0u || (offset & 3u) ||
         (uint64_t)offset + sizeof(uint32_t) > gpu.bar0_size)
         return -1;
     *(volatile uint32_t *)(uintptr_t)(MMIO_VIRTUAL_BASE + offset) = value;
@@ -778,6 +829,12 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
 
 static int map_gpu_mmio(uint64_t physical, uint64_t size)
 {
+    if (!intel_gpu_mmio_pat_uc_ready()) {
+        debug_write("LIONOS:INTEL-MMIO-PAT-UC-UNVERIFIED\n");
+        return -1;
+    }
+    debug_write("LIONOS:INTEL-MMIO-PAT-UC-VERIFIED\n");
+
     if (!physical || !size || size > MMIO_MAX_SIZE)
         return -1;
     if ((physical & (PAGE_SIZE - 1u)) ||
@@ -996,7 +1053,7 @@ int intel_gpu_get_info(intel_gpu_info_t *out)
 
 int intel_gpu_mmio_read32(uint32_t offset, uint32_t *value)
 {
-    if (!value || !mmio_ready || (offset & 3u) ||
+    if (!value || !mmio_ready || cpu_current_index() != 0u || (offset & 3u) ||
         (uint64_t)offset + sizeof(uint32_t) > gpu.bar0_size)
         return -1;
 
