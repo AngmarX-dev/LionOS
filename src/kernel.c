@@ -424,11 +424,11 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     /* Exercise CPU-only command-buffer consumer and software-fence lifetime. */
     if (gpu_submission_selftest() == 0) {
-        debug_write("LIONOS:GPU-SUBMISSION-SELFTEST-OK\\n");
-        console_write("[ OK ] GPU submission / CPU-only lease and fence lifecycle self-test\\n");
+        debug_write("LIONOS:GPU-SUBMISSION-SELFTEST-OK\n");
+        console_write("[ OK ] GPU submission / CPU-only lease and fence lifecycle self-test\n");
     } else {
-        debug_write("LIONOS:GPU-SUBMISSION-SELFTEST-FAIL\\n");
-        console_write("[ERR] GPU submission / CPU-only lifecycle self-test\\n");
+        debug_write("LIONOS:GPU-SUBMISSION-SELFTEST-FAIL\n");
+        console_write("[ERR] GPU submission / CPU-only lifecycle self-test\n");
     }
 
     /* Verify safe backend selection and mandatory CPU fallback. */
