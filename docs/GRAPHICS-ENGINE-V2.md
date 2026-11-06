@@ -549,3 +549,24 @@ The current boot contract supplies no authoritative GGTT hand-off token or reser
 A missing, malformed, or unavailable aperture adds a separate blocker. The software self-test validates blocker-bit separation and confirms that the aperture blocker is distinct from the platform ownership blockers. This is a diagnostic contract test, not hardware ownership proof.
 
 **No hardware behavior changes:** this stage adds no GGTT writes, no entry reservation, no TLB invalidation, no engine programming, and no command submission. CPU rendering remains the active backend. The xHCI subsystem is untouched.
+
+
+## Intel MMIO PAT cache-type guard
+
+The Intel BAR0 mapping uses 4 KiB PTE flags with PWT=1, PCD=1, and PAT=0,
+which selects IA32_PAT entry 3. That PTE bit pattern alone does not prove
+uncached memory: the selected memory type depends on the current CPU's
+IA32_PAT MSR contents.
+
+Before mapping BAR0, LionOS now checks CPUID.01H:EDX.PAT, reads IA32_PAT
+(MSR 0x277) on the BSP, and requires entry 3 to be the architectural UC
+type (0). If PAT is unavailable or the entry is different, MMIO mapping is
+denied rather than silently using an unknown cache type. Intel MMIO read/write
+accessors are BSP-only so an AP with a different per-CPU PAT configuration
+cannot use this mapping through the driver API.
+
+The pure self-test checks PAT byte indexing against the architectural reset
+layout and verifies that changing entry 3 is detected. This does not program
+IA32_PAT, change global cache policy, validate MTRR interactions, or prove
+device coherency. No GGTT PTE, GPU ring, or command submission behavior is
+changed. No xHCI files are modified.
