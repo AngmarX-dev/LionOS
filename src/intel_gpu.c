@@ -899,6 +899,25 @@ int intel_gpu_get_gt_diagnostics(intel_gt_diag_t *out)
     return 0;
 }
 
+/* GGTT ownership remains unverified; this report never enables mappings. */
+int intel_gpu_ggtt_get_ownership_report(intel_gpu_ggtt_ownership_report_t *out)
+{
+    if (!out || !gpu_ready)
+        return -1;
+    *out = (intel_gpu_ggtt_ownership_report_t){0};
+    out->aperture_ready = gpu.ggtt_ready ? 1u : 0u;
+    out->entry_count = gpu.ggtt_ready ? gpu.ggtt_size / 4096u : 0u;
+    out->firmware_framebuffer_active = gpu.firmware_framebuffer ? 1u : 0u;
+    out->blocker_mask = INTEL_GGTT_BLOCKER_FIRMWARE_HANDOFF |
+        INTEL_GGTT_BLOCKER_DISPLAY_RESERVATIONS |
+        INTEL_GGTT_BLOCKER_PTE_CONTRACT |
+        INTEL_GGTT_BLOCKER_CPU_GPU_COHERENCY |
+        INTEL_GGTT_BLOCKER_INVALIDATION;
+    if (!gpu.ggtt_ready || !gpu.ggtt_size || (gpu.ggtt_size & 0xFFFu))
+        out->blocker_mask |= INTEL_GGTT_BLOCKER_APERTURE_UNAVAILABLE;
+    return 0;
+}
+
 
 /* -------------------------------------------------------------------------
  * Intel GPU backing-memory manager (stage 1).
