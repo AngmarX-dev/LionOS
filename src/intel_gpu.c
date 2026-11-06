@@ -568,6 +568,28 @@ static int intel_known_display_id(uint16_t id)
 }
 
 /*
+ * Restore and verify the PCI BAR pair and command register. A bounded retry
+ * handles a transient config-space write/readback failure without accepting
+ * an uncertain resource configuration.
+ */
+static int pci_restore_bar0_state(uint8_t bus, uint8_t slot, uint8_t func,
+                                  uint32_t original_lo, uint32_t original_hi,
+                                  uint16_t original_command)
+{
+    for (uint32_t attempt = 0u; attempt < 2u; ++attempt) {
+        pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
+        pci_write32(bus, slot, func, PCI_BAR0, original_lo);
+        pci_write_command(bus, slot, func, original_command);
+
+        if (pci_read32(bus, slot, func, PCI_BAR0) == original_lo &&
+            pci_read32(bus, slot, func, PCI_BAR0 + 4u) == original_hi &&
+            pci_read_command(bus, slot, func) == original_command)
+            return 0;
+    }
+    return -1;
+}
+
+/*
  * Determine BAR0's true resource size. PCI decoding is temporarily disabled
  * only for this function and the original command/BAR values are restored
  * before returning. This routine is called once during early boot.
@@ -596,7 +618,8 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
 
     /* Do not probe BAR sizing unless memory decoding is observably disabled. */
     if ((pci_read_command(bus, slot, func) & PCI_COMMAND_MEMORY) != 0u) {
-        pci_write_command(bus, slot, func, command);
+        (void)pci_restore_bar0_state(bus, slot, func, original_lo,
+                                    original_hi, command);
         return -1;
     }
 
@@ -606,26 +629,12 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
     mask_hi = pci_read32(bus, slot, func, PCI_BAR0 + 4u);
 
     /*
-     * Restore the BAR pair before restoring PCI command decoding. Verify
-     * every restored value; a failed config-space write must not be treated
-     * as a valid BAR measurement.
+     * Restore the BAR pair before restoring PCI command decoding. A failed
+     * readback aborts the probe; no uncertain BAR result is published.
      */
-    pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
-    pci_write32(bus, slot, func, PCI_BAR0, original_lo);
-    pci_write_command(bus, slot, func, command);
-
-    if (pci_read32(bus, slot, func, PCI_BAR0) != original_lo ||
-        pci_read32(bus, slot, func, PCI_BAR0 + 4u) != original_hi ||
-        pci_read_command(bus, slot, func) != command) {
-        /* One bounded restoration retry, still with no BAR decode probing. */
-        pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
-        pci_write32(bus, slot, func, PCI_BAR0, original_lo);
-        pci_write_command(bus, slot, func, command);
-        if (pci_read32(bus, slot, func, PCI_BAR0) != original_lo ||
-            pci_read32(bus, slot, func, PCI_BAR0 + 4u) != original_hi ||
-            pci_read_command(bus, slot, func) != command)
-            return -1;
-    }
+    if (pci_restore_bar0_state(bus, slot, func, original_lo,
+                               original_hi, command) != 0)
+        return -1;
 
     mask = ((uint64_t)mask_hi << 32) |
            (uint64_t)(mask_lo & 0xFFFFFFF0u);
