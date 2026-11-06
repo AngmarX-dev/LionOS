@@ -591,17 +591,22 @@ static int pci_restore_bar0_state(uint8_t bus, uint8_t slot, uint8_t func,
                                   uint32_t original_lo, uint32_t original_hi,
                                   uint16_t original_command)
 {
-    for (uint32_t attempt = 0u; attempt < 2u; ++attempt) {
-        pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
-        pci_write32(bus, slot, func, PCI_BAR0, original_lo);
-        if (pci_restore_command(bus, slot, func, original_command) != 0)
-            continue;
+    /* BAR writes are permitted only while memory decoding remains disabled. */
+    pci_write32(bus, slot, func, PCI_BAR0 + 4u, original_hi);
+    pci_write32(bus, slot, func, PCI_BAR0, original_lo);
 
-        if (pci_read32(bus, slot, func, PCI_BAR0) == original_lo &&
-            pci_read32(bus, slot, func, PCI_BAR0 + 4u) == original_hi)
-            return 0;
-    }
-    return -1;
+    if (pci_restore_command(bus, slot, func, original_command) != 0)
+        return -1;
+
+    /*
+     * Do not retry BAR writes after decoding is re-enabled. A mismatch is
+     * reported as failure rather than risking a live resource relocation.
+     */
+    if (pci_read32(bus, slot, func, PCI_BAR0) != original_lo ||
+        pci_read32(bus, slot, func, PCI_BAR0 + 4u) != original_hi)
+        return -1;
+
+    return 0;
 }
 
 /*
