@@ -670,6 +670,13 @@ int intel_gpu_bar0_validation_selftest(void)
         base != 0x70000000ULL || size != PAGE_SIZE)
         goto fail;
 
+    /* Largest supported 64 MiB BAR ending at the 52-bit PAE limit. */
+    if (intel_gpu_validate_bar0(0xFC000004u, 0x000FFFFFu,
+                                0xFC000004u, 0xFFFFFFFFu,
+                                &base, &size) != 0 ||
+        base != 0x000FFFFFFC000000ULL || size != MMIO_MAX_SIZE)
+        goto fail;
+
     base = 0xA5A5A5A5A5A5A5A5ULL;
     size = 0x5A5A5A5A5A5A5A5AULL;
     if (intel_gpu_validate_bar0(0x62000004u, 0u,
