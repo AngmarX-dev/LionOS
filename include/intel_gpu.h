@@ -115,6 +115,8 @@ typedef struct {
 int intel_gpu_ggtt_get_ownership_report(
     intel_gpu_ggtt_ownership_report_t *out);
 int intel_gpu_ggtt_ownership_report_selftest(void);
+/* Pure PCI BAR0 size/base validation; no config-space or MMIO access. */
+int intel_gpu_bar0_validation_selftest(void);
 
 /*
  * GPU backing-memory manager, first bring-up stage.
