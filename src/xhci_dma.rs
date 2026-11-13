@@ -429,8 +429,9 @@ impl DeviceContext{
   let slot_dword0=route_string|((speed as u32)<<20)|((context_entries as u32)<<27);
   let slot_dword1=(root_port as u32)<<16;
   let ep0_dword1=(3u32<<1)|(4u32<<3)|((ep0_max_packet as u32)<<16);
-  let ep0_dword2=(ep0_dequeue as u32)&!0xF;
-  let ep0_dword3=((ep0_dequeue>>32) as u32)|if cycle_state{1}else{0};
+  // DCS is bit 0 of the low dequeue-pointer dword, not the high dword.
+  let ep0_dword2=((ep0_dequeue as u32)&!0xF)|if cycle_state{1}else{0};
+  let ep0_dword3=(ep0_dequeue>>32) as u32;
   self.set_input_dword(0,1,add_context)
    &&self.set_input_dword(1,0,slot_dword0)
    &&self.set_input_dword(1,1,slot_dword1)
