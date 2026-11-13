@@ -41,7 +41,7 @@ pub unsafe fn probe_memory_bar_size(device:&PciDevice,index:usize)->Option<u64>{
  outw(0xCFC,command);
  let mask=if bar.kind==4{((high_mask as u64)<<32)|((low_mask&0xFFFF_FFF0) as u64)}else{(low_mask&0xFFFF_FFF0) as u64};
  if mask==0{return None;}
- let size=(!mask).wrapping_add(1);
+ let size=if bar.kind==4{(!mask).wrapping_add(1)}else{((!(mask as u32)).wrapping_add(1)) as u64};
  if size==0||!size.is_power_of_two(){return None;}
  Some(size)
 }

@@ -90,7 +90,7 @@ unsafe fn inspect(device:PciDevice)->Option<XhciInfo>{
 }
 pub fn discover()->Option<XhciInfo>{
     let mut found=None;
-    unsafe{pci::enumerate(|device|{if found.is_none(){found=inspect(device);});}
+    unsafe { pci::enumerate(|device| { if found.is_none() { found=inspect(device); } }); }
     found
 }
 fn wait_until<F:FnMut()->bool>(mut condition:F)->bool{
@@ -127,7 +127,7 @@ pub fn initialize()->InitReport{
         }
     }
     let op=info.cap_length as usize;
-    let command=match read(&region,op){Some(v)=>v,None=>return InitReport{status:InitStatus::InvalidCapabilities,ownership_requested:requested,bios_released,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false}};
+    let command=match read(&region,op){Some(v)=>v,None=>return InitReport{status:InitStatus::InvalidCapabilities,ownership_requested:requested,bios_released,controller_halted:false,reset_completed:false,controller_ready:false}};
     if !region.write32(op,command&!USBCMD_RS){return InitReport{status:InitStatus::InvalidCapabilities,ownership_requested:requested,bios_released,controller_halted:false,reset_completed:false,controller_ready:false};}
     let halted=wait_until(||read(&region,op+4).map_or(false,|v|v&USBSTS_HCH!=0));
     if !halted{return InitReport{status:InitStatus::StopTimeout,ownership_requested:requested,bios_released,controller_halted:false,reset_completed:false,controller_ready:false};}
