@@ -545,3 +545,37 @@ the device, ring DB0, or submit Enable Slot/Address Device. Those operations
 require a separately verified hardware bring-up sequence, interrupt/polling
 ownership, register-order review and hardware validation. No build, QEMU, or
 physical-device test was run for this stage.
+
+
+## Generic USB control-transfer execution foundation
+
+The xHCI DMA layer now supports generic USB control-transfer TD construction:
+
+- `UsbSetupPacket` includes helpers for GET_DESCRIPTOR (including arbitrary
+  descriptor type/index), GET_CONFIGURATION and SET_CONFIGURATION.
+- `control_transfer_trbs` builds Setup/Data/Status Stage TRBs for IN and OUT
+  requests, and correctly builds a two-TRB Setup/Status TD for requests with
+  no data stage (`wLength = 0`).
+- Data buffers are range-checked against the current below-4-GiB DMA limit.
+  Direction bits and Setup Stage transfer-type fields are derived from the
+  setup packet; Status Stage direction is the opposite of the data stage (IN
+  for no-data requests).
+- `TransferEngine::submit_control` tracks the Setup, optional Data and Status
+  TRB pointers and appends only the required number of TRBs. The one-shot ring
+  policy remains: entries are not wrapped or reused without a proven dequeue
+  and reclamation protocol.
+- `XhciControlTransferDispatcher` connects this engine to the guarded
+  slot/endpoint doorbell path. It requires a Running lifecycle and an explicit
+  caller confirmation that DMA is device-owned before submission and doorbell
+  notification. Transfer Events are correlated through the existing tracker.
+
+This adds the software path needed for descriptor reads and no-data requests
+such as SET_CONFIGURATION. It does not yet provide a live controller event
+loop, hardware-backed DMA buffer allocator for arbitrary USB payloads, or
+automatic integration that advances `UsbDeviceManager` after each successful
+transfer. The boot sequence does not instantiate this dispatcher, transition
+xHCI to Running, ring an endpoint doorbell, or enumerate a connected device.
+The event-ring ERDP acknowledgement and transfer-ring reclamation protocols
+remain separate prerequisites.
+
+No build, QEMU, or physical hardware test was run for this stage.
