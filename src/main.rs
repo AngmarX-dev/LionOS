@@ -363,7 +363,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\\n");
     write_str("[ -- ] xHCI controller DMA activation, interrupter setup, port handling and USB enumeration not implemented\\n");
     write_str("[ OK ] USB descriptor parser and bounded enumeration state model (software-only)\n");
-    write_str("[ OK ] xHCI guarded command/doorbell dispatch API compiled into kernel; not activated\n");
+    write_str("[ OK ] xHCI guarded command/doorbell dispatch source integrated; not activated\n");
     write_str("[ -- ] USB command submission, device addressing and class drivers not implemented\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");
