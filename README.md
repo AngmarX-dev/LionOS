@@ -490,3 +490,32 @@ acknowledge status bits, run recovery, or perform live interrupt handling.
 
 No build, QEMU, or physical hardware test was run for this stage; those remain
 deferred until the planned implementation work is complete.
+
+
+## USB device-enumeration foundation
+
+`src/usb.rs` adds a bounded, allocation-free software model for USB device
+enumeration:
+
+- Parses the standard 18-byte Device Descriptor with length/type checks.
+- Parses a complete Configuration Descriptor blob using `wTotalLength`,
+  validating each descriptor boundary before reading fields.
+- Records Interface and Endpoint descriptors in fixed-capacity arrays
+  (16 interfaces and 32 endpoints per parsed configuration).
+- Tracks up to 32 root ports and 32 software device/slot records.
+- Models the ordered progression from connection and completed port reset
+  through Enable Slot, Address Device, descriptor retrieval, Set Configuration,
+  and the final Enumerated state.
+- Rejects invalid transitions, duplicate slot assignments, invalid port/slot
+  identifiers, truncated descriptors and capacity overflow.
+- Releases software slot bookkeeping on disconnect or an explicitly failed
+  enumeration.
+
+This is an enumeration architecture and descriptor parser, not a live USB
+driver. It does not issue Enable Slot, Address Device, control-transfer,
+Set Configuration, PORTSC, or doorbell operations. No USB device is currently
+enumerated by this module, and class drivers (HID, mass storage, hub) remain
+unimplemented. The boot output reports framework capacity only.
+
+No build, QEMU, or physical hardware test was run for this stage; those remain
+deferred until the planned implementation work is complete.
