@@ -61,7 +61,7 @@ unsafe fn inspect(device:PciDevice)->Option<XhciInfo>{
         let bar=device.bars[index];
         if (bar.kind!=2&&bar.kind!=4)||bar.base==0||bar.base>u32::MAX as u64||bar.base&0xFFF!=0{continue;}
         let bar_size=match pci::probe_memory_bar_size(&device,index){Some(v)=>v,None=>continue};
-        if bar_size<PROBE_WINDOW||bar.base.checked_add(bar_size).map_or(true,|end|end>0x1_0000_0000){continue;}
+        if bar_size<PROBE_WINDOW as u64||bar.base.checked_add(bar_size).map_or(true,|end|end>0x1_0000_0000){continue;}
         let region=match MmioRegion::from_pci_bar(&device,index,PROBE_WINDOW){Some(v)=>v,None=>continue};
         let cap0=match read(&region,0){Some(v)=>v,None=>continue};
         let cap_length=(cap0&0xFF) as u8;
