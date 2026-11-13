@@ -159,10 +159,13 @@ fn parse_boot_info(address:u32)->(u64,bool) {
 }
 
 fn report_pci() {
+    write_str("[TRACE] PCI discovery: begin\n");
     unsafe { device::discover(); }
+    write_str("[TRACE] PCI discovery: complete\n");
     let mut count=0u32;
     write_str("\nPCI devices (enumeration only):\n");
     unsafe {
+        write_str("[TRACE] PCI reporting enumeration: begin\n");
         pci::enumerate(|device| {
             count+=1;
             if device.class==0x03 {
@@ -172,6 +175,7 @@ fn report_pci() {
                 write_str("\n");
             }
         });
+        write_str("[TRACE] PCI reporting enumeration: complete\n");
     }
     write_str("PCI functions enumerated: "); write_dec(count); write_str("\n");
     write_str("Device registry entries: "); write_dec(device::device_count() as u32); write_str(" / "); write_dec(device::MAX_DEVICES as u32); write_str("\n");
