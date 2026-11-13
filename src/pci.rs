@@ -75,7 +75,7 @@ pub unsafe fn enumerate<F:FnMut(PciDevice)>(mut visit:F){
    let id=if fun==0{id0}else{read_config(bus as u8,dev,fun,0)};if id as u16==0xFFFF{continue}
    let cs=read_config(bus as u8,dev,fun,4);let cr=read_config(bus as u8,dev,fun,8);let hr=read_config(bus as u8,dev,fun,0x0C);let header=(hr>>16) as u8;
    if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(5); }
-   if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(6); }
+   if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(6); crate::trace_pci_step(7); }
    // Keep the early-boot path free of a large tuple return from the BAR decoder.
    // BAR probing remains deferred; descriptors carry an explicitly empty BAR table.
    let bars=[PciBar::EMPTY;PCI_BAR_COUNT];let bar_count=0;
