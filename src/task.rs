@@ -33,6 +33,22 @@ impl Task {
     };
 }
 
+impl State {
+    /// Validate scheduler metadata transitions; Exited is terminal.
+    fn allows(self, next: Self) -> bool {
+        if self == next {
+            return true;
+        }
+
+        match self {
+            State::Empty | State::Exited => false,
+            State::Ready => matches!(next, State::Running | State::Blocked | State::Exited),
+            State::Running => matches!(next, State::Ready | State::Blocked | State::Exited),
+            State::Blocked => matches!(next, State::Ready | State::Exited),
+        }
+    }
+}
+
 struct TaskRegistry {
     tasks: [Task; MAX_TASKS],
     next_id: u32,
@@ -75,6 +91,9 @@ pub fn set_state(id: u32, state: State) -> bool {
 
     let mut registry = REGISTRY.lock();
     if let Some(task) = registry.tasks.iter_mut().find(|task| task.id == id && task.state != State::Empty) {
+        if !task.state.allows(state) {
+            return false;
+        }
         task.state = state;
         true
     } else {
