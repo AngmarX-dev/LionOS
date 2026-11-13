@@ -12,6 +12,8 @@ mod arch {
 }
 mod memory;
 mod paging;
+mod dma;
+mod mmio;
 mod heap;
 mod pci;
 mod device;
@@ -239,7 +241,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("\nRUST PORT INVENTORY\n");
     write_str("[ OK ] x86 port I/O, GDT, IDT exception/IRQ dispatch, PIC and PIT timer\n");
     write_str("[ OK ] Multiboot2 memory map and fixed physical-frame allocator\n");
-    write_str("[ OK ] PCI discovery, passive BAR metadata and fixed device registry\n");
+    write_str("[ OK ] PCI discovery, BAR metadata, bounded MMIO and DMA allocation primitives\n");
     write_str("[ OK ] RGB framebuffer software drawing (when supplied below 4 GiB)\n");
     write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 polling primitives\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");

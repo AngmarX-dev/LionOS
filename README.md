@@ -13,13 +13,15 @@ or the repository's default branch.
 - Legacy PIC remapping, per-vector dispatch, fail-closed exception handling and master/slave EOI support.
 - PIT channel 0 timer at nominal 100 Hz; IRQ0 is the only unmasked legacy PIC line.
 - Initial supervisor-only 4 GiB identity mapping using 4 MiB PSE pages, guarded by a CPUID PSE capability check.
-- Fixed physical-page allocator with contiguous page allocation; kernel image,
+- Fixed physical-page allocator with contiguous allocation, power-of-two alignment and boundary-constrained page runs; allocator metadata is serialized with an interrupt-safe spinlock. Kernel image,
   boot information, low memory and Multiboot2 modules are reserved.
 - Page-backed Rust global allocator (allocations own contiguous 4 KiB pages).
 - Validated Multiboot2 tag traversal.
 - Fixed-capacity 4 KiB physical frame allocator for the 32-bit physical address
   space, initialized from usable memory-map entries.
-- PCI configuration-space enumeration, command/status and interrupt metadata, and passive BAR decoding (no sizing or MMIO access).
+- PCI configuration-space enumeration, command/status and interrupt metadata, passive BAR decoding, and safe 16-bit Command-register memory-decode enable.
+- Identity-mapped PCI MMIO window access with 4 MiB PDE PCD/PWT cache-disable marking; current implementation is limited to 32-bit physical BAR ranges and the bootstrap page map.
+- Zeroed, physically contiguous DMA buffer allocator with page alignment, optional power-of-two boundary constraints and exclusive maximum physical address; current DMA addresses are limited below 4 GiB.
 - Fixed-capacity device registry (256 entries) and driver match/probe API (16 slots); no hardware drivers are registered yet.
 - RGB 24/32-bpp Multiboot2 framebuffer metadata validation and CPU pixel/rectangle
   drawing when the framebuffer is addressable below 4 GiB.
@@ -71,11 +73,11 @@ limited and must not be represented as production-ready:
 | UEFI | Not implemented |
 | GDT / IDT | Flat GDT; dedicated exception/IRQ entry stubs; exceptions fail-stop (no recovery) |
 | PIC / IRQ | PIC remapped; IRQ0 enabled for PIT; remaining IRQs masked; legacy PIC only |
-| Physical memory | Fixed bitmap allocator and 4 GiB identity map; no isolation or demand paging |
+| Physical memory | Fixed bitmap allocator, aligned/boundary-constrained contiguous allocations and 4 GiB identity map; no isolation or demand paging |
 | Heap | Page-backed global allocator; page-granular allocations only |
 | PCI / devices | Passive enumeration and BAR metadata, bounded registry and driver-binding API; no BAR sizing, resource mapping or active drivers |
 | USB boot | BIOS firmware + GRUB loads the kernel; post-handoff USB storage is not supported |
-| USB controllers | xHCI/EHCI/OHCI/UHCI drivers not implemented |
+| DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |\n| USB controllers | xHCI/EHCI/OHCI/UHCI drivers not implemented |
 | USB HID | Keyboard/mouse drivers not implemented |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
@@ -141,9 +143,7 @@ It is not triggered automatically on every push.
 5. Add user-mode transition, process address spaces and syscall entry/return.
 6. Add a VFS abstraction, initramfs and persistent block-device support.
 7. Add storage drivers appropriate to supported hardware (NVMe/AHCI/ATA).
-8. Implement xHCI first, including PCI BAR resource sizing/mapping, DMA-safe
-   memory, command/event rings, interrupter setup, port reset and device
-   enumeration; then add USB HID keyboard/mouse and USB mass-storage drivers.
+8. Implement xHCI on top of the new DMA/MMIO primitives. First add safe BAR sizing/resource assignment, address-width capability handling and controller reset; then command/event rings, interrupter setup, port reset and device enumeration. Add APIC/MSI routing or a carefully validated polling path before USB HID and mass storage.
 9. Add UEFI boot support with an architecture-compatible loader and handoff.
 10. Add NIC drivers and a tested network stack.
 11. Expand the graphics stack: framebuffer backend, fonts, compositor, window/event
@@ -156,3 +156,7 @@ It is not triggered automatically on every push.
 
 The existing C implementation remains the reference branch until the Rust
 rewrite has demonstrated feature parity through repeatable tests.
+
+## MMIO and DMA constraints
+
+The current MMIO accessor relies on the temporary 4 GiB identity map and marks whole 4 MiB PDE regions uncached using PCD/PWT. This is intentionally coarse and must be replaced by 4 KiB page mappings with explicit cache types before broader driver use. BAR sizes are not probed and resources are not reassigned; a driver must supply a verified register-window length. The DMA allocator returns physically contiguous, zeroed pages below an exclusive 4 GiB limit and supports page-granular alignment and power-of-two boundary constraints. It assumes x86 cache-coherent DMA and identity mapping; there is no IOMMU, bounce-buffer layer, >4 GiB DMA, or device-ownership tracking. Buffers must not be released until hardware has stopped using them, and allocator calls are not permitted from interrupt handlers.

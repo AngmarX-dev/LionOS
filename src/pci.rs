@@ -1,5 +1,5 @@
-//! Passive PCI discovery and BAR metadata decoding. Never probes BAR sizes or enables devices.
-use crate::arch::x86::{inl,outl};
+//! PCI discovery, passive BAR decoding and bounded command-register control.
+use crate::arch::x86::{inl,outl,outw};
 pub const PCI_BAR_COUNT:usize=6;
 #[derive(Clone,Copy,Debug)]
 pub struct PciBar{pub kind:u8,pub base:u64,pub prefetchable:bool}
@@ -13,6 +13,16 @@ pub struct PciDevice{
 #[inline] pub unsafe fn read_config(bus:u8,dev:u8,fun:u8,off:u8)->u32{
  let a=0x8000_0000|((bus as u32)<<16)|((dev as u32)<<11)|((fun as u32)<<8)|((off as u32)&0xFC);
  outl(0xCF8,a);inl(0xCFC)
+}
+/// Write only the 16-bit PCI Command register. Avoid writing the adjacent
+/// Status register because several status bits are write-one-to-clear.
+pub unsafe fn enable_memory_space(device:&PciDevice)->bool{
+ let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;
+ let command=read_config(device.bus,device.device,device.function,0x04) as u16;
+ outl(0xCF8,address);
+ outw(0xCFC,command|0x0002);
+ let verify=read_config(device.bus,device.device,device.function,0x04) as u16;
+ verify&0x0002!=0
 }
 unsafe fn decode_bars(bus:u8,dev:u8,fun:u8,header:u8)->([PciBar;PCI_BAR_COUNT],u8){
  let mut bars=[PciBar::EMPTY;PCI_BAR_COUNT];let mut count=0;
