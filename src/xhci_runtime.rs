@@ -523,6 +523,47 @@ impl XhciControlTransferDispatcher {
             slot_id, endpoint_id, stream_id, setup, payload)
     }
 
+    /// Submit the first-stage 9-byte Configuration Descriptor header on this Slot's EP0.
+    pub fn submit_configuration_header(&mut self,
+        rings: &mut crate::xhci_dma::Ep0TransferRings,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, slot_id: u8,
+        payload: &crate::xhci_dma::UsbPayloadBuffer)
+        -> Result<u64, TransferDispatchError>
+    {
+        if payload.length() < 9 { return Err(TransferDispatchError::InvalidPayload); }
+        self.submit_ep0_payload(rings, doorbells, lifecycle, dma_device_owned,
+            slot_id, crate::xhci_dma::UsbSetupPacket::get_configuration_descriptor(9), payload)
+    }
+
+    /// Submit the second-stage descriptor body after the manager validates wTotalLength.
+    pub fn submit_configuration_body(&mut self,
+        rings: &mut crate::xhci_dma::Ep0TransferRings,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, slot_id: u8, total_length: u16,
+        payload: &crate::xhci_dma::UsbPayloadBuffer)
+        -> Result<u64, TransferDispatchError>
+    {
+        if total_length < 9 || total_length > 4096
+            || total_length as usize > payload.length() {
+            return Err(TransferDispatchError::InvalidPayload);
+        }
+        self.submit_ep0_payload(rings, doorbells, lifecycle, dma_device_owned,
+            slot_id, crate::xhci_dma::UsbSetupPacket::get_configuration_descriptor(total_length), payload)
+    }
+
+    /// Submit the no-data SET_CONFIGURATION request after descriptor validation.
+    pub fn submit_set_configuration(&mut self,
+        rings: &mut crate::xhci_dma::Ep0TransferRings,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, slot_id: u8, configuration_value: u8)
+        -> Result<u64, TransferDispatchError>
+    {
+        if configuration_value == 0 { return Err(TransferDispatchError::InvalidPayload); }
+        self.submit_ep0(rings, doorbells, lifecycle, dma_device_owned,
+            slot_id, crate::xhci_dma::UsbSetupPacket::set_configuration(configuration_value), 0)
+    }
+
     pub fn poll_one(&mut self, events: &mut crate::xhci_dma::EventRing)
         -> crate::xhci_dma::TransferPoll {
         self.engine.poll_one(events)
