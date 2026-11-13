@@ -14,7 +14,6 @@ or the repository's default branch.
 - Fixed physical-page allocator with contiguous page allocation; kernel image,
   boot information, low memory and Multiboot2 modules are reserved.
 - Page-backed Rust global allocator (allocations own contiguous 4 KiB pages).
-- Legacy PIC remapping and masking (interrupt sources remain disabled).
 - Validated Multiboot2 tag traversal.
 - Fixed-capacity 4 KiB physical frame allocator for the 32-bit physical address
   space, initialized from usable memory-map entries.
@@ -28,7 +27,34 @@ or the repository's default branch.
 - Ethernet frame-header parser.
 - Initial syscall-number ABI draft.
 - Basic framebuffer window rectangle compositor primitive.
-- GitHub Actions build/Multiboot2 validation workflow.
+- BIOS bootable Multiboot2 ISO packaging via GRUB, with a hybrid-ISO workflow intended for USB writing.
+- Manually dispatched GitHub Actions workflow that builds the kernel and ISO and uploads the image artifact.
+
+## USB boot scope and limitations
+
+The current USB image is a **legacy BIOS / x86 32-bit boot image**. Firmware
+and GRUB load the kernel from the USB device into RAM; the kernel does not
+currently need a USB mass-storage driver just to be loaded. This is different
+from supporting USB devices after the kernel starts.
+
+- The image build uses `make iso` or `scripts/build-usb-image.sh`.
+- Output: `dist/lionos-bios-usb.iso`.
+- On Windows, write the ISO with Rufus and choose **DD mode** if Rufus asks.
+  Writing the image erases the selected USB drive.
+- In firmware setup, enable legacy BIOS/CSM boot if available and select the USB
+  device from the one-time boot menu.
+- This image does not currently provide UEFI boot support.
+- Native xHCI/EHCI/OHCI/UHCI host-controller drivers are not implemented.
+- USB keyboard and mouse HID drivers are not implemented. Firmware USB legacy
+  emulation may work on some machines, but is not guaranteed.
+- The kernel currently has no persistent block storage or USB filesystem
+  access after handoff. Its RAMFS is volatile; removing the USB after boot
+  does not provide a persistent storage path.
+- The current interrupt subsystem masks all IRQs. USB controller interrupts
+  therefore cannot be used yet.
+- The ISO pipeline and image itself have not been boot-tested in QEMU or on
+  physical hardware in this development session. Do not use it as a production
+  or recovery operating system.
 
 ## Important scope boundary
 
@@ -38,19 +64,23 @@ limited and must not be represented as production-ready:
 
 | Subsystem | Current state |
 |---|---|
-| Boot / Multiboot2 | Entry and metadata parsing implemented |
+| Boot / Multiboot2 | 32-bit kernel entry; BIOS GRUB ISO packaging added; boot verification pending |
+| UEFI | Not implemented |
 | GDT / IDT | Flat GDT and fail-stop IDT; no per-exception recovery |
 | PIC / IRQ | PIC remapped and masked; interrupt handlers not enabled |
 | Physical memory | Fixed bitmap allocator and 4 GiB identity map; no isolation or demand paging |
 | Heap | Page-backed global allocator; page-granular allocations only |
 | PCI / devices | Passive enumeration and BAR metadata, bounded registry and driver-binding API; no BAR sizing, resource mapping or active drivers |
+| USB boot | BIOS firmware + GRUB loads the kernel; post-handoff USB storage is not supported |
+| USB controllers | xHCI/EHCI/OHCI/UHCI drivers not implemented |
+| USB HID | Keyboard/mouse drivers not implemented |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
 | NVIDIA RTX | PCI discovery only; native driver not implemented |
 | Tasks | Registry only; no context switch, scheduler tick or user mode |
 | Syscalls | ABI draft; dispatch intentionally returns not-implemented |
 | Filesystem | RAM-only bounded file store; no VFS/block storage/persistent disk FS |
-| Input | PS/2 scancode polling; no IRQ-driven input, USB HID or xHCI |
+| Input | PS/2 scancode polling; no IRQ-driven input or USB HID |
 | Networking | Ethernet header parser only; no NIC driver, ARP, IP, TCP or sockets |
 | Desktop | Basic rectangle drawing; no font system, windows/events or Liquid Glass |
 | SMP / APIC | Not implemented |
@@ -68,26 +98,35 @@ On Debian/Kali/Ubuntu:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential gcc-multilib nasm grub-common binutils
+sudo apt-get install -y build-essential gcc-multilib nasm grub-common grub-pc-bin xorriso binutils
 rustup target add i686-unknown-linux-gnu
 ```
 
-Build from this directory:
+Build and validate the kernel:
 
 ```sh
 make
 make check
 ```
 
-Expected kernel image:
+Build the BIOS USB image:
+
+```sh
+make iso
+# or
+./scripts/build-usb-image.sh
+```
+
+Expected outputs:
 
 ```
 target/i686-unknown-linux-gnu/release/lionos-rust
+dist/lionos-bios-usb.iso
 ```
 
-The build and boot path have not yet been run as part of this rewrite session. The linker now asserts the presence of the Multiboot2 header and the 32-bit image boundary; these assertions still require an actual build to validate.
-Do not write this experimental image to a physical disk or USB. Once the code
-is ready, first boot it in QEMU and review serial diagnostics.
+The GitHub Actions workflow is manually dispatched from the Actions tab; it
+builds the kernel and ISO and uploads `lionos-bios-usb-image` as an artifact.
+It is not triggered automatically on every push.
 
 ## Remaining engineering work before meaningful end-to-end testing
 
@@ -99,14 +138,18 @@ is ready, first boot it in QEMU and review serial diagnostics.
 5. Add user-mode transition, process address spaces and syscall entry/return.
 6. Add a VFS abstraction, initramfs and persistent block-device support.
 7. Add storage drivers appropriate to supported hardware (NVMe/AHCI/ATA).
-8. Add USB host-controller and HID support.
-9. Add NIC drivers and a tested network stack.
-10. Expand the graphics stack: framebuffer backend, fonts, compositor, window/event
+8. Implement xHCI first, including PCI BAR resource sizing/mapping, DMA-safe
+   memory, command/event rings, interrupter setup, port reset and device
+   enumeration; then add USB HID keyboard/mouse and USB mass-storage drivers.
+9. Add UEFI boot support with an architecture-compatible loader and handoff.
+10. Add NIC drivers and a tested network stack.
+11. Expand the graphics stack: framebuffer backend, fonts, compositor, window/event
     system, then device-specific Intel graphics support.
-11. Define a realistic NVIDIA support boundary and implement only documented,
+12. Define a realistic NVIDIA support boundary and implement only documented,
     testable device paths.
-12. Add power management, ACPI, SMP and regression tests.
-13. Build a bootable image and validate each milestone in QEMU before hardware tests.
+13. Add power management, ACPI, SMP and regression tests.
+14. Boot-test the ISO in QEMU, then validate BIOS/UEFI and USB controller variants
+    on physical hardware before declaring the image ready.
 
 The existing C implementation remains the reference branch until the Rust
 rewrite has demonstrated feature parity through repeatable tests.

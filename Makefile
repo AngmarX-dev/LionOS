@@ -1,9 +1,12 @@
 CARGO ?= cargo
 GRUB_FILE ?= grub-file
+GRUB_MKRESCUE ?= grub-mkrescue
 TARGET := i686-unknown-linux-gnu
 KERNEL := target/$(TARGET)/release/lionos-rust
+ISO_ROOT := target/iso-root
+ISO := dist/lionos-bios-usb.iso
 
-.PHONY: all check clean
+.PHONY: all check iso usb-image clean
 all:
 	$(CARGO) build --release --target $(TARGET)
 	$(GRUB_FILE) --is-x86-multiboot2 $(KERNEL)
@@ -14,5 +17,19 @@ check: all
 	readelf -l $(KERNEL)
 	objdump -h $(KERNEL)
 
+iso: all
+	command -v $(GRUB_MKRESCUE) >/dev/null
+	rm -rf $(ISO_ROOT)
+	mkdir -p $(ISO_ROOT)/boot/grub dist
+	cp $(KERNEL) $(ISO_ROOT)/boot/lionos-rust
+	cp iso/boot/grub/grub.cfg $(ISO_ROOT)/boot/grub/grub.cfg
+	$(GRUB_MKRESCUE) -o $(ISO) $(ISO_ROOT)
+	file $(ISO)
+
+usb-image: iso
+	@echo "BIOS hybrid ISO created: $(ISO)"
+	@echo "Write it to a USB with Rufus in DD mode. This erases the selected USB."
+
 clean:
 	$(CARGO) clean
+	rm -rf target/iso-root dist

@@ -10,10 +10,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install 32-bit linker and NASM
+      - name: Install kernel and ISO build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib nasm grub-common binutils
+          sudo apt-get install -y build-essential gcc-multilib nasm grub-common grub-pc-bin xorriso binutils
 
       - name: Install Rust target
         run: |
@@ -23,8 +23,19 @@ jobs:
       - name: Build freestanding Rust kernel
         run: cargo build --release --target i686-unknown-linux-gnu
 
-      - name: Validate Multiboot2 image
+      - name: Validate Multiboot2 kernel
         run: |
           grub-file --is-x86-multiboot2 target/i686-unknown-linux-gnu/release/lionos-rust
           readelf -h target/i686-unknown-linux-gnu/release/lionos-rust
           file target/i686-unknown-linux-gnu/release/lionos-rust
+
+      - name: Build BIOS bootable USB ISO
+        run: make iso
+
+      - name: Upload boot image
+        uses: actions/upload-artifact@v4
+        with:
+          name: lionos-bios-usb-image
+          path: dist/lionos-bios-usb.iso
+          if-no-files-found: error
+          retention-days: 14
