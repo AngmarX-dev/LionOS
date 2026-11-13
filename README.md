@@ -99,6 +99,14 @@ paths; PCI detection or a framebuffer does not imply GPU acceleration. The
 NVIDIA laptop GPU path also depends on platform firmware, display routing,
 and documented device-specific interfaces.
 
+## Staged USB configuration enumeration
+
+Configuration Descriptor retrieval is split into two bounded control transfers. The first request fetches exactly the 9-byte descriptor header using **GET_DESCRIPTOR(Configuration)** (request 6, descriptor type 2); this is distinct from the USB **GET_CONFIGURATION** request (request 8). The header parser validates descriptor length/type and reads `wTotalLength`. The second request is limited to the validated total length and a 4096-byte software cap. The full descriptor parser then validates the returned descriptor chain before the manager exposes its configuration value.
+
+After parsing, `TransferEngine::submit_set_configuration` builds the standard no-data SET_CONFIGURATION request. Enumeration is marked complete only when the matching successful EP0 Transfer Result belongs to the expected Slot ID and Endpoint ID 1. Descriptor payloads are likewise checked against their slot/endpoint result before parsing.
+
+Disconnect and enumeration failure no longer release a Slot immediately. The manager retains the Slot in `DisconnectPending` or `Quarantined`; a later independent DMA-quiescence proof is required before the Slot ID can be reused. A failed proof can be retried after the controller state has been independently revalidated.
+
 ## USB endpoint recovery and disconnect safety\n\n`src/usb_recovery.rs` adds a fixed-capacity software recovery coordinator. A correlated STALL result transitions an endpoint through Reset Endpoint, then Set TR Dequeue Pointer; each command requires its own successful completion before the next state is accepted. Endpoint identity is the controller-assigned Slot ID plus Endpoint ID. The module also decodes Port Status Change Event port IDs, but correctly requires a separate PortSC MMIO snapshot to determine current connection and speed.\n\nDisconnect handling is conservative: Disable Slot completion does not by itself authorize freeing DMA. The disconnect guard requires an independently verified DMA-quiescence fact before marking memory safe to reclaim; otherwise the slot remains quarantined. No commands are submitted, no doorbells are rung, and no DMA memory is released by this module.\n\n## Build prerequisites
 
 On Debian/Kali/Ubuntu:
