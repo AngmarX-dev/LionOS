@@ -90,7 +90,7 @@ limited and must not be represented as production-ready:
 | Input | PS/2 scancode polling; IRQ1 remains masked; no IRQ-driven input or USB HID |
 | Networking | Ethernet header parser only; no NIC driver, ARP, IP, TCP or sockets |
 | Desktop | Basic rectangle drawing; no font system, windows/events or Liquid Glass |
-| SMP / APIC | Not implemented |
+| SMP / APIC | Per-CPU bookkeeping and CPUID local APIC ID discovery; AP startup, APIC routing and parallel execution not implemented |
 | Power management | Not implemented |
 
 Native GPU acceleration is a substantial independent driver project. Intel
@@ -777,3 +777,26 @@ not accept a replacement frame. Per-task kernel stacks, initial interrupt
 frames, a safe interrupt-frame handoff, and scheduler/context-switch integration
 must be completed before enabling timer-driven task preemption. No build or
 runtime tests were run for this change.
+
+
+## SMP resource and concurrency foundation
+
+The Rust branch now has a bounded per-CPU registry (8 logical CPU slots). Each
+slot tracks the CPUID local APIC ID, online bookkeeping state, current task ID,
+and nested interrupt depth. The bootstrap CPU attempts to register after CPU
+feature discovery. Registration is metadata only: it does not start application
+processors (APs), initialize or enable the local APIC, or configure IOAPIC/PIC
+routing.
+
+The synchronization contract is clarified: atomic spinlocks serialize shared
+state across CPUs, while \`IrqSpinLock\` additionally disables local maskable
+interrupts to prevent same-CPU interrupt re-entry deadlocks. Critical sections
+must remain short and must not block, yield, or wait for devices. The existing
+physical allocator, paging metadata, task registry and device registries remain
+shared resources protected by their existing locks.
+
+Not yet implemented: AP trampoline/startup, per-CPU GDT/TSS/IDT and kernel
+stacks, local APIC timer/IPI delivery, IOAPIC routing, CPU hotplug/offline
+protocol, TLB shootdown, lock contention diagnostics, and parallel scheduler
+queues. Consequently, this stage does not claim working multi-core execution.
+No build, QEMU SMP boot, or hardware concurrency test was run.
