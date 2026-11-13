@@ -296,6 +296,56 @@ impl XhciDma{
  pub fn dcbaa_entries(&self)->u16{DCBAA_ENTRIES as u16}
  pub fn command_ring_base(&self)->u64{self.command_ring.physical_base()}
  pub fn scratchpad_count(&self)->u16{self.scratchpads.as_ref().map_or(0,|v|v.count())}
+
+ /// Atomically-at-the-policy-level hand off every xHCI DMA allocation.
+ /// A partial transition is treated as unsafe and quarantines the complete set.
+ pub fn handoff_all_to_device(&self)->bool{
+  let mut ok=self.dcbaa.handoff_to_device();
+  ok=self.command_ring.buffer.handoff_to_device()&&ok;
+  ok=self.transfer_ring.buffer.handoff_to_device()&&ok;
+  ok=self.event_ring.buffer.handoff_to_device()&&ok;
+  ok=self.event_ring.erst.handoff_to_device()&&ok;
+  ok=self.device_context.device.handoff_to_device()&&ok;
+  ok=self.device_context.input.handoff_to_device()&&ok;
+  if let Some(ref pads)=self.scratchpads{
+   ok=pads.array.handoff_to_device()&&ok;
+   ok=pads.storage.handoff_to_device()&&ok;
+  }
+  if !ok{self.quarantine_all();}
+  ok
+ }
+
+ /// Never free an allocation whose device ownership is uncertain.
+ pub fn quarantine_all(&self){
+  self.dcbaa.quarantine();
+  self.command_ring.buffer.quarantine();
+  self.transfer_ring.buffer.quarantine();
+  self.event_ring.buffer.quarantine();
+  self.event_ring.erst.quarantine();
+  self.device_context.device.quarantine();
+  self.device_context.input.quarantine();
+  if let Some(ref pads)=self.scratchpads{
+   pads.array.quarantine();
+   pads.storage.quarantine();
+  }
+ }
+
+ /// Call only after RecoveryEvidence has verified full controller quiescence.
+ pub unsafe fn reclaim_all_after_quiescence(&self)->bool{
+  let mut ok=self.dcbaa.reclaim_after_quiescence();
+  ok=self.command_ring.buffer.reclaim_after_quiescence()&&ok;
+  ok=self.transfer_ring.buffer.reclaim_after_quiescence()&&ok;
+  ok=self.event_ring.buffer.reclaim_after_quiescence()&&ok;
+  ok=self.event_ring.erst.reclaim_after_quiescence()&&ok;
+  ok=self.device_context.device.reclaim_after_quiescence()&&ok;
+  ok=self.device_context.input.reclaim_after_quiescence()&&ok;
+  if let Some(ref pads)=self.scratchpads{
+   ok=pads.array.reclaim_after_quiescence()&&ok;
+   ok=pads.storage.reclaim_after_quiescence()&&ok;
+  }
+  if !ok{self.quarantine_all();}
+  ok
+ }
 }
 
 
