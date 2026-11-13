@@ -1,6 +1,6 @@
 //! USB HID boot-protocol classification and bounded report decoding.
 //! This module does not submit xHCI transfers or claim a live USB device.
-use crate::usb::{ConfigurationSummary, EndpointDescriptor, InterfaceDescriptor};
+use crate::usb::ConfigurationSummary;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HidKind { Keyboard, Mouse }
@@ -22,6 +22,7 @@ pub fn find_boot_binding(config: &ConfigurationSummary, wanted: HidKind)
     -> Result<HidBinding, HidError>
 {
     for interface in config.interfaces.iter().flatten() {
+        if interface.alternate_setting != 0 { continue; }
         let kind = if interface.class != 0x03 || interface.subclass != 0x01 {
             continue;
         } else if interface.protocol == 0x01 {
@@ -50,6 +51,23 @@ pub fn find_boot_binding(config: &ConfigurationSummary, wanted: HidKind)
         return Err(HidError::NoInterruptInEndpoint);
     }
     Err(HidError::NoBootInterface)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HidSetupRequest {
+    pub request_type: u8,
+    pub request: u8,
+    pub value: u16,
+    pub index: u16,
+    pub length: u16,
+}
+
+/// Standard class/interface requests required to select HID boot protocol.
+pub fn boot_protocol_requests(interface_number: u8) -> [HidSetupRequest; 2] {
+    [
+        HidSetupRequest { request_type: 0x21, request: 0x0B, value: 0, index: interface_number as u16, length: 0 },
+        HidSetupRequest { request_type: 0x21, request: 0x0A, value: 0, index: interface_number as u16, length: 0 },
+    ]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,8 +100,8 @@ impl KeyboardTracker {
         }
     }
 
-    pub fn update(&mut self, current: BootKeyboardReport) -> [Option<KeyTransition>; 14] {
-        let mut output = [None; 14];
+    pub fn update(&mut self, current: BootKeyboardReport) -> [Option<KeyTransition>; 20] {
+        let mut output = [None; 20];
         let mut count = 0usize;
         for bit in 0..8 {
             let old = self.previous.modifiers & (1 << bit) != 0;
