@@ -381,6 +381,15 @@ pub unsafe fn timer_init() {
     outb(0xA1,0xFF);
 }
 
+/// Unmask the cascaded PIC path for PS/2 auxiliary IRQ12.
+pub unsafe fn enable_mouse_irq() {
+    use crate::arch::x86::{inb, outb};
+    let master = inb(0x21) & !(1 << 2); // cascade IRQ2
+    let slave = inb(0xA1) & !(1 << 4);  // IRQ12 on the slave PIC
+    outb(0x21, master);
+    outb(0xA1, slave);
+}
+
 /// Monotonic PIT tick counter (nominally 100 ticks per second).
 /// The snapshot is taken with maskable interrupts disabled so the 64-bit read
 /// cannot tear on this 32-bit target; the caller's IF state is then restored.
@@ -399,6 +408,16 @@ pub extern "C" fn lionos_interrupt_dispatch(frame:*const InterruptFrame) {
     let vector=unsafe { read_volatile(addr_of!((*frame).vector)) };
     if vector==32 {
         unsafe { TIMER_TICKS=TIMER_TICKS.wrapping_add(1); crate::arch::x86::outb(0x20,0x20); }
+        return;
+    }
+    if vector == 44 {
+        // IRQ12: consume exactly one auxiliary byte before acknowledging both PICs.
+        unsafe {
+            let byte = crate::arch::x86::inb(0x60);
+            crate::mouse::handle_irq_byte(byte);
+            crate::arch::x86::outb(0xA0, 0x20);
+            crate::arch::x86::outb(0x20, 0x20);
+        }
         return;
     }
     if (32..48).contains(&vector) {
