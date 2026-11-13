@@ -11,6 +11,7 @@ mod arch {
 }
 mod memory;
 mod paging;
+mod heap;
 mod pci;
 mod graphics;
 mod fs;
