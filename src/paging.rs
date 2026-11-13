@@ -209,6 +209,39 @@ pub fn translate(virtual_address: u32) -> Option<u32> {
     }
 }
 
+unsafe fn unmap_page_locked(virtual_address: u32) -> bool {
+    let directory_index = (virtual_address >> 22) as usize;
+    let table_index = ((virtual_address >> 12) & 0x3FF) as usize;
+    let Some(table) = ensure_page_table_locked(directory_index) else {
+        return false;
+    };
+
+    let entry = table.add(table_index);
+    if read_volatile(entry) & PRESENT == 0 {
+        return false;
+    }
+    write_volatile(entry, 0);
+    invalidate_page(virtual_address);
+
+    let mut empty = true;
+    for index in 0..1024usize {
+        if read_volatile(table.add(index)) & PRESENT != 0 {
+            empty = false;
+            break;
+        }
+    }
+
+    if empty {
+        let pde_ptr = directory_ptr().add(directory_index);
+        let pde = read_volatile(pde_ptr);
+        write_volatile(pde_ptr, 0);
+        reload_cr3();
+        let table_frame = pde & PAGE_MASK;
+        let _ = crate::memory::free_frame(table_frame);
+    }
+    true
+}
+
 /// Remove a 4 KiB mapping. A large-page PDE is split first, preserving all
 /// unaffected identity mappings. Empty page-table frames are reclaimed.
 pub fn unmap_page(virtual_address: u32) -> bool {
@@ -216,38 +249,75 @@ pub fn unmap_page(virtual_address: u32) -> bool {
         return false;
     }
     let _guard = PAGING_LOCK.lock();
+    unsafe { unmap_page_locked(virtual_address) }
+}
+
+/// Map a contiguous physical run into a contiguous virtual range. If any page
+/// fails, mappings installed by this call are rolled back before returning.
+pub fn map_range(virtual_start: u32, physical_start: u32, pages: u32, flags: u32) -> bool {
+    if !is_ready() || pages == 0 || virtual_start & 0xFFF != 0 || physical_start & 0xFFF != 0 {
+        return false;
+    }
+    let Some(bytes) = (pages as u64).checked_mul(4096) else { return false; };
+    if (virtual_start as u64).checked_add(bytes).map_or(true, |end| end > 0x1_0000_0000)
+        || (physical_start as u64).checked_add(bytes).map_or(true, |end| end > 0x1_0000_0000)
+        || flags & !MAP_ALLOWED != 0
+    {
+        return false;
+    }
+
+    let _guard = PAGING_LOCK.lock();
     unsafe {
-        let directory_index = (virtual_address >> 22) as usize;
-        let table_index = ((virtual_address >> 12) & 0x3FF) as usize;
-        let Some(table) = ensure_page_table_locked(directory_index) else {
-            return false;
-        };
-
-        let entry = table.add(table_index);
-        if read_volatile(entry) & PRESENT == 0 {
-            return false;
+        let mut mapped = 0u32;
+        while mapped < pages {
+            let virtual_address = virtual_start + mapped * 4096;
+            let physical_address = physical_start + mapped * 4096;
+            if !map_page_locked(virtual_address, physical_address, flags, false) {
+                for rollback in 0..mapped {
+                    let _ = unmap_page_locked(virtual_start + rollback * 4096);
+                }
+                return false;
+            }
+            mapped += 1;
         }
-        write_volatile(entry, 0);
-        invalidate_page(virtual_address);
+    }
+    true
+}
 
-        let mut empty = true;
-        for index in 0..1024usize {
-            if read_volatile(table.add(index)) & PRESENT != 0 {
-                empty = false;
-                break;
+/// Unmap a contiguous virtual range. The operation first verifies that every
+/// page is present, so a missing page cannot cause a partially unmapped range.
+pub fn unmap_range(virtual_start: u32, pages: u32) -> bool {
+    if !is_ready() || pages == 0 || virtual_start & 0xFFF != 0 {
+        return false;
+    }
+    let Some(bytes) = (pages as u64).checked_mul(4096) else { return false; };
+    if (virtual_start as u64).checked_add(bytes).map_or(true, |end| end > 0x1_0000_0000) {
+        return false;
+    }
+
+    let _guard = PAGING_LOCK.lock();
+    unsafe {
+        for index in 0..pages {
+            let address = virtual_start + index * 4096;
+            let pde = read_volatile(directory_ptr().add((address >> 22) as usize));
+            if pde & PRESENT == 0 {
+                return false;
+            }
+            if pde & PAGE_SIZE_BIT == 0 {
+                let table = (pde & PAGE_MASK) as *const u32;
+                let pte = read_volatile(table.add(((address >> 12) & 0x3FF) as usize));
+                if pte & PRESENT == 0 {
+                    return false;
+                }
             }
         }
-
-        if empty {
-            let pde_ptr = directory_ptr().add(directory_index);
-            let pde = read_volatile(pde_ptr);
-            write_volatile(pde_ptr, 0);
-            reload_cr3();
-            let table_frame = pde & PAGE_MASK;
-            let _ = unsafe { crate::memory::free_frame(table_frame) };
+        for index in 0..pages {
+            if !unmap_page_locked(virtual_start + index * 4096) {
+                return false;
+            }
         }
-        true
     }
+    true
 }
 
 /// Mark an MMIO range uncached. Handles both large PDEs and 4 KiB PTEs.
