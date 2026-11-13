@@ -140,7 +140,10 @@ unsafe fn set_sample_rate(rate: u8) -> Result<(), MouseInitError> {
 pub unsafe fn initialize() -> Result<(), MouseInitError> {
     interrupts_disable();
     controller_command(0xA7)?; // disable auxiliary port during setup
-    while inb(STATUS) & 0x01 != 0 { let _ = inb(DATA); }
+    for _ in 0..WAIT_LIMIT {
+        if inb(STATUS) & 0x01 == 0 { break; }
+        let _ = inb(DATA);
+    }
 
     controller_command(0x20)?;
     let mut config = wait_output_any()?;
@@ -156,7 +159,15 @@ pub unsafe fn initialize() -> Result<(), MouseInitError> {
     set_sample_rate(100)?;
     set_sample_rate(80)?;
     send_aux(0xF2)?; // identify device
-    let device_id = wait_aux_output()?;
+    let mut device_id = wait_aux_output()?;
+    if device_id == 0x03 {
+        // Explorer extension: request the five-button wheel report format.
+        set_sample_rate(200)?;
+        set_sample_rate(200)?;
+        set_sample_rate(80)?;
+        send_aux(0xF2)?;
+        device_id = wait_aux_output()?;
+    }
     let packet_len = match device_id {
         0x00 => 3,
         0x03 | 0x04 => 4,
@@ -185,11 +196,11 @@ pub fn set_screen_bounds(width: u32, height: u32) {
     let flags: u32;
     unsafe {
         core::arch::asm!("pushfd; pop {0}; cli", out(reg) flags, options(nomem));
-        let state = &mut *core::ptr::addr_of_mut!(DECODER);
-        state.max_x = width.saturating_sub(1).min(i32::MAX as u32) as i32;
-        state.max_y = height.saturating_sub(1).min(i32::MAX as u32) as i32;
-        state.x = state.max_x / 2;
-        state.y = state.max_y / 2;
+        let state = core::ptr::addr_of_mut!(DECODER);
+        (*state).max_x = width.saturating_sub(1).min(i32::MAX as u32) as i32;
+        (*state).max_y = height.saturating_sub(1).min(i32::MAX as u32) as i32;
+        (*state).x = (*state).max_x / 2;
+        (*state).y = (*state).max_y / 2;
         if flags & (1 << 9) != 0 { interrupts_enable(); }
     }
 }
@@ -199,10 +210,10 @@ pub fn snapshot() -> MouseSnapshot {
     let flags: u32;
     unsafe {
         core::arch::asm!("pushfd; pop {0}; cli", out(reg) flags, options(nomem));
-        let state = &*core::ptr::addr_of!(DECODER);
+        let state = core::ptr::addr_of!(DECODER);
         let snapshot = MouseSnapshot {
-            x: state.x, y: state.y, buttons: state.buttons, wheel: state.wheel,
-            packets: state.packets, initialized: state.initialized,
+            x: (*state).x, y: (*state).y, buttons: (*state).buttons, wheel: (*state).wheel,
+            packets: (*state).packets, initialized: (*state).initialized,
         };
         if flags & (1 << 9) != 0 { interrupts_enable(); }
         snapshot
