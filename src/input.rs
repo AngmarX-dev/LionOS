@@ -42,10 +42,9 @@ pub unsafe fn initialize_irq() -> Result<(), KeyboardInitError> {
     wait_input_empty()?;
 
     crate::arch::x86::outb(0x64, 0x20); // read controller configuration byte
-    let mut status = 0u8;
     let mut config = None;
     for _ in 0..WAIT_LIMIT {
-        status = inb(0x64);
+        let status = inb(0x64);
         if status & 0x01 != 0 {
             if status & 0x20 != 0 { return Err(KeyboardInitError::AuxiliaryDataPending); }
             config = Some(inb(0x60));
