@@ -27,7 +27,7 @@ or the repository's default branch.
 - RGB 24/32-bpp Multiboot2 framebuffer metadata validation and CPU pixel/rectangle
   drawing when the framebuffer is addressable below 4 GiB.
 - Bounded in-memory file store (RAMFS core).
-- Static task registry and priority-based ready-task selection metadata.
+- IRQ-safe fixed-capacity task registry with priority-based ready-task selection metadata; context switching and preemption remain unimplemented.
 - PS/2 keyboard data polling primitive.
 - Ethernet frame-header parser.
 - Initial syscall-number ABI draft.
@@ -696,3 +696,26 @@ requires a future Reset Endpoint command/recovery path.
 
 No Cargo build, QEMU boot, or physical hardware test was run; development
 testing remains deferred as requested.
+
+
+## Kernel synchronization primitives
+
+Added `src/sync.rs` with two allocation-free synchronization types:
+
+- `SpinLock<T>`: acquire/release atomic spin lock with blocking lock and
+  non-blocking `try_lock` acquisition.
+- `IrqSpinLock<T>`: saves the current IF state, disables local maskable
+  interrupts before acquiring the atomic lock, and restores the prior IF state
+  when its guard is dropped. This prevents same-CPU maskable interrupt
+  re-entry from deadlocking on a lock held by interrupted code; the atomic
+  operation also serializes access between CPUs.
+
+The fixed-capacity task registry now uses `IrqSpinLock` for registration,
+state changes, ready-task selection, snapshots and task counting. Task IDs
+remain nonzero and callers cannot transition a task back to the Empty state
+through the public state API.
+
+These primitives do not yet provide a scheduler, context switching, SMP
+startup, NMI synchronization, or protection against callers holding locks
+across blocking operations. No build, QEMU boot, or hardware test was run;
+validation for this stage is GitHub source read-back only.
