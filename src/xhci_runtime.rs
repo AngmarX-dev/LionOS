@@ -546,7 +546,6 @@ impl ControllerLifecycle {
     pub fn note_halted(&mut self) -> Result<(), LifecycleError> {
         if self.phase != ControllerPhase::OwnershipGranted
             && self.phase != ControllerPhase::Resetting
-            && self.phase != ControllerPhase::Recovering
         {
             return Err(LifecycleError::InvalidTransition);
         }
