@@ -13,6 +13,7 @@ pub unsafe fn configure(address: u64, pitch: u32, width: u32, height: u32, bpp: 
     red_pos: u8, red_size: u8, green_pos: u8, green_size: u8, blue_pos: u8, blue_size: u8) -> bool {
     if address == 0 || address > u32::MAX as u64 || width == 0 || height == 0
         || !matches!(bpp, 24 | 32)
+        || red_size == 0 || green_size == 0 || blue_size == 0
         || red_size > 8 || green_size > 8 || blue_size > 8
         || red_pos as u16 + red_size as u16 > bpp as u16
         || green_pos as u16 + green_size as u16 > bpp as u16
