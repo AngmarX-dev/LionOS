@@ -1,4 +1,4 @@
-//! PCI discovery, passive BAR decoding and bounded command-register control.
+//! PCI discovery, passive BAR decoding, reversible BAR sizing and command control.
 use crate::arch::x86::{inl,outl,outw};
 pub const PCI_BAR_COUNT:usize=6;
 #[derive(Clone,Copy,Debug)]
@@ -14,15 +14,43 @@ pub struct PciDevice{
  let a=0x8000_0000|((bus as u32)<<16)|((dev as u32)<<11)|((fun as u32)<<8)|((off as u32)&0xFC);
  outl(0xCF8,a);inl(0xCFC)
 }
-/// Write only the 16-bit PCI Command register. Avoid writing the adjacent
-/// Status register because several status bits are write-one-to-clear.
+unsafe fn write_config(bus:u8,dev:u8,fun:u8,off:u8,value:u32){
+ let a=0x8000_0000|((bus as u32)<<16)|((dev as u32)<<11)|((fun as u32)<<8)|((off as u32)&0xFC);
+ outl(0xCF8,a);outl(0xCFC,value);
+}
+/// Probe a memory BAR's implemented size and restore every modified register.
+/// Decoding and bus mastering are disabled during the reversible sizing probe.
+pub unsafe fn probe_memory_bar_size(device:&PciDevice,index:usize)->Option<u64>{
+ if index>=PCI_BAR_COUNT{return None;}
+ let bar=device.bars[index];
+ if bar.kind!=2&&bar.kind!=4{return None;}
+ if bar.kind==4&&index+1>=PCI_BAR_COUNT{return None;}
+ let off=0x10+(index as u8)*4;
+ let command=read_config(device.bus,device.device,device.function,0x04) as u16;
+ outl(0xCF8,0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04);
+ outw(0xCFC,command&!0x0007);
+ let low_original=read_config(device.bus,device.device,device.function,off);
+ let high_original=if bar.kind==4{read_config(device.bus,device.device,device.function,off+4)}else{0};
+ write_config(device.bus,device.device,device.function,off,u32::MAX);
+ if bar.kind==4{write_config(device.bus,device.device,device.function,off+4,u32::MAX);}
+ let low_mask=read_config(device.bus,device.device,device.function,off);
+ let high_mask=if bar.kind==4{read_config(device.bus,device.device,device.function,off+4)}else{0};
+ if bar.kind==4{write_config(device.bus,device.device,device.function,off+4,high_original);}
+ write_config(device.bus,device.device,device.function,off,low_original);
+ outl(0xCF8,0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04);
+ outw(0xCFC,command);
+ let mask=if bar.kind==4{((high_mask as u64)<<32)|((low_mask&0xFFFF_FFF0) as u64)}else{(low_mask&0xFFFF_FFF0) as u64};
+ if mask==0{return None;}
+ let size=(!mask).wrapping_add(1);
+ if size==0||!size.is_power_of_two(){return None;}
+ Some(size)
+}
+/// Write only the 16-bit PCI Command register; avoid adjacent W1C Status bits.
 pub unsafe fn enable_memory_space(device:&PciDevice)->bool{
  let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;
  let command=read_config(device.bus,device.device,device.function,0x04) as u16;
- outl(0xCF8,address);
- outw(0xCFC,command|0x0002);
- let verify=read_config(device.bus,device.device,device.function,0x04) as u16;
- verify&0x0002!=0
+ outl(0xCF8,address);outw(0xCFC,command|0x0002);
+ (read_config(device.bus,device.device,device.function,0x04) as u16)&0x0002!=0
 }
 unsafe fn decode_bars(bus:u8,dev:u8,fun:u8,header:u8)->([PciBar;PCI_BAR_COUNT],u8){
  let mut bars=[PciBar::EMPTY;PCI_BAR_COUNT];let mut count=0;

@@ -185,7 +185,8 @@ fn report_xhci(){
                 write_str("; OS ownership: ");write_str(if info.os_owned{"claimed"}else{"not claimed"});write_str("\n");
             }else{write_str("  Legacy Support capability not found\n");}
             if !info.ext_caps_valid{write_str("[WARN] Extended capability chain invalid or outside probe window\n");}
-            write_str("[INFO] Passive probe only; controller was not reset and DMA was not started\n");
+            write_str("  Verified BAR size: "); write_hex(info.bar_size as u32); write_str(" bytes\n");
+            write_str("[INFO] Capability scan complete; requesting safe ownership handoff/reset\n");
         },
         None=>write_str("[INFO] No usable xHCI controller found in the current 32-bit MMIO window\n"),
     }
@@ -261,6 +262,24 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
 
     report_pci();
     report_xhci();
+    let xhci_init=xhci::initialize();
+    write_str("xHCI initialization result: ");
+    match xhci_init.status {
+        xhci::InitStatus::NoController=>write_str("no controller"),
+        xhci::InitStatus::InvalidBar=>write_str("BAR validation failed"),
+        xhci::InitStatus::InvalidCapabilities=>write_str("invalid capability chain/register window"),
+        xhci::InitStatus::OwnershipTimeout=>write_str("BIOS ownership timeout; reset skipped"),
+        xhci::InitStatus::StopTimeout=>write_str("controller halt timeout; reset skipped"),
+        xhci::InitStatus::ResetTimeout=>write_str("host reset timeout"),
+        xhci::InitStatus::NotReadyTimeout=>write_str("controller-not-ready timeout"),
+        xhci::InitStatus::ReadyStopped=>write_str("ready and halted; DMA not started"),
+    }
+    write_str("\\n");
+    write_str("  OS ownership requested: ");write_str(if xhci_init.ownership_requested{"yes"}else{"not needed"});
+    write_str("; BIOS released: ");write_str(if xhci_init.bios_released{"yes"}else{"no/unknown"});
+    write_str("; halted: ");write_str(if xhci_init.controller_halted{"yes"}else{"no"});
+    write_str("; reset: ");write_str(if xhci_init.reset_completed{"complete"}else{"not complete"});
+    write_str("; CNR clear: ");write_str(if xhci_init.controller_ready{"yes"}else{"no/unknown"});write_str("\\n");
     initialize_subsystems();
 
     write_str("\nRUST PORT INVENTORY\n");
@@ -270,8 +289,8 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] RGB framebuffer software drawing (when supplied below 4 GiB)\n");
     write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 polling primitives\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");
-    write_str("[ OK ] xHCI PCI capability discovery and bounded passive register inspection\n");
-    write_str("[ -- ] xHCI ownership handoff, controller reset, rings, USB enumeration, NIC drivers and TCP/IP not implemented\n");
+    write_str("[ OK ] xHCI PCI capability discovery, BAR sizing and ownership/reset state machine\n");
+    write_str("[ -- ] xHCI DMA rings, interrupter setup, port handling and USB enumeration not implemented\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");
     idle_forever()

@@ -22,7 +22,7 @@ or the repository's default branch.
 - PCI configuration-space enumeration, command/status and interrupt metadata, passive BAR decoding, and safe 16-bit Command-register memory-decode enable.
 - Identity-mapped PCI MMIO window access with 4 MiB PDE PCD/PWT cache-disable marking; current implementation is limited to 32-bit physical BAR ranges and the bootstrap page map.
 - Zeroed, physically contiguous DMA buffer allocator with page alignment, optional power-of-two boundary constraints and exclusive maximum physical address; current DMA addresses are limited below 4 GiB.
-- Passive xHCI PCI discovery and bounded 4 KiB capability-register inspection, including controller version, slot/port/interrupter limits, 64-bit DMA capability, doorbell/runtime offsets, USBSTS and legacy BIOS/OS ownership bits.
+- xHCI PCI discovery, reversible memory-BAR sizing, bounded 4 KiB capability inspection, BIOS/OS ownership request, bounded controller halt/reset and CNR readiness checks; controller remains halted and DMA is not started.
 - Fixed-capacity device registry (256 entries) and driver match/probe API (16 slots); no hardware drivers are registered yet.
 - RGB 24/32-bpp Multiboot2 framebuffer metadata validation and CPU pixel/rectangle
   drawing when the framebuffer is addressable below 4 GiB.
@@ -49,7 +49,7 @@ from supporting USB devices after the kernel starts.
 - In firmware setup, enable legacy BIOS/CSM boot if available and select the USB
   device from the one-time boot menu.
 - This image does not currently provide UEFI boot support.
-- xHCI is currently at passive capability-discovery stage only. Controller ownership handoff, reset, run/stop, command/event rings, port handling and USB enumeration are not implemented.
+- xHCI can validate its memory BAR, request OS ownership, halt and reset the controller with bounded waits. It deliberately leaves Run/Stop disabled and does not allocate DMA rings, enumerate devices or handle ports.
 - USB keyboard and mouse HID drivers are not implemented. Firmware USB legacy
   emulation may work on some machines, but is not guaranteed.
 - The kernel currently has no persistent block storage or USB filesystem
@@ -79,7 +79,7 @@ limited and must not be represented as production-ready:
 | PCI / devices | Passive enumeration and BAR metadata, bounded registry and driver-binding API; no BAR sizing, resource mapping or active drivers |
 | USB boot | BIOS firmware + GRUB loads the kernel; post-handoff USB storage is not supported |
 | DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |
-| USB controllers | xHCI PCI discovery and passive capability inspection only; no ownership handoff, reset, DMA rings or USB enumeration |
+| USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; controller remains stopped; no DMA rings or USB enumeration |
 | USB HID | Keyboard/mouse drivers not implemented |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
@@ -145,7 +145,7 @@ It is not triggered automatically on every push.
 5. Add user-mode transition, process address spaces and syscall entry/return.
 6. Add a VFS abstraction, initramfs and persistent block-device support.
 7. Add storage drivers appropriate to supported hardware (NVMe/AHCI/ATA).
-8. Continue xHCI from passive capability discovery: implement PCI BAR sizing/resource validation, BIOS/OS ownership handoff through the xHCI legacy support capability, controller stop/reset with bounded timeouts, then DMA rings, interrupter setup, port reset and device enumeration. Add APIC/MSI routing or a carefully validated polling path before USB HID and mass storage.
+8. Continue xHCI from the completed BAR validation, ownership handoff and bounded halt/reset stage: implement DMA rings, interrupter setup, port reset and device enumeration. Add APIC/MSI routing or a carefully validated polling path before USB HID and mass storage.
 9. Add UEFI boot support with an architecture-compatible loader and handoff.
 10. Add NIC drivers and a tested network stack.
 11. Expand the graphics stack: framebuffer backend, fonts, compositor, window/event
@@ -165,4 +165,11 @@ The current MMIO accessor relies on the temporary 4 GiB identity map and marks w
 
 ## xHCI discovery scope
 
-`src/xhci.rs` currently identifies PCI functions with class `0x0C`, subclass `0x03`, programming interface `0x30`, and reads a bounded 4 KiB MMIO capability window. It reports HCIVERSION, CAPLENGTH, HCSParams1, HCCParams1, DBOFF, RTSOFF, USBSTS and the xHCI Legacy Support capability ownership bits. It performs no register writes, does not claim OS ownership, does not reset or start the controller, does not enable PCI bus mastering, and does not allocate or submit DMA structures. The BAR size is not probed; the 4 KiB window is an initial bounded inspection assumption, not proof of the full BAR resource size. The next safe step is BAR resource validation and the BIOS/OS ownership handshake before any controller state transition.
+`src/xhci.rs` currently identifies PCI functions with class `0x0C`, subclass `0x03`, programming interface `0x30`, and reads a bounded 4 KiB MMIO capability window. It reports HCIVERSION, CAPLENGTH, HCSParams1, HCCParams1, DBOFF, RTSOFF, USBSTS and the xHCI Legacy Support capability ownership bits. It performs no register writes, does not claim OS ownership, does not reset or start the controller, does not enable PCI bus mastering, and does not allocate or submit DMA structures. The BAR size is not probed; the 4 KiB window is an initial bounded inspection assumption, not proof of the full BAR resource size. The implemented next stage validates the BAR size, requests OS ownership, waits for BIOS release, halts the controller and performs a bounded host reset. The controller is left halted; no DMA or USB transfers are started. BAR sizing temporarily disables PCI I/O, memory decoding and bus mastering, restores BARs and the original Command register, and does not reassign resources.
+
+
+## xHCI ownership and reset stage
+
+The xHCI bring-up now performs a reversible PCI memory-BAR size probe before mapping the register window. It temporarily disables PCI I/O decode, memory decode and bus mastering, probes the BAR mask (including a 64-bit BAR pair), restores both BAR dwords and restores the original 16-bit Command register. It rejects a BAR that is smaller than the bounded capability window or extends beyond the current 32-bit identity map. It does not allocate or reassign PCI resources.
+
+If the xHCI Legacy Support capability is present and BIOS Owned is set, the kernel sets OS Owned and waits a bounded interval for BIOS Owned to clear. A timeout aborts the reset path. Once ownership is available, the kernel clears USBCMD.Run/Stop, waits for USBSTS.Halted, sets Host Controller Reset, waits for HCRST to clear, then waits for USBSTS.Controller Not Ready to clear. All waits are bounded. The controller is intentionally left halted; PCI bus mastering remains disabled, and no DMA structures, command rings, event rings, interrupters or port operations are started. This is an initialization foundation, not USB device support. The BAR probe and hardware state transitions have not been build- or hardware-tested in this development session.
