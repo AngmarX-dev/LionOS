@@ -719,3 +719,39 @@ These primitives do not yet provide a scheduler, context switching, SMP
 startup, NMI synchronization, or protection against callers holding locks
 across blocking operations. No build, QEMU boot, or hardware test was run;
 validation for this stage is GitHub source read-back only.
+
+
+## Physical and virtual memory management
+
+The physical frame allocator retains its fixed 4 KiB bitmap model for the
+32-bit physical address space and now exposes additional ownership operations:
+
+- Runtime `reserve_region` rounds a physical interval outward and refuses to
+  reserve frames already owned by an allocation. This is used to keep the
+  Multiboot framebuffer out of the general frame pool.
+- `is_frame_allocated`, `is_ready`, and allocator statistics expose bounded
+  state queries.
+- `alloc_zeroed_pages` and `alloc_zeroed_frame` provide cleared physical
+  pages after paging is active. Size overflow is rejected before allocation.
+- Existing aligned and boundary-constrained contiguous allocations remain the
+  basis for DMA buffers.
+
+The paging layer retains the initial supervisor-only 4 GiB identity map using
+4 MiB PSE entries, and can split an individual large-page PDE into a 4 KiB page
+table while preserving the unaffected mappings. It now provides:
+
+- 4 KiB `map_page`, explicit `remap_page`, and `unmap_page` operations.
+- Contiguous `map_range` with rollback of mappings on failure, plus validated
+  `unmap_range`.
+- Virtual-to-physical `translate` for both 4 MiB and 4 KiB mappings.
+- MMIO cache-disable marking for either large pages or 4 KiB PTEs.
+- IRQ-safe serialization of page-table mutations and local TLB invalidation.
+
+Important boundaries: the kernel still uses one shared page directory; there
+are no per-process address spaces, CR3 context switching, demand paging,
+copy-on-write, swap, kernel/user isolation, or page-fault-based lazy allocation.
+The initial identity map remains writable and supervisor-only. This is a
+managed 4 KiB mapping foundation, not complete virtual-memory isolation.
+
+No Cargo build, QEMU boot, or physical-memory stress test was run. Source
+read-back from the Rust branch is the only validation performed in this stage.
