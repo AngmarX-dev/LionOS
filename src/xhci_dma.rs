@@ -62,7 +62,8 @@ impl UsbPayloadBuffer {
   ->Result<(),UsbPayloadError>{
   if result.data_buffer!=self.physical_address()
    ||result.requested_length as usize>self.length()
-   ||result.residual_length>result.requested_length as u32 {
+   ||result.residual_length>result.requested_length as u32
+   ||result.actual_length!=result.requested_length-(result.residual_length as u16) {
    return Err(UsbPayloadError::CompletionMismatch);
   }
   if !self.buffer.reclaim_after_transfer_completion(){
@@ -78,7 +79,8 @@ impl UsbPayloadBuffer {
   }
   if result.data_buffer!=self.physical_address()
    ||result.requested_length as usize>self.length()
-   ||result.residual_length>result.requested_length as u32 {
+   ||result.residual_length>result.requested_length as u32
+   ||result.actual_length!=result.requested_length-(result.residual_length as u16) {
    return Err(UsbPayloadError::CompletionMismatch);
   }
   if !result.completion.is_success(){return Err(UsbPayloadError::CompletionMismatch);}
@@ -896,7 +898,7 @@ impl TransferTracker {
             endpoint_id:decoded.endpoint_id,completion:decoded.completion,
             residual_length:decoded.residual_length,data_buffer:pending.data_buffer,
             requested_length:pending.requested_length,
-            actual_length:pending.requested_length-pending.requested_length.min(decoded.residual_length as u16)};
+            actual_length:pending.requested_length-(decoded.residual_length as u16)};
         for i in index..self.len-1 {self.pending[i]=self.pending[i+1];}
         self.len-=1;self.pending[self.len]=None;Ok(result)
     }
