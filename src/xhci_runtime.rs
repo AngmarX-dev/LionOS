@@ -5,7 +5,7 @@
 //! the host controller. Hardware activation requires a separately reviewed
 //! sequencing layer and hardware validation.
 
-use crate::xhci_dma::{EventRecord, EventRing, EventType};
+use crate::xhci_dma::{EventAckToken, EventRecord, EventRing, EventType};
 
 const IMAN_IE: u32 = 1 << 1;
 const IMAN_IP: u32 = 1 << 0;
@@ -174,4 +174,101 @@ impl EventPump {
             },
         )
     }
+}
+
+
+/// Software model of controller runtime activation. Transitions represent
+/// externally verified facts; this type performs no hardware operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimePhase {
+    Halted,
+    DmaConfigured,
+    InterrupterPrepared,
+    Running,
+    Recovering,
+    Faulted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeTransitionError {
+    InvalidTransition,
+    PendingEvents,
+}
+
+pub struct RuntimeLifecycle {
+    phase: RuntimePhase,
+    generation: u32,
+}
+
+impl RuntimeLifecycle {
+    pub const fn new_halted() -> Self {
+        Self { phase: RuntimePhase::Halted, generation: 0 }
+    }
+
+    pub fn phase(&self) -> RuntimePhase { self.phase }
+    pub fn generation(&self) -> u32 { self.generation }
+
+    /// Call only after the caller has independently verified DMA register setup.
+    pub fn note_dma_configured(&mut self) -> Result<(), RuntimeTransitionError> {
+        if self.phase != RuntimePhase::Halted {
+            return Err(RuntimeTransitionError::InvalidTransition);
+        }
+        self.phase = RuntimePhase::DmaConfigured;
+        Ok(())
+    }
+
+    /// Call only after the caller has independently verified ERST/ERDP and
+    /// interrupter register programming while the controller remains halted.
+    pub fn note_interrupter_prepared(&mut self) -> Result<(), RuntimeTransitionError> {
+        if self.phase != RuntimePhase::DmaConfigured {
+            return Err(RuntimeTransitionError::InvalidTransition);
+        }
+        self.phase = RuntimePhase::InterrupterPrepared;
+        Ok(())
+    }
+
+    /// Records a verified external Run/Stop transition. Does not set USBCMD.RS.
+    pub fn note_running(&mut self) -> Result<(), RuntimeTransitionError> {
+        if self.phase != RuntimePhase::InterrupterPrepared {
+            return Err(RuntimeTransitionError::InvalidTransition);
+        }
+        self.phase = RuntimePhase::Running;
+        Ok(())
+    }
+
+    pub fn note_recovery(&mut self) -> Result<(), RuntimeTransitionError> {
+        if self.phase != RuntimePhase::Running {
+            return Err(RuntimeTransitionError::InvalidTransition);
+        }
+        self.phase = RuntimePhase::Recovering;
+        Ok(())
+    }
+
+    /// Return to Halted only after hardware halt and DMA quiescence are verified.
+    pub fn note_quiesced(&mut self) -> Result<(), RuntimeTransitionError> {
+        if self.phase != RuntimePhase::Recovering && self.phase != RuntimePhase::Faulted {
+            return Err(RuntimeTransitionError::InvalidTransition);
+        }
+        self.phase = RuntimePhase::Halted;
+        self.generation = self.generation.wrapping_add(1);
+        Ok(())
+    }
+
+    pub fn note_fault(&mut self) {
+        self.phase = RuntimePhase::Faulted;
+    }
+}
+
+/// Snapshot an Event Ring acknowledgement transaction. The caller must
+/// perform the correctly ordered ERDP MMIO write, then commit the token.
+pub fn prepare_event_acknowledgement(ring: &EventRing) -> Option<EventAckToken> {
+    ring.prepare_acknowledgement()
+}
+
+/// Commit bookkeeping only after a successful ERDP write was confirmed.
+pub fn commit_event_acknowledgement(
+    ring: &mut EventRing,
+    token: EventAckToken,
+) -> bool {
+    ring.commit_acknowledgement(token)
 }
