@@ -230,7 +230,8 @@ fn report_usb_enumeration(){
     write_str("  Current enumerated devices: ");write_dec(manager.device_count() as u32);write_str("\n");
     write_str("  EP0 architecture: per-slot transfer rings; lazy allocation after Slot assignment\n");
     write_str("  EP0 endpoint target: 1; stream target: 0\n");
-    write_str("[INFO] EP0 ring ownership and dispatcher are implemented but not instantiated; no USB commands submitted\n");
+    write_str("  Event runtime: bounded batch routing to command/transfer engines; ERDP ack gated by MMIO success\n");
+    write_str("[INFO] Event runtime APIs are not activated in boot; no USB commands submitted or events polled\n");
 }
 
 fn initialize_subsystems() {
