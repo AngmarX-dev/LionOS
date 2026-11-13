@@ -24,14 +24,13 @@ or the repository's default branch.
 - Zeroed, physically contiguous DMA buffer allocator with page alignment, optional power-of-two boundary constraints and exclusive maximum physical address; current DMA addresses are limited below 4 GiB.
 - xHCI PCI discovery, reversible memory-BAR sizing, bounded 4 KiB capability inspection, BIOS/OS ownership request, bounded controller halt/reset and CNR readiness checks; controller remains halted; DMA ring/base registers are now configured while PCI bus mastering and Run/Stop remain disabled.
 - Fixed-capacity device registry (256 entries) and driver match/probe API (16 slots); no hardware drivers are registered yet.
-- RGB 24/32-bpp Multiboot2 framebuffer metadata validation and CPU pixel/rectangle
-  drawing when the framebuffer is addressable below 4 GiB.
+- RGB 24/32-bpp Multiboot2 framebuffer validation, clipped pixel/rectangle operations, gradients, rounded rectangles, line rasterization, outlines and a built-in 5x7 ASCII text renderer; all software-rendered below 4 GiB.
 - Bounded in-memory file store (RAMFS core).
 - IRQ-safe fixed-capacity task registry with priority-based ready-task selection metadata; context switching and preemption remain unimplemented.
 - PS/2 keyboard data polling primitive.
 - Ethernet frame-header parser.
 - Initial syscall-number ABI draft.
-- Basic framebuffer window rectangle compositor primitive.
+- Software desktop compositor with layered window panels, bitmap text, gradient background, dock surface and save-under mouse pointer.
 - BIOS bootable Multiboot2 ISO packaging via GRUB, with a hybrid-ISO workflow intended for USB writing.
 - Manually dispatched GitHub Actions workflow that builds the kernel and ISO and uploads the image artifact.
 
@@ -81,7 +80,7 @@ limited and must not be represented as production-ready:
 | DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |
 | USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; DMA rings, DCBAA, slot-1 contexts and optional scratchpads allocated; DCBAAP/CRCR/ERST registers configured while halted; bus mastering and Run/Stop disabled; no USB enumeration |
 | USB HID | Keyboard/mouse drivers not implemented |
-| Framebuffer | CPU software drawing; no accelerated GPU command submission |
+| Framebuffer | RGB 24/32-bpp software renderer with clipping, primitive shapes, bitmap text and desktop composition; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
 | NVIDIA RTX | PCI discovery only; native driver not implemented |
 | Tasks | Registry only; no context switch, scheduler tick or user mode |
@@ -830,3 +829,10 @@ The x86 implementation is exposed through a dedicated src/arch/mod.rs boundary i
 The Control Protection exception (#CP, vector 21) ISR now uses the CPU-pushed error-code layout, matching #DF, #TS, #NP, #SS, #GP, #PF, #AC, #VE, #VC and #SX. Exception frames retain the normalized vector/error-code shape expected by the common dispatcher.
 
 This is an architectural source integration pass, not a declaration that the kernel is end-to-end complete. AP startup, APIC/IOAPIC routing, real task switching, per-process address spaces, user-mode entry, and device-driver activation remain outside the current boot contract. No build, QEMU, or hardware validation was run for this pass.
+
+
+## Software Graphics Engine completion pass
+
+The RGB framebuffer backend now rejects overlapping channel masks and validates pitch/span arithmetic with checked operations before accepting a Multiboot2 framebuffer. The software renderer exposes clipped gradients, rectangle outlines, rounded rectangles, Bresenham lines and a compact 5x7 ASCII bitmap text renderer (scale 1–4). The desktop compositor now builds a complete diagnostic scene from these primitives, including a gradient background, top bar, information panel, cards and dock. The existing save-under pointer remains the final overlay and redraws only after movement.
+
+The implementation is CPU-rendered against the firmware-provided packed RGB framebuffer. It does not provide GPU acceleration, page-flipping/double buffering, alpha-composited surfaces, font shaping, Unicode text, display mode setting, Intel/NVIDIA drivers or tear-free presentation. Framebuffer mapping is still constrained by the current 32-bit identity map. No build, QEMU or physical display validation was run.
