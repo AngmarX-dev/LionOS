@@ -72,7 +72,7 @@ limited and must not be represented as production-ready:
 |---|---|
 | Boot / Multiboot2 | 32-bit kernel entry; BIOS GRUB ISO packaging added; boot verification pending |
 | UEFI | Not implemented |
-| GDT / TSS / IDT | Flat ring-0 GDT and loaded 32-bit TSS; context ABI defined; cooperative kernel context-switch primitive available; scheduler integration and ring-3 transition remain pending; exceptions fail-stop |
+| GDT / TSS / IDT | Flat ring-0 GDT and loaded 32-bit TSS; context ABI and cooperative switch primitive; exception diagnostics with INT3 resume, other CPU exceptions fail-stop; user-mode delivery and emergency double-fault stack pending |
 | PIC / IRQ | PIC remapped; IRQ0 enabled for PIT; remaining IRQs masked; legacy PIC only |
 | Physical memory | Fixed bitmap allocator, aligned/boundary-constrained contiguous allocations and 4 GiB identity map; no isolation or demand paging |
 | Heap | Page-backed global allocator; page-granular allocations only |
@@ -158,7 +158,7 @@ It is not triggered automatically on every push.
 1. Verify and correct the current freestanding build/link contract.
 2. Replace the bring-up identity map with a deliberate kernel virtual-memory layout,
    page-level permissions, guard pages and memory protection.
-3. Add APIC/IOAPIC support, spurious IRQ handling, robust exception diagnostics/recovery and interrupt-safe synchronization.
+3. Add APIC/IOAPIC support, spurious IRQ handling, emergency double-fault stack, kernel exception fixup tables, user-mode fault delivery and interrupt-safe synchronization.
 4. Add a real scheduler and architecture context-switch implementation.
 5. Add user-mode transition, process address spaces and syscall entry/return.
 6. Add a VFS abstraction, initramfs and persistent block-device support.
