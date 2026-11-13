@@ -570,13 +570,12 @@ The xHCI DMA layer now supports generic USB control-transfer TD construction:
   notification. Transfer Events are correlated through the existing tracker.
 
 This adds the software path needed for descriptor reads and no-data requests
-such as SET_CONFIGURATION. It does not yet provide a live controller event
-loop, hardware-backed DMA buffer allocator for arbitrary USB payloads, or
-automatic integration that advances `UsbDeviceManager` after each successful
-transfer. The boot sequence does not instantiate this dispatcher, transition
-xHCI to Running, ring an endpoint doorbell, or enumerate a connected device.
-The event-ring ERDP acknowledgement and transfer-ring reclamation protocols
-remain separate prerequisites.
+such as SET_CONFIGURATION. The later USB DMA payload section adds bounded
+payload allocation and descriptor acceptance helpers, but there is still no
+live controller event loop or automatic end-to-end enumeration. The boot
+sequence does not instantiate this dispatcher, transition xHCI to Running,
+ring an endpoint doorbell, or enumerate a connected device. Event-ring ERDP
+acknowledgement and transfer-ring reclamation remain separate prerequisites.
 
 No build, QEMU, or physical hardware test was run for this stage.
 
