@@ -841,6 +841,7 @@ pub enum TransferError {
     InvalidSlot,
     InvalidEndpoint,
     InvalidBuffer,
+    InvalidResidualLength,
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub struct TransferResult {
