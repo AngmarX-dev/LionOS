@@ -406,6 +406,15 @@ pub extern "C" fn lionos_interrupt_dispatch(frame:*const InterruptFrame) {
         unsafe { TIMER_TICKS=TIMER_TICKS.wrapping_add(1); crate::scheduler::on_timer_tick(); crate::arch::x86::outb(0x20,0x20); }
         return;
     }
+    if vector == 33 {
+        // IRQ1: consume one keyboard byte, enqueue it, then acknowledge the master PIC.
+        unsafe {
+            let byte = crate::arch::x86::inb(0x60);
+            crate::input::handle_irq_byte(byte);
+            crate::arch::x86::outb(0x20, 0x20);
+        }
+        return;
+    }
     if vector == 44 {
         // IRQ12: consume exactly one auxiliary byte before acknowledging both PICs.
         unsafe {
