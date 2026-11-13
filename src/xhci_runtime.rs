@@ -7,7 +7,7 @@
 
 use crate::xhci_dma::{EventAckToken, EventRecord, EventRing, EventType};
 use crate::mmio::MmioRegion;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, fence, Ordering};
 
 const IMAN_IE: u32 = 1 << 1;
 const IMAN_IP: u32 = 1 << 0;
@@ -339,15 +339,18 @@ impl<'a> XhciRuntimeRegisters<'a> {
         if pointer == 0 || pointer & 0xF != 0 || value & 0x7 != 0 || value & (1 << 3) == 0 {
             return Err(RuntimeRegisterError::InvalidErdpValue);
         }
+        fence(Ordering::SeqCst);
         compiler_fence(Ordering::SeqCst);
         if !self.mmio.write32(self.plan.erdp + 4, (value >> 32) as u32) {
             return Err(RuntimeRegisterError::MmioWriteFailed);
         }
+        fence(Ordering::SeqCst);
         compiler_fence(Ordering::SeqCst);
         if !self.mmio.write32(self.plan.erdp, value as u32) {
             return Err(RuntimeRegisterError::MmioWriteFailed);
         }
         compiler_fence(Ordering::SeqCst);
+        fence(Ordering::SeqCst);
         Ok(())
     }
 }
