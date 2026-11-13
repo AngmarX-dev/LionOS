@@ -21,10 +21,16 @@ pub unsafe fn register_driver(driver:DeviceDriver)->Result<u8,()>{
 pub unsafe fn discover(){
  DEVICE_COUNT=0;BOUND_COUNT=0;DROPPED_COUNT=0;for i in 0..MAX_DEVICES{DEVICES[i]=None}
  pci::enumerate(|d|{
+  crate::trace_pci_step(10);
   if DEVICE_COUNT>=MAX_DEVICES{DROPPED_COUNT=DROPPED_COUNT.saturating_add(1);return}
   let mut bound=NO_DRIVER;
   for i in 0..DRIVER_COUNT{if let Some(driver)=DRIVERS[i]{if matches(driver.matcher,&d)&&(driver.probe)(&d){bound=i as u8;BOUND_COUNT+=1;break}}}
-  DEVICES[DEVICE_COUNT]=Some(DeviceRecord{pci:d,driver_index:bound});DEVICE_COUNT+=1;
+  crate::trace_pci_step(11);
+  let slot=DEVICE_COUNT;
+  DEVICES[slot]=Some(DeviceRecord{pci:d,driver_index:bound});
+  crate::trace_pci_step(12);
+  DEVICE_COUNT=slot+1;
+  crate::trace_pci_step(13);
  });
 }
 pub fn device_count()->usize{unsafe{DEVICE_COUNT}}pub fn driver_count()->usize{unsafe{DRIVER_COUNT}}
