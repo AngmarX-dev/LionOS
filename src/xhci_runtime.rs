@@ -81,7 +81,7 @@ impl InterrupterPlan {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub enum RoutedEvent {
     Transfer(EventRecord),
     CommandCompletion(EventRecord),
@@ -102,7 +102,7 @@ impl RoutedEvent {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct EventBatch {
     entries: [Option<RoutedEvent>; EVENT_BATCH_CAPACITY],
     len: usize,
