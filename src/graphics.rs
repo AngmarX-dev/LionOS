@@ -130,11 +130,14 @@ pub fn draw_cursor(x: u32, y: u32) {
         }
         // Bright inner edge for contrast on both light and dark backgrounds.
         for row in 2..11 {
-            let col = if row < 5 { 1 } else { 2 };
-            let px = origin_x + col;
-            let py = origin_y + row as u32;
-            if px < fb.width && py < fb.height {
-                let _ = put_pixel(px, py, 245, 247, 252);
+            for col in 1..CURSOR_WIDTH {
+                if CURSOR_ROWS[row] & (1 << (CURSOR_WIDTH - 1 - col)) != 0 {
+                    let px = origin_x + col as u32;
+                    let py = origin_y + row as u32;
+                    if px < fb.width && py < fb.height {
+                        let _ = put_pixel(px, py, 245, 247, 252);
+                    }
+                }
             }
         }
         CURSOR_X = origin_x;
