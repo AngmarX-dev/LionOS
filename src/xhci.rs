@@ -108,6 +108,9 @@ pub fn initialize()->InitReport{
     };
     let size=unsafe{pci::probe_memory_bar_size(&device,info.bar_index as usize)};
     if size.map_or(true,|s|s!=info.bar_size){return InitReport{status:InitStatus::InvalidBar,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};}
+    if !unsafe{pci::disable_bus_master(&device)}{
+        return InitReport{status:InitStatus::InvalidBar,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};
+    }
     let region=match unsafe{MmioRegion::from_pci_bar(&device,info.bar_index as usize,PROBE_WINDOW)}{
         Some(v)=>v,None=>return InitReport{status:InitStatus::InvalidBar,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false}
     };

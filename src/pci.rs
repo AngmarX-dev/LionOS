@@ -45,6 +45,13 @@ pub unsafe fn probe_memory_bar_size(device:&PciDevice,index:usize)->Option<u64>{
  if size==0||!size.is_power_of_two(){return None;}
  Some(size)
 }
+/// Disable PCI bus mastering without touching the adjacent W1C Status register.
+pub unsafe fn disable_bus_master(device:&PciDevice)->bool{
+ let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;
+ let command=read_config(device.bus,device.device,device.function,0x04) as u16;
+ outl(0xCF8,address);outw(0xCFC,command&!0x0004);
+ (read_config(device.bus,device.device,device.function,0x04) as u16)&0x0004==0
+}
 /// Write only the 16-bit PCI Command register; avoid adjacent W1C Status bits.
 pub unsafe fn enable_memory_space(device:&PciDevice)->bool{
  let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;
