@@ -118,7 +118,22 @@ fn init_link(buffer:&crate::dma::DmaBuffer)->bool{
 pub struct ProducerRing{buffer:crate::dma::DmaBuffer,enqueue:usize,cycle:bool}
 impl ProducerRing{
  fn new(buffer:crate::dma::DmaBuffer)->Self{let _=init_link(&buffer);Self{buffer,enqueue:0,cycle:true}}
+ /// Allocate one isolated transfer ring below 4 GiB and within a 64 KiB boundary.
+ pub fn allocate()->Result<Self,DmaError>{
+  let buffer=alloc_region(RING_BYTES,65536).ok_or(DmaError::AllocationFailed)?;
+  if !valid_ring(buffer.physical_address()){
+   unsafe{let _=buffer.release();}
+   return Err(DmaError::InvalidAddress);
+  }
+  if !init_link(&buffer){
+   unsafe{let _=buffer.release();}
+   return Err(DmaError::InvalidAddress);
+  }
+  Ok(Self{buffer,enqueue:0,cycle:true})
+ }
  pub fn physical_base(&self)->u64{self.buffer.physical_address()}
+ /// Initial dequeue pointer for a newly created endpoint ring.
+ pub fn initial_dequeue_pointer(&self)->u64{self.buffer.physical_address()}
  pub fn enqueue_index(&self)->usize{self.enqueue}
  pub fn cycle_state(&self)->bool{self.cycle}
  pub fn push(&mut self,mut trb:Trb)->bool{
@@ -135,6 +150,53 @@ impl ProducerRing{
   true
  }
 }
+
+/// xHCI assigns endpoint ID 1 to the default control endpoint (EP0).
+pub const XHCI_EP0_ENDPOINT_ID:u8=1;
+pub const MAX_EP0_TRANSFER_RINGS:usize=32;
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum Ep0RingError{InvalidSlot,DuplicateSlot,CapacityReached,Allocation(DmaError),UnknownSlot}
+struct Ep0RingEntry{slot_id:u8,ring:ProducerRing}
+/// Owns a distinct EP0 Transfer Ring for each registered device Slot.
+/// Entries are intentionally not removed or recycled: safe ring reclamation
+/// requires controller halt/quiescence evidence that this layer does not own.
+pub struct Ep0TransferRings{entries:[Option<Ep0RingEntry>;MAX_EP0_TRANSFER_RINGS],len:usize}
+impl Ep0TransferRings{
+ pub const fn new()->Self{Self{entries:[
+  None,None,None,None,None,None,None,None,
+  None,None,None,None,None,None,None,None,
+  None,None,None,None,None,None,None,None,
+  None,None,None,None,None,None,None,None,
+ ],len:0}}
+ pub fn len(&self)->usize{self.len}
+ pub fn is_empty(&self)->bool{self.len==0}
+ pub fn contains(&self,slot_id:u8)->bool{
+  self.entries.iter().flatten().any(|entry|entry.slot_id==slot_id)
+ }
+ /// Allocate and bind an EP0 ring to a controller-assigned nonzero Slot ID.
+ pub fn register(&mut self,slot_id:u8)->Result<u64,Ep0RingError>{
+  if slot_id==0{return Err(Ep0RingError::InvalidSlot);}
+  if self.contains(slot_id){return Err(Ep0RingError::DuplicateSlot);}
+  let index=self.entries.iter().position(Option::is_none).ok_or(Ep0RingError::CapacityReached)?;
+  let ring=ProducerRing::allocate().map_err(Ep0RingError::Allocation)?;
+  let dequeue=ring.initial_dequeue_pointer();
+  self.entries[index]=Some(Ep0RingEntry{slot_id,ring});
+  self.len+=1;
+  Ok(dequeue)
+ }
+ pub fn ring_mut(&mut self,slot_id:u8)->Result<&mut ProducerRing,Ep0RingError>{
+  self.entries.iter_mut().flatten().find(|entry|entry.slot_id==slot_id)
+   .map(|entry|&mut entry.ring).ok_or(Ep0RingError::UnknownSlot)
+ }
+ pub fn ring(&self,slot_id:u8)->Result<&ProducerRing,Ep0RingError>{
+  self.entries.iter().flatten().find(|entry|entry.slot_id==slot_id)
+   .map(|entry|&entry.ring).ok_or(Ep0RingError::UnknownSlot)
+ }
+ pub fn dequeue_pointer(&self,slot_id:u8)->Result<u64,Ep0RingError>{
+  Ok(self.ring(slot_id)?.initial_dequeue_pointer())
+ }
+}
+
 /// Opaque acknowledgement transaction. Constructed only by EventRing.
 #[derive(Clone,Copy)]
 pub struct EventAckToken{ring_base:u64,consumed:u64,dequeue_pointer:u64,value:u64}
