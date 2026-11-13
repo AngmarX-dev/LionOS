@@ -1,7 +1,13 @@
 name: LionOS Rust Rewrite
 
 on:
+  push:
+    branches:
+      - rewrite/rust-kernel
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   rust-kernel:
@@ -27,10 +33,11 @@ jobs:
         run: |
           grub-file --is-x86-multiboot2 target/i686-unknown-linux-gnu/release/lionos-rust
           readelf -h target/i686-unknown-linux-gnu/release/lionos-rust
+          readelf -l target/i686-unknown-linux-gnu/release/lionos-rust
           file target/i686-unknown-linux-gnu/release/lionos-rust
 
-      - name: Build BIOS bootable USB ISO
-        run: make iso
+      - name: Build and verify BIOS bootable ISO
+        run: make verify-iso
 
       - name: Upload boot image
         uses: actions/upload-artifact@v4
