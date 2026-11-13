@@ -52,6 +52,14 @@ impl DmaBuffer{
             Ordering::AcqRel,Ordering::Acquire).is_ok()
     }
 
+    /// Reclaim a single payload after its matching terminal Transfer Event
+    /// has been validated. The caller must prove that the event belongs to the
+    /// TD that used this buffer; this is not a controller-wide quiescence API.
+    pub unsafe fn reclaim_after_transfer_completion(&self)->bool{
+        self.ownership.compare_exchange(DMA_DEVICE_OWNED,DMA_CPU_OWNED,
+            Ordering::AcqRel,Ordering::Acquire).is_ok()
+    }
+
     /// Release the allocation. The caller must first ensure the device no longer
     /// owns or can access this buffer.
     pub unsafe fn release(self)->bool{
