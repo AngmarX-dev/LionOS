@@ -352,6 +352,20 @@ impl XhciControlTransferDispatcher {
         Ok(pointer)
     }
 
+    /// Pool-handle variant: validates the generation-checked handle before
+    /// transferring ownership and submitting the control TD.
+    pub fn submit_pool_payload(&mut self, ring: &mut crate::xhci_dma::ProducerRing,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, slot_id: u8, endpoint_id: u8,
+        stream_id: u16, setup: crate::xhci_dma::UsbSetupPacket,
+        pool: &crate::xhci_dma::UsbPayloadPool,
+        handle: crate::xhci_dma::UsbPayloadHandle)
+        -> Result<u64, TransferDispatchError> {
+        let payload = pool.get(handle).map_err(TransferDispatchError::Payload)?;
+        self.submit_payload(ring, doorbells, lifecycle, dma_device_owned,
+            slot_id, endpoint_id, stream_id, setup, payload)
+    }
+
     pub fn poll_one(&mut self, events: &mut crate::xhci_dma::EventRing)
         -> crate::xhci_dma::TransferPoll {
         self.engine.poll_one(events)
