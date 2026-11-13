@@ -11,6 +11,7 @@ static mut USED:[u32;WORD_COUNT]=[u32::MAX;WORD_COUNT];
 static mut ALLOCATED:[u32;WORD_COUNT]=[0;WORD_COUNT];
 static mut READY:bool=false;
 static mut FREE_FRAMES:u32=0;
+static mut TOTAL_USABLE_BYTES:u64=0;
 static ALLOCATOR_LOCK:AtomicBool=AtomicBool::new(false);
 
 #[derive(Clone,Copy,Debug)]
@@ -70,6 +71,7 @@ pub unsafe fn init(info:*const u8,total_size:usize)->bool{
         core::ptr::write_volatile(core::ptr::addr_of_mut!(ALLOCATED).cast::<u32>().add(i),0);
     }
     FREE_FRAMES=0;
+    TOTAL_USABLE_BYTES=0;
     let mut offset=8usize;
     let mut map_seen=false;
     while offset.checked_add(8).map_or(false,|v|v<=total_size){
@@ -89,7 +91,10 @@ pub unsafe fn init(info:*const u8,total_size:usize)->bool{
                 let base=read_unaligned(entry.cast::<u64>());
                 let length=read_unaligned(entry.add(8).cast::<u64>());
                 let typ=read_unaligned(entry.add(16).cast::<u32>());
-                if typ==1{mark_region(base,length,false);}
+                if typ==1{
+                    mark_region(base,length,false);
+                    TOTAL_USABLE_BYTES=TOTAL_USABLE_BYTES.saturating_add(length);
+                }
                 pos+=entry_size;
             }
         }
@@ -168,8 +173,41 @@ pub fn alloc_pages(pages:u32)->Option<u32>{
 }
 pub fn alloc_frame()->Option<u32>{alloc_pages(1)}
 
+/// Reserve a physical interval at runtime. The interval is rounded outward.
+/// Already allocated frames cause the operation to fail without partial changes.
+pub fn reserve_region(base:u64,length:u64)->bool{
+    if length==0||base>=PHYSICAL_LIMIT{return false;}
+    let Some(end)=base.checked_add(length)else{return false;};
+    if end>PHYSICAL_LIMIT{return false;}
+    let first=(base>>12) as usize;
+    let last=((end+4095)>>12) as usize;
+    let _guard=AllocatorGuard::acquire();
+    unsafe{
+        if !READY{return false;}
+        for frame in first..last{
+            if bit(core::ptr::addr_of!(ALLOCATED).cast::<u32>(),frame){return false;}
+        }
+        for frame in first..last{
+            if !bit(core::ptr::addr_of!(USED).cast::<u32>(),frame){
+                set_bit(core::ptr::addr_of_mut!(USED).cast::<u32>(),frame,true);
+                FREE_FRAMES=FREE_FRAMES.saturating_sub(1);
+            }
+        }
+    }
+    true
+}
+
+/// Return whether a physical frame is currently owned by an allocation.
+pub fn is_frame_allocated(address:u32)->bool{
+    if address%PAGE_SIZE!=0{return false;}
+    let frame=(address/PAGE_SIZE) as usize;
+    if frame>=FRAME_COUNT{return false;}
+    let _guard=AllocatorGuard::acquire();
+    unsafe{READY&&bit(core::ptr::addr_of!(ALLOCATED).cast::<u32>(),frame)}
+}
+
 pub unsafe fn free_pages(address:u32,pages:u32)->bool{
-    if !READY||pages==0||address%PAGE_SIZE!=0{return false;}
+    if pages==0||address%PAGE_SIZE!=0{return false;}
     let first=(address/PAGE_SIZE) as usize;
     let count=pages as usize;
     if first.checked_add(count).map_or(true,|end|end>FRAME_COUNT){return false;}
@@ -187,7 +225,12 @@ pub unsafe fn free_pages(address:u32,pages:u32)->bool{
 }
 pub unsafe fn free_frame(address:u32)->bool{free_pages(address,1)}
 
-pub fn stats(total_usable_bytes:u64)->MemoryStats{
+pub fn stats(_legacy_total_usable_bytes:u64)->MemoryStats{
     let _guard=AllocatorGuard::acquire();
-    unsafe{MemoryStats{total_usable_bytes,free_frames:FREE_FRAMES,initialized:READY}}
+    unsafe{MemoryStats{total_usable_bytes:TOTAL_USABLE_BYTES,free_frames:FREE_FRAMES,initialized:READY}}
+}
+
+pub fn is_ready()->bool{
+    let _guard=AllocatorGuard::acquire();
+    unsafe{READY}
 }
