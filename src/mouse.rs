@@ -197,8 +197,8 @@ pub fn set_screen_bounds(width: u32, height: u32) {
     unsafe {
         core::arch::asm!("pushfd; pop {0}; cli", out(reg) flags, options(nomem));
         let state = core::ptr::addr_of_mut!(DECODER);
-        (*state).max_x = width.saturating_sub(1).min(i32::MAX as u32) as i32;
-        (*state).max_y = height.saturating_sub(1).min(i32::MAX as u32) as i32;
+        (*state).max_x = width.saturating_sub(12).min(i32::MAX as u32) as i32;
+        (*state).max_y = height.saturating_sub(16).min(i32::MAX as u32) as i32;
         (*state).x = (*state).max_x / 2;
         (*state).y = (*state).max_y / 2;
         if flags & (1 << 9) != 0 { interrupts_enable(); }
