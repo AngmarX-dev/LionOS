@@ -9,6 +9,5 @@ rustflags = [
   "-C", "link-arg=-Wl,-T,linker.ld",
   "-C", "link-arg=-Wl,--build-id=none",
   "-C", "relocation-model=static",
-  "-C", "code-model=kernel",
   "-C", "panic=abort",
 ]
