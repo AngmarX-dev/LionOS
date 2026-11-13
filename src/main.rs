@@ -11,6 +11,7 @@ mod arch {
     pub mod tss;
     pub mod context;
     pub mod interrupts;
+    pub mod exception;
 }
 mod memory;
 mod sync;
