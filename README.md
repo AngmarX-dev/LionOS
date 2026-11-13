@@ -8,8 +8,10 @@ or the repository's default branch.
 
 - 32-bit x86 Multiboot2 entry point, dedicated bootstrap stack and linker script.
 - Freestanding `no_std` Rust kernel with VGA text and COM1 serial diagnostics.
-- Flat ring-0 GDT setup, CPUID feature discovery and a 256-entry fail-stop IDT.
-- Legacy PIC remapping with all IRQ lines kept masked.
+- Flat ring-0 GDT setup and CPUID feature discovery.
+- 256-entry IDT with normalized stubs for CPU exception vectors and legacy IRQ vectors 0–15.
+- Legacy PIC remapping, per-vector dispatch, fail-closed exception handling and master/slave EOI support.
+- PIT channel 0 timer at nominal 100 Hz; IRQ0 is the only unmasked legacy PIC line.
 - Initial supervisor-only 4 GiB identity mapping using 4 MiB PSE pages, guarded by a CPUID PSE capability check.
 - Fixed physical-page allocator with contiguous page allocation; kernel image,
   boot information, low memory and Multiboot2 modules are reserved.
@@ -66,8 +68,8 @@ limited and must not be represented as production-ready:
 |---|---|
 | Boot / Multiboot2 | 32-bit kernel entry; BIOS GRUB ISO packaging added; boot verification pending |
 | UEFI | Not implemented |
-| GDT / IDT | Flat GDT and fail-stop IDT; no per-exception recovery |
-| PIC / IRQ | PIC remapped and masked; interrupt handlers not enabled |
+| GDT / IDT | Flat GDT; dedicated exception/IRQ entry stubs; exceptions fail-stop (no recovery) |
+| PIC / IRQ | PIC remapped; IRQ0 enabled for PIT; remaining IRQs masked; legacy PIC only |
 | Physical memory | Fixed bitmap allocator and 4 GiB identity map; no isolation or demand paging |
 | Heap | Page-backed global allocator; page-granular allocations only |
 | PCI / devices | Passive enumeration and BAR metadata, bounded registry and driver-binding API; no BAR sizing, resource mapping or active drivers |
@@ -80,7 +82,7 @@ limited and must not be represented as production-ready:
 | Tasks | Registry only; no context switch, scheduler tick or user mode |
 | Syscalls | ABI draft; dispatch intentionally returns not-implemented |
 | Filesystem | RAM-only bounded file store; no VFS/block storage/persistent disk FS |
-| Input | PS/2 scancode polling; no IRQ-driven input or USB HID |
+| Input | PS/2 scancode polling; IRQ1 remains masked; no IRQ-driven input or USB HID |
 | Networking | Ethernet header parser only; no NIC driver, ARP, IP, TCP or sockets |
 | Desktop | Basic rectangle drawing; no font system, windows/events or Liquid Glass |
 | SMP / APIC | Not implemented |
@@ -133,7 +135,7 @@ It is not triggered automatically on every push.
 1. Verify and correct the current freestanding build/link contract.
 2. Replace the bring-up identity map with a deliberate kernel virtual-memory layout,
    page-level permissions, guard pages and memory protection.
-3. Add per-vector exception stubs, IRQ dispatch, PIT/APIC timer and safe IRQ handling.
+3. Add APIC/IOAPIC support, spurious IRQ handling, robust exception diagnostics/recovery and interrupt-safe synchronization.
 4. Add a real scheduler and architecture context-switch implementation.
 5. Add user-mode transition, process address spaces and syscall entry/return.
 6. Add a VFS abstraction, initramfs and persistent block-device support.

@@ -209,7 +209,9 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     }
     write_str("[ OK ] Multiboot2 entry verified\n");
     unsafe { arch::interrupts::init(); }
-    write_str("[ OK ] GDT and fail-stop IDT installed; legacy PIC masked\n");
+    write_str("[ OK ] IDT exception/IRQ stubs installed; legacy PIC remapped and masked\n");
+    unsafe { arch::interrupts::timer_init(); }
+    write_str("[ OK ] PIT channel 0 programmed at 100 Hz; IRQ0 enabled\n");
     let cpu=arch::cpu::features();
     write_str("[INFO] CPU features: PSE="); write_str(if cpu.pse {"yes"} else {"no"});
     write_str(" PAE="); write_str(if cpu.pae {"yes"} else {"no"});
@@ -235,7 +237,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     initialize_subsystems();
 
     write_str("\nRUST PORT INVENTORY\n");
-    write_str("[ OK ] x86 port I/O, GDT, IDT fail-stop and PIC masking\n");
+    write_str("[ OK ] x86 port I/O, GDT, IDT exception/IRQ dispatch, PIC and PIT timer\n");
     write_str("[ OK ] Multiboot2 memory map and fixed physical-frame allocator\n");
     write_str("[ OK ] PCI discovery, passive BAR metadata and fixed device registry\n");
     write_str("[ OK ] RGB framebuffer software drawing (when supplied below 4 GiB)\n");
@@ -244,9 +246,10 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ -- ] Disk filesystem, USB host controller, NIC drivers and TCP/IP not implemented\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");
-    halt_forever()
+    idle_forever()
 }
 
+fn idle_forever()->! { loop { unsafe { arch::x86::interrupts_enable(); arch::x86::halt(); } } }
 fn halt_forever()->! { loop { unsafe { arch::x86::interrupts_disable(); arch::x86::halt(); } } }
 #[panic_handler]
 fn panic(_info:&PanicInfo)->! { serial_byte(b'!'); write_str("\n[FATAL] Rust kernel panic\n"); halt_forever() }
