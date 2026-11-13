@@ -6,6 +6,8 @@
 //! sequencing layer and hardware validation.
 
 use crate::xhci_dma::{EventAckToken, EventRecord, EventRing, EventType};
+use crate::mmio::MmioRegion;
+use core::sync::atomic::{compiler_fence, Ordering};
 
 const IMAN_IE: u32 = 1 << 1;
 const IMAN_IP: u32 = 1 << 0;
@@ -271,4 +273,81 @@ pub fn commit_event_acknowledgement(
     token: EventAckToken,
 ) -> bool {
     ring.commit_acknowledgement(token)
+}
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeRegisterError {
+    InvalidErdpValue,
+    MmioWriteFailed,
+    MmioReadFailed,
+}
+
+/// Narrow xHCI runtime-register accessors. The caller must ensure that the
+/// controller is in the required state and that the supplied MMIO mapping
+/// covers the capability-reported runtime register window.
+pub struct XhciRuntimeRegisters<'a> {
+    mmio: &'a MmioRegion,
+    plan: InterrupterPlan,
+}
+
+impl<'a> XhciRuntimeRegisters<'a> {
+    pub const fn new(mmio: &'a MmioRegion, plan: InterrupterPlan) -> Self {
+        Self { mmio, plan }
+    }
+
+    pub fn read_iman(&self) -> Result<u32, RuntimeRegisterError> {
+        self.mmio.read32(self.plan.iman).ok_or(RuntimeRegisterError::MmioReadFailed)
+    }
+
+    /// Set IE without echoing the W1C IP bit.
+    pub fn enable_interrupt(&self) -> Result<(), RuntimeRegisterError> {
+        if self.mmio.write32(self.plan.iman, IMAN_IE) {
+            Ok(())
+        } else {
+            Err(RuntimeRegisterError::MmioWriteFailed)
+        }
+    }
+
+    /// Clear IE without acknowledging a pending IP indication.
+    pub fn disable_interrupt(&self) -> Result<(), RuntimeRegisterError> {
+        if self.mmio.write32(self.plan.iman, 0) {
+            Ok(())
+        } else {
+            Err(RuntimeRegisterError::MmioWriteFailed)
+        }
+    }
+
+    /// Acknowledge IP while preserving the currently observed IE state.
+    /// IMAN.IP is W1C; no unrelated bits are echoed to the register.
+    pub fn acknowledge_pending(&self) -> Result<(), RuntimeRegisterError> {
+        let current = self.read_iman()?;
+        let ie = current & IMAN_IE;
+        if self.mmio.write32(self.plan.iman, ie | IMAN_IP) {
+            Ok(())
+        } else {
+            Err(RuntimeRegisterError::MmioWriteFailed)
+        }
+    }
+
+    /// Write a validated ERDP snapshot. On this 32-bit kernel the high
+    /// dword is written before the low dword, which commits the pointer update.
+    /// The EventRing token must be committed separately only after this succeeds.
+    pub fn write_erdp(&self, token: &EventAckToken) -> Result<(), RuntimeRegisterError> {
+        let value = token.value();
+        let pointer = value & !0xF;
+        if pointer == 0 || pointer & 0xF != 0 || value & 0x7 != 0 || value & (1 << 3) == 0 {
+            return Err(RuntimeRegisterError::InvalidErdpValue);
+        }
+        compiler_fence(Ordering::SeqCst);
+        if !self.mmio.write32(self.plan.erdp + 4, (value >> 32) as u32) {
+            return Err(RuntimeRegisterError::MmioWriteFailed);
+        }
+        compiler_fence(Ordering::SeqCst);
+        if !self.mmio.write32(self.plan.erdp, value as u32) {
+            return Err(RuntimeRegisterError::MmioWriteFailed);
+        }
+        compiler_fence(Ordering::SeqCst);
+        Ok(())
+    }
 }
