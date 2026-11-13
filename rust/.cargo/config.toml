@@ -1,0 +1,14 @@
+[build]
+target = "i686-unknown-linux-gnu"
+
+[target.i686-unknown-linux-gnu]
+linker = "gcc"
+rustflags = [
+  "-C", "link-arg=-m32",
+  "-C", "link-arg=-nostdlib",
+  "-C", "link-arg=-Wl,-T,linker.ld",
+  "-C", "link-arg=-Wl,--build-id=none",
+  "-C", "relocation-model=static",
+  "-C", "code-model=kernel",
+  "-C", "panic=abort",
+]
