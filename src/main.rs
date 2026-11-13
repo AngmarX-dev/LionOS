@@ -11,6 +11,7 @@ mod arch {
     pub mod interrupts;
 }
 mod memory;
+mod sync;
 mod paging;
 mod dma;
 mod mmio;
