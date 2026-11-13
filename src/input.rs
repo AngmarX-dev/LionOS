@@ -21,11 +21,49 @@ static DROPPED: AtomicU32 = AtomicU32::new(0);
 static mut EXTENDED_PREFIX: bool = false;
 static mut PAUSE_BYTES_LEFT: u8 = 0;
 
-/// Enable IRQ1 while preserving all unrelated master-PIC mask bits.
-/// Call during boot while IF is still clear.
-pub unsafe fn initialize_irq() {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyboardInitError { ControllerTimeout, AuxiliaryDataPending }
+
+const WAIT_LIMIT: usize = 100_000;
+
+unsafe fn wait_input_empty() -> Result<(), KeyboardInitError> {
+    for _ in 0..WAIT_LIMIT {
+        if inb(0x64) & 0x02 == 0 { return Ok(()); }
+        crate::arch::x86::pause();
+    }
+    Err(KeyboardInitError::ControllerTimeout)
+}
+
+/// Enable the keyboard port and its 8042 IRQ1 source, then unmask PIC IRQ1.
+/// Call during boot while IF is still clear and after auxiliary mouse setup.
+pub unsafe fn initialize_irq() -> Result<(), KeyboardInitError> {
+    wait_input_empty()?;
+    crate::arch::x86::outb(0x64, 0xAE); // enable first PS/2 port
+    wait_input_empty()?;
+
+    crate::arch::x86::outb(0x64, 0x20); // read controller configuration byte
+    let mut status = 0u8;
+    let mut config = None;
+    for _ in 0..WAIT_LIMIT {
+        status = inb(0x64);
+        if status & 0x01 != 0 {
+            if status & 0x20 != 0 { return Err(KeyboardInitError::AuxiliaryDataPending); }
+            config = Some(inb(0x60));
+            break;
+        }
+        crate::arch::x86::pause();
+    }
+    let mut config = config.ok_or(KeyboardInitError::ControllerTimeout)?;
+    config |= 0x01; // enable keyboard interrupt
+    config &= !0x10; // ensure keyboard clock is enabled
+    wait_input_empty()?;
+    crate::arch::x86::outb(0x64, 0x60);
+    wait_input_empty()?;
+    crate::arch::x86::outb(0x60, config);
+
     let mask = inb(0x21) & !(1 << 1);
     crate::arch::x86::outb(0x21, mask);
+    Ok(())
 }
 
 /// Called only by IRQ1 after the dispatcher has read port 0x60.
@@ -55,7 +93,7 @@ pub fn handle_irq_byte(byte: u8) {
             DROPPED.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        core::ptr::addr_of_mut!(EVENTS)[head as usize].store(event, Ordering::Relaxed);
+        (*core::ptr::addr_of_mut!(EVENTS).cast::<AtomicU16>().add(head as usize)).store(event, Ordering::Relaxed);
         HEAD.store(next, Ordering::Release);
     }
 }
@@ -64,7 +102,7 @@ pub fn handle_irq_byte(byte: u8) {
 pub fn pop_event() -> Option<KeyEvent> {
     let tail = TAIL.load(Ordering::Relaxed);
     if tail == HEAD.load(Ordering::Acquire) { return None; }
-    let encoded = unsafe { core::ptr::addr_of!(EVENTS)[tail as usize].load(Ordering::Relaxed) };
+    let encoded = unsafe { (*core::ptr::addr_of!(EVENTS).cast::<AtomicU16>().add(tail as usize)).load(Ordering::Relaxed) };
     TAIL.store(tail.wrapping_add(1) & QUEUE_MASK, Ordering::Release);
     Some(KeyEvent {
         scancode: (encoded & 0x7F) as u8,
