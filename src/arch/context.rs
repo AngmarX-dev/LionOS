@@ -1,5 +1,5 @@
 //! Stable software context layouts for 32-bit x86 task management.
-//! These declarations define an ABI only; no context switch is active yet.
+//! The NASM switch primitive saves/restores this ABI for cooperative kernel tasks.
 
 /// State contract for a future cooperative kernel context-switch routine.
 #[repr(C)]
@@ -29,4 +29,20 @@ pub struct InterruptContext {
 }
 impl InterruptContext {
     pub fn came_from_user(&self) -> bool { self.cs & 3 == 3 }
+}
+
+/// Cooperative kernel context switch implemented in NASM.
+/// Both contexts must be valid, mapped, writable, and prepared with the
+/// exact stack frame contract documented in boot/context_switch.asm.
+/// This does not switch privilege levels and must not be called from an ISR.
+extern "C" {
+    fn lionos_context_switch(old: *mut KernelContext, next: *const KernelContext);
+}
+
+/// Switch from the current kernel context to a previously prepared context.
+/// The caller must guarantee exclusive access to both context records.
+pub unsafe fn switch(old: &mut KernelContext, next: &KernelContext) -> bool {
+    if !next.is_valid() { return false; }
+    lionos_context_switch(old as *mut KernelContext, next as *const KernelContext);
+    true
 }
