@@ -64,12 +64,16 @@ impl ProducerRing{
   true
  }
 }
-pub struct EventRing{buffer:crate::dma::DmaBuffer,erst:crate::dma::DmaBuffer,dequeue:usize,cycle:bool}
+pub struct EventRing{
+ buffer:crate::dma::DmaBuffer,erst:crate::dma::DmaBuffer,
+ dequeue:usize,cycle:bool,consumed:u64,
+}
 impl EventRing{
  fn new(buffer:crate::dma::DmaBuffer,erst:crate::dma::DmaBuffer)->Self{
   let entry=ErstEntry{base:buffer.physical_address(),size:RING_TRBS as u32,reserved:0};
   unsafe{write_volatile(erst.virtual_address() as *mut ErstEntry,entry);}
-  compiler_fence(Ordering::SeqCst);Self{buffer,erst,dequeue:0,cycle:true}
+  compiler_fence(Ordering::SeqCst);
+  Self{buffer,erst,dequeue:0,cycle:true,consumed:0}
  }
  pub fn erst_base(&self)->u64{self.erst.physical_address()}
  pub fn erst_size(&self)->u16{1}
@@ -77,25 +81,42 @@ impl EventRing{
  pub fn segment_trb_count(&self)->u16{RING_TRBS as u16}
  pub fn dequeue_index(&self)->usize{self.dequeue}
  pub fn cycle_state(&self)->bool{self.cycle}
- pub fn dequeue_pointer(&self)->u64{self.buffer.physical_address()+(self.dequeue*TRB_BYTES) as u64}
+ pub fn consumed_count(&self)->u64{self.consumed}
+ pub fn dequeue_pointer(&self)->u64{
+  self.buffer.physical_address()+(self.dequeue*TRB_BYTES) as u64
+ }
+ /// Value to write to ERDP after consuming events. Bit 3 requests EHB
+ /// acknowledgement; low pointer bits remain naturally aligned.
+ pub fn erdp_ack_value(&self)->u64{self.dequeue_pointer()|(1<<3)}
  pub fn peek(&self)->Option<Trb>{
   compiler_fence(Ordering::Acquire);
   let trb=unsafe{read_volatile(trb_ptr(&self.buffer,self.dequeue))};
   if (trb.control&TRB_CYCLE!=0)!=self.cycle{return None;}Some(trb)
  }
  pub fn consume(&mut self)->bool{
-  if self.peek().is_none(){return false;}self.dequeue+=1;
-  if self.dequeue==RING_TRBS{self.dequeue=0;self.cycle=!self.cycle;}true
+  if self.peek().is_none(){return false;}
+  self.dequeue+=1;self.consumed=self.consumed.wrapping_add(1);
+  if self.dequeue==RING_TRBS{self.dequeue=0;self.cycle=!self.cycle;}
+  true
  }
- /// Consume one cycle-valid event and return a decoded copy. This does not
- /// acknowledge ERDP.EHB or write ERDP; the caller must do that via MMIO.
+ /// Consume at most max_events, returning decoded records to the caller.
+ /// Hardware ERDP acknowledgement is intentionally a separate operation.
+ pub fn drain(&mut self,max_events:usize,out:&mut [Option<EventRecord>])->usize{
+  let limit=core::cmp::min(max_events,out.len());let mut count=0;
+  while count<limit{
+   let trb=match self.peek(){Some(v)=>v,None=>break};
+   let raw_type=((trb.control>>TRB_TYPE_SHIFT)&0x3F) as u8;
+   out[count]=Some(EventRecord{trb,event_type:EventType::from_trb_type(raw_type),
+    completion_code:(trb.status>>24) as u8,endpoint_id:((trb.control>>16)&0x1F) as u8,
+    slot_id:(trb.control>>24) as u8});
+   if !self.consume(){out[count]=None;break;}
+   count+=1;
+  }
+  count
+ }
+ /// Consume one cycle-valid event and return a decoded copy.
  pub fn next_event(&mut self)->Option<EventRecord>{
-  let trb=self.peek()?;
-  let raw_type=((trb.control>>TRB_TYPE_SHIFT)&0x3F) as u8;
-  let record=EventRecord{trb,event_type:EventType::from_trb_type(raw_type),
-   completion_code:(trb.status>>24) as u8,endpoint_id:((trb.control>>16)&0x1F) as u8,
-   slot_id:(trb.control>>24) as u8};
-  if !self.consume(){return None;}Some(record)
+  let mut one=[None];if self.drain(1,&mut one)==1{one[0]}else{None}
  }
 }
 

@@ -333,3 +333,18 @@ not yet implemented. It only builds and records the three-TRB TD; it does not
 ring a doorbell, enable PCI bus mastering, or start the controller. Live event
 delivery, ERDP acknowledgement, and transfer-ring reclamation remain pending.
 Build and hardware tests have not been run.
+
+
+## xHCI Event Ring dequeue and acknowledgement bookkeeping
+
+Extended EventRing with a monotonic consumed-event counter, wrap-aware dequeue
+pointer/cycle-state updates, bounded batch draining into caller-provided
+storage, and an ERDP acknowledgement value that combines the current dequeue
+pointer with EHB acknowledgement bit 3. Event consumption and hardware ERDP
+writes remain deliberately separate: this stage does not write ERDP, enable
+interrupters, ring doorbells, or start the controller. The caller must perform
+the register write only after validating the runtime-register mapping and
+controller state. Event Ring DMA remains owned by XhciDma for its full lifetime;
+no release path is exposed while hardware ownership could be uncertain.
+
+Build and hardware tests have not been run.
