@@ -177,7 +177,7 @@ impl Ep0TransferRings{
  pub fn register(&mut self,slot_id:u8)->Result<u64,Ep0RingError>{
   if slot_id==0{return Err(Ep0RingError::InvalidSlot);}
   if self.contains(slot_id){return Err(Ep0RingError::DuplicateSlot);}
-  let index=self.entries.iter().position(Option::is_none).ok_or(Ep0RingError::CapacityReached)?;
+  let index=self.entries.iter().position(|entry|entry.is_none()).ok_or(Ep0RingError::CapacityReached)?;
   let ring=ProducerRing::allocate().map_err(Ep0RingError::Allocation)?;
   let dequeue=ring.initial_dequeue_pointer();
   self.entries[index]=Some(Ep0RingEntry{slot_id,ring});
