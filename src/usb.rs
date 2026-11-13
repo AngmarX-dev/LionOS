@@ -37,7 +37,7 @@ pub struct DeviceDescriptor {
 impl DeviceDescriptor {
     pub fn parse(bytes: &[u8]) -> Result<Self, DescriptorError> {
         if bytes.len() < 18 { return Err(DescriptorError::TooShort); }
-        if bytes[0] < 18 { return Err(DescriptorError::InvalidLength); }
+        if bytes[0] != 18 { return Err(DescriptorError::InvalidLength); }
         if bytes[1] != 1 { return Err(DescriptorError::WrongDescriptorType); }
         Ok(Self {
             usb_version: u16::from_le_bytes([bytes[2], bytes[3]]),
@@ -119,6 +119,8 @@ pub fn parse_configuration(bytes: &[u8]) -> Result<ConfigurationSummary, Descrip
 
     let mut offset = 0usize;
     let mut current_interface: Option<usize> = None;
+    let mut expected_endpoints = 0u8;
+    let mut observed_endpoints = 0u8;
     while offset < total {
         if total - offset < 2 { return Err(DescriptorError::TruncatedDescriptor); }
         let length = bytes[offset] as usize;
@@ -132,6 +134,9 @@ pub fn parse_configuration(bytes: &[u8]) -> Result<ConfigurationSummary, Descrip
             }
             4 => {
                 if length < 9 { return Err(DescriptorError::InvalidLength); }
+                if current_interface.is_some() && observed_endpoints != expected_endpoints {
+                    return Err(DescriptorError::InvalidEndpoint);
+                }
                 if summary.interface_count == MAX_INTERFACES {
                     return Err(DescriptorError::CapacityExceeded);
                 }
@@ -145,6 +150,8 @@ pub fn parse_configuration(bytes: &[u8]) -> Result<ConfigurationSummary, Descrip
                     string_index: bytes[offset + 8],
                 };
                 current_interface = Some(summary.interface_count);
+                expected_endpoints = item.endpoint_count;
+                observed_endpoints = 0;
                 summary.interfaces[summary.interface_count] = Some(item);
                 summary.interface_count += 1;
             }
@@ -164,12 +171,19 @@ pub fn parse_configuration(bytes: &[u8]) -> Result<ConfigurationSummary, Descrip
                 if endpoint.address & 0x0F == 0 || endpoint.max_packet_size & 0x07FF == 0 {
                     return Err(DescriptorError::InvalidEndpoint);
                 }
+                if observed_endpoints >= expected_endpoints {
+                    return Err(DescriptorError::InvalidEndpoint);
+                }
+                observed_endpoints += 1;
                 summary.endpoints[summary.endpoint_count] = Some(endpoint);
                 summary.endpoint_count += 1;
             }
             _ => {}
         }
         offset += length;
+    }
+    if current_interface.is_some() && observed_endpoints != expected_endpoints {
+        return Err(DescriptorError::InvalidEndpoint);
     }
     Ok(summary)
 }
