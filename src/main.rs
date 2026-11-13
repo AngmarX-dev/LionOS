@@ -92,10 +92,17 @@ fn write_hex(value: u32) {
     for shift in (0..8).rev() { put_byte(DIGITS[((value >> (shift*4)) & 0xF) as usize]); }
 }
 fn write_dec(mut value:u32) {
-    let mut digits=[0u8;10]; let mut used=0usize;
-    if value==0 { put_byte(b'0'); return; }
-    while value!=0 && used<digits.len() { digits[used]=b'0'+(value%10) as u8; value/=10; used+=1; }
-    while used>0 { used-=1; put_byte(digits[used]); }
+    // Avoid a stack scratch array here: early boot runs before the kernel
+    // heap and runtime helpers are fully exercised. Emit digits from the
+    // highest decimal place using only scalar state.
+    let mut divisor=1u32;
+    while divisor<=value/10 { divisor*=10; }
+    loop {
+        put_byte(b'0'+(value/divisor) as u8);
+        value%=divisor;
+        if divisor==1 { break; }
+        divisor/=10;
+    }
 }
 unsafe fn read_u8(base:*const u8,offset:usize)->u8 { *base.add(offset) }
 unsafe fn read_u32(base:*const u8,offset:usize)->u32 { read_unaligned(base.add(offset).cast::<u32>()) }
