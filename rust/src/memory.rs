@@ -27,8 +27,8 @@ unsafe fn bit(bitmap:*const u32,frame:usize)->bool{
 unsafe fn mark_region(base:u64,length:u64,reserved:bool){
     if length==0{return;}
     let end=base.saturating_add(length).min(0x1_0000_0000);
-    let start_frame=(if reserved{base/PAGE_SIZE as u64}else{base.saturating_add(PAGE_SIZE as u64-1)/PAGE_SIZE as u64}) as usize;
-    let end_frame=(if reserved{end.saturating_add(PAGE_SIZE as u64-1)/PAGE_SIZE as u64}else{end/PAGE_SIZE as u64}) as usize;
+    let start_frame=(if reserved{base >> 12}else{base.saturating_add(4095) >> 12}) as usize;
+    let end_frame=(if reserved{end.saturating_add(4095) >> 12}else{end >> 12}) as usize;
     for frame in start_frame.min(FRAME_COUNT)..end_frame.min(FRAME_COUNT){
         let was_used=bit(core::ptr::addr_of!(USED).cast::<u32>(),frame);
         if was_used&&!reserved{FREE_FRAMES=FREE_FRAMES.saturating_add(1);}
