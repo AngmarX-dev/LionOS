@@ -845,3 +845,26 @@ The framebuffer renderer now supports an optional page-backed 32-bit canonical R
 The API includes source-over per-pixel alpha blending and caller-owned independent ARGB surfaces with clipped composition. The mouse pointer remains a direct scanout overlay so save-under restoration does not read stale backbuffer data.
 
 This is a software backbuffer with dirty-region presentation, not hardware page flipping or guaranteed tear-free output. Unicode shaping and broad glyph coverage are not implemented; the built-in font remains ASCII. No build, QEMU or physical display test was run.
+
+
+## Interrupt-driven keyboard input and driver bring-up
+
+The PS/2 keyboard path now uses IRQ1 instead of one-shot boot-time polling:
+
+- IRQ1 reads exactly one byte from the 8042 data port, forwards it to a bounded
+  single-producer/single-consumer event queue, and acknowledges the master PIC.
+- The decoder handles set-1 make/break transitions, E0 extended prefixes, and
+  skips the remaining bytes of the standard E1 Pause sequence.
+- The queue exposes pressed/released state, extended-key metadata, a dropped
+  event counter, and a basic ASCII translation helper for common non-extended
+  keys. Modifier policy and desktop text entry remain higher-level work.
+- IRQ1 is unmasked without changing unrelated PIC mask bits. The boot path
+  leaves IF disabled until the normal idle path, so the handler is installed
+  before keyboard interrupts can be delivered.
+
+This is a legacy PS/2 keyboard driver, not USB HID support. USB HID keyboard and
+mouse class drivers still require live xHCI enumeration, endpoint activation,
+interrupt/bulk transfer scheduling, and device-disconnect recovery. The PCI
+registry remains a passive match/probe framework; no Intel/NVIDIA GPU driver or
+general hotplug-capable driver manager is claimed. No build, QEMU, or physical
+keyboard test was run; validation is source read-back only.
