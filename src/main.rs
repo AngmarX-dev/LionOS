@@ -4,15 +4,7 @@
 use core::panic::PanicInfo;
 use core::ptr::{read_unaligned, write_volatile};
 
-mod arch {
-    pub mod x86;
-    pub mod cpu;
-    pub mod gdt;
-    pub mod tss;
-    pub mod context;
-    pub mod interrupts;
-    pub mod exception;
-}
+mod arch;
 mod memory;
 mod sync;
 mod paging;
@@ -304,9 +296,8 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     unsafe {
         CURSOR=0;
         for i in 0..(VGA_COLUMNS*VGA_ROWS) { write_volatile(VGA_TEXT.add(i),0x0F20); }
-        arch::x86::interrupts_disable();
-        arch::gdt::init();
     }
+    let arch_report = unsafe { arch::init::early_init() };
     serial_init();
     write_str("\nLionOS Rust Kernel - modular rewrite\n");
     write_str("====================================\n");
@@ -315,10 +306,15 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         halt_forever();
     }
     write_str("[ OK ] Multiboot2 entry verified\n");
-    unsafe { arch::interrupts::init(); }
-    write_str("[ OK ] IDT exception/IRQ stubs installed; legacy PIC remapped and masked\n");
-    unsafe { arch::interrupts::timer_init(); }
-    write_str("[ OK ] PIT channel 0 programmed at 100 Hz; IRQ0 unmasked\n");
+    if arch_report.gdt_tss_loaded && arch_report.idt_loaded {
+        write_str("[ OK ] x86 GDT/TSS and 256-entry IDT initialized in order\n");
+    }
+    if arch_report.legacy_pic_remapped {
+        write_str("[ OK ] Legacy PIC remapped and all IRQ lines initially masked\n");
+    }
+    if arch_report.pit_programmed {
+        write_str("[ OK ] PIT channel 0 programmed at 100 Hz; IRQ0 unmasked (IF still clear)\n");
+    }
     let cpu=arch::cpu::features();
     match smp::register_current_cpu() {
         Ok(index) => {
