@@ -887,7 +887,8 @@ USB HID groundwork now includes:
   boot report packet size.
 - Bounded decoders handle 8-byte boot keyboard reports (including modifier
   transitions and rollover rejection) and 3/4-byte boot mouse reports.
-- Helpers describe the HID SET_PROTOCOL(boot) and SET_IDLE requests.
+- Helpers describe the HID SET_PROTOCOL(boot) and SET_IDLE requests, and
+  decoded boot reports can be routed into desktop keyboard and pointer sinks.
 
 **Hardware limitation:** the xHCI controller remains halted and its live
 interrupter, port-change, endpoint transfer and completion paths are not active.
