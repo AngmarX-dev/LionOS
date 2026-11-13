@@ -228,7 +228,9 @@ fn report_usb_enumeration(){
     write_str("  Interface capacity/device: ");write_dec(usb::MAX_INTERFACES as u32);write_str("\n");
     write_str("  Endpoint capacity/device: ");write_dec(usb::MAX_ENDPOINTS as u32);write_str("\n");
     write_str("  Current enumerated devices: ");write_dec(manager.device_count() as u32);write_str("\n");
-    write_str("[INFO] Descriptor parser and enumeration state machine are software-only; no USB commands submitted\n");
+    write_str("  EP0 architecture: per-slot transfer rings; lazy allocation after Slot assignment\n");
+    write_str("  EP0 endpoint target: 1; stream target: 0\n");
+    write_str("[INFO] EP0 ring ownership and dispatcher are implemented but not instantiated; no USB commands submitted\n");
 }
 
 fn initialize_subsystems() {
