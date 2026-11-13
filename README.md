@@ -76,7 +76,7 @@ limited and must not be represented as production-ready:
 | PIC / IRQ | PIC remapped; IRQ0 enabled for PIT; remaining IRQs masked; legacy PIC only |
 | Physical memory | Fixed bitmap allocator, aligned/boundary-constrained contiguous allocations and 4 GiB identity map; no isolation or demand paging |
 | Heap | Page-backed global allocator; page-granular allocations only |
-| PCI / devices | Passive enumeration and BAR metadata, bounded registry and driver-binding API; no BAR sizing, resource mapping or active drivers |
+| PCI / devices | PCI enumeration, BAR metadata and reversible xHCI BAR sizing; bounded registry and driver-binding API, no general PCI resource allocator or active device drivers |
 | USB boot | BIOS firmware + GRUB loads the kernel; post-handoff USB storage is not supported |
 | DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |
 | USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; DMA structures can be allocated in memory but are not programmed; controller remains stopped; no USB enumeration |
@@ -163,10 +163,9 @@ rewrite has demonstrated feature parity through repeatable tests.
 
 The current MMIO accessor relies on the temporary 4 GiB identity map and marks whole 4 MiB PDE regions uncached using PCD/PWT. This is intentionally coarse and must be replaced by 4 KiB page mappings with explicit cache types before broader driver use. BAR sizes are probed reversibly for xHCI validation; resources are not reassigned and MMIO remains limited to verified windows. The DMA allocator returns physically contiguous, zeroed pages below an exclusive 4 GiB limit and supports page-granular alignment and power-of-two boundary constraints. It assumes x86 cache-coherent DMA and identity mapping; there is no IOMMU, bounce-buffer layer, >4 GiB DMA, or device-ownership tracking. Buffers must not be released until hardware has stopped using them, and allocator calls are not permitted from interrupt handlers.
 
-## xHCI discovery scope
+## xHCI discovery and initialization scope
 
-`src/xhci.rs` currently identifies PCI functions with class `0x0C`, subclass `0x03`, programming interface `0x30`, and reads a bounded 4 KiB MMIO capability window. It reports HCIVERSION, CAPLENGTH, HCSParams1, HCCParams1, DBOFF, RTSOFF, USBSTS and the xHCI Legacy Support capability ownership bits. It performs no register writes, does not claim OS ownership, does not reset or start the controller, does not enable PCI bus mastering, and does not allocate or submit DMA structures. The BAR size is not probed; the 4 KiB window is an initial bounded inspection assumption, not proof of the full BAR resource size. The implemented next stage validates the BAR size, requests OS ownership, waits for BIOS release, halts the controller and performs a bounded host reset. The controller is left halted; no DMA or USB transfers are started. BAR sizing temporarily disables PCI I/O, memory decoding and bus mastering, restores BARs and the original Command register, and does not reassign resources.
-
+src/xhci.rs identifies PCI functions with class 0x0C, subclass 0x03, programming interface 0x30, validates a reversible memory-BAR size probe, and reads a bounded 4 KiB MMIO capability window. It requests OS ownership through the Legacy Support capability, waits for BIOS release, disables PCI bus mastering, halts the controller, performs a bounded host reset and waits for CNR to clear. It deliberately leaves Run/Stop disabled. The separate src/xhci_dma.rs module prepares DCBAA, command/transfer rings, Event Ring and ERST in DMA memory, but does not program them into the controller or enable transfers.
 
 ## xHCI ownership and reset stage
 
