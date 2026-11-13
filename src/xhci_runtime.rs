@@ -161,8 +161,6 @@ pub struct EventPumpReport {
     pub event_ring_consumed_total: u64,
 }
 
-/// Bounded software event pump. It consumes only cycle-valid Event Ring entries
-/// and returns typed records; it does not acknowledge ERDP or touch MMIO.
 /// Results from dispatching one already-drained EventBatch to both engines.
 /// Non-transfer/non-command records are retained for the port/health consumers.
 pub struct EventDispatchBatch {
@@ -268,6 +266,8 @@ pub fn dispatch_event_batch(batch:&EventBatch,
     output
 }
 
+/// Bounded software event pump. It consumes only cycle-valid Event Ring entries
+/// and returns typed records; ERDP acknowledgement is an explicit second step.
 pub struct EventPump;
 
 impl EventPump {
