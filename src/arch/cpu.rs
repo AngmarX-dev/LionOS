@@ -24,3 +24,11 @@ pub fn features() -> CpuFeatures {
         sse2: (leaf.edx & (1 << 26)) != 0,
     }
 }
+
+/// Return the initial xAPIC identifier reported by CPUID leaf 1.
+/// This identifies the executing logical processor but does not enable the APIC.
+pub fn local_apic_id() -> Option<u8> {
+    let leaf = unsafe { __cpuid(1) };
+    if leaf.edx & (1 << 9) == 0 { return None; }
+    Some((leaf.ebx >> 24) as u8)
+}
