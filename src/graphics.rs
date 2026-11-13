@@ -97,10 +97,13 @@ pub fn rect_outline(x: u32, y: u32, width: u32, height: u32,
     if width == 0 || height == 0 || thickness == 0 { return; }
     let t = thickness.min(width).min(height);
     fill_rect(x,y,width,t,color);
-    if height > t { fill_rect(x,y + height - t,width,t,color); }
-    if height > 2*t {
-        fill_rect(x,y + t,t,height - 2*t,color);
-        if width > t { fill_rect(x + width - t,y + t,t,height - 2*t,color); }
+    if height > t { fill_rect(x,y.saturating_add(height - t),width,t,color); }
+    if height.saturating_sub(t) > t {
+        let inner_h=height - 2*t;
+        fill_rect(x,y.saturating_add(t),t,inner_h,color);
+        if width > t {
+            fill_rect(x.saturating_add(width - t),y.saturating_add(t),t,inner_h,color);
+        }
     }
 }
 
@@ -113,11 +116,13 @@ pub fn rounded_rect(x: u32, y: u32, width: u32, height: u32,
     let x1=x.saturating_add(width).min(fb.width);
     let y1=y.saturating_add(height).min(fb.height);
     if x0>=x1 || y0>=y1 { return; }
-    let r=radius.min(width/2).min(height/2);
+    let r=radius.min(width.saturating_sub(1)/2).min(height.saturating_sub(1)/2);
     if r==0 { fill_rect(x0,y0,x1-x0,y1-y0,color); return; }
     let rr=(r as i64)*(r as i64);
-    let left=(x+r) as i64; let right=(x+width-r-1) as i64;
-    let top=(y+r) as i64; let bottom=(y+height-r-1) as i64;
+    let left=x as i64+r as i64;
+    let right=x as i64+width as i64-r as i64-1;
+    let top=y as i64+r as i64;
+    let bottom=y as i64+height as i64-r as i64-1;
     for py in y0..y1 {
         for px in x0..x1 {
             let cx=(px as i64).clamp(left,right);
@@ -131,13 +136,16 @@ pub fn rounded_rect(x: u32, y: u32, width: u32, height: u32,
 /// Bresenham line rasterizer; endpoints outside the framebuffer are safely
 /// clipped by put_pixel. Work is bounded by the endpoint delta.
 pub fn line(x0:i32,y0:i32,x1:i32,y1:i32,color:(u8,u8,u8)) {
-    let mut x=x0; let mut y=y0;
-    let dx=(x1-x0).abs(); let sx=if x0<x1 {1} else {-1};
-    let dy=-(y1-y0).abs(); let sy=if y0<y1 {1} else {-1};
+    let mut x=x0 as i64; let mut y=y0 as i64;
+    let end_x=x1 as i64; let end_y=y1 as i64;
+    let dx=(end_x-x).abs(); let sx=if x<end_x {1i64} else {-1i64};
+    let dy=-(end_y-y).abs(); let sy=if y<end_y {1i64} else {-1i64};
     let mut error=dx+dy;
     loop {
-        if x>=0 && y>=0 { let _=put_pixel(x as u32,y as u32,color.0,color.1,color.2); }
-        if x==x1 && y==y1 { break; }
+        if x>=0 && y>=0 && x<=u32::MAX as i64 && y<=u32::MAX as i64 {
+            let _=put_pixel(x as u32,y as u32,color.0,color.1,color.2);
+        }
+        if x==end_x && y==end_y { break; }
         let twice=2*error;
         if twice>=dy { error+=dy; x+=sx; }
         if twice<=dx { error+=dx; y+=sy; }
@@ -183,7 +191,7 @@ pub fn draw_text(mut x:u32, mut y:u32, text:&str, color:(u8,u8,u8), scale:u32) {
         for col in 0..5u32 {
             for row in 0..7u32 {
                 if glyph[col as usize] & (1<<row)!=0 {
-                    fill_rect(x+col*scale,y+row*scale,scale,scale,color);
+                    fill_rect(x.saturating_add(col*scale),y.saturating_add(row*scale),scale,scale,color);
                 }
             }
         }
