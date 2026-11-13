@@ -52,12 +52,12 @@ static REGISTRY: IrqSpinLock<TaskRegistry> = IrqSpinLock::new(TaskRegistry::new(
 /// Register a task metadata record and return its nonzero identifier.
 pub fn register(priority: u8) -> Option<u32> {
     let mut registry = REGISTRY.lock();
-    let slot = registry.tasks.iter_mut().find(|task| task.state == State::Empty)?;
+    let slot_index = registry.tasks.iter().position(|task| task.state == State::Empty)?;
 
     let id = registry.next_id;
     registry.next_id = registry.next_id.wrapping_add(1).max(1);
 
-    *slot = Task {
+    registry.tasks[slot_index] = Task {
         id,
         state: State::Ready,
         priority,
