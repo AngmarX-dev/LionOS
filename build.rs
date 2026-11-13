@@ -13,18 +13,24 @@ fn main() {
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is missing"));
     let object = out_dir.join("lionos_boot.o");
     let archive = out_dir.join("liblionos_boot.a");
+    let switch_object = out_dir.join("lionos_context_switch.o");
 
     let mut nasm = Command::new("nasm");
     nasm.args(["-f", "elf32", "boot/boot.asm", "-o"])
         .arg(&object);
     run(nasm, "NASM boot assembly");
 
+    let mut nasm_switch = Command::new("nasm");
+    nasm_switch.args(["-f", "elf32", "boot/context_switch.asm", "-o"]).arg(&switch_object);
+    run(nasm_switch, "NASM context-switch assembly");
+
     let mut ar = Command::new("ar");
-    ar.arg("crs").arg(&archive).arg(&object);
+    ar.arg("crs").arg(&archive).arg(&object).arg(&switch_object);
     run(ar, "boot archive creation");
 
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=lionos_boot");
     println!("cargo:rerun-if-changed=boot/boot.asm");
+    println!("cargo:rerun-if-changed=boot/context_switch.asm");
     println!("cargo:rerun-if-changed=linker.ld");
 }
