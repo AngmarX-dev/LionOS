@@ -179,16 +179,40 @@ fn report_xhci(){
             write_str(" vendor/device ");write_hex(info.vendor_id as u32);put_byte(':');write_hex(info.device_id as u32);write_str("\n");
             write_str("  BAR");write_dec(info.bar_index as u32);write_str(" MMIO ");write_hex(info.bar_base);write_str(" version ");write_hex(info.version as u32);write_str("\n");
             write_str("  Slots ");write_dec(info.max_slots as u32);write_str(" interrupters ");write_dec(info.max_interrupters as u32);write_str(" ports ");write_dec(info.max_ports as u32);write_str("\n");
-            write_str("  64-bit DMA capability: ");write_str(if info.address_64bit{"yes"}else{"no"});write_str("\n");
-            write_str("  Doorbell offset ");write_hex(info.doorbell_offset);write_str(" runtime offset ");write_hex(info.runtime_offset);write_str("\n");
-            write_str("  USBSTS ");write_hex(info.usb_status);write_str(" (HCH=");write_str(if info.usb_status&1!=0{"yes"}else{"no"});write_str(", CNR=");write_str(if info.usb_status&(1<<11)!=0{"yes"}else{"no"});write_str(")\n");
+            write_str("  USBSTS ");write_hex(info.usb_status);write_str("\n");
+            let health=xhci::ControllerHealth::decode(info.usb_status);
+            let mut diagnostics=xhci_runtime::XhciDiagnosticLog::new();
+            let mut lifecycle=xhci_runtime::ControllerLifecycle::new();
+            let record=lifecycle.observe_health(health,&mut diagnostics,0);
+            write_str("  Health: ");
+            match record.code {
+                xhci_runtime::DiagnosticCode::Healthy=>write_str("HEALTHY"),
+                xhci_runtime::DiagnosticCode::HostSystemError=>write_str("HOST SYSTEM ERROR"),
+                xhci_runtime::DiagnosticCode::HostControllerError=>write_str("HOST CONTROLLER ERROR"),
+                xhci_runtime::DiagnosticCode::SaveRestoreError=>write_str("SAVE/RESTORE ERROR"),
+                xhci_runtime::DiagnosticCode::ControllerNotReady=>write_str("CONTROLLER NOT READY"),
+                xhci_runtime::DiagnosticCode::UnexpectedHalt=>write_str("UNEXPECTED HALT"),
+                xhci_runtime::DiagnosticCode::EventInterruptPending=>write_str("EVENT INTERRUPT PENDING"),
+                xhci_runtime::DiagnosticCode::PortChangePending=>write_str("PORT CHANGE PENDING"),
+            }
+            write_str(" (");
+            match record.severity {
+                xhci_runtime::DiagnosticSeverity::Informational=>write_str("INFO"),
+                xhci_runtime::DiagnosticSeverity::Recoverable=>write_str("RECOVERABLE"),
+                xhci_runtime::DiagnosticSeverity::Fatal=>write_str("FATAL"),
+            }
+            write_str(")\n");
+            write_str("  DMA policy: ");
+            write_str(if record.severity==xhci_runtime::DiagnosticSeverity::Fatal {"QUARANTINE REQUIRED"} else {"NO DMA ACTION"});
+            write_str("\n");
             if info.legacy_support_found{
                 write_str("  BIOS ownership: ");write_str(if info.bios_owned{"held"}else{"not held"});
                 write_str("; OS ownership: ");write_str(if info.os_owned{"claimed"}else{"not claimed"});write_str("\n");
             }else{write_str("  Legacy Support capability not found\n");}
             if !info.ext_caps_valid{write_str("[WARN] Extended capability chain invalid or outside probe window\n");}
-            write_str("  Verified BAR size: "); write_hex(info.bar_size as u32); write_str(" bytes\n");
-            write_str("[INFO] Capability scan complete; requesting safe ownership handoff/reset\n");
+            write_str("  Diagnostic records: ");write_dec(diagnostics.len() as u32);
+            write_str("; overwritten: ");write_dec(diagnostics.dropped_count());write_str("\n");
+            write_str("[INFO] Snapshot is read-only; no live interrupt polling or recovery was started\n");
         },
         None=>write_str("[INFO] No usable xHCI controller found in the current 32-bit MMIO window\n"),
     }
