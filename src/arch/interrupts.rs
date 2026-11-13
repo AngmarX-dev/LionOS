@@ -407,7 +407,7 @@ pub fn ticks()->u64 {
 pub extern "C" fn lionos_interrupt_dispatch(frame:*const InterruptFrame) {
     let vector=unsafe { read_volatile(addr_of!((*frame).vector)) };
     if vector==32 {
-        unsafe { TIMER_TICKS=TIMER_TICKS.wrapping_add(1); crate::arch::x86::outb(0x20,0x20); }
+        unsafe { TIMER_TICKS=TIMER_TICKS.wrapping_add(1); crate::scheduler::on_timer_tick(); crate::arch::x86::outb(0x20,0x20); }
         return;
     }
     if vector == 44 {
