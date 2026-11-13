@@ -6,8 +6,10 @@ linker = "gcc"
 rustflags = [
   "-C", "link-arg=-m32",
   "-C", "link-arg=-nostdlib",
+  "-C", "link-arg=-no-pie",
   "-C", "link-arg=-Wl,-T,linker.ld",
   "-C", "link-arg=-Wl,--build-id=none",
+  "-C", "link-arg=-lgcc",
   "-C", "relocation-model=static",
   "-C", "panic=abort",
 ]
