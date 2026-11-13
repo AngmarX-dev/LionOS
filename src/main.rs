@@ -169,6 +169,9 @@ pub fn trace_pci_step(step:u32) {
         6 => write_str("[TRACE] PCI scan step 6: entering BAR decoder\n"),
         7 => write_str("[TRACE] PCI BAR read: before config access\n"),
         8 => write_str("[TRACE] PCI BAR read: config access returned\n"),
+        9 => write_str("[TRACE] PCI BAR decoder: entered\n"),
+        10 => write_str("[TRACE] PCI BAR decoder: non-type-0 header, skipped\n"),
+        11 => write_str("[TRACE] PCI BAR decoder: type-0 header accepted\n"),
         _ => write_str("[TRACE] PCI scan step: unknown\n"),
     }
 }
