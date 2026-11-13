@@ -93,6 +93,76 @@ unsafe fn inspect(device:PciDevice)->Option<XhciInfo>{
     }
     None
 }
+
+/// Decoded USBSTS health snapshot. USBSTS is read-only/W1C-sensitive; this
+/// decoder performs no register writes and intentionally preserves raw bits.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct ControllerHealth {
+    pub halted:bool,
+    pub host_system_error:bool,
+    pub event_interrupt:bool,
+    pub port_change_detect:bool,
+    pub save_restore_error:bool,
+    pub controller_not_ready:bool,
+    pub host_controller_error:bool,
+    pub raw:u32,
+}
+impl ControllerHealth {
+    pub const fn decode(raw:u32)->Self {
+        Self {
+            halted:raw&(1<<0)!=0,
+            host_system_error:raw&(1<<2)!=0,
+            event_interrupt:raw&(1<<3)!=0,
+            port_change_detect:raw&(1<<4)!=0,
+            save_restore_error:raw&(1<<10)!=0,
+            controller_not_ready:raw&(1<<11)!=0,
+            host_controller_error:raw&(1<<12)!=0,
+            raw,
+        }
+    }
+    pub const fn has_fatal_error(self)->bool {
+        self.host_system_error||self.host_controller_error||self.save_restore_error
+    }
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum RecoveryAction {
+    None,
+    WaitUntilReady,
+    StopAndInspect,
+    QuarantineDmaAndRequireReset,
+}
+/// Conservative decision only: this function does not touch MMIO or DMA.
+pub const fn recovery_action(health:ControllerHealth)->RecoveryAction {
+    if health.has_fatal_error() {
+        RecoveryAction::QuarantineDmaAndRequireReset
+    } else if health.controller_not_ready {
+        RecoveryAction::WaitUntilReady
+    } else if health.halted {
+        RecoveryAction::StopAndInspect
+    } else {
+        RecoveryAction::None
+    }
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum AbortPreflight {
+    Eligible,
+    ControllerHalted,
+    ControllerNotReady,
+    CommandRingNotRunning,
+    BusMasterDisabled,
+    FatalControllerError,
+}
+/// Validate the prerequisites for a future Command Abort implementation.
+/// The caller supplies a fresh USBSTS/CRCR snapshot and PCI bus-master state.
+pub const fn command_abort_preflight(health:ControllerHealth,crcr_low:u32,bus_master_enabled:bool)->AbortPreflight {
+    if health.has_fatal_error(){AbortPreflight::FatalControllerError}
+    else if health.controller_not_ready{AbortPreflight::ControllerNotReady}
+    else if health.halted{AbortPreflight::ControllerHalted}
+    else if !bus_master_enabled{AbortPreflight::BusMasterDisabled}
+    else if crcr_low&(1<<3)==0{AbortPreflight::CommandRingNotRunning}
+    else{AbortPreflight::Eligible}
+}
+
 pub fn discover()->Option<XhciInfo>{
     let mut found=None;
     unsafe { pci::enumerate(|device| { if found.is_none() { found=inspect(device); } }); }

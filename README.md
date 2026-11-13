@@ -240,3 +240,17 @@ abort-in-progress, reset-required, and quarantine states. It is deliberately
 policy/bookkeeping only: it does not write Command Abort, reset registers,
 enable bus mastering, or free DMA. DMA must remain pinned until controller
 halt/reset is independently confirmed. No build or hardware test has run.
+
+
+## xHCI status classification and Command Abort preflight
+
+Added a read-only `ControllerHealth` decoder for USBSTS.HCH, HSE, EINT,
+PCD, SRE, CNR and HCE. A conservative `recovery_action` maps fatal controller
+errors to DMA quarantine/reset-required policy, CNR to wait, and halted state
+to inspection. It never writes the W1C-sensitive USBSTS register.
+
+Added `command_abort_preflight` to validate fresh controller status, CRCR.CRR,
+and PCI bus-master state before a future abort implementation. It only returns
+an eligibility result; it does not set CRCR.CA, ring doorbells, enable bus
+mastering, or start the controller. Real Command Abort remains deferred until
+the command/event execution path and interrupt/polling ownership are validated.
