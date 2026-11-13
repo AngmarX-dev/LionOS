@@ -868,3 +868,32 @@ interrupt/bulk transfer scheduling, and device-disconnect recovery. The PCI
 registry remains a passive match/probe framework; no Intel/NVIDIA GPU driver or
 general hotplug-capable driver manager is claimed. No build, QEMU, or physical
 keyboard test was run; validation is source read-back only.
+
+
+## Desktop input routing and USB HID boot support
+
+The desktop idle loop now drains PS/2 keyboard events and reflects printable
+key presses in a bounded status-line buffer. Backspace is handled, and mouse
+button/movement packet changes refresh the same status line. Pointer movement
+continues through the existing cursor refresh path.
+
+USB HID groundwork now includes:
+
+- Configuration parsing retains the interface number on every endpoint, so a
+  HID interface is matched only with its own endpoint descriptors.
+- Boot keyboard and boot mouse interfaces are identified from class,
+  subclass, protocol and alternate-setting-zero metadata.
+- The binding selector requires an interrupt-IN endpoint with a sufficient
+  boot report packet size.
+- Bounded decoders handle 8-byte boot keyboard reports (including modifier
+  transitions and rollover rejection) and 3/4-byte boot mouse reports.
+- Helpers describe the HID SET_PROTOCOL(boot) and SET_IDLE requests.
+
+**Hardware limitation:** the xHCI controller remains halted and its live
+interrupter, port-change, endpoint transfer and completion paths are not active.
+Therefore USB HID reports are not yet delivered to the desktop; this commit
+provides descriptor matching and report-decoding infrastructure only. A live
+USB HID driver still needs safe controller start, root-port enumeration,
+address/configuration, HID class requests, interrupt-IN transfer scheduling,
+completion correlation, and disconnect/DMA-quiescence handling. No build,
+QEMU, or physical input test was run.
