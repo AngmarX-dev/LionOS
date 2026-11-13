@@ -104,6 +104,14 @@ impl RoutedEvent {
             _ => Self::Other(record),
         }
     }
+
+    /// Recover the original event regardless of routing category.
+    pub const fn record(self) -> EventRecord {
+        match self {
+            Self::Transfer(v)|Self::CommandCompletion(v)|Self::PortStatusChange(v)
+            |Self::HostController(v)|Self::Other(v)=>v,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -177,6 +185,27 @@ impl EventPump {
                 event_ring_consumed_total: ring.consumed_count(),
             },
         )
+    }
+
+    /// Drain one bounded batch, then acknowledge its dequeue position in ERDP.
+    /// The batch is returned even on MMIO failure; EventRing bookkeeping stays
+    /// pending so the caller can retry the same acknowledgement transaction.
+    pub fn poll_and_ack(&mut self,ring:&mut EventRing,
+        registers:&XhciRuntimeRegisters)->(EventBatch,EventPumpReport,Result<(),EventAckError>){
+        let (batch,report)=self.poll(ring);
+        let result=match ring.prepare_acknowledgement(){
+            None=>Ok(()),
+            Some(token)=>{
+                if let Err(error)=registers.write_erdp(&token){
+                    Err(EventAckError::Register(error))
+                }else if ring.commit_acknowledgement(token){
+                    Ok(())
+                }else{
+                    Err(EventAckError::CommitRejected)
+                }
+            }
+        };
+        (batch,report,result)
     }
 }
 
@@ -579,6 +608,12 @@ pub enum RuntimeRegisterError {
     InvalidErdpValue,
     MmioWriteFailed,
     MmioReadFailed,
+}
+
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum EventAckError {
+    Register(RuntimeRegisterError),
+    CommitRejected,
 }
 
 /// Narrow xHCI runtime-register accessors. The caller must ensure that the
