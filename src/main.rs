@@ -334,21 +334,10 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         write_str("[ OK ] PIT channel 0 programmed at 100 Hz; IRQ0 unmasked (IF still clear)\n");
     }
     let cpu=arch::cpu::features();
-    match smp::register_current_cpu() {
-        Ok(index) => {
-            write_str("[INFO] Per-CPU slot registered: ");
-            write_dec(index as u32);
-            write_str("; registered CPU slots: ");
-            write_dec(smp::online_count() as u32);
-            write_str("\n");
-        }
-        Err(smp::RegisterError::ApicUnavailable) => {
-            write_str("[INFO] Local APIC ID unavailable; SMP bookkeeping inactive\n");
-        }
-        Err(smp::RegisterError::CapacityReached) => {
-            write_str("[WARN] Per-CPU registry capacity reached\n");
-        }
-    }
+    // The current bootstrap does not initialize or map the local APIC.
+    // Keep per-CPU bookkeeping compiled, but defer registration until the
+    // architecture layer has a validated APIC access path.
+    write_str("[INFO] Per-CPU registration deferred; local APIC runtime is not initialized\\n");
     write_str("[INFO] CPU features: PSE="); write_str(if cpu.pse {"yes"} else {"no"});
     write_str(" PAE="); write_str(if cpu.pae {"yes"} else {"no"});
     write_str(" APIC="); write_str(if cpu.apic {"yes"} else {"no"});
