@@ -29,3 +29,33 @@ pub unsafe fn interrupts_enable() { asm!("sti", options(nomem, nostack, preserve
 pub unsafe fn halt() { asm!("hlt", options(nomem, nostack, preserves_flags)); }
 #[inline]
 pub unsafe fn pause() { asm!("pause", options(nomem, nostack, preserves_flags)); }
+
+/// Short delay used by legacy ISA devices after port writes.
+#[inline]
+pub unsafe fn io_wait() {
+    outb(0x80, 0);
+}
+
+/// Read CR0 for architecture diagnostics and controlled paging transitions.
+#[inline]
+pub unsafe fn read_cr0() -> u32 {
+    let value: u32;
+    asm!("mov {}, cr0", out(reg) value, options(nomem, nostack, preserves_flags));
+    value
+}
+
+/// Read CR3 (current page-directory physical address).
+#[inline]
+pub unsafe fn read_cr3() -> u32 {
+    let value: u32;
+    asm!("mov {}, cr3", out(reg) value, options(nomem, nostack, preserves_flags));
+    value
+}
+
+/// Read CR4 (enabled processor extensions).
+#[inline]
+pub unsafe fn read_cr4() -> u32 {
+    let value: u32;
+    asm!("mov {}, cr4", out(reg) value, options(nomem, nostack, preserves_flags));
+    value
+}

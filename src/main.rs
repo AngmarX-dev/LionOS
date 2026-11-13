@@ -6,6 +6,7 @@ use core::ptr::{read_unaligned, write_volatile};
 
 mod arch {
     pub mod x86;
+    pub mod cpu;
     pub mod gdt;
     pub mod interrupts;
 }
@@ -92,10 +93,10 @@ unsafe fn read_u32(base:*const u8,offset:usize)->u32 { read_unaligned(base.add(o
 unsafe fn read_u64(base:*const u8,offset:usize)->u64 { read_unaligned(base.add(offset).cast::<u64>()) }
 
 fn parse_boot_info(address:u32)->(u64,bool) {
-    if address==0 { write_str("[ERR] Null Multiboot2 info pointer\n"); return (0,false); }
+    if address==0 || (address & 7) != 0 { write_str("[ERR] Null or unaligned Multiboot2 info pointer\n"); return (0,false); }
     let info=address as *const u8;
     let total=unsafe{read_u32(info,0)};
-    if total<16 || total>MAX_BOOT_INFO { write_str("[ERR] Invalid Multiboot2 info size\n"); return (0,false); }
+    if total<16 || total>MAX_BOOT_INFO || (total & 7) != 0 || (address as u64 + total as u64)>0x1_0000_0000 { write_str("[ERR] Invalid Multiboot2 info size\n"); return (0,false); }
     let memory_ready=unsafe{memory::init(info,total as usize)};
     let mut usable=0u64;
     let mut offset=8usize;
@@ -204,10 +205,15 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] Multiboot2 entry verified\n");
     unsafe { arch::interrupts::init(); }
     write_str("[ OK ] GDT and fail-stop IDT installed; legacy PIC masked\n");
+    let cpu=arch::cpu::features();
+    write_str("[INFO] CPU features: PSE="); write_str(if cpu.pse {"yes"} else {"no"});
+    write_str(" PAE="); write_str(if cpu.pae {"yes"} else {"no"});
+    write_str(" APIC="); write_str(if cpu.apic {"yes"} else {"no"});
+    write_str(" SSE2="); write_str(if cpu.sse2 {"yes"} else {"no"}); write_str("\n");
 
     let (usable,memory_ready)=parse_boot_info(multiboot_info);
     if unsafe{paging::init_identity_4g()} {
-        write_str("[ OK ] 4 GiB supervisor identity paging enabled (4 MiB PSE pages)\\n");
+        write_str("[ OK ] 4 GiB supervisor identity paging enabled (4 MiB PSE pages)\n");
     } else { write_str("[WARN] Paging initialization failed\\n"); }
     if memory_ready {
         write_str("[ OK ] Physical frame allocator initialized; usable bytes ");

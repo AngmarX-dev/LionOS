@@ -11,6 +11,8 @@ all:
 check: all
 	file $(KERNEL)
 	readelf -h $(KERNEL)
+	readelf -l $(KERNEL)
+	objdump -h $(KERNEL)
 
 clean:
 	$(CARGO) clean

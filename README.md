@@ -8,9 +8,9 @@ or the repository's default branch.
 
 - 32-bit x86 Multiboot2 entry point, dedicated bootstrap stack and linker script.
 - Freestanding `no_std` Rust kernel with VGA text and COM1 serial diagnostics.
-- Flat ring-0 GDT setup and a 256-entry fail-stop IDT.
+- Flat ring-0 GDT setup, CPUID feature discovery and a 256-entry fail-stop IDT.
 - Legacy PIC remapping with all IRQ lines kept masked.
-- Initial supervisor-only 4 GiB identity mapping using 4 MiB PSE pages.
+- Initial supervisor-only 4 GiB identity mapping using 4 MiB PSE pages, guarded by a CPUID PSE capability check.
 - Fixed physical-page allocator with contiguous page allocation; kernel image,
   boot information, low memory and Multiboot2 modules are reserved.
 - Page-backed Rust global allocator (allocations own contiguous 4 KiB pages).
@@ -84,7 +84,7 @@ Expected kernel image:
 target/i686-unknown-linux-gnu/release/lionos-rust
 ```
 
-The build and boot path have not yet been run as part of this rewrite session.
+The build and boot path have not yet been run as part of this rewrite session. The linker now asserts the presence of the Multiboot2 header and the 32-bit image boundary; these assertions still require an actual build to validate.
 Do not write this experimental image to a physical disk or USB. Once the code
 is ready, first boot it in QEMU and review serial diagnostics.
 

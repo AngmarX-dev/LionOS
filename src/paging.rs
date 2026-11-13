@@ -9,6 +9,8 @@ static mut DIRECTORY:PageDirectory=PageDirectory([0;1024]);
 /// Enable a supervisor-only, writable 4 GiB identity map using 4 MiB pages.
 /// Requires an x86 CPU with CR4.PSE support (the declared i686 baseline).
 pub unsafe fn init_identity_4g()->bool{
+    // Never set CR4.PSE unless the processor advertises 4 MiB page support.
+    if !crate::arch::cpu::features().pse { return false; }
     let directory=core::ptr::addr_of_mut!(DIRECTORY.0).cast::<u32>();
     for index in 0..1024usize{
         let entry=((index as u32)<<22)|0x083; // present | writable | 4 MiB page
