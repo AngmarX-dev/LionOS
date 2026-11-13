@@ -59,26 +59,14 @@ pub unsafe fn enable_memory_space(device:&PciDevice)->bool{
  outl(0xCF8,address);outw(0xCFC,command|0x0002);
  (read_config(device.bus,device.device,device.function,0x04) as u16)&0x0002!=0
 }
-unsafe fn decode_bars(bus:u8,dev:u8,fun:u8,header:u8)->([PciBar;PCI_BAR_COUNT],u8){
- if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(9); }
- let mut bars=[PciBar::EMPTY;PCI_BAR_COUNT];let mut count=0;
- if header&0x7F!=0 { if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(10); } return(bars,count); }
- if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(11); }
- let mut i=0usize;
- while i<PCI_BAR_COUNT{
-  if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(7); }
-  let raw=read_config(bus,dev,fun,0x10+(i as u8)*4);
-  if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(8); }
-  if raw==0||raw==u32::MAX{i+=1;continue}
-  if raw&1!=0{let base=(raw&0xFFFF_FFFC) as u64;if base!=0{bars[i]=PciBar{kind:1,base,prefetchable:false};count+=1}i+=1;continue}
-  let mt=(raw>>1)&3;let pf=raw&8!=0;
-  match mt{
-   0|1=>{let base=(raw&0xFFFF_FFF0) as u64;if base!=0{bars[i]=PciBar{kind:if mt==0{2}else{3},base,prefetchable:pf};count+=1}i+=1}
-   2 if i+1<PCI_BAR_COUNT=>{let hi=read_config(bus,dev,fun,0x10+((i+1) as u8)*4);let base=((hi as u64)<<32)|((raw&0xFFFF_FFF0) as u64);if base!=0{bars[i]=PciBar{kind:4,base,prefetchable:pf};count+=1}i+=2}
-   _=>i+=1
-  }
- }(bars,count)
+/// BAR probing is intentionally deferred during early boot. Reading PCI BARs
+/// is isolated from enumeration until the 32-bit config-access path is validated.
+/// This keeps device discovery passive and prevents a broken BAR decoder from
+/// blocking the kernel before subsystem bring-up.
+unsafe fn decode_bars(_bus:u8,_dev:u8,_fun:u8,_header:u8)->([PciBar;PCI_BAR_COUNT],u8){
+ ([PciBar::EMPTY;PCI_BAR_COUNT],0)
 }
+
 pub unsafe fn enumerate<F:FnMut(PciDevice)>(mut visit:F){
  for bus in 0u16..=255{for dev in 0u8..32{
   let id0=read_config(bus as u8,dev,0,0);
