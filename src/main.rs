@@ -211,7 +211,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     unsafe { arch::interrupts::init(); }
     write_str("[ OK ] IDT exception/IRQ stubs installed; legacy PIC remapped and masked\n");
     unsafe { arch::interrupts::timer_init(); }
-    write_str("[ OK ] PIT channel 0 programmed at 100 Hz; IRQ0 enabled\n");
+    write_str("[ OK ] PIT channel 0 programmed at 100 Hz; IRQ0 unmasked\n");
     let cpu=arch::cpu::features();
     write_str("[INFO] CPU features: PSE="); write_str(if cpu.pse {"yes"} else {"no"});
     write_str(" PAE="); write_str(if cpu.pae {"yes"} else {"no"});

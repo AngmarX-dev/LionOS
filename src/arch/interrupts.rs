@@ -382,7 +382,17 @@ pub unsafe fn timer_init() {
 }
 
 /// Monotonic PIT tick counter (nominally 100 ticks per second).
-pub fn ticks()->u64 { unsafe { read_volatile(addr_of!(TIMER_TICKS)) } }
+/// The snapshot is taken with maskable interrupts disabled so the 64-bit read
+/// cannot tear on this 32-bit target; the caller's IF state is then restored.
+pub fn ticks()->u64 {
+    let flags:u32;
+    unsafe {
+        asm!("pushfd; pop {0}; cli",out(reg) flags,options(nomem));
+        let snapshot=read_volatile(addr_of!(TIMER_TICKS));
+        if flags & (1<<9)!=0 { asm!("sti",options(nomem,nostack)); }
+        snapshot
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn lionos_interrupt_dispatch(frame:*const InterruptFrame) {

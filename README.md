@@ -52,8 +52,9 @@ from supporting USB devices after the kernel starts.
 - The kernel currently has no persistent block storage or USB filesystem
   access after handoff. Its RAMFS is volatile; removing the USB after boot
   does not provide a persistent storage path.
-- The current interrupt subsystem masks all IRQs. USB controller interrupts
-  therefore cannot be used yet.
+- The PIT timer currently uses legacy PIC IRQ0 only. Keyboard IRQ1 and all other
+  legacy IRQs remain masked; xHCI MSI/MSI-X and APIC/IOAPIC routing are not
+  implemented, so this does not yet enable USB controller interrupts.
 - The ISO pipeline and image itself have not been boot-tested in QEMU or on
   physical hardware in this development session. Do not use it as a production
   or recovery operating system.
