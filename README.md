@@ -79,7 +79,7 @@ limited and must not be represented as production-ready:
 | PCI / devices | PCI enumeration, BAR metadata and reversible xHCI BAR sizing; bounded registry and driver-binding API, no general PCI resource allocator or active device drivers |
 | USB boot | BIOS firmware + GRUB loads the kernel; post-handoff USB storage is not supported |
 | DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |
-| USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; DMA structures can be allocated in memory but are not programmed; controller remains stopped; no USB enumeration |
+| USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; DMA rings, DCBAA, slot-1 contexts and optional scratchpads prepared in memory but not programmed; controller remains stopped; no USB enumeration |
 | USB HID | Keyboard/mouse drivers not implemented |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
@@ -145,7 +145,7 @@ It is not triggered automatically on every push.
 5. Add user-mode transition, process address spaces and syscall entry/return.
 6. Add a VFS abstraction, initramfs and persistent block-device support.
 7. Add storage drivers appropriate to supported hardware (NVMe/AHCI/ATA).
-8. Continue xHCI from the completed BAR validation, ownership handoff and bounded halt/reset stage: implement DMA rings, interrupter setup, port reset and device enumeration. Add APIC/MSI routing or a carefully validated polling path before USB HID and mass storage.
+8. Continue xHCI from the prepared DMA structures: validate and program DCBAAP/CRCR/ERST registers, configure interrupters, add APIC/MSI routing or a carefully validated polling path, then implement command completion, port reset and device enumeration before USB HID and mass storage.
 9. Add UEFI boot support with an architecture-compatible loader and handoff.
 10. Add NIC drivers and a tested network stack.
 11. Expand the graphics stack: framebuffer backend, fonts, compositor, window/event
@@ -165,7 +165,7 @@ The current MMIO accessor relies on the temporary 4 GiB identity map and marks w
 
 ## xHCI discovery and initialization scope
 
-src/xhci.rs identifies PCI functions with class 0x0C, subclass 0x03, programming interface 0x30, validates a reversible memory-BAR size probe, and reads a bounded 4 KiB MMIO capability window. It requests OS ownership through the Legacy Support capability, waits for BIOS release, disables PCI bus mastering, halts the controller, performs a bounded host reset and waits for CNR to clear. It deliberately leaves Run/Stop disabled. The separate src/xhci_dma.rs module prepares DCBAA, command/transfer rings, Event Ring and ERST in DMA memory, but does not program them into the controller or enable transfers.
+src/xhci.rs identifies PCI functions with class 0x0C, subclass 0x03, programming interface 0x30, validates a reversible memory-BAR size probe, and reads a bounded 4 KiB MMIO capability window. It requests OS ownership through the Legacy Support capability, waits for BIOS release, disables PCI bus mastering, halts the controller, performs a bounded host reset and waits for CNR to clear. It deliberately leaves Run/Stop disabled. The separate src/xhci_dma.rs module prepares DCBAA, command/transfer rings, Event Ring, ERST, slot-1 Device/Input Contexts and optional scratchpad buffers in DMA memory, but does not program them into the controller or enable transfers.
 
 ## xHCI ownership and reset stage
 
@@ -176,9 +176,9 @@ If the xHCI Legacy Support capability is present and BIOS Owned is set, the kern
 
 ## xHCI DMA memory-layout stage
 
-A dedicated src/xhci_dma.rs module defines 16-byte TRBs, a 256-entry DCBAA, command and transfer producer rings with a terminal Link TRB (Toggle Cycle enabled), a 256-entry single-segment Event Ring, and a one-entry Event Ring Segment Table. Ring allocations are page-backed, physically contiguous, below 4 GiB, 64-byte aligned by the page allocator, and constrained not to cross a 64 KiB boundary. The producer helper maintains the producer Cycle State; the event helper checks the consumer Cycle bit and advances its dequeue index. Allocation unwinds already-acquired pages on failure.
+A dedicated src/xhci_dma.rs module defines 16-byte TRBs, a 256-entry DCBAA, command and transfer producer rings with a terminal Link TRB (Toggle Cycle enabled), a 256-entry single-segment Event Ring, and a one-entry Event Ring Segment Table. It also allocates a slot-1 Device Context (32 contexts) and Input Context (33 contexts), using 32-byte or 64-byte context sizing from HCCPARAMS1.CSZ. When required, a scratchpad pointer array and page-backed scratchpad storage are allocated from the HCSParams2 count. Ring allocations are page-backed, physically contiguous, below 4 GiB, 64-byte aligned by the page allocator, and constrained not to cross a 64 KiB boundary.
 
-This is a memory-layout foundation only. It does not program DCBAAP, CRCR, ERSTBA, ERSTSZ or ERDP; it does not set CONFIG, enable PCI bus mastering, start Run/Stop, enable interrupters or ring doorbells. Scratchpad support is limited to a single contiguous page-backed storage region and pointer array; it is allocated only after the controller reports ReadyStopped. No context or scratchpad addresses are programmed into hardware. A future stage must validate device-context semantics, configure command/event rings and interrupters, program registers in specification order, then enable bus mastering and start the controller. These structures have not been build-tested or hardware-tested in this session.
+This is a memory-layout foundation only. It does not program DCBAAP, CRCR, ERSTBA, ERSTSZ or ERDP; it does not set CONFIG, enable PCI bus mastering, start Run/Stop, enable interrupters or ring doorbells. Scratchpad support is limited to a single contiguous page-backed storage region and pointer array; it is allocated only after the controller reports ReadyStopped. No context or scratchpad addresses are programmed into hardware. The next stage must validate the context and ring layouts against the controller's supported limits, program DCBAAP/CRCR/ERSTBA/ERDP in specification order, configure interrupters, and only then consider enabling bus mastering and starting the controller. These structures have not been build-tested or hardware-tested in this session.
 
 
 ## xHCI device-context and scratchpad memory stage
