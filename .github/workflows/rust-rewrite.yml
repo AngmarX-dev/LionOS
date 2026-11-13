@@ -19,7 +19,7 @@ jobs:
       - name: Install kernel and ISO build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib nasm grub-common grub-pc-bin xorriso binutils
+          sudo apt-get install -y build-essential gcc-multilib nasm grub-common grub-pc-bin xorriso binutils qemu-system-x86
 
       - name: Install Rust target
         run: |
@@ -38,6 +38,9 @@ jobs:
 
       - name: Build and verify BIOS bootable ISO
         run: make verify-iso
+
+      - name: Boot ISO smoke test in QEMU
+        run: bash scripts/test-iso-qemu.sh dist/lionos-bios-usb.iso
 
       - name: Upload boot image
         uses: actions/upload-artifact@v4
