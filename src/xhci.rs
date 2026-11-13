@@ -164,9 +164,19 @@ pub const fn command_abort_preflight(health:ControllerHealth,crcr_low:u32,bus_ma
 }
 
 pub fn discover()->Option<XhciInfo>{
-    let mut found=None;
-    unsafe { pci::enumerate(|device| { if found.is_none() { found=inspect(device); } }); }
-    found
+    // PCI enumeration has already populated the fixed-capacity device registry
+    // during boot. Reuse that snapshot instead of issuing a second full
+    // mechanism-1 scan while early boot is still running.
+    let mut index=0usize;
+    while index<crate::device::device_count() {
+        if let Some(record)=crate::device::get(index) {
+            if let Some(info)=unsafe{inspect(record.pci)} {
+                return Some(info);
+            }
+        }
+        index+=1;
+    }
+    None
 }
 fn wait_until<F:FnMut()->bool>(mut condition:F)->bool{
     for _ in 0..WAIT_LIMIT{if condition(){return true;}unsafe{crate::arch::x86::pause();}}
