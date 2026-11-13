@@ -759,3 +759,21 @@ managed 4 KiB mapping foundation, not complete virtual-memory isolation.
 
 No Cargo build, QEMU boot, or physical-memory stress test was run. Source
 read-back from the Rust branch is the only validation performed in this stage.
+
+
+## Scheduler policy foundation
+
+The Rust branch now includes a bounded PIT-driven scheduling policy module:
+- IRQ0 updates an atomic tick counter and raises a reschedule request at the
+  configured quantum (default 5 ticks at 100 Hz).
+- Ready-task selection is priority-first with deterministic round-robin order
+  among tasks of equal priority.
+- Scheduler metadata can record a committed task selection after a future
+  architecture switch succeeds.
+
+Important: this is not yet active preemptive multitasking. The current common
+ISR epilogue always restores the interrupted frame and executes IRETD; it does
+not accept a replacement frame. Per-task kernel stacks, initial interrupt
+frames, a safe interrupt-frame handoff, and scheduler/context-switch integration
+must be completed before enabling timer-driven task preemption. No build or
+runtime tests were run for this change.
