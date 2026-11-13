@@ -1,13 +1,6 @@
 name: LionOS Rust Rewrite
 
 on:
-  push:
-    branches:
-      - "rewrite/rust-kernel"
-  pull_request:
-    branches:
-      - main
-      - "rewrite/rust-kernel"
   workflow_dispatch:
 
 jobs:
