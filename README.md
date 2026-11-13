@@ -348,3 +348,23 @@ controller state. Event Ring DMA remains owned by XhciDma for its full lifetime;
 no release path is exposed while hardware ownership could be uncertain.
 
 Build and hardware tests have not been run.
+
+
+## xHCI software event routing and interrupter planning
+
+Added `src/xhci_runtime.rs` with a bounded event pump that consumes up to
+16 cycle-valid Event Ring entries and classifies them as Transfer, Command
+Completion, Port Status Change, Host Controller, or other events. The returned
+batch preserves the original event records so the existing command and
+transfer correlation layers can process them without losing unrelated events.
+
+The module also validates runtime interrupter register offsets against the
+reported BAR size and exposes separate IMAN values for enabling IE,
+acknowledging the W1C IP bit, and disabling delivery. These are plans only:
+there are no MMIO writes, no interrupt routing changes, no PCI bus-master
+enable, no doorbell writes, and no controller Run/Stop transition. The event
+pump does not itself write ERDP; hardware acknowledgement remains a separate,
+reviewed operation.
+
+Build and hardware validation remain deferred. The Rust rewrite is still not
+a boot-verified or production-ready operating system.
