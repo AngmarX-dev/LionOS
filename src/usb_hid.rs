@@ -160,3 +160,23 @@ pub fn usage_to_ascii(usage: u8) -> Option<u8> {
         0x36 => b',', 0x37 => b'.', 0x38 => b'/', _ => return None,
     })
 }
+
+
+/// Decode and route one boot-keyboard report into the desktop input sink.
+pub fn dispatch_boot_keyboard_report(
+    tracker: &mut KeyboardTracker,
+    bytes: &[u8],
+) -> Result<(), HidError> {
+    let report = BootKeyboardReport::parse(bytes)?;
+    for event in tracker.update(report).iter().flatten() {
+        crate::desktop::accept_hid_key_transition(*event);
+    }
+    Ok(())
+}
+
+/// Decode and route one boot-mouse report into the desktop pointer sink.
+pub fn dispatch_boot_mouse_report(bytes: &[u8]) -> Result<(), HidError> {
+    let report = BootMouseReport::parse(bytes)?;
+    crate::desktop::accept_hid_mouse_report(report);
+    Ok(())
+}
