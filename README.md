@@ -836,3 +836,12 @@ This is an architectural source integration pass, not a declaration that the ker
 The RGB framebuffer backend now rejects overlapping channel masks and validates pitch/span arithmetic with checked operations before accepting a Multiboot2 framebuffer. The software renderer exposes clipped gradients, rectangle outlines, rounded rectangles, Bresenham lines and a compact 5x7 ASCII bitmap text renderer (scale 1–4). The desktop compositor now builds a complete diagnostic scene from these primitives, including a gradient background, top bar, information panel, cards and dock. The existing save-under pointer remains the final overlay and redraws only after movement.
 
 The implementation is CPU-rendered against the firmware-provided packed RGB framebuffer. It does not provide GPU acceleration, page-flipping/double buffering, alpha-composited surfaces, font shaping, Unicode text, display mode setting, Intel/NVIDIA drivers or tear-free presentation. Framebuffer mapping is still constrained by the current 32-bit identity map. No build, QEMU or physical display validation was run.
+
+
+## Advanced software graphics pipeline
+
+The framebuffer renderer now supports an optional page-backed 32-bit canonical RGB backbuffer, allocated only after paging is active. Drawing operations target this buffer and accumulate a dirty bounding rectangle; `present()` copies that region to the firmware framebuffer while converting to its reported packed RGB channel layout. Allocation failure preserves direct-render fallback.
+
+The API includes source-over per-pixel alpha blending and caller-owned independent ARGB surfaces with clipped composition. The mouse pointer remains a direct scanout overlay so save-under restoration does not read stale backbuffer data.
+
+This is a software backbuffer with dirty-region presentation, not hardware page flipping or guaranteed tear-free output. Unicode shaping and broad glyph coverage are not implemented; the built-in font remains ASCII. No build, QEMU or physical display test was run.
