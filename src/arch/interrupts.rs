@@ -106,7 +106,6 @@ lionos_isr20:
   jmp lionos_isr_common
 .global lionos_isr21
 lionos_isr21:
-  push 0
   push 21
   jmp lionos_isr_common
 .global lionos_isr22
