@@ -632,6 +632,7 @@ impl UsbDeviceManager {
             entry.connected = false;
             entry.phase = EnumerationPhase::DisconnectPending;
         } else {
+            entry.connected = false;
             entry.phase = EnumerationPhase::Failed;
         }
         Ok(())
