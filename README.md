@@ -438,3 +438,29 @@ This stage does not activate xHCI or submit commands. The ownership API is a
 conservative guardrail, not a substitute for device-specific synchronization,
 interrupt exclusion, posted-write flushing, or hardware validation. Build and
 hardware tests remain deferred.
+
+
+## xHCI controller lifecycle and bounded reset model
+
+`src/xhci_runtime.rs` now contains an explicit `ControllerLifecycle` software
+state machine:
+
+`Offline -> Discovered -> OwnershipGranted -> Halted -> Resetting -> Ready
+-> DmaConfigured -> InterrupterPrepared -> Running`.
+
+Recovery moves supported active phases to `Recovering`. It cannot return to
+`Halted` through the ordinary halt transition: `complete_recovery` requires
+`RecoveryEvidence` to prove Run/Stop cleared, controller halted, PCI bus
+mastering disabled, DMA idle, and DMA reclamation completed. Uncertain memory
+can be moved to `Quarantined`; fatal errors can be recorded as `Faulted`.
+
+Reset attempts are bounded to two per lifecycle generation. Exceeding the
+limit moves the lifecycle to `Faulted`. Successful evidence-gated recovery
+advances the generation and resets the retry counter.
+
+This is a software state model only. It does not perform PCI/MMIO reads,
+controller resets, timeouts, interrupt masking, or DMA synchronization itself.
+The caller must supply truthful hardware read-back evidence. The existing
+controller bring-up path and hardware sequencing still require a separate
+audit before enabling live USB operation. No build or hardware test was run;
+those remain deferred as requested.
