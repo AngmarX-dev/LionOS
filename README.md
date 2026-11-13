@@ -388,3 +388,26 @@ This stage does not activate the controller or enable interrupts. Correct
 hardware register ordering, W1C semantics, DMA visibility, and controller
 quiescence still require a dedicated hardware-reviewed layer. Build and
 hardware tests remain deferred.
+
+
+## xHCI bounded runtime register access
+
+Added `XhciRuntimeRegisters` in `src/xhci_runtime.rs`, scoped to a validated
+`InterrupterPlan` and an existing bounded `MmioRegion`.
+
+- IMAN enable writes IE without echoing the W1C IP bit.
+- IMAN disable clears IE without acknowledging IP.
+- Pending acknowledgement reads the current IE state and writes only IE plus
+  the IP W1C bit, avoiding a generic read-modify-write of the register.
+- ERDP writes validate the opaque EventAckToken value and use high-dword then
+  low-dword ordering for this 32-bit access path, with CPU/compiler fences.
+- EventRing acknowledgement bookkeeping remains a separate commit step and
+  must occur only after the ERDP write succeeds.
+
+These accessors do not enable PCI bus mastering, start the controller, configure
+MSI/MSI-X, or activate interrupt delivery. The caller remains responsible for
+controller-state preconditions, interrupt synchronization, correct capability
+offset discovery, and ensuring the MMIO mapping covers the full register set.
+The code has been source-reviewed only; build and hardware validation remain
+deferred. In particular, the 64-bit register access ordering and IMAN W1C
+behavior must be verified against the target xHCI revision before activation.
