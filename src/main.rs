@@ -484,3 +484,8 @@ pub unsafe extern "C" fn memmove(dst:*mut u8,src:*const u8,count:usize)->*mut u8
 pub unsafe extern "C" fn memcmp(a:*const u8,b:*const u8,count:usize)->i32 {
     for i in 0..count { let x=core::ptr::read_volatile(a.add(i)); let y=core::ptr::read_volatile(b.add(i)); if x!=y{return x as i32-y as i32;} } 0
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn bcmp(a:*const u8,b:*const u8,count:usize)->i32 {
+    memcmp(a,b,count)
+}
