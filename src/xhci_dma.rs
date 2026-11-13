@@ -439,6 +439,18 @@ impl DeviceContext{
    &&self.set_input_dword(2,3,ep0_dword3)
    &&self.set_input_dword(2,4,8)
  }
+ /// Prepare Address Device's EP0 context from the ring registered for this
+ /// exact Slot. This prevents accidentally borrowing another device's ring.
+ pub fn prepare_address_context_for_ep0(&mut self,route_string:u32,speed:u8,
+  root_port:u8,context_entries:u8,ep0_max_packet:u16,rings:&Ep0TransferRings,
+  slot_id:u8)->Result<(),Ep0RingError>{
+  let ring=rings.ring(slot_id)?;
+  if !self.prepare_address_context(route_string,speed,root_port,context_entries,
+   ep0_max_packet,ring.initial_dequeue_pointer(),ring.cycle_state()){
+   return Err(Ep0RingError::InvalidSlot);
+  }
+  Ok(())
+ }
 }
 pub struct ScratchpadSet{array:crate::dma::DmaBuffer,storage:crate::dma::DmaBuffer,count:u16}
 impl ScratchpadSet{
