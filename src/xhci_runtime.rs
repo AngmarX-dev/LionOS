@@ -272,6 +272,7 @@ pub enum TransferDispatchError {
     InvalidSlot,
     InvalidPayload,
     Payload(crate::xhci_dma::UsbPayloadError),
+    Ep0Ring(crate::xhci_dma::Ep0RingError),
     Transfer(crate::xhci_dma::TransferError),
     Doorbell(DoorbellError),
 }
@@ -350,6 +351,28 @@ impl XhciControlTransferDispatcher {
             return Err(TransferDispatchError::Doorbell(error));
         }
         Ok(pointer)
+    }
+
+    /// Submit a control TD to the EP0 ring belonging to this exact Slot.
+    /// EP0 uses endpoint target ID 1 and stream ID 0.
+    pub fn submit_ep0(&mut self,rings:&mut crate::xhci_dma::Ep0TransferRings,
+        doorbells:&XhciDoorbells,lifecycle:&RuntimeLifecycle,dma_device_owned:bool,
+        slot_id:u8,setup:crate::xhci_dma::UsbSetupPacket,data_buffer:u64)
+        ->Result<u64,TransferDispatchError>{
+        let ring=rings.ring_mut(slot_id).map_err(TransferDispatchError::Ep0Ring)?;
+        self.submit(ring,doorbells,lifecycle,dma_device_owned,slot_id,
+            crate::xhci_dma::XHCI_EP0_ENDPOINT_ID,0,setup,data_buffer)
+    }
+
+    /// EP0 data-stage variant using an owned payload buffer.
+    pub fn submit_ep0_payload(&mut self,rings:&mut crate::xhci_dma::Ep0TransferRings,
+        doorbells:&XhciDoorbells,lifecycle:&RuntimeLifecycle,dma_device_owned:bool,
+        slot_id:u8,setup:crate::xhci_dma::UsbSetupPacket,
+        payload:&crate::xhci_dma::UsbPayloadBuffer)
+        ->Result<u64,TransferDispatchError>{
+        let ring=rings.ring_mut(slot_id).map_err(TransferDispatchError::Ep0Ring)?;
+        self.submit_payload(ring,doorbells,lifecycle,dma_device_owned,slot_id,
+            crate::xhci_dma::XHCI_EP0_ENDPOINT_ID,0,setup,payload)
     }
 
     /// Pool-handle variant: validates the generation-checked handle before
