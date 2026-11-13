@@ -19,7 +19,7 @@ static mut POINTER_READY: bool = false;
 pub fn refresh_pointer() {
     let state = crate::mouse::snapshot();
     if !state.initialized { return; }
-    let Some(fb) = graphics::info() else { return; };
+    if graphics::info().is_none() { return; }
     let x = state.x.max(0) as u32;
     let y = state.y.max(0) as u32;
     unsafe {
