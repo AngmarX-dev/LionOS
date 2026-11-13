@@ -18,7 +18,8 @@ or the repository's default branch.
 - Validated Multiboot2 tag traversal.
 - Fixed-capacity 4 KiB physical frame allocator for the 32-bit physical address
   space, initialized from usable memory-map entries.
-- PCI configuration-space enumeration across buses, devices and functions.
+- PCI configuration-space enumeration, command/status and interrupt metadata, and passive BAR decoding (no sizing or MMIO access).
+- Fixed-capacity device registry (256 entries) and driver match/probe API (16 slots); no hardware drivers are registered yet.
 - RGB 24/32-bpp Multiboot2 framebuffer metadata validation and CPU pixel/rectangle
   drawing when the framebuffer is addressable below 4 GiB.
 - Bounded in-memory file store (RAMFS core).
@@ -42,7 +43,7 @@ limited and must not be represented as production-ready:
 | PIC / IRQ | PIC remapped and masked; interrupt handlers not enabled |
 | Physical memory | Fixed bitmap allocator and 4 GiB identity map; no isolation or demand paging |
 | Heap | Page-backed global allocator; page-granular allocations only |
-| PCI | Configuration-space enumeration; no general driver manager/BAR mapping |
+| PCI / devices | Passive enumeration and BAR metadata, bounded registry and driver-binding API; no BAR sizing, resource mapping or active drivers |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
 | NVIDIA RTX | PCI discovery only; native driver not implemented |

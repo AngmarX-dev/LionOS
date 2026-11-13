@@ -14,6 +14,7 @@ mod memory;
 mod paging;
 mod heap;
 mod pci;
+mod device;
 mod graphics;
 mod fs;
 mod task;
@@ -144,6 +145,7 @@ fn parse_boot_info(address:u32)->(u64,bool) {
 }
 
 fn report_pci() {
+    unsafe { device::discover(); }
     let mut count=0u32;
     write_str("\nPCI devices (enumeration only):\n");
     unsafe {
@@ -158,6 +160,9 @@ fn report_pci() {
         });
     }
     write_str("PCI functions enumerated: "); write_dec(count); write_str("\n");
+    write_str("Device registry entries: "); write_dec(device::device_count() as u32); write_str(" / "); write_dec(device::MAX_DEVICES as u32); write_str("\n");
+    write_str("Registered driver slots: "); write_dec(device::driver_count() as u32); write_str("; bound devices: "); write_dec(device::bound_count() as u32); write_str("\n");
+    if device::dropped_count()!=0 { write_str("[WARN] Registry overflow, dropped: "); write_dec(device::dropped_count() as u32); write_str("\n"); }
 }
 
 fn initialize_subsystems() {
@@ -232,7 +237,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("\nRUST PORT INVENTORY\n");
     write_str("[ OK ] x86 port I/O, GDT, IDT fail-stop and PIC masking\n");
     write_str("[ OK ] Multiboot2 memory map and fixed physical-frame allocator\n");
-    write_str("[ OK ] PCI configuration-space enumeration\n");
+    write_str("[ OK ] PCI discovery, passive BAR metadata and fixed device registry\n");
     write_str("[ OK ] RGB framebuffer software drawing (when supplied below 4 GiB)\n");
     write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 polling primitives\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");

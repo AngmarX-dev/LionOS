@@ -1,43 +1,47 @@
-//! PCI configuration-space discovery through legacy mechanism #1.
-//! This is enumeration only; it does not enable bus mastering or touch BAR contents.
-use crate::arch::x86::{inl, outl};
-
-#[derive(Clone, Copy, Debug)]
-pub struct PciDevice {
-    pub bus: u8, pub device: u8, pub function: u8,
-    pub vendor_id: u16, pub device_id: u16,
-    pub class: u8, pub subclass: u8, pub prog_if: u8, pub header_type: u8,
+//! Passive PCI discovery and BAR metadata decoding. Never probes BAR sizes or enables devices.
+use crate::arch::x86::{inl,outl};
+pub const PCI_BAR_COUNT:usize=6;
+#[derive(Clone,Copy,Debug)]
+pub struct PciBar{pub kind:u8,pub base:u64,pub prefetchable:bool}
+impl PciBar{pub const EMPTY:Self=Self{kind:0,base:0,prefetchable:false};}
+#[derive(Clone,Copy,Debug)]
+pub struct PciDevice{
+ pub bus:u8,pub device:u8,pub function:u8,pub vendor_id:u16,pub device_id:u16,
+ pub command:u16,pub status:u16,pub revision_id:u8,pub prog_if:u8,pub subclass:u8,pub class:u8,
+ pub header_type:u8,pub interrupt_line:u8,pub interrupt_pin:u8,pub bars:[PciBar;PCI_BAR_COUNT],pub bar_count:u8,
 }
-
-pub unsafe fn read_config(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
-    let address = 0x8000_0000u32
-        | ((bus as u32) << 16) | ((device as u32) << 11)
-        | ((function as u32) << 8) | ((offset as u32) & 0xFC);
-    outl(0xCF8, address);
-    inl(0xCFC)
+#[inline] pub unsafe fn read_config(bus:u8,dev:u8,fun:u8,off:u8)->u32{
+ let a=0x8000_0000|((bus as u32)<<16)|((dev as u32)<<11)|((fun as u32)<<8)|((off as u32)&0xFC);
+ outl(0xCF8,a);inl(0xCFC)
 }
-
-pub unsafe fn enumerate<F: FnMut(PciDevice)>(mut visit: F) {
-    for bus in 0u16..=255 {
-        for dev in 0u8..32 {
-            let id0 = read_config(bus as u8, dev, 0, 0);
-            if id0 as u16 == 0xFFFF { continue; }
-            let header = read_config(bus as u8, dev, 0, 0x0C);
-            let functions = if ((header >> 16) as u8 & 0x80) != 0 { 8 } else { 1 };
-            for fun in 0..functions {
-                let id = read_config(bus as u8, dev, fun, 0);
-                if id as u16 == 0xFFFF { continue; }
-                let class_reg = read_config(bus as u8, dev, fun, 0x08);
-                let hdr = read_config(bus as u8, dev, fun, 0x0C);
-                visit(PciDevice {
-                    bus: bus as u8, device: dev, function: fun,
-                    vendor_id: id as u16, device_id: (id >> 16) as u16,
-                    prog_if: (class_reg >> 8) as u8,
-                    subclass: (class_reg >> 16) as u8,
-                    class: (class_reg >> 24) as u8,
-                    header_type: (hdr >> 16) as u8,
-                });
-            }
-        }
-    }
+unsafe fn decode_bars(bus:u8,dev:u8,fun:u8,header:u8)->([PciBar;PCI_BAR_COUNT],u8){
+ let mut bars=[PciBar::EMPTY;PCI_BAR_COUNT];let mut count=0;
+ if header&0x7F!=0{return(bars,count)}
+ let mut i=0usize;
+ while i<PCI_BAR_COUNT{
+  let raw=read_config(bus,dev,fun,0x10+(i as u8)*4);
+  if raw==0||raw==u32::MAX{i+=1;continue}
+  if raw&1!=0{let base=(raw&0xFFFF_FFFC) as u64;if base!=0{bars[i]=PciBar{kind:1,base,prefetchable:false};count+=1}i+=1;continue}
+  let mt=(raw>>1)&3;let pf=raw&8!=0;
+  match mt{
+   0|1=>{let base=(raw&0xFFFF_FFF0) as u64;if base!=0{bars[i]=PciBar{kind:if mt==0{2}else{3},base,prefetchable:pf};count+=1}i+=1}
+   2 if i+1<PCI_BAR_COUNT=>{let hi=read_config(bus,dev,fun,0x10+((i+1) as u8)*4);let base=((hi as u64)<<32)|((raw&0xFFFF_FFF0) as u64);if base!=0{bars[i]=PciBar{kind:4,base,prefetchable:pf};count+=1}i+=2}
+   _=>i+=1
+  }
+ }(bars,count)
+}
+pub unsafe fn enumerate<F:FnMut(PciDevice)>(mut visit:F){
+ for bus in 0u16..=255{for dev in 0u8..32{
+  let id0=read_config(bus as u8,dev,0,0);if id0 as u16==0xFFFF{continue}
+  let h0=read_config(bus as u8,dev,0,0x0C);let funcs=if ((h0>>16) as u8&0x80)!=0{8}else{1};
+  for fun in 0..funcs{
+   let id=if fun==0{id0}else{read_config(bus as u8,dev,fun,0)};if id as u16==0xFFFF{continue}
+   let cs=read_config(bus as u8,dev,fun,4);let cr=read_config(bus as u8,dev,fun,8);let hr=read_config(bus as u8,dev,fun,0x0C);let header=(hr>>16) as u8;
+   let (bars,bar_count)=decode_bars(bus as u8,dev,fun,header);let irq=read_config(bus as u8,dev,fun,0x3C);
+   visit(PciDevice{bus:bus as u8,device:dev,function:fun,vendor_id:id as u16,device_id:(id>>16) as u16,
+    command:cs as u16,status:(cs>>16) as u16,revision_id:cr as u8,prog_if:(cr>>8) as u8,
+    subclass:(cr>>16) as u8,class:(cr>>24) as u8,header_type:header,interrupt_line:irq as u8,
+    interrupt_pin:(irq>>8) as u8,bars,bar_count});
+  }
+ }}
 }
