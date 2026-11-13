@@ -347,7 +347,7 @@ impl UsbPayloadPool {
    return Err(UsbPayloadError::NotCpuOwned);
   }
   let owned=slot.buffer.take().ok_or(UsbPayloadError::InvalidHandle)?;
-  if unsafe{owned.release()}{Ok(())}else{Err(UsbPayloadError::ReleaseFailed)}
+  unsafe{owned.release()}
  }
 }
 
@@ -1059,7 +1059,7 @@ impl TransferTracker {
         self.len-=1;self.pending[self.len]=None;Ok(result)
     }
 }
-#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+#[derive(Clone,Copy)]
 pub enum TransferPoll { Empty,Unrelated(EventRecord),Completed(TransferResult),Invalid(TransferError) }
 /// Conservative one-shot transfer submission coordinator. It deliberately
 /// refuses to wrap/reuse the transfer ring: safe reclamation requires a
