@@ -246,10 +246,16 @@ fn report_usb_enumeration(){
 }
 
 fn initialize_subsystems() {
-    if fs::create("BOOT.TXT") {
-        let _=fs::write("BOOT.TXT",b"LionOS Rust kernel booted.\n");
-        write_str("[ OK ] RAMFS core initialized\n");
+    let directory_ready = fs::create_dir("/boot").is_ok();
+    if fs::write_file("/boot/BOOT.TXT", b"LionOS Rust kernel booted.\n").is_ok() {
+        write_str("[ OK ] Hierarchical RAMFS initialized; /boot/BOOT.TXT created\n");
+    } else if !directory_ready {
+        write_str("[WARN] RAMFS boot directory initialization failed\n");
     }
+    let (used, files, directories) = fs::capacity();
+    write_str("  RAMFS nodes: "); write_dec(used as u32);
+    write_str(" / 63; files: "); write_dec(files as u32);
+    write_str("; directories: "); write_dec(directories as u32); write_str("\n");
     if let Some(id)=task::register(1) {
         write_str("[ OK ] Static task registry initialized; bootstrap task id ");
         write_dec(id); write_str("\n");
