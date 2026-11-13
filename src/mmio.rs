@@ -25,6 +25,13 @@ impl MmioRegion{
     fn valid_offset(&self,offset:usize)->bool{
         offset&3==0&&offset.checked_add(4).map_or(false,|end|end<=self.length)
     }
+    /// Read a byte from a 32-bit MMIO register without issuing an unaligned bus read.
+    pub fn read8(&self,offset:usize)->Option<u8>{
+        if offset>=self.length{return None;}
+        let aligned=offset&!3;
+        let shift=((offset&3)*8) as u32;
+        self.read32(aligned).map(|value|((value>>shift)&0xFF) as u8)
+    }
     pub fn read32(&self,offset:usize)->Option<u32>{
         if !self.valid_offset(offset){return None;}
         compiler_fence(Ordering::SeqCst);

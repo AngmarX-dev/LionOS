@@ -14,6 +14,7 @@ mod memory;
 mod paging;
 mod dma;
 mod mmio;
+mod xhci;
 mod heap;
 mod pci;
 mod device;
@@ -167,6 +168,29 @@ fn report_pci() {
     if device::dropped_count()!=0 { write_str("[WARN] Registry overflow, dropped: "); write_dec(device::dropped_count() as u32); write_str("\n"); }
 }
 
+fn report_xhci(){
+    write_str("\nXHCI CONTROLLER DISCOVERY\n");
+    match xhci::discover(){
+        Some(info)=>{
+            write_str("[ OK ] xHCI PCI function found at ");
+            write_hex(((info.bus as u32)<<8)|((info.device as u32)<<3)|info.function as u32);
+            write_str(" vendor/device ");write_hex(info.vendor_id as u32);put_byte(':');write_hex(info.device_id as u32);write_str("\n");
+            write_str("  BAR");write_dec(info.bar_index as u32);write_str(" MMIO ");write_hex(info.bar_base);write_str(" version ");write_hex(info.version as u32);write_str("\n");
+            write_str("  Slots ");write_dec(info.max_slots as u32);write_str(" interrupters ");write_dec(info.max_interrupters as u32);write_str(" ports ");write_dec(info.max_ports as u32);write_str("\n");
+            write_str("  64-bit DMA capability: ");write_str(if info.address_64bit{"yes"}else{"no"});write_str("\n");
+            write_str("  Doorbell offset ");write_hex(info.doorbell_offset);write_str(" runtime offset ");write_hex(info.runtime_offset);write_str("\n");
+            write_str("  USBSTS ");write_hex(info.usb_status);write_str(" (HCH=");write_str(if info.usb_status&1!=0{"yes"}else{"no"});write_str(", CNR=");write_str(if info.usb_status&(1<<11)!=0{"yes"}else{"no"});write_str(")\n");
+            if info.legacy_support_found{
+                write_str("  BIOS ownership: ");write_str(if info.bios_owned{"held"}else{"not held"});
+                write_str("; OS ownership: ");write_str(if info.os_owned{"claimed"}else{"not claimed"});write_str("\n");
+            }else{write_str("  Legacy Support capability not found\n");}
+            if !info.ext_caps_valid{write_str("[WARN] Extended capability chain invalid or outside probe window\n");}
+            write_str("[INFO] Passive probe only; controller was not reset and DMA was not started\n");
+        },
+        None=>write_str("[INFO] No usable xHCI controller found in the current 32-bit MMIO window\n"),
+    }
+}
+
 fn initialize_subsystems() {
     if fs::create("BOOT.TXT") {
         let _=fs::write("BOOT.TXT",b"LionOS Rust kernel booted.\n");
@@ -223,7 +247,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     let (usable,memory_ready)=parse_boot_info(multiboot_info);
     if unsafe{paging::init_identity_4g()} {
         write_str("[ OK ] 4 GiB supervisor identity paging enabled (4 MiB PSE pages)\n");
-    } else { write_str("[WARN] Paging initialization failed\\n"); }
+    } else { write_str("[WARN] Paging initialization failed\n"); }
     if memory_ready {
         write_str("[ OK ] Physical frame allocator initialized; usable bytes ");
         write_hex((usable>>32) as u32); write_hex(usable as u32); write_str("\n");
@@ -236,6 +260,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     } else { write_str("[WARN] Physical frame allocator not initialized\n"); }
 
     report_pci();
+    report_xhci();
     initialize_subsystems();
 
     write_str("\nRUST PORT INVENTORY\n");
@@ -245,7 +270,8 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] RGB framebuffer software drawing (when supplied below 4 GiB)\n");
     write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 polling primitives\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");
-    write_str("[ -- ] Disk filesystem, USB host controller, NIC drivers and TCP/IP not implemented\n");
+    write_str("[ OK ] xHCI PCI capability discovery and bounded passive register inspection\n");
+    write_str("[ -- ] xHCI ownership handoff, controller reset, rings, USB enumeration, NIC drivers and TCP/IP not implemented\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");
     idle_forever()
