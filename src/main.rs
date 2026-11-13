@@ -136,6 +136,12 @@ fn parse_boot_info(address:u32)->(u64,bool) {
             let bpp=unsafe{read_u8(tag,28)};
             let fb_type=unsafe{read_u8(tag,29)};
             if fb_type==1 {
+                let framebuffer_bytes=(pitch as u64).checked_mul(height as u64);
+                if let Some(bytes)=framebuffer_bytes {
+                    if bytes!=0 && address.checked_add(bytes).map_or(false,|end|end<=0x1_0000_0000) {
+                        let _=memory::reserve_region(address,bytes);
+                    }
+                }
                 let red_pos=unsafe{read_u8(tag,32)};
                 let red_size=unsafe{read_u8(tag,33)};
                 let green_pos=unsafe{read_u8(tag,34)};
