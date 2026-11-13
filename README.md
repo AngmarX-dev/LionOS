@@ -49,7 +49,7 @@ from supporting USB devices after the kernel starts.
 - In firmware setup, enable legacy BIOS/CSM boot if available and select the USB
   device from the one-time boot menu.
 - This image does not currently provide UEFI boot support.
-- xHCI can validate its memory BAR, request OS ownership, halt and reset the controller with bounded waits. It deliberately leaves Run/Stop disabled and does not allocate DMA rings, enumerate devices or handle ports.
+- xHCI validates its memory BAR, requests OS ownership, halts and resets the controller with bounded waits. A separate DMA-layout module can allocate and prepare DCBAA, command/transfer producer rings, a single-segment event ring and ERST. It deliberately does not program these addresses into the controller, enable Run/Stop, ring doorbells, enumerate devices or handle ports.
 - USB keyboard and mouse HID drivers are not implemented. Firmware USB legacy
   emulation may work on some machines, but is not guaranteed.
 - The kernel currently has no persistent block storage or USB filesystem
@@ -79,7 +79,7 @@ limited and must not be represented as production-ready:
 | PCI / devices | Passive enumeration and BAR metadata, bounded registry and driver-binding API; no BAR sizing, resource mapping or active drivers |
 | USB boot | BIOS firmware + GRUB loads the kernel; post-handoff USB storage is not supported |
 | DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |
-| USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; controller remains stopped; no DMA rings or USB enumeration |
+| USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; DMA structures can be allocated in memory but are not programmed; controller remains stopped; no USB enumeration |
 | USB HID | Keyboard/mouse drivers not implemented |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
@@ -173,3 +173,10 @@ The current MMIO accessor relies on the temporary 4 GiB identity map and marks w
 The xHCI bring-up now performs a reversible PCI memory-BAR size probe before mapping the register window. It temporarily disables PCI I/O decode, memory decode and bus mastering, probes the BAR mask (including a 64-bit BAR pair), restores both BAR dwords and restores the original 16-bit Command register. It rejects a BAR that is smaller than the bounded capability window or extends beyond the current 32-bit identity map. It does not allocate or reassign PCI resources.
 
 If the xHCI Legacy Support capability is present and BIOS Owned is set, the kernel sets OS Owned and waits a bounded interval for BIOS Owned to clear. A timeout aborts the reset path. Once ownership is available, the kernel clears USBCMD.Run/Stop, waits for USBSTS.Halted, sets Host Controller Reset, waits for HCRST to clear, then waits for USBSTS.Controller Not Ready to clear. All waits are bounded. The controller is intentionally left halted; PCI bus mastering remains disabled, and no DMA structures, command rings, event rings, interrupters or port operations are started. This is an initialization foundation, not USB device support. The BAR probe and hardware state transitions have not been build- or hardware-tested in this development session.
+
+
+## xHCI DMA memory-layout stage
+
+A dedicated src/xhci_dma.rs module defines 16-byte TRBs, a 256-entry DCBAA, command and transfer producer rings with a terminal Link TRB (Toggle Cycle enabled), a 256-entry single-segment Event Ring, and a one-entry Event Ring Segment Table. Ring allocations are page-backed, physically contiguous, below 4 GiB, 64-byte aligned by the page allocator, and constrained not to cross a 64 KiB boundary. The producer helper maintains the producer Cycle State; the event helper checks the consumer Cycle bit and advances its dequeue index. Allocation unwinds already-acquired pages on failure.
+
+This is a memory-layout foundation only. It does not program DCBAAP, CRCR, ERSTBA, ERSTSZ or ERDP; it does not set CONFIG, enable PCI bus mastering, start Run/Stop, enable interrupters or ring doorbells. Scratchpad buffers are not yet supported: allocation fails closed when the controller reports a nonzero scratchpad requirement. A future stage must parse HCSParams2, allocate scratchpads and device contexts, program registers in the specification-defined order, and only then start the controller. These structures have not been build-tested or hardware-tested in this session.
