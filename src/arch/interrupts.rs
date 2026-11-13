@@ -102,7 +102,6 @@ lionos_isr19:
   jmp lionos_isr_common
 .global lionos_isr20
 lionos_isr20:
-  push 0
   push 20
   jmp lionos_isr_common
 .global lionos_isr21
@@ -147,12 +146,10 @@ lionos_isr28:
   jmp lionos_isr_common
 .global lionos_isr29
 lionos_isr29:
-  push 0
   push 29
   jmp lionos_isr_common
 .global lionos_isr30
 lionos_isr30:
-  push 0
   push 30
   jmp lionos_isr_common
 .global lionos_isr31
@@ -427,6 +424,15 @@ pub extern "C" fn lionos_interrupt_dispatch(frame:*const InterruptFrame) {
         }
         return;
     }
-    // Exceptions and unexpected vectors fail closed until diagnostics/recovery exist.
-    loop { unsafe { asm!("cli; hlt",options(nomem,nostack)); } }
+    if vector < 32 {
+        let error_code=unsafe { read_volatile(addr_of!((*frame).error_code)) };
+        let eip=unsafe { read_volatile(addr_of!((*frame).eip)) };
+        let cs=unsafe { read_volatile(addr_of!((*frame).cs)) };
+        let eflags=unsafe { read_volatile(addr_of!((*frame).eflags)) };
+        let _=crate::arch::exception::handle(vector,error_code,eip,cs,eflags);
+        return;
+    }
+    // Unexpected vectors outside the installed exception/IRQ ranges fail closed.
+    unsafe { crate::arch::x86::interrupts_disable(); }
+    loop { unsafe { asm!("hlt",options(nomem,nostack)); } }
 }
