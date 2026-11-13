@@ -635,7 +635,17 @@ pub struct UsbSetupPacket {
 }
 impl UsbSetupPacket {
  pub const fn get_device_descriptor(length:u16)->Self {
-  Self{request_type:0x80,request:6,value:0x0100,index:0,length}
+  Self::get_descriptor(1,0,length)
+ }
+ pub const fn get_descriptor(descriptor_type:u8,descriptor_index:u8,length:u16)->Self {
+  Self{request_type:0x80,request:6,
+   value:((descriptor_type as u16)<<8)|(descriptor_index as u16),index:0,length}
+ }
+ pub const fn get_configuration(length:u16)->Self {
+  Self{request_type:0x80,request:8,value:0,index:0,length}
+ }
+ pub const fn set_configuration(configuration:u8)->Self {
+  Self{request_type:0,request:9,value:configuration as u16,index:0,length:0}
  }
  pub const fn to_parameter(self)->u64 {
   u64::from_le_bytes([self.request_type,self.request,
@@ -653,28 +663,46 @@ const TRB_CHAIN:u32=1<<4;
 const TRB_IOC:u32=1<<5;
 const TRB_IDT:u32=1<<6;
 const TRB_DIR_IN:u32=1<<16;
-/// Build the three TRBs for an IN GET_DESCRIPTOR(Device) control TD.
-/// This creates software descriptors only; ProducerRing::push is not called.
+/// Build a generic USB control-transfer TD. The optional data stage is
+/// present exactly when wLength is nonzero. This function only creates TRBs.
+pub fn control_transfer_trbs(setup:UsbSetupPacket,data_buffer:u64)
+ ->Result<([Trb;3],usize),ControlTransferError>{
+ let has_data=setup.length!=0;
+ if has_data {
+  if data_buffer==0||data_buffer>=DMA_LIMIT{return Err(ControlTransferError::InvalidBuffer);}
+  let end=data_buffer.checked_add(setup.length as u64)
+   .ok_or(ControlTransferError::AddressOverflow)?;
+  if end>DMA_LIMIT{return Err(ControlTransferError::AddressOverflow);}
+ } else if data_buffer!=0 {
+  return Err(ControlTransferError::InvalidBuffer);
+ }
+ let transfer_type=if !has_data{0}else if setup.request_type&0x80!=0{3}else{2};
+ let setup_trb=Trb{
+  parameter:setup.to_parameter(),status:8,
+  control:(TRB_TYPE_SETUP_STAGE<<TRB_TYPE_SHIFT)|TRB_IDT|TRB_CHAIN|(transfer_type<<16),
+ };
+ let data_trb=Trb{
+  parameter:data_buffer,status:setup.length as u32,
+  control:(TRB_TYPE_DATA_STAGE<<TRB_TYPE_SHIFT)
+   |if setup.request_type&0x80!=0{TRB_DIR_IN}else{0}|TRB_CHAIN,
+ };
+ let status_in=!has_data||setup.request_type&0x80==0;
+ let status_trb=Trb{
+  parameter:0,status:0,
+  control:(TRB_TYPE_STATUS_STAGE<<TRB_TYPE_SHIFT)
+   |if status_in{TRB_DIR_IN}else{0}|TRB_IOC,
+ };
+ let mut trbs=[setup_trb,data_trb,status_trb];
+ if !has_data {trbs[1]=status_trb;trbs[2]=Trb::default();}
+ Ok((trbs,if has_data{3}else{2}))
+}
+
+/// Compatibility helper for the initial GET_DESCRIPTOR(Device) request.
 pub fn get_device_descriptor_control_trbs(data_buffer:u64,length:u16)
  ->Result<[Trb;3],ControlTransferError>{
  if length==0||length>18{return Err(ControlTransferError::InvalidLength);}
- if data_buffer==0||data_buffer>=DMA_LIMIT{return Err(ControlTransferError::InvalidBuffer);}
- let end=data_buffer.checked_add(length as u64).ok_or(ControlTransferError::AddressOverflow)?;
- if end>DMA_LIMIT{return Err(ControlTransferError::AddressOverflow);}
- let setup=UsbSetupPacket::get_device_descriptor(length);
- let setup_trb=Trb{
-  parameter:setup.to_parameter(),status:8,
-  control:(TRB_TYPE_SETUP_STAGE<<TRB_TYPE_SHIFT)|TRB_IDT|TRB_CHAIN|(3<<16),
- };
- let data_trb=Trb{
-  parameter:data_buffer,status:length as u32,
-  control:(TRB_TYPE_DATA_STAGE<<TRB_TYPE_SHIFT)|TRB_DIR_IN|TRB_CHAIN,
- };
- let status_trb=Trb{
-  parameter:0,status:0,
-  control:(TRB_TYPE_STATUS_STAGE<<TRB_TYPE_SHIFT)|TRB_IOC,
- };
- Ok([setup_trb,data_trb,status_trb])
+ control_transfer_trbs(UsbSetupPacket::get_device_descriptor(length),data_buffer)
+  .map(|value|value.0)
 }
 
 
@@ -805,31 +833,37 @@ impl TransferEngine {
     pub const fn new()->Self {Self{tracker:TransferTracker::new(),submitted_trbs:0}}
     pub fn pending_count(&self)->usize {self.tracker.pending_count()}
     pub fn submitted_trbs(&self)->usize {self.submitted_trbs}
-    pub fn submit_get_device_descriptor(&mut self,ring:&mut ProducerRing,
-      slot_id:u8,endpoint_id:u8,data_buffer:u64,length:u16)->Result<u64,TransferError>{
+    pub fn submit_control(&mut self,ring:&mut ProducerRing,
+      slot_id:u8,endpoint_id:u8,setup:UsbSetupPacket,data_buffer:u64)
+      ->Result<u64,TransferError>{
         if slot_id==0{return Err(TransferError::InvalidSlot);}
         if endpoint_id==0||endpoint_id>31{return Err(TransferError::InvalidEndpoint);}
-        let trbs=get_device_descriptor_control_trbs(data_buffer,length)
+        let (trbs,count)=control_transfer_trbs(setup,data_buffer)
             .map_err(|_|TransferError::InvalidBuffer)?;
         let start=ring.enqueue_index();
-        if start!=self.submitted_trbs||start.checked_add(3).map_or(true,|end|end>LINK_INDEX+1){
+        if start!=self.submitted_trbs||start.checked_add(count).map_or(true,|end|end>LINK_INDEX){
             return Err(TransferError::RingFull);
         }
         if self.tracker.len==self.tracker.pending.len(){return Err(TransferError::TrackerFull);}
         let base=ring.physical_base();
         let setup_pointer=base+(start*TRB_BYTES) as u64;
-        let data_pointer=base+((start+1)*TRB_BYTES) as u64;
-        let completion_pointer=base+((start+2)*TRB_BYTES) as u64;
-        // Transfer Events may identify the Data Stage TRB on a Short Packet,
-        // or another TRB in the TD; retain all three valid correlation pointers.
+        let data_pointer=if count==3{base+((start+1)*TRB_BYTES) as u64}else{0};
+        let status_index=start+count-1;
+        let completion_pointer=base+(status_index*TRB_BYTES) as u64;
         self.tracker.reserve(PendingTransfer{setup_trb_pointer:setup_pointer,
             data_trb_pointer:data_pointer,status_trb_pointer:completion_pointer,
             slot_id,endpoint_id})?;
-        for trb in trbs {
-            if !ring.push(trb) {return Err(TransferError::RingFull);}
+        for index in 0..count {
+            if !ring.push(trbs[index]) {return Err(TransferError::RingFull);}
             self.submitted_trbs+=1;
         }
         Ok(completion_pointer)
+    }
+    pub fn submit_get_device_descriptor(&mut self,ring:&mut ProducerRing,
+      slot_id:u8,endpoint_id:u8,data_buffer:u64,length:u16)->Result<u64,TransferError>{
+        if length==0||length>18{return Err(TransferError::InvalidBuffer);}
+        self.submit_control(ring,slot_id,endpoint_id,
+            UsbSetupPacket::get_device_descriptor(length),data_buffer)
     }
     pub fn poll_one(&mut self,events:&mut EventRing)->TransferPoll {
         let event=match events.next_event(){Some(v)=>v,None=>return TransferPoll::Empty};
