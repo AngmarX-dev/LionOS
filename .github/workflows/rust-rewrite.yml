@@ -19,7 +19,7 @@ jobs:
       - name: Install kernel and ISO build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib nasm grub-common grub-pc-bin xorriso binutils qemu-system-x86
+          sudo apt-get install -y build-essential gcc-multilib nasm grub-common grub-pc-bin xorriso mtools binutils qemu-system-x86
 
       - name: Install Rust target
         run: |
