@@ -39,7 +39,7 @@ const MAP_ALLOWED: u32 = MAP_WRITABLE | MAP_USER | MAP_WRITE_THROUGH | MAP_CACHE
 
 #[inline]
 fn directory_ptr() -> *mut u32 {
-    core::ptr::addr_of_mut!(DIRECTORY.0).cast::<u32>()
+    unsafe { core::ptr::addr_of_mut!(DIRECTORY.0).cast::<u32>() }
 }
 
 #[inline]
