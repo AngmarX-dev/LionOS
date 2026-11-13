@@ -291,6 +291,20 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
                     write_str("; context bytes: ");
                     write_dec(layout.device_context.device_context_bytes() as u32);
                     write_str("\\n");
+                    let programmed=xhci::program_dma_registers(&info,&layout);
+                    write_str("  xHCI DMA register setup: ");
+                    match programmed {
+                        xhci::DmaProgramStatus::ProgrammedStopped=>write_str("DCBAAP/CRCR/ERST configured; controller remains halted"),
+                        xhci::DmaProgramStatus::NoController=>write_str("controller disappeared"),
+                        xhci::DmaProgramStatus::InvalidCapabilities=>write_str("capability or BAR range validation failed"),
+                        xhci::DmaProgramStatus::InvalidDmaLayout=>write_str("DMA alignment/range validation failed"),
+                        xhci::DmaProgramStatus::BusMasterDisableFailed=>write_str("could not keep PCI bus mastering disabled"),
+                        xhci::DmaProgramStatus::ControllerNotHalted=>write_str("controller is not confirmed halted"),
+                        xhci::DmaProgramStatus::CommandRingBusy=>write_str("command ring reports running"),
+                        xhci::DmaProgramStatus::MmioUnavailable=>write_str("MMIO register window unavailable"),
+                        xhci::DmaProgramStatus::RegisterWriteFailed=>write_str("one or more register writes failed; controller remains halted"),
+                    }
+                    write_str("\\n");
                     core::mem::forget(layout);
                 }
                 Err(_)=>write_str("[WARN] xHCI DMA context/scratchpad allocation failed; controller remains halted\\n"),
@@ -307,7 +321,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 polling primitives\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");
     write_str("[ OK ] xHCI PCI capability discovery, BAR sizing and ownership/reset state machine\n");
-    write_str("[ OK ] xHCI DMA memory layout: DCBAA, command/transfer rings, event ring, ERST, slot-1 Device/Input Contexts and optional scratchpads (not programmed)\\n");
+    write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\\n");
     write_str("[ -- ] xHCI controller DMA activation, interrupter setup, port handling and USB enumeration not implemented\\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");

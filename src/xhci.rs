@@ -103,6 +103,80 @@ fn wait_until<F:FnMut()->bool>(mut condition:F)->bool{
     false
 }
 /// Request ownership, stop and reset the controller. Never starts Run/Stop or DMA.
+
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum DmaProgramStatus{
+    ProgrammedStopped,NoController,InvalidCapabilities,InvalidDmaLayout,
+    BusMasterDisableFailed,ControllerNotHalted,CommandRingBusy,
+    MmioUnavailable,RegisterWriteFailed,
+}
+fn write64(region:&MmioRegion,offset:usize,value:u64)->bool{
+    // On this 32-bit kernel, write the high dword before committing the low dword.
+    region.write32(offset+4,(value>>32) as u32)&&region.write32(offset,value as u32)
+}
+/// Install DMA base/ring pointers while xHCI is halted. Bus mastering and Run/Stop
+/// remain disabled; this does not issue commands or enable interrupter delivery.
+pub fn program_dma_registers(info:&XhciInfo,dma:&crate::xhci_dma::XhciDma)->DmaProgramStatus{
+    if !info.page_4k_supported||info.max_slots==0||info.max_interrupters==0
+        ||info.context_size!=32&&info.context_size!=64{
+        return DmaProgramStatus::InvalidCapabilities;
+    }
+    let dcbaa=dma.dcbaa_base();
+    let command_ring=dma.command_ring_base();
+    let erst=dma.event_ring.erst_base();
+    let event=dma.event_ring.segment_base();
+    if dcbaa==0||dcbaa&0x3F!=0||command_ring==0||command_ring&0x3F!=0
+        ||erst==0||erst&0x3F!=0||event==0||event&0xF!=0
+        ||[dcbaa,command_ring,erst,event].iter().any(|v|*v>=0x1_0000_0000)
+        ||dma.event_ring.erst_size()!=1||dma.event_ring.segment_trb_count()==0
+        ||dma.dcbaa_entries()<=1{
+        return DmaProgramStatus::InvalidDmaLayout;
+    }
+    let device=unsafe{
+        let mut selected=None;
+        pci::enumerate(|d|{if d.bus==info.bus&&d.device==info.device&&d.function==info.function
+            &&d.vendor_id==info.vendor_id&&d.device_id==info.device_id{selected=Some(d);}});
+        match selected{Some(d)=>d,None=>return DmaProgramStatus::NoController}
+    };
+    let current_size=unsafe{pci::probe_memory_bar_size(&device,info.bar_index as usize)};
+    if current_size.map_or(true,|s|s!=info.bar_size){return DmaProgramStatus::InvalidCapabilities;}
+    if !unsafe{pci::disable_bus_master(&device)}{return DmaProgramStatus::BusMasterDisableFailed;}
+    let op=info.cap_length as usize;
+    let runtime=info.runtime_offset as usize;
+    let interrupter=match runtime.checked_add(0x20){Some(v)=>v,None=>return DmaProgramStatus::InvalidCapabilities};
+    let op_end=match op.checked_add(0x38){Some(v)=>v,None=>return DmaProgramStatus::InvalidCapabilities};
+    let runtime_end=match runtime.checked_add(0x40){Some(v)=>v,None=>return DmaProgramStatus::InvalidCapabilities};
+    let required=core::cmp::max(PROBE_WINDOW,core::cmp::max(op_end,runtime_end));
+    if runtime<0x20||runtime&0x1F!=0||required as u64>info.bar_size
+        ||required>0x10_0000{
+        return DmaProgramStatus::InvalidCapabilities;
+    }
+    let region=match unsafe{MmioRegion::from_pci_bar(&device,info.bar_index as usize,required)}{
+        Some(v)=>v,None=>return DmaProgramStatus::MmioUnavailable
+    };
+    let command=match read(&region,op){Some(v)=>v,None=>return DmaProgramStatus::MmioUnavailable};
+    let status=match read(&region,op+4){Some(v)=>v,None=>return DmaProgramStatus::MmioUnavailable};
+    if command&USBCMD_RS!=0||status&USBSTS_HCH==0||status&USBSTS_CNR!=0{
+        return DmaProgramStatus::ControllerNotHalted;
+    }
+    let crcr_low=match read(&region,op+0x18){Some(v)=>v,None=>return DmaProgramStatus::MmioUnavailable};
+    if crcr_low&(1<<3)!=0{return DmaProgramStatus::CommandRingBusy;}
+    // Interrupter 0 is configured but left disabled. IMAN.IP is W1C, so write
+    // zero rather than echoing the current value and accidentally acknowledging it.
+    if !region.write32(interrupter,0)||!region.write32(interrupter+4,0){
+        return DmaProgramStatus::RegisterWriteFailed;
+    }
+    if !write64(&region,op+0x30,dcbaa)
+        ||!write64(&region,op+0x18,command_ring|1)
+        ||!region.write32(interrupter+8,dma.event_ring.erst_size() as u32)
+        ||!write64(&region,interrupter+0x10,erst)
+        ||!write64(&region,interrupter+0x18,event){
+        return DmaProgramStatus::RegisterWriteFailed;
+    }
+    // No CONFIG.MaxSlotsEn, USBCMD.INTE, PCI bus-master enable, or USBCMD.RS.
+    DmaProgramStatus::ProgrammedStopped
+}
+
 pub fn initialize()->InitReport{
     let info=match discover(){Some(v)=>v,None=>return InitReport{status:InitStatus::NoController,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false}};
     if !info.ext_caps_valid{return InitReport{status:InitStatus::InvalidCapabilities,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};}

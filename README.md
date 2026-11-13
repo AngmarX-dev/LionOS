@@ -22,7 +22,7 @@ or the repository's default branch.
 - PCI configuration-space enumeration, command/status and interrupt metadata, passive BAR decoding, reversible memory-BAR sizing and safe 16-bit Command-register control.
 - Identity-mapped PCI MMIO window access with 4 MiB PDE PCD/PWT cache-disable marking; current implementation is limited to 32-bit physical BAR ranges and the bootstrap page map.
 - Zeroed, physically contiguous DMA buffer allocator with page alignment, optional power-of-two boundary constraints and exclusive maximum physical address; current DMA addresses are limited below 4 GiB.
-- xHCI PCI discovery, reversible memory-BAR sizing, bounded 4 KiB capability inspection, BIOS/OS ownership request, bounded controller halt/reset and CNR readiness checks; controller remains halted and DMA is not started.
+- xHCI PCI discovery, reversible memory-BAR sizing, bounded 4 KiB capability inspection, BIOS/OS ownership request, bounded controller halt/reset and CNR readiness checks; controller remains halted; DMA ring/base registers are now configured while PCI bus mastering and Run/Stop remain disabled.
 - Fixed-capacity device registry (256 entries) and driver match/probe API (16 slots); no hardware drivers are registered yet.
 - RGB 24/32-bpp Multiboot2 framebuffer metadata validation and CPU pixel/rectangle
   drawing when the framebuffer is addressable below 4 GiB.
@@ -79,7 +79,7 @@ limited and must not be represented as production-ready:
 | PCI / devices | PCI enumeration, BAR metadata and reversible xHCI BAR sizing; bounded registry and driver-binding API, no general PCI resource allocator or active device drivers |
 | USB boot | BIOS firmware + GRUB loads the kernel; post-handoff USB storage is not supported |
 | DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |
-| USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; DMA rings, DCBAA, slot-1 contexts and optional scratchpads prepared in memory but not programmed; controller remains stopped; no USB enumeration |
+| USB controllers | xHCI BAR sizing, ownership handoff and bounded halt/reset; DMA rings, DCBAA, slot-1 contexts and optional scratchpads allocated; DCBAAP/CRCR/ERST registers configured while halted; bus mastering and Run/Stop disabled; no USB enumeration |
 | USB HID | Keyboard/mouse drivers not implemented |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
@@ -145,7 +145,7 @@ It is not triggered automatically on every push.
 5. Add user-mode transition, process address spaces and syscall entry/return.
 6. Add a VFS abstraction, initramfs and persistent block-device support.
 7. Add storage drivers appropriate to supported hardware (NVMe/AHCI/ATA).
-8. Continue xHCI from the prepared DMA structures: validate and program DCBAAP/CRCR/ERST registers, configure interrupters, add APIC/MSI routing or a carefully validated polling path, then implement command completion, port reset and device enumeration before USB HID and mass storage.
+8. Continue xHCI from the prepared DMA structures and halted register programming: implement safe controller start, command completion/event processing, then port reset and device enumeration before USB HID and mass storage.
 9. Add UEFI boot support with an architecture-compatible loader and handoff.
 10. Add NIC drivers and a tested network stack.
 11. Expand the graphics stack: framebuffer backend, fonts, compositor, window/event
@@ -186,3 +186,10 @@ This is a memory-layout foundation only. It does not program DCBAAP, CRCR, ERSTB
 The DMA allocator now reads HCSParams2 to derive the controller's scratchpad count and HCCPARAMS1.CSZ to select 32-byte or 64-byte contexts. It allocates the 256-entry DCBAA, writes entry 0 to the optional scratchpad pointer array, and reserves DCBAA entry 1 for a first Device Context. It also allocates the corresponding 32-context Device Context and 33-context Input Context for slot 1. Scratchpad buffers are represented by one page-aligned contiguous region plus a pointer array containing each page's physical address.
 
 All addresses remain below 4 GiB, allocations are zeroed and page-backed, and ring allocations retain 64 KiB boundary constraints. The implementation decodes the HCSParams2 scratchpad Hi/Lo fields in their specification-defined bit positions and refuses DMA setup unless the operational PAGESIZE register advertises 4 KiB support. This stage only prepares memory while the controller is halted. It does not write DCBAAP/CRCR/ERST registers, configure a slot, set CONFIG, enable PCI bus mastering, start Run/Stop, or issue commands. The slot-1 context is a reserved zeroed allocation, not an enabled USB slot. No build or hardware test has been run for this stage.
+
+
+## xHCI halted DMA-register programming stage
+
+After the controller has completed the bounded halt/reset sequence and DMA structures have been allocated, the kernel now revalidates the PCI function, BAR size, controller Halted/CNR state, command-ring-running bit, DMA address ranges and alignment. It then programs DCBAAP, CRCR (with RCS=1), interrupter-0 ERSTSZ, ERSTBA and ERDP. The 64-bit register pairs are written as ordered 32-bit high/low writes for the 32-bit kernel. Interrupter 0's IMAN and IMOD are initialized with delivery disabled.
+
+This is intentionally a halted configuration stage: PCI bus mastering is explicitly kept disabled, USBCMD.RS and USBCMD.INTE are not set, CONFIG.MaxSlotsEn is not changed, no command is submitted, and no port/device enumeration occurs. The DMA allocations remain reserved after programming. A partial MMIO write reports failure and does not attempt to start the controller. No build or hardware test has been run.
