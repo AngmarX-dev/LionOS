@@ -158,8 +158,13 @@ fn parse_boot_info(address:u32)->(u64,bool) {
     (usable,memory_ready)
 }
 
+#[inline(never)]
+pub fn trace_pci_step(step:u32) { write_str("[TRACE] PCI scan step "); write_dec(step); write_str("\n"); }
+
 fn report_pci() {
     write_str("[TRACE] PCI discovery: begin\n");
+    let pci_probe = unsafe { pci::read_config(0, 0, 0, 0) };
+    write_str("[TRACE] PCI config mechanism-1 read completed: "); write_hex(pci_probe); write_str("\n");
     unsafe { device::discover(); }
     write_str("[TRACE] PCI discovery: complete\n");
     let mut count=0u32;
