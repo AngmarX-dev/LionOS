@@ -483,3 +483,160 @@ impl RecoveryEvidence {
         }
     }
 }
+
+
+/// Explicit controller lifecycle model. Every transition records an externally
+/// verified hardware fact; this state machine itself performs no register I/O.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ControllerPhase {
+    Offline,
+    Discovered,
+    OwnershipGranted,
+    Halted,
+    Resetting,
+    Ready,
+    DmaConfigured,
+    InterrupterPrepared,
+    Running,
+    Recovering,
+    Quarantined,
+    Faulted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LifecycleError {
+    InvalidTransition,
+    ResetLimitReached,
+    RecoveryIncomplete,
+}
+
+const MAX_RESET_ATTEMPTS: u8 = 2;
+
+pub struct ControllerLifecycle {
+    phase: ControllerPhase,
+    reset_attempts: u8,
+    generation: u32,
+}
+
+impl ControllerLifecycle {
+    pub const fn new() -> Self {
+        Self { phase: ControllerPhase::Offline, reset_attempts: 0, generation: 0 }
+    }
+
+    pub fn phase(&self) -> ControllerPhase { self.phase }
+    pub fn reset_attempts(&self) -> u8 { self.reset_attempts }
+    pub fn generation(&self) -> u32 { self.generation }
+
+    pub fn note_discovered(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::Offline {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        self.phase = ControllerPhase::Discovered;
+        Ok(())
+    }
+
+    pub fn note_ownership_granted(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::Discovered {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        self.phase = ControllerPhase::OwnershipGranted;
+        Ok(())
+    }
+
+    pub fn note_halted(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::OwnershipGranted
+            && self.phase != ControllerPhase::Resetting
+            && self.phase != ControllerPhase::Recovering
+        {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        self.phase = ControllerPhase::Halted;
+        Ok(())
+    }
+
+    pub fn begin_reset(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::Halted
+            && self.phase != ControllerPhase::Faulted
+        {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        if self.reset_attempts >= MAX_RESET_ATTEMPTS {
+            self.phase = ControllerPhase::Faulted;
+            return Err(LifecycleError::ResetLimitReached);
+        }
+        self.reset_attempts += 1;
+        self.phase = ControllerPhase::Resetting;
+        Ok(())
+    }
+
+    pub fn note_controller_ready(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::Resetting
+            && self.phase != ControllerPhase::Halted
+        {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        self.phase = ControllerPhase::Ready;
+        Ok(())
+    }
+
+    pub fn note_dma_configured(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::Ready {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        self.phase = ControllerPhase::DmaConfigured;
+        Ok(())
+    }
+
+    pub fn note_interrupter_prepared(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::DmaConfigured {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        self.phase = ControllerPhase::InterrupterPrepared;
+        Ok(())
+    }
+
+    pub fn note_running(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::InterrupterPrepared {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        self.phase = ControllerPhase::Running;
+        Ok(())
+    }
+
+    pub fn begin_recovery(&mut self) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::Running
+            && self.phase != ControllerPhase::DmaConfigured
+            && self.phase != ControllerPhase::InterrupterPrepared
+        {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        self.phase = ControllerPhase::Recovering;
+        Ok(())
+    }
+
+    pub fn quarantine(&mut self) {
+        self.phase = ControllerPhase::Quarantined;
+    }
+
+    pub fn fault(&mut self) {
+        self.phase = ControllerPhase::Faulted;
+    }
+
+    /// Recovery is complete only when hardware quiescence and DMA reclamation
+    /// have both been independently verified by RecoveryEvidence.
+    pub fn complete_recovery(
+        &mut self,
+        evidence: &RecoveryEvidence,
+    ) -> Result<(), LifecycleError> {
+        if self.phase != ControllerPhase::Recovering {
+            return Err(LifecycleError::InvalidTransition);
+        }
+        if !evidence.safe_to_reclaim() || !evidence.dma_reclaimed {
+            return Err(LifecycleError::RecoveryIncomplete);
+        }
+        self.phase = ControllerPhase::Halted;
+        self.generation = self.generation.wrapping_add(1);
+        self.reset_attempts = 0;
+        Ok(())
+    }
+}
