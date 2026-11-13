@@ -86,6 +86,14 @@ unsafe fn wait_input_empty() -> Result<(), MouseInitError> {
     Err(MouseInitError::ControllerTimeout)
 }
 
+unsafe fn wait_output_any() -> Result<u8, MouseInitError> {
+    for _ in 0..WAIT_LIMIT {
+        if inb(STATUS) & 0x01 != 0 { return Ok(inb(DATA)); }
+        core::hint::spin_loop();
+    }
+    Err(MouseInitError::ControllerTimeout)
+}
+
 unsafe fn wait_aux_output() -> Result<u8, MouseInitError> {
     for _ in 0..WAIT_LIMIT {
         let status = inb(STATUS);
@@ -135,14 +143,7 @@ pub unsafe fn initialize() -> Result<(), MouseInitError> {
     while inb(STATUS) & 0x01 != 0 { let _ = inb(DATA); }
 
     controller_command(0x20)?;
-    let mut config = wait_aux_output().or_else(|_| {
-        for _ in 0..WAIT_LIMIT {
-            let status = inb(STATUS);
-            if status & 0x01 != 0 && status & 0x20 == 0 { return Ok(inb(DATA)); }
-            core::hint::spin_loop();
-        }
-        Err(MouseInitError::ControllerTimeout)
-    })?;
+    let mut config = wait_output_any()?;
 
     config |= 0x02;  // enable IRQ12
     config &= !0x20; // enable auxiliary clock
