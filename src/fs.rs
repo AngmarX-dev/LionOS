@@ -34,7 +34,13 @@ impl Node {
     };
 }
 
-const fn initial_nodes() -> [Node; NODE_COUNT] {\n    let mut nodes = [Node::EMPTY; NODE_COUNT];\n    nodes[0] = Node::ROOT;\n    nodes\n}\n\nstatic mut NODES: [Node; NODE_COUNT] = initial_nodes();
+const fn initial_nodes() -> [Node; NODE_COUNT] {
+    let mut nodes = [Node::EMPTY; NODE_COUNT];
+    nodes[0] = Node::ROOT;
+    nodes
+}
+
+static mut NODES: [Node; NODE_COUNT] = initial_nodes();
 static mut NEXT_GENERATION: u32 = 2;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
