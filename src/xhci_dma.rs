@@ -175,6 +175,8 @@ impl XhciDma{
 #[derive(Clone,Copy)]
 struct PendingCommand {
     trb_pointer:u64,
+    deadline:u64,
+    timed_out:bool,
 }
 
 /// Bounded software-side correlation table for Command Completion Events.
@@ -189,6 +191,7 @@ pub enum CommandError {
     RingUnavailable,
     NotCommandCompletion,
     UnknownCommand,
+    DuplicatePointer,
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub struct CommandResult {
@@ -210,10 +213,40 @@ impl CommandTracker {
         let index=ring.enqueue_index();
         if index>=LINK_INDEX{return Err(CommandError::RingUnavailable);}
         let pointer=ring.physical_base()+(index*TRB_BYTES) as u64;
+        if self.pending[..self.len].iter().flatten().any(|p|p.trb_pointer==pointer) {
+            return Err(CommandError::DuplicatePointer);
+        }
         if !ring.push(trb){return Err(CommandError::RingUnavailable);}
-        self.pending[self.len]=Some(PendingCommand{trb_pointer:pointer});
+        self.pending[self.len]=Some(PendingCommand{trb_pointer:pointer,deadline:u64::MAX,timed_out:false});
         self.len+=1;
         Ok(pointer)
+    }
+    /// Submit with an absolute deadline expressed in monotonic PIT ticks.
+    /// timeout_ticks must be nonzero; overflow saturates to the maximum deadline.
+    pub fn submit_with_timeout(&mut self,ring:&mut ProducerRing,trb:Trb,now:u64,timeout_ticks:u64)->Result<u64,CommandError>{
+        if timeout_ticks==0{return Err(CommandError::RingUnavailable);}
+        let pointer=self.submit(ring,trb)?;
+        if let Some(p)=self.pending[..self.len].iter_mut().flatten().find(|p|p.trb_pointer==pointer){
+            p.deadline=now.saturating_add(timeout_ticks);
+        }
+        Ok(pointer)
+    }
+    /// Mark expired commands but retain their DMA ownership records. A timeout
+    /// never frees or reuses a TRB while the controller might still reference it.
+    pub fn expire(&mut self,now:u64)->usize{
+        let mut expired=0;
+        for p in self.pending[..self.len].iter_mut().flatten(){
+            if !p.timed_out && p.deadline!=u64::MAX && now>=p.deadline {
+                p.timed_out=true;expired+=1;
+            }
+        }
+        expired
+    }
+    pub fn has_timed_out(&self)->bool{
+        self.pending[..self.len].iter().flatten().any(|p|p.timed_out)
+    }
+    pub fn oldest_timed_out_pointer(&self)->Option<u64>{
+        self.pending[..self.len].iter().flatten().find(|p|p.timed_out).map(|p|p.trb_pointer)
     }
     /// Match a decoded completion against the outstanding command table.
     /// Unknown, stale or duplicate completions are rejected without mutation.
@@ -234,5 +267,52 @@ impl CommandTracker {
         self.len-=1;
         self.pending[self.len]=None;
         Ok(result)
+    }
+}
+
+
+/// Software recovery policy states. These are bookkeeping states only;
+/// they do not issue Command Abort, reset the controller, or alter PCI/MMIO.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum RecoveryState {
+    Idle,
+    TimeoutDetected,
+    AbortRequested,
+    AbortInProgress,
+    ControllerResetRequired,
+    Quarantined,
+}
+pub struct RecoveryManager { state:RecoveryState }
+impl RecoveryManager {
+    pub const fn new()->Self { Self{state:RecoveryState::Idle} }
+    pub fn state(&self)->RecoveryState { self.state }
+    pub fn observe_timeout(&mut self,tracker:&CommandTracker)->RecoveryState {
+        if tracker.has_timed_out() && self.state==RecoveryState::Idle {
+            self.state=RecoveryState::TimeoutDetected;
+        }
+        self.state
+    }
+    /// Caller may request an abort only after validating controller state and
+    /// ensuring no concurrent command/event consumer is mutating the rings.
+    pub fn request_abort(&mut self)->bool {
+        if self.state!=RecoveryState::TimeoutDetected{return false;}
+        self.state=RecoveryState::AbortRequested;true
+    }
+    /// Record an externally observed abort-in-progress status.
+    pub fn abort_started(&mut self)->bool {
+        if self.state!=RecoveryState::AbortRequested{return false;}
+        self.state=RecoveryState::AbortInProgress;true
+    }
+    /// If abort fails or its bounded wait expires, require a full controller
+    /// reset. DMA allocations must remain pinned until reset/halt is confirmed.
+    pub fn abort_failed(&mut self)->bool {
+        if self.state!=RecoveryState::AbortRequested&&self.state!=RecoveryState::AbortInProgress{return false;}
+        self.state=RecoveryState::ControllerResetRequired;true
+    }
+    /// A confirmed controller reset/halt permits the caller to begin a
+    /// separately validated reinitialization sequence.
+    pub fn reset_confirmed(&mut self)->bool {
+        if self.state!=RecoveryState::ControllerResetRequired{return false;}
+        self.state=RecoveryState::Quarantined;true
     }
 }

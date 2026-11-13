@@ -224,3 +224,19 @@ submitted to active hardware, no timeout polling is performed, and no
 Enable Slot or Address Device command is issued. The controller remains
 halted and PCI bus mastering remains disabled. Build and hardware tests remain
 deferred.
+
+
+## xHCI timeout and recovery bookkeeping
+
+The command tracker now supports absolute PIT-tick deadlines through
+`submit_with_timeout`, expiration scans, and timed-out command lookup.
+Expired command records remain in the table: timeout never frees or reuses a
+TRB while hardware ownership is uncertain. Duplicate outstanding TRB pointers
+are rejected to prevent a wrapped producer ring from silently aliasing a
+pending command.
+
+A bounded software `RecoveryManager` models timeout detection, abort request,
+abort-in-progress, reset-required, and quarantine states. It is deliberately
+policy/bookkeeping only: it does not write Command Abort, reset registers,
+enable bus mastering, or free DMA. DMA must remain pinned until controller
+halt/reset is independently confirmed. No build or hardware test has run.
