@@ -36,6 +36,103 @@ pub unsafe fn configure(address: u64, pitch: u32, width: u32, height: u32, bpp: 
 
 pub fn info() -> Option<Framebuffer> { unsafe { FB } }
 
+#[derive(Clone, Copy)]
+struct DirtyRect { x0:u32, y0:u32, x1:u32, y1:u32 }
+#[derive(Clone, Copy)]
+struct BackBuffer { address:u32, pitch:u32, dirty:Option<DirtyRect> }
+static mut BACKBUFFER:Option<BackBuffer>=None;
+
+/// Allocate a canonical RGB backbuffer after paging is active.
+pub fn initialize_pipeline()->bool {
+    if unsafe{BACKBUFFER.is_some()} { return true; }
+    let Some(fb)=info() else { return false; };
+    if !crate::paging::is_ready() { return false; }
+    let Some(pitch)=fb.width.checked_mul(4) else { return false; };
+    let Some(bytes)=pitch.checked_mul(fb.height) else { return false; };
+    let pages=bytes.saturating_add(crate::memory::PAGE_SIZE-1)/crate::memory::PAGE_SIZE;
+    if pages==0 { return false; }
+    let Some(address)=crate::memory::alloc_zeroed_pages(pages) else { return false; };
+    unsafe { BACKBUFFER=Some(BackBuffer{address,pitch,dirty:None}); }
+    true
+}
+pub fn backbuffer_ready()->bool { unsafe{BACKBUFFER.is_some()} }
+fn mark_dirty(x:u32,y:u32) {
+    unsafe { if let Some(mut b)=BACKBUFFER {
+        b.dirty=Some(match b.dirty {
+            Some(d)=>DirtyRect{x0:d.x0.min(x),y0:d.y0.min(y),x1:d.x1.max(x.saturating_add(1)),y1:d.y1.max(y.saturating_add(1))},
+            None=>DirtyRect{x0:x,y0:y,x1:x.saturating_add(1),y1:y.saturating_add(1)},
+        });
+        BACKBUFFER=Some(b);
+    }}
+}
+fn write_framebuffer_pixel(fb:Framebuffer,x:u32,y:u32,r:u8,g:u8,b:u8) {
+    let pixel=(channel(r,fb.red_size)<<fb.red_pos)|(channel(g,fb.green_size)<<fb.green_pos)|(channel(b,fb.blue_size)<<fb.blue_pos);
+    unsafe {
+        let bytes=(fb.bpp as usize+7)/8;
+        let offset=y as usize*fb.pitch as usize+x as usize*bytes;
+        let ptr=(fb.address as *mut u8).add(offset);
+        write_volatile(ptr,pixel as u8); write_volatile(ptr.add(1),(pixel>>8) as u8);
+        write_volatile(ptr.add(2),(pixel>>16) as u8);
+        if bytes==4 { write_volatile(ptr.add(3),(pixel>>24) as u8); }
+    }
+}
+/// Copy the dirty bounding rectangle from RAM to the firmware scanout buffer.
+pub fn present()->bool {
+    let Some(fb)=info() else{return false;};
+    let Some(mut buffer)=(unsafe{BACKBUFFER}) else{return false;};
+    let Some(dirty)=buffer.dirty else{return true;};
+    let ptr=buffer.address as *const u32;
+    for y in dirty.y0..dirty.y1.min(fb.height) {
+        for x in dirty.x0..dirty.x1.min(fb.width) {
+            let value=unsafe{read_volatile(ptr.add(y as usize*(buffer.pitch as usize/4)+x as usize))};
+            write_framebuffer_pixel(fb,x,y,(value>>16) as u8,(value>>8) as u8,value as u8);
+        }
+    }
+    buffer.dirty=None;
+    unsafe{BACKBUFFER=Some(buffer);}
+    true
+}
+/// Caller-owned independent ARGB layer (0xAARRGGBB).
+pub struct Surface<'a> { pub width:u32, pub height:u32, pub stride:u32, pixels:&'a mut [u32] }
+impl<'a> Surface<'a> {
+    pub fn new(width:u32,height:u32,pixels:&'a mut [u32])->Option<Self> {
+        if width==0||height==0||pixels.len()<(width as usize).checked_mul(height as usize)? {return None;}
+        Some(Self{width,height,stride:width,pixels})
+    }
+    pub fn clear(&mut self,argb:u32) { self.pixels.fill(argb); }
+    pub fn pixel(&self,x:u32,y:u32)->Option<u32> {
+        if x>=self.width||y>=self.height{return None;}
+        Some(self.pixels[y as usize*self.stride as usize+x as usize])
+    }
+}
+/// Source-over alpha blend into the software backbuffer.
+pub fn blend_pixel(x:u32,y:u32,r:u8,g:u8,b:u8,alpha:u8)->bool {
+    let Some(fb)=info() else{return false;};
+    if x>=fb.width||y>=fb.height{return false;}
+    unsafe {
+        let Some(buffer)=BACKBUFFER else{return false;};
+        let target=(buffer.address as *mut u32).add(y as usize*(buffer.pitch as usize/4)+x as usize);
+        let old=read_volatile(target); let a=alpha as u32; let inv=255-a;
+        let rr=(r as u32*a+((old>>16)&255)*inv+127)/255;
+        let gg=(g as u32*a+((old>>8)&255)*inv+127)/255;
+        let bb=(b as u32*a+(old&255)*inv+127)/255;
+        write_volatile(target,(rr<<16)|(gg<<8)|bb);
+    }
+    mark_dirty(x,y); true
+}
+pub fn composite_surface(surface:&Surface<'_>,x:i32,y:i32)->bool {
+    if !backbuffer_ready(){return false;}
+    let Some(fb)=info() else{return false;};
+    for sy in 0..surface.height { for sx in 0..surface.width {
+        let dx=x as i64+sx as i64; let dy=y as i64+sy as i64;
+        if dx<0||dy<0||dx>=fb.width as i64||dy>=fb.height as i64 {continue;}
+        let p=surface.pixels[sy as usize*surface.stride as usize+sx as usize];
+        let _=blend_pixel(dx as u32,dy as u32,(p>>16) as u8,(p>>8) as u8,p as u8,(p>>24) as u8);
+    }}
+    true
+}
+
+
 fn channel(value: u8, bits: u8) -> u32 {
     if bits == 0 { 0 } else {
         let max = (1u32 << bits.min(8)) - 1;
@@ -47,15 +144,11 @@ pub fn put_pixel(x: u32, y: u32, r: u8, g: u8, b: u8) -> bool {
     unsafe {
         let Some(fb) = FB else { return false; };
         if x >= fb.width || y >= fb.height { return false; }
-        let pixel = (channel(r, fb.red_size) << fb.red_pos)
-            | (channel(g, fb.green_size) << fb.green_pos)
-            | (channel(b, fb.blue_size) << fb.blue_pos);
-        let offset = y as usize * fb.pitch as usize + x as usize * ((fb.bpp as usize + 7) / 8);
-        let ptr = (fb.address as *mut u8).add(offset);
-        write_volatile(ptr, pixel as u8);
-        write_volatile(ptr.add(1), (pixel >> 8) as u8);
-        write_volatile(ptr.add(2), (pixel >> 16) as u8);
-        if fb.bpp == 32 { write_volatile(ptr.add(3), (pixel >> 24) as u8); }
+        if let Some(buffer)=BACKBUFFER {
+            let target=(buffer.address as *mut u32).add(y as usize*(buffer.pitch as usize/4)+x as usize);
+            write_volatile(target,((r as u32)<<16)|((g as u32)<<8)|b as u32);
+            mark_dirty(x,y);
+        } else { write_framebuffer_pixel(fb,x,y,r,g,b); }
         true
     }
 }
@@ -260,7 +353,7 @@ pub fn draw_cursor(x: u32, y: u32) {
                     let py = origin_y + row as u32;
                     if px < fb.width && py < fb.height {
                         (*save)[row * CURSOR_WIDTH + col] = read_raw_pixel(fb, px, py);
-                        let _ = put_pixel(px, py, 8, 10, 16);
+                        write_framebuffer_pixel(fb,px,py,8,10,16);
                     }
                 }
             }
@@ -272,7 +365,7 @@ pub fn draw_cursor(x: u32, y: u32) {
                     let px = origin_x + col as u32;
                     let py = origin_y + row as u32;
                     if px < fb.width && py < fb.height {
-                        let _ = put_pixel(px, py, 245, 247, 252);
+                        write_framebuffer_pixel(fb,px,py,245,247,252);
                     }
                 }
             }
