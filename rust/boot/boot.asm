@@ -36,6 +36,10 @@ _start:
     cli
     mov esp, stack_top
     xor ebp, ebp
+    cld
+
+    ; Keep the i386 SysV call-site stack 16-byte aligned.
+    sub esp, 8
 
     ; Multiboot2: EAX = boot magic, EBX = information structure.
     push ebx
