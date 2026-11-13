@@ -17,7 +17,9 @@ mod mmio;
 mod xhci;
 mod xhci_dma;
 mod xhci_runtime;
-mod usb;\nmod usb_recovery;
+mod usb;
+mod usb_recovery;
+mod mouse;
 mod heap;
 mod pci;
 mod device;
@@ -261,6 +263,26 @@ fn initialize_subsystems() {
     } else {
         write_str("[INFO] No PS/2 scancode pending (poll-only input path)\n");
     }
+    if let Some(framebuffer) = graphics::info() {
+        mouse::set_screen_bounds(framebuffer.width, framebuffer.height);
+    }
+    match unsafe { mouse::initialize() } {
+        Ok(()) => {
+            write_str("[ OK ] PS/2 auxiliary mouse initialized; IRQ12 enabled\n");
+            write_str("  Mouse packet decoder: 3-byte standard / 4-byte wheel device\n");
+            desktop::refresh_pointer();
+        }
+        Err(error) => {
+            write_str("[WARN] PS/2 mouse unavailable: ");
+            match error {
+                mouse::MouseInitError::ControllerTimeout => write_str("8042 controller timeout"),
+                mouse::MouseInitError::MouseTimeout => write_str("mouse response timeout"),
+                mouse::MouseInitError::CommandRejected => write_str("mouse command not acknowledged"),
+                mouse::MouseInitError::UnsupportedDevice => write_str("unsupported auxiliary device ID"),
+            }
+            write_str("; IRQ12 remains masked\n");
+        }
+    }
     let _ = net::parse_ethernet(&[]);
     let _ = syscall::dispatch(u32::MAX,0,0,0);
 }
@@ -364,7 +386,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] Multiboot2 memory map and fixed physical-frame allocator\n");
     write_str("[ OK ] PCI discovery, BAR metadata, bounded MMIO and DMA allocation primitives\n");
     write_str("[ OK ] RGB framebuffer software drawing (when supplied below 4 GiB)\n");
-    write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 polling primitives\n");
+    write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 keyboard polling and IRQ12 mouse input\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");
     write_str("[ OK ] xHCI PCI capability discovery, BAR sizing and ownership/reset state machine\n");
     write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\\n");
@@ -379,7 +401,12 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     idle_forever()
 }
 
-fn idle_forever()->! { loop { unsafe { arch::x86::interrupts_enable(); arch::x86::halt(); } } }
+fn idle_forever()->! {
+    loop {
+        unsafe { arch::x86::interrupts_enable(); arch::x86::halt(); }
+        desktop::refresh_pointer();
+    }
+}
 fn halt_forever()->! { loop { unsafe { arch::x86::interrupts_disable(); arch::x86::halt(); } } }
 #[panic_handler]
 fn panic(_info:&PanicInfo)->! { serial_byte(b'!'); write_str("\n[FATAL] Rust kernel panic\n"); halt_forever() }
