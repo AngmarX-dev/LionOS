@@ -519,3 +519,29 @@ unimplemented. The boot output reports framework capacity only.
 
 No build, QEMU, or physical hardware test was run for this stage; those remain
 deferred until the planned implementation work is complete.
+
+
+## xHCI guarded command dispatch and doorbell stage
+
+Added a bounded doorbell access layer to `src/xhci_runtime.rs`:
+
+- Validates the capability-reported DBOFF, alignment, BAR extent and complete
+  DB0-through-DBMaxSlots register window before any doorbell access.
+- Provides separate command-ring DB0 and device-slot endpoint doorbell methods.
+- Requires the software lifecycle to be in `Running` and the caller to confirm
+  that the DMA allocation set is device-owned before writing a doorbell.
+- Validates slot and endpoint identifiers and constructs endpoint target values
+  from endpoint and stream IDs.
+- Adds `XhciCommandDispatcher`, which submits a command to the tracked producer
+  ring and then notifies DB0. It exposes timeout polling and command-completion
+  event correlation, plus convenience methods for Enable Slot and Address
+  Device commands.
+- If a doorbell write fails after enqueue, the command remains tracked and its
+  TRB must not be reused; recovery must retain DMA ownership until quiescence.
+
+The boot path only reports that this guarded API is present. It does not create
+an active doorbell mapping, transition the controller to Running, hand DMA to
+the device, ring DB0, or submit Enable Slot/Address Device. Those operations
+require a separately verified hardware bring-up sequence, interrupt/polling
+ownership, register-order review and hardware validation. No build, QEMU, or
+physical-device test was run for this stage.
