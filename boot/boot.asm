@@ -8,15 +8,7 @@ mb2_header:
     dd mb2_header_end - mb2_header
     dd -(0xE85250D6 + 0 + (mb2_header_end - mb2_header))
 
-    ; Request a firmware-selected framebuffer. Width/height/depth remain
-    ; unspecified so GRUB keeps control of the actual display mode.
-    dw 5
-    dw 0
-    dd 20
-    dd 0
-    dd 0
-    dd 0
-
+    ; End of Multiboot2 header tags. Keep the BIOS entry text-mode safe.
     dw 0
     dw 0
     dd 8
