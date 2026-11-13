@@ -254,12 +254,8 @@ fn initialize_subsystems() {
         write_dec(id); write_str("\n");
     }
     if let Some(framebuffer)=graphics::info() {
-        // CPU-rendered diagnostic desktop surface; no GPU acceleration is claimed.
-        graphics::fill_rect(0,0,framebuffer.width,framebuffer.height,(18,24,38));
-        desktop::draw_window(desktop::Window{
-            bounds:desktop::Rect{x:24,y:24,width:framebuffer.width.saturating_sub(48).max(1),height:64},
-            color:(35,53,78),visible:true,
-        });
+        // Complete software-composited desktop; native GPU acceleration is not claimed.
+        desktop::render_frame();
         write_str("[ OK ] Software framebuffer renderer active\n");
     }
     if let Some(scancode)=input::poll_scancode() {
