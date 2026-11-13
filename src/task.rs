@@ -111,6 +111,24 @@ pub fn next_ready() -> Option<u32> {
         .map(|task| task.id)
 }
 
+/// Select the next Ready task in round-robin ID order after `after_id`.
+/// Priority is the primary key; equal-priority tasks rotate deterministically.
+pub fn next_ready_after(after_id: u32) -> Option<u32> {
+    let registry = REGISTRY.lock();
+    let max_priority = registry.tasks.iter()
+        .filter(|task| task.state == State::Ready)
+        .map(|task| task.priority)
+        .max()?;
+    registry.tasks.iter()
+        .filter(|task| task.state == State::Ready && task.priority == max_priority && task.id > after_id)
+        .map(|task| task.id)
+        .min()
+        .or_else(|| registry.tasks.iter()
+            .filter(|task| task.state == State::Ready && task.priority == max_priority)
+            .map(|task| task.id)
+            .min())
+}
+
 /// Return a consistent copy of a task record.
 pub fn get(id: u32) -> Option<Task> {
     if id == 0 {
