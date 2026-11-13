@@ -263,9 +263,6 @@ fn initialize_subsystems() {
         }
         write_str("[ OK ] Software framebuffer renderer active\n");
     }
-    unsafe { input::initialize_irq(); }
-    write_str("[ OK ] PS/2 keyboard IRQ1 enabled; set-1 event queue ready\n");
-    write_str("  Keyboard event queue capacity: 63 pending transitions\n");
     if let Some(framebuffer) = graphics::info() {
         mouse::set_screen_bounds(framebuffer.width, framebuffer.height);
     }
@@ -284,6 +281,18 @@ fn initialize_subsystems() {
                 mouse::MouseInitError::UnsupportedDevice => write_str("unsupported auxiliary device ID"),
             }
             write_str("; IRQ12 remains masked\n");
+        }
+    }
+    match unsafe { input::initialize_irq() } {
+        Ok(()) => {
+            write_str("[ OK ] PS/2 keyboard port and IRQ1 enabled; set-1 event queue ready\n");
+            write_str("  Keyboard event queue capacity: 63 pending transitions\n");
+        }
+        Err(input::KeyboardInitError::ControllerTimeout) => {
+            write_str("[WARN] PS/2 keyboard controller initialization timed out; IRQ1 remains masked\n");
+        }
+        Err(input::KeyboardInitError::AuxiliaryDataPending) => {
+            write_str("[WARN] PS/2 auxiliary byte pending during keyboard setup; IRQ1 remains masked\n");
         }
     }
     let _ = net::parse_ethernet(&[]);
