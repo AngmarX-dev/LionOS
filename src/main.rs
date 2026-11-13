@@ -17,6 +17,7 @@ mod mmio;
 mod xhci;
 mod xhci_dma;
 mod xhci_runtime;
+mod usb;
 mod heap;
 mod pci;
 mod device;
@@ -216,6 +217,18 @@ fn report_xhci(){
         },
         None=>write_str("[INFO] No usable xHCI controller found in the current 32-bit MMIO window\n"),
     }
+}
+
+fn report_usb_enumeration(){
+    let manager=usb::UsbDeviceManager::new();
+    write_str("\nUSB ENUMERATION FRAMEWORK\n");
+    write_str("[ OK ] Bounded USB device manager initialized\n");
+    write_str("  Root-port capacity: ");write_dec(usb::MAX_ROOT_PORTS as u32);write_str("\n");
+    write_str("  Device/slot capacity: ");write_dec(usb::MAX_USB_DEVICES as u32);write_str("\n");
+    write_str("  Interface capacity/device: ");write_dec(usb::MAX_INTERFACES as u32);write_str("\n");
+    write_str("  Endpoint capacity/device: ");write_dec(usb::MAX_ENDPOINTS as u32);write_str("\n");
+    write_str("  Current enumerated devices: ");write_dec(manager.device_count() as u32);write_str("\n");
+    write_str("[INFO] Descriptor parser and enumeration state machine are software-only; no USB commands submitted\n");
 }
 
 fn initialize_subsystems() {
