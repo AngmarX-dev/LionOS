@@ -29,6 +29,7 @@ mod device;
 mod graphics;
 mod fs;
 mod task;
+mod scheduler;
 mod input;
 mod net;
 mod syscall;
