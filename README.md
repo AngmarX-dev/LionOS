@@ -254,3 +254,16 @@ and PCI bus-master state before a future abort implementation. It only returns
 an eligibility result; it does not set CRCR.CA, ring doorbells, enable bus
 mastering, or start the controller. Real Command Abort remains deferred until
 the command/event execution path and interrupt/polling ownership are validated.
+
+
+## xHCI command pipeline coordinator
+
+Added the missing typed Event TRB decoder definitions (`EventType` and
+`EventRecord`) and a software `CommandEngine` that coordinates command-ring
+submission, deadline expiration, and one-event-at-a-time completion matching.
+Non-command events are returned intact to the caller for routing; invalid or
+stale command completions are surfaced as errors. This stage is deliberately
+not a live hardware execution engine: no doorbell is rung, no PCI bus mastering
+is enabled, no interrupter is enabled, and no command TRB is handed to an
+active controller. Real command execution remains blocked pending a verified
+polling/interrupt ownership design and hardware-safe bring-up sequence.

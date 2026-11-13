@@ -98,6 +98,53 @@ impl EventRing{
   if !self.consume(){return None;}Some(record)
  }
 }
+
+/// Decoded xHCI event TRB category.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum EventType {
+    Transfer,
+    CommandCompletion,
+    PortStatusChange,
+    BandwidthRequest,
+    Doorbell,
+    HostController,
+    DeviceNotification,
+    MfindexWrap,
+    Unknown,
+}
+impl EventType {
+    pub const fn from_trb_type(raw:u8)->Self {
+        match raw {
+            32=>Self::Transfer,
+            33=>Self::CommandCompletion,
+            34=>Self::PortStatusChange,
+            35=>Self::BandwidthRequest,
+            36=>Self::Doorbell,
+            37=>Self::HostController,
+            38=>Self::DeviceNotification,
+            39=>Self::MfindexWrap,
+            _=>Self::Unknown,
+        }
+    }
+}
+#[derive(Clone,Copy)]
+pub struct EventRecord {
+    pub trb:Trb,
+    pub event_type:EventType,
+    pub completion_code:u8,
+    pub endpoint_id:u8,
+    pub slot_id:u8,
+}
+impl EventRecord {
+    /// Command Completion Event parameter contains the completed command TRB
+    /// address; low four bits are reserved and excluded from matching.
+    pub fn command_trb_pointer(&self)->Option<u64> {
+        if self.event_type!=EventType::CommandCompletion{return None;}
+        Some(self.trb.parameter&!0xF)
+    }
+    pub fn completed_successfully(&self)->bool { self.completion_code==1 }
+}
+
 pub struct DeviceContext{device:crate::dma::DmaBuffer,input:crate::dma::DmaBuffer,context_size:usize}
 impl DeviceContext{
  fn new(device:crate::dma::DmaBuffer,input:crate::dma::DmaBuffer,context_size:usize)->Self{Self{device,input,context_size}}
@@ -314,5 +361,41 @@ impl RecoveryManager {
     pub fn reset_confirmed(&mut self)->bool {
         if self.state!=RecoveryState::ControllerResetRequired{return false;}
         self.state=RecoveryState::Quarantined;true
+    }
+}
+
+
+/// Result of consuming one event through the software command pipeline.
+#[derive(Clone,Copy)]
+pub enum CommandPoll {
+    Empty,
+    Unrelated(EventRecord),
+    Completed(CommandResult),
+    InvalidCompletion(CommandError),
+}
+/// Coordinates ring enqueue, timeout bookkeeping and completion correlation.
+/// It intentionally does not ring doorbells or enable the controller.
+pub struct CommandEngine {
+    tracker:CommandTracker,
+}
+impl CommandEngine {
+    pub const fn new()->Self { Self{tracker:CommandTracker::new()} }
+    pub fn pending_count(&self)->usize { self.tracker.len() }
+    pub fn submit(&mut self,ring:&mut ProducerRing,trb:Trb,now:u64,timeout_ticks:u64)->Result<u64,CommandError> {
+        self.tracker.submit_with_timeout(ring,trb,now,timeout_ticks)
+    }
+    pub fn expire(&mut self,now:u64)->usize { self.tracker.expire(now) }
+    pub fn has_timed_out(&self)->bool { self.tracker.has_timed_out() }
+    /// Consume at most one cycle-valid event. Non-command events are returned
+    /// intact so a higher-level dispatcher can route them instead of dropping.
+    pub fn poll_one(&mut self,events:&mut EventRing)->CommandPoll {
+        let event=match events.next_event(){Some(v)=>v,None=>return CommandPoll::Empty};
+        if event.event_type!=EventType::CommandCompletion {
+            return CommandPoll::Unrelated(event);
+        }
+        match self.tracker.complete(&event) {
+            Ok(result)=>CommandPoll::Completed(result),
+            Err(error)=>CommandPoll::InvalidCompletion(error),
+        }
     }
 }
