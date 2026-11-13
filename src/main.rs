@@ -14,6 +14,7 @@ mod xhci;
 mod xhci_dma;
 mod xhci_runtime;
 mod usb;
+mod usb_hid;
 mod usb_recovery;
 mod mouse;
 mod heap;
@@ -431,11 +432,12 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] xHCI PCI capability discovery, BAR sizing and ownership/reset state machine\n");
     write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\n");
     write_str("[ -- ] xHCI controller DMA activation, interrupter setup, port handling and USB enumeration not implemented\n");
-    write_str("[ OK ] USB descriptor parser and bounded enumeration state model (software-only)\n");
+    write_str("[ OK ] USB descriptor parser, interface-bound endpoints and bounded enumeration model\n");
+    write_str("[ OK ] USB HID boot keyboard/mouse classification and bounded report decoders (not connected to live transfers)\n");
     write_str("[ OK ] xHCI guarded command/doorbell dispatch source integrated; not activated\n");
     write_str("[ OK ] Generic USB control-transfer builder and gated EP0/endpoint dispatcher source integrated\n");
     write_str("[ OK ] bounded USB DMA payload pool, completion-length validation and descriptor handoff source integrated\n");
-    write_str("[ -- ] Live USB command/transfer execution, device enumeration and class drivers not implemented\n");
+    write_str("[ -- ] Live USB command/transfer execution and HID polling/interrupt delivery not implemented\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");
     idle_forever()
@@ -444,6 +446,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
 fn idle_forever()->! {
     loop {
         unsafe { arch::x86::interrupts_enable(); arch::x86::halt(); }
+        desktop::poll_input();
         desktop::refresh_pointer();
     }
 }
