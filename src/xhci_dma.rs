@@ -169,3 +169,70 @@ impl XhciDma{
  pub fn command_ring_base(&self)->u64{self.command_ring.physical_base()}
  pub fn scratchpad_count(&self)->u16{self.scratchpads.as_ref().map_or(0,|v|v.count())}
 }
+
+
+/// A command submitted to the command ring and awaiting its completion event.
+#[derive(Clone,Copy)]
+struct PendingCommand {
+    trb_pointer:u64,
+}
+
+/// Bounded software-side correlation table for Command Completion Events.
+/// It deliberately does not ring the xHCI doorbell or touch controller state.
+pub struct CommandTracker {
+    pending:[Option<PendingCommand>;254],
+    len:usize,
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum CommandError {
+    Full,
+    RingUnavailable,
+    NotCommandCompletion,
+    UnknownCommand,
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct CommandResult {
+    pub trb_pointer:u64,
+    pub completion_code:u8,
+    pub slot_id:u8,
+}
+impl CommandTracker {
+    pub const fn new()->Self {
+        Self{pending:[None;254],len:0}
+    }
+    pub fn len(&self)->usize { self.len }
+    pub fn is_empty(&self)->bool { self.len==0 }
+    pub fn is_full(&self)->bool { self.len==254 }
+    /// Reserve tracking capacity and enqueue a command TRB. Returns its DMA
+    /// address so a later Command Completion Event can be matched exactly.
+    pub fn submit(&mut self,ring:&mut ProducerRing,trb:Trb)->Result<u64,CommandError> {
+        if self.is_full(){return Err(CommandError::Full);}
+        let index=ring.enqueue_index();
+        if index>=LINK_INDEX{return Err(CommandError::RingUnavailable);}
+        let pointer=ring.physical_base()+(index*TRB_BYTES) as u64;
+        if !ring.push(trb){return Err(CommandError::RingUnavailable);}
+        self.pending[self.len]=Some(PendingCommand{trb_pointer:pointer});
+        self.len+=1;
+        Ok(pointer)
+    }
+    /// Match a decoded completion against the outstanding command table.
+    /// Unknown, stale or duplicate completions are rejected without mutation.
+    pub fn complete(&mut self,event:&EventRecord)->Result<CommandResult,CommandError> {
+        if event.event_type!=EventType::CommandCompletion {
+            return Err(CommandError::NotCommandCompletion);
+        }
+        let pointer=event.command_trb_pointer().ok_or(CommandError::UnknownCommand)?;
+        let mut found=None;
+        for i in 0..self.len {
+            if self.pending[i].map_or(false,|p|p.trb_pointer==pointer) {
+                found=Some(i);break;
+            }
+        }
+        let index=found.ok_or(CommandError::UnknownCommand)?;
+        let result=CommandResult{trb_pointer:pointer,completion_code:event.completion_code,slot_id:event.slot_id};
+        for i in index..self.len-1 { self.pending[i]=self.pending[i+1]; }
+        self.len-=1;
+        self.pending[self.len]=None;
+        Ok(result)
+    }
+}

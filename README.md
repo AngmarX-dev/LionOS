@@ -209,3 +209,18 @@ This is a parser/consumer primitive only. It does not acknowledge ERDP.EHB,
 write ERDP, enable an interrupter, submit commands, correlate completions with
 outstanding commands, or start the controller. The event ring is not yet
 connected to a live hardware event loop. No build or hardware test has been run.
+
+
+## xHCI command tracking foundation
+
+Added a fixed-capacity `CommandTracker` for software-side Command TRB
+submission bookkeeping. It records each enqueued TRB's physical address and
+matches decoded Command Completion Events by the event's command pointer.
+Unknown, duplicate, stale, and non-command events are rejected; the table is
+bounded and does not allocate dynamically.
+
+This is not yet a live command engine: no doorbell is rung, no command is
+submitted to active hardware, no timeout polling is performed, and no
+Enable Slot or Address Device command is issued. The controller remains
+halted and PCI bus mastering remains disabled. Build and hardware tests remain
+deferred.
