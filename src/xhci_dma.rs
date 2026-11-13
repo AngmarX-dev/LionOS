@@ -64,16 +64,23 @@ impl ProducerRing{
   true
  }
 }
+/// Opaque acknowledgement transaction. Constructed only by EventRing.
+#[derive(Clone,Copy)]
+pub struct EventAckToken{ring_base:u64,consumed:u64,dequeue_pointer:u64,value:u64}
+impl EventAckToken{
+ pub fn value(&self)->u64{self.value}
+ pub fn consumed_count(&self)->u64{self.consumed}
+}
 pub struct EventRing{
  buffer:crate::dma::DmaBuffer,erst:crate::dma::DmaBuffer,
- dequeue:usize,cycle:bool,consumed:u64,
+ dequeue:usize,cycle:bool,consumed:u64,acknowledged:u64,
 }
 impl EventRing{
  fn new(buffer:crate::dma::DmaBuffer,erst:crate::dma::DmaBuffer)->Self{
   let entry=ErstEntry{base:buffer.physical_address(),size:RING_TRBS as u32,reserved:0};
   unsafe{write_volatile(erst.virtual_address() as *mut ErstEntry,entry);}
   compiler_fence(Ordering::SeqCst);
-  Self{buffer,erst,dequeue:0,cycle:true,consumed:0}
+  Self{buffer,erst,dequeue:0,cycle:true,consumed:0,acknowledged:0}
  }
  pub fn erst_base(&self)->u64{self.erst.physical_address()}
  pub fn erst_size(&self)->u16{1}
@@ -82,6 +89,25 @@ impl EventRing{
  pub fn dequeue_index(&self)->usize{self.dequeue}
  pub fn cycle_state(&self)->bool{self.cycle}
  pub fn consumed_count(&self)->u64{self.consumed}
+ pub fn acknowledged_count(&self)->u64{self.acknowledged}
+ pub fn acknowledgement_pending(&self)->bool{self.consumed!=self.acknowledged}
+ /// Capture a stable ERDP update for all events consumed so far.
+ /// The caller must write token.value() to ERDP before committing it.
+ pub fn prepare_acknowledgement(&self)->Option<EventAckToken>{
+  if self.consumed==self.acknowledged{return None;}
+  Some(EventAckToken{ring_base:self.buffer.physical_address(),consumed:self.consumed,
+   dequeue_pointer:self.dequeue_pointer(),value:self.erdp_ack_value()})
+ }
+ /// Record a successful hardware ERDP write. This method performs no MMIO.
+ /// Stale, replayed, foreign-ring, or future tokens are rejected.
+ pub fn commit_acknowledgement(&mut self,token:EventAckToken)->bool{
+  let expected=self.buffer.physical_address().wrapping_add(
+   ((token.consumed as usize)%RING_TRBS*TRB_BYTES) as u64);
+  if token.ring_base!=self.buffer.physical_address()
+   ||token.consumed<=self.acknowledged||token.consumed>self.consumed
+   ||token.dequeue_pointer!=expected||token.value!=(token.dequeue_pointer|(1<<3)){return false;}
+  self.acknowledged=token.consumed;true
+ }
  pub fn dequeue_pointer(&self)->u64{
   self.buffer.physical_address()+(self.dequeue*TRB_BYTES) as u64
  }
