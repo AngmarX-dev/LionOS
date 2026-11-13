@@ -63,9 +63,6 @@ pub unsafe fn enable_memory_space(device:&PciDevice)->bool{
 /// is isolated from enumeration until the 32-bit config-access path is validated.
 /// This keeps device discovery passive and prevents a broken BAR decoder from
 /// blocking the kernel before subsystem bring-up.
-unsafe fn decode_bars(_bus:u8,_dev:u8,_fun:u8,_header:u8)->([PciBar;PCI_BAR_COUNT],u8){
- ([PciBar::EMPTY;PCI_BAR_COUNT],0)
-}
 
 pub unsafe fn enumerate<F:FnMut(PciDevice)>(mut visit:F){
  for bus in 0u16..=255{for dev in 0u8..32{
@@ -79,7 +76,11 @@ pub unsafe fn enumerate<F:FnMut(PciDevice)>(mut visit:F){
    let cs=read_config(bus as u8,dev,fun,4);let cr=read_config(bus as u8,dev,fun,8);let hr=read_config(bus as u8,dev,fun,0x0C);let header=(hr>>16) as u8;
    if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(5); }
    if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(6); }
-   let (bars,bar_count)=decode_bars(bus as u8,dev,fun,header);if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(2); }let irq=read_config(bus as u8,dev,fun,0x3C);
+   // Keep the early-boot path free of a large tuple return from the BAR decoder.
+   // BAR probing remains deferred; descriptors carry an explicitly empty BAR table.
+   let bars=[PciBar::EMPTY;PCI_BAR_COUNT];let bar_count=0;
+   if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(2); }
+   let irq=read_config(bus as u8,dev,fun,0x3C);
    visit(PciDevice{bus:bus as u8,device:dev,function:fun,vendor_id:id as u16,device_id:(id>>16) as u16,
     command:cs as u16,status:(cs>>16) as u16,revision_id:cr as u8,prog_if:(cr>>8) as u8,
     subclass:(cr>>16) as u8,class:(cr>>24) as u8,header_type:header,interrupt_line:irq as u8,
