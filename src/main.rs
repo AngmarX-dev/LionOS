@@ -16,6 +16,7 @@ mod dma;
 mod mmio;
 mod xhci;
 mod xhci_dma;
+mod xhci_runtime;
 mod heap;
 mod pci;
 mod device;
