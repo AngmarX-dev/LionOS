@@ -153,6 +153,40 @@ impl DeviceContext{
  pub fn context_size(&self)->usize{self.context_size}
  pub fn device_context_bytes(&self)->usize{32*self.context_size}
  pub fn input_context_bytes(&self)->usize{33*self.context_size}
+ /// Write one dword in an Input Context (context 0..32). The backing DMA
+ /// allocation is zero-initialized and remains owned by this object.
+ pub fn set_input_dword(&mut self,context_index:usize,dword_index:usize,value:u32)->bool{
+  if context_index>=33||dword_index>=self.context_size/4{return false;}
+  let offset=match context_index.checked_mul(self.context_size)
+   .and_then(|v|v.checked_add(dword_index*4)){Some(v)=>v,None=>return false};
+  if offset.checked_add(4).map_or(true,|end|end>self.input.length()){return false;}
+  let ptr=(self.input.virtual_address() as *mut u32).wrapping_add(offset/4);
+  unsafe{write_volatile(ptr,value);}
+  compiler_fence(Ordering::Release);true
+ }
+ /// Prepare the Input Control Context, Slot Context and default control
+ /// endpoint context for Address Device. Caller supplies descriptor-derived
+ /// speed/max-packet information and a valid EP0 transfer-ring dequeue pointer.
+ pub fn prepare_address_context(&mut self,route_string:u32,speed:u8,root_port:u8,
+  context_entries:u8,ep0_max_packet:u16,ep0_dequeue:u64,cycle_state:bool)->bool{
+  if route_string>0xFFFFF||speed==0||speed>15||root_port==0
+   ||context_entries<1||context_entries>31
+   ||ep0_max_packet==0||ep0_dequeue==0||ep0_dequeue&0xF!=0
+   ||ep0_dequeue>=0x1_0000_0000{return false;}
+  let add_context=(1u32<<0)|(1u32<<1);
+  let slot_dword0=route_string|((speed as u32)<<20)|((context_entries as u32)<<27);
+  let slot_dword1=(root_port as u32)<<16;
+  let ep0_dword1=(3u32<<1)|(4u32<<3)|((ep0_max_packet as u32)<<16);
+  let ep0_dword2=(ep0_dequeue as u32)&!0xF;
+  let ep0_dword3=((ep0_dequeue>>32) as u32)|if cycle_state{1}else{0};
+  self.set_input_dword(0,1,add_context)
+   &&self.set_input_dword(1,0,slot_dword0)
+   &&self.set_input_dword(1,1,slot_dword1)
+   &&self.set_input_dword(2,1,ep0_dword1)
+   &&self.set_input_dword(2,2,ep0_dword2)
+   &&self.set_input_dword(2,3,ep0_dword3)
+   &&self.set_input_dword(2,4,8)
+ }
 }
 pub struct ScratchpadSet{array:crate::dma::DmaBuffer,storage:crate::dma::DmaBuffer,count:u16}
 impl ScratchpadSet{
@@ -398,4 +432,56 @@ impl CommandEngine {
             Err(error)=>CommandPoll::InvalidCompletion(error),
         }
     }
+}
+
+
+const TRB_TYPE_ENABLE_SLOT:u32=9;
+const TRB_TYPE_ADDRESS_DEVICE:u32=11;
+/// Construct Enable Slot Command. Slot type 0 asks the controller to choose
+/// the default slot type. The returned slot ID is learned from completion.
+pub fn enable_slot_command()->Trb{
+ Trb{parameter:0,status:0,control:(TRB_TYPE_ENABLE_SLOT<<TRB_TYPE_SHIFT)}
+}
+/// Construct Address Device Command after the Input Context has been prepared.
+/// The slot ID must come from a successful Enable Slot completion.
+pub fn address_device_command(input_context:u64,slot_id:u8,block_set_address:bool)->Option<Trb>{
+ if input_context==0||input_context&0x3F!=0||input_context>=DMA_LIMIT||slot_id==0{return None;}
+ Some(Trb{parameter:input_context,status:0,
+  control:(TRB_TYPE_ADDRESS_DEVICE<<TRB_TYPE_SHIFT)|((slot_id as u32)<<24)
+   |if block_set_address{1<<9}else{0}})
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum SlotState { Enabled,AddressPending,Addressed,Failed }
+#[derive(Clone,Copy,Debug)]
+pub struct SlotRecord { pub slot_id:u8,pub root_port:u8,pub speed:u8,pub state:SlotState }
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum SlotError { InvalidSlot,InvalidPort,InvalidSpeed,AlreadyRegistered,UnknownSlot,InvalidTransition }
+/// Bounded software registry; it does not issue Enable Slot or Address Device.
+pub struct SlotManager { slots:[Option<SlotRecord>;256],max_slots:u8 }
+impl SlotManager {
+ pub const fn new(max_slots:u8)->Self { Self{slots:[None;256],max_slots} }
+ pub fn register_enabled(&mut self,slot_id:u8,root_port:u8,speed:u8)->Result<(),SlotError>{
+  if slot_id==0||slot_id>self.max_slots{return Err(SlotError::InvalidSlot);}
+  if root_port==0{return Err(SlotError::InvalidPort);}
+  if speed==0||speed>15{return Err(SlotError::InvalidSpeed);}
+  if self.slots[slot_id as usize].is_some(){return Err(SlotError::AlreadyRegistered);}
+  self.slots[slot_id as usize]=Some(SlotRecord{slot_id,root_port,speed,state:SlotState::Enabled});Ok(())
+ }
+ pub fn mark_address_pending(&mut self,slot_id:u8)->Result<(),SlotError>{
+  let slot=self.slots.get_mut(slot_id as usize).ok_or(SlotError::InvalidSlot)?;
+  let record=slot.as_mut().ok_or(SlotError::UnknownSlot)?;
+  if record.state!=SlotState::Enabled{return Err(SlotError::InvalidTransition);}
+  record.state=SlotState::AddressPending;Ok(())
+ }
+ pub fn mark_addressed(&mut self,slot_id:u8,success:bool)->Result<(),SlotError>{
+  let slot=self.slots.get_mut(slot_id as usize).ok_or(SlotError::InvalidSlot)?;
+  let record=slot.as_mut().ok_or(SlotError::UnknownSlot)?;
+  if record.state!=SlotState::AddressPending{return Err(SlotError::InvalidTransition);}
+  record.state=if success{SlotState::Addressed}else{SlotState::Failed};Ok(())
+ }
+ pub fn get(&self,slot_id:u8)->Option<SlotRecord>{self.slots.get(slot_id as usize).copied().flatten()}
+ pub fn release(&mut self,slot_id:u8)->Result<(),SlotError>{
+  let slot=self.slots.get_mut(slot_id as usize).ok_or(SlotError::InvalidSlot)?;
+  if slot.is_none(){return Err(SlotError::UnknownSlot);}*slot=None;Ok(())
+ }
 }

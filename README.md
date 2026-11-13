@@ -267,3 +267,20 @@ not a live hardware execution engine: no doorbell is rung, no PCI bus mastering
 is enabled, no interrupter is enabled, and no command TRB is handed to an
 active controller. Real command execution remains blocked pending a verified
 polling/interrupt ownership design and hardware-safe bring-up sequence.
+
+
+## xHCI Enable Slot / Address Device preparation
+
+Added software builders for Enable Slot and Address Device command TRBs, a
+bounded slot-state registry, and Input Context field preparation for the Slot
+Context and default control endpoint (EP0). Address Device construction
+validates the input-context alignment/range and nonzero slot ID. Input Context
+preparation requires caller-supplied speed, root port, EP0 max packet size and
+transfer-ring dequeue pointer; these values must be derived from actual port
+status and device descriptors, not guessed.
+
+This remains preparation-only: no command is submitted to active hardware,
+no doorbell is rung, and no slot is allocated by the controller. Port-status
+change handling, descriptor control transfers, real Enable Slot completion,
+and Address Device execution are still pending. Build and hardware tests have
+not been run.
