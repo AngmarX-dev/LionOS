@@ -28,7 +28,7 @@ pub enum DmaError{AllocationFailed,InvalidAlignment,InvalidAddress,InvalidContex
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum UsbPayloadError {
  AllocationFailed,InvalidLength,NotCpuOwned,NotDeviceOwned,
- CompletionMismatch,InvalidResidualLength,OutputTooSmall,ReleaseFailed,
+ CompletionMismatch,InvalidResidualLength,OutputTooSmall,ReleaseFailed,PoolFull,InvalidHandle,
 }
 
 /// Owns one below-4-GiB USB data buffer. The buffer cannot be read or reused
@@ -214,6 +214,78 @@ impl EventRing{
  /// Consume one cycle-valid event and return a decoded copy.
  pub fn next_event(&mut self)->Option<EventRecord>{
   let mut one=[None];if self.drain(1,&mut one)==1{one[0]}else{None}
+ }
+}
+
+const USB_PAYLOAD_POOL_CAPACITY:usize=8;
+struct UsbPayloadSlot {
+ generation:u16,
+ buffer:Option<UsbPayloadBuffer>,
+}
+impl UsbPayloadSlot {
+ const EMPTY:Self=Self{generation:0,buffer:None};
+}
+
+/// Opaque generation-checked handle into the fixed USB payload pool.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct UsbPayloadHandle { index:u8,generation:u16 }
+
+/// Fixed-capacity owner for USB DMA payloads. Handles become stale when a
+/// slot is released and reused; generation exhaustion permanently retires
+/// that slot instead of allowing an old handle to alias a new allocation.
+pub struct UsbPayloadPool {
+ slots:[UsbPayloadSlot;USB_PAYLOAD_POOL_CAPACITY],
+}
+impl UsbPayloadPool {
+ pub const fn new()->Self {
+  Self{slots:[
+   UsbPayloadSlot::EMPTY,UsbPayloadSlot::EMPTY,
+   UsbPayloadSlot::EMPTY,UsbPayloadSlot::EMPTY,
+   UsbPayloadSlot::EMPTY,UsbPayloadSlot::EMPTY,
+   UsbPayloadSlot::EMPTY,UsbPayloadSlot::EMPTY,
+  ]}
+ }
+ pub fn capacity(&self)->usize{USB_PAYLOAD_POOL_CAPACITY}
+ pub fn in_use(&self)->usize{self.slots.iter().filter(|s|s.buffer.is_some()).count()}
+ pub fn allocate(&mut self,length:usize)->Result<UsbPayloadHandle,UsbPayloadError>{
+  let index=self.slots.iter().position(|s|s.buffer.is_none()&&s.generation<u16::MAX)
+   .ok_or(UsbPayloadError::PoolFull)?;
+  let buffer=UsbPayloadBuffer::allocate(length)?;
+  let slot=&mut self.slots[index];
+  slot.generation=slot.generation.checked_add(1).ok_or(UsbPayloadError::PoolFull)?;
+  slot.buffer=Some(buffer);
+  Ok(UsbPayloadHandle{index:index as u8,generation:slot.generation})
+ }
+ fn resolve(&self,handle:UsbPayloadHandle)->Result<&UsbPayloadBuffer,UsbPayloadError>{
+  let slot=self.slots.get(handle.index as usize).ok_or(UsbPayloadError::InvalidHandle)?;
+  if slot.generation!=handle.generation{return Err(UsbPayloadError::InvalidHandle);}
+  slot.buffer.as_ref().ok_or(UsbPayloadError::InvalidHandle)
+ }
+ pub fn get(&self,handle:UsbPayloadHandle)->Result<&UsbPayloadBuffer,UsbPayloadError>{
+  self.resolve(handle)
+ }
+ pub fn quarantine(&self,handle:UsbPayloadHandle)->Result<(),UsbPayloadError>{
+  self.resolve(handle)?.quarantine();Ok(())
+ }
+ /// Caller must pass the matching TransferEngine result for this handle.
+ pub unsafe fn reclaim_after_completion(&self,handle:UsbPayloadHandle,
+  result:&TransferResult)->Result<(),UsbPayloadError>{
+  self.resolve(handle)?.reclaim_after_completion(result)
+ }
+ pub fn copy_completed_to(&self,handle:UsbPayloadHandle,result:&TransferResult,
+  out:&mut [u8])->Result<usize,UsbPayloadError>{
+  self.resolve(handle)?.copy_completed_to(result,out)
+ }
+ pub fn release(&mut self,handle:UsbPayloadHandle)->Result<(),UsbPayloadError>{
+  let index=handle.index as usize;
+  let slot=self.slots.get_mut(index).ok_or(UsbPayloadError::InvalidHandle)?;
+  if slot.generation!=handle.generation{return Err(UsbPayloadError::InvalidHandle);}
+  let buffer=slot.buffer.as_ref().ok_or(UsbPayloadError::InvalidHandle)?;
+  if buffer.ownership()!=crate::dma::DmaOwnership::CpuOwned{
+   return Err(UsbPayloadError::NotCpuOwned);
+  }
+  let owned=slot.buffer.take().ok_or(UsbPayloadError::InvalidHandle)?;
+  if unsafe{owned.release()}{Ok(())}else{Err(UsbPayloadError::ReleaseFailed)}
  }
 }
 
