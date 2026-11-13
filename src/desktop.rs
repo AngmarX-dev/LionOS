@@ -78,3 +78,59 @@ pub fn refresh_pointer() {
         }
     }
 }
+
+
+static mut INPUT_TEXT: [u8; 32] = [0; 32];
+static mut INPUT_TEXT_LEN: usize = 0;
+static mut LAST_MOUSE_BUTTONS: u8 = 0;
+static mut LAST_MOUSE_PACKETS: u32 = 0;
+
+/// Drain keyboard transitions into a small desktop status-line text buffer.
+/// Mouse button edges are reflected in the same status line; pointer movement
+/// remains handled by refresh_pointer().
+pub fn poll_input() {
+    while let Some(event) = crate::input::pop_event() {
+        if !event.pressed || event.extended { continue; }
+        if let Some(byte) = crate::input::scancode_to_ascii(event.scancode) {
+            unsafe {
+                if byte == 8 {
+                    if INPUT_TEXT_LEN != 0 { INPUT_TEXT_LEN -= 1; }
+                } else if byte >= 0x20 && byte <= 0x7E {
+                    if INPUT_TEXT_LEN == INPUT_TEXT.len() {
+                        INPUT_TEXT.copy_within(1.., 0);
+                        INPUT_TEXT_LEN -= 1;
+                    }
+                    INPUT_TEXT[INPUT_TEXT_LEN] = byte;
+                    INPUT_TEXT_LEN += 1;
+                }
+            }
+        }
+    }
+
+    let mouse = crate::mouse::snapshot();
+    if mouse.initialized {
+        unsafe {
+            if mouse.buttons != LAST_MOUSE_BUTTONS || mouse.packets != LAST_MOUSE_PACKETS {
+                LAST_MOUSE_BUTTONS = mouse.buttons;
+                LAST_MOUSE_PACKETS = mouse.packets;
+                if let Some(fb) = graphics::info() {
+                    graphics::fill_rect(12, 12, fb.width.saturating_sub(24).min(420), 18, (13,20,34));
+                    graphics::draw_text(18, 16, "INPUT", (135,165,205), 1);
+                    let label = match mouse.buttons & 0x07 {
+                        1 => "LEFT",
+                        2 => "RIGHT",
+                        4 => "MIDDLE",
+                        _ => "MOVE",
+                    };
+                    graphics::draw_text(64, 16, label, (232,240,252), 1);
+                    if INPUT_TEXT_LEN != 0 {
+                        if let Ok(text) = core::str::from_utf8(&INPUT_TEXT[..INPUT_TEXT_LEN]) {
+                            graphics::draw_text(112, 16, text, (174,205,245), 1);
+                        }
+                    }
+                    let _ = graphics::present();
+                }
+            }
+        }
+    }
+}
