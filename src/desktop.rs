@@ -76,6 +76,19 @@ pub fn refresh_pointer() {
             POINTER_LAST_Y=y;
             POINTER_READY=true;
         }
+    } else if keyboard_changed {
+        unsafe {
+            if let Some(fb) = graphics::info() {
+                graphics::fill_rect(12, 12, fb.width.saturating_sub(24).min(420), 18, (13,20,34));
+                graphics::draw_text(18, 16, "INPUT", (135,165,205), 1);
+                if INPUT_TEXT_LEN != 0 {
+                    if let Ok(text) = core::str::from_utf8(&INPUT_TEXT[..INPUT_TEXT_LEN]) {
+                        graphics::draw_text(64, 16, text, (174,205,245), 1);
+                    }
+                }
+                let _ = graphics::present();
+            }
+        }
     }
 }
 
@@ -89,13 +102,15 @@ static mut LAST_MOUSE_PACKETS: u32 = 0;
 /// Mouse button edges are reflected in the same status line; pointer movement
 /// remains handled by refresh_pointer().
 pub fn poll_input() {
+    let mut keyboard_changed = false;
     while let Some(event) = crate::input::pop_event() {
         if !event.pressed || event.extended { continue; }
         if let Some(byte) = crate::input::scancode_to_ascii(event.scancode) {
             unsafe {
                 if byte == 8 {
-                    if INPUT_TEXT_LEN != 0 { INPUT_TEXT_LEN -= 1; }
+                    if INPUT_TEXT_LEN != 0 { INPUT_TEXT_LEN -= 1; keyboard_changed = true; }
                 } else if byte >= 0x20 && byte <= 0x7E {
+                    keyboard_changed = true;
                     if INPUT_TEXT_LEN == INPUT_TEXT.len() {
                         INPUT_TEXT.copy_within(1.., 0);
                         INPUT_TEXT_LEN -= 1;
@@ -110,7 +125,7 @@ pub fn poll_input() {
     let mouse = crate::mouse::snapshot();
     if mouse.initialized {
         unsafe {
-            if mouse.buttons != LAST_MOUSE_BUTTONS || mouse.packets != LAST_MOUSE_PACKETS {
+            if keyboard_changed || mouse.buttons != LAST_MOUSE_BUTTONS || mouse.packets != LAST_MOUSE_PACKETS {
                 LAST_MOUSE_BUTTONS = mouse.buttons;
                 LAST_MOUSE_PACKETS = mouse.packets;
                 if let Some(fb) = graphics::info() {
