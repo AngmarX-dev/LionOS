@@ -166,8 +166,6 @@ impl EndpointRecoveryManager {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PortStatusChange {
     pub port_id: u8,
-    pub connected: bool,
-    pub speed: u8,
 }
 
 impl PortStatusChange {
@@ -178,7 +176,7 @@ impl PortStatusChange {
         if event.event_type != EventType::PortStatusChange { return None; }
         let port_id = (event.trb.parameter >> 24) as u8;
         if port_id == 0 { return None; }
-        Some(Self { port_id, connected: false, speed: 0 })
+        Some(Self { port_id })
     }
 }
 
@@ -188,7 +186,6 @@ pub enum DisconnectPhase {
     DisconnectObserved,
     DisableSlotPending,
     SlotDisabled,
-    DmaQuiescenceVerified,
     SafeToReclaim,
     Quarantined,
 }
