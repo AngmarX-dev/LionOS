@@ -146,3 +146,68 @@ pub fn poll_input() {
         }
     }
 }
+
+
+static mut HID_MOUSE_X: i32 = 0;
+static mut HID_MOUSE_Y: i32 = 0;
+static mut HID_MOUSE_BUTTONS: u8 = 0;
+static mut HID_MOUSE_READY: bool = false;
+
+unsafe fn render_input_status(device_label: &str) {
+    if let Some(fb) = graphics::info() {
+        graphics::fill_rect(12, 12, fb.width.saturating_sub(24).min(420), 18, (13,20,34));
+        graphics::draw_text(18, 16, device_label, (135,165,205), 1);
+        let text_ptr = core::ptr::addr_of!(INPUT_TEXT).cast::<u8>();
+        let text = core::slice::from_raw_parts(text_ptr, INPUT_TEXT_LEN);
+        if let Ok(value) = core::str::from_utf8(text) {
+            if !value.is_empty() {
+                graphics::draw_text(112, 16, value, (174,205,245), 1);
+            }
+        }
+        let _ = graphics::present();
+    }
+}
+
+/// Receive a decoded USB HID keyboard transition from the USB transfer layer.
+pub fn accept_hid_key_transition(event: crate::usb_hid::KeyTransition) {
+    if !event.pressed { return; }
+    if let Some(byte) = crate::usb_hid::usage_to_ascii(event.usage) {
+        unsafe {
+            if byte == 8 {
+                if INPUT_TEXT_LEN != 0 { INPUT_TEXT_LEN -= 1; }
+            } else if (0x20..=0x7E).contains(&byte) {
+                if INPUT_TEXT_LEN == 32 {
+                    for index in 1..32 { INPUT_TEXT[index - 1] = INPUT_TEXT[index]; }
+                    INPUT_TEXT_LEN = 31;
+                }
+                INPUT_TEXT[INPUT_TEXT_LEN] = byte;
+                INPUT_TEXT_LEN += 1;
+            } else { return; }
+            render_input_status("USB HID");
+        }
+    }
+}
+
+/// Apply a decoded USB HID boot-mouse delta to the desktop pointer.
+pub fn accept_hid_mouse_report(report: crate::usb_hid::BootMouseReport) {
+    unsafe {
+        if !HID_MOUSE_READY {
+            if let Some(fb) = graphics::info() {
+                HID_MOUSE_X = (fb.width.saturating_sub(1) / 2) as i32;
+                HID_MOUSE_Y = (fb.height.saturating_sub(1) / 2) as i32;
+            }
+            HID_MOUSE_READY = true;
+        }
+        if let Some(fb) = graphics::info() {
+            let max_x = fb.width.saturating_sub(12).min(i32::MAX as u32) as i32;
+            let max_y = fb.height.saturating_sub(16).min(i32::MAX as u32) as i32;
+            HID_MOUSE_X = HID_MOUSE_X.saturating_add(report.x as i32).clamp(0, max_x);
+            HID_MOUSE_Y = HID_MOUSE_Y.saturating_sub(report.y as i32).clamp(0, max_y);
+            graphics::draw_cursor(HID_MOUSE_X as u32, HID_MOUSE_Y as u32);
+        }
+        if report.buttons != HID_MOUSE_BUTTONS {
+            HID_MOUSE_BUTTONS = report.buttons;
+            render_input_status("USB MOUSE");
+        }
+    }
+}
