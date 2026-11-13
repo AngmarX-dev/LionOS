@@ -609,3 +609,17 @@ the payload manager or activate the controller. The caller must retain payloads
 until their matching completion arrives; uncertain buffers are quarantined.
 
 No build, QEMU, or physical hardware test was run for this stage.
+
+
+### Bounded payload pool
+
+The payload owner is also exposed as `UsbPayloadPool`, a fixed-capacity pool
+of eight DMA buffers. It uses generation-checked opaque handles, rejects stale
+handles after slot reuse, tracks in-use capacity, and refuses to release any
+buffer that is not CPU-owned. The control-transfer dispatcher accepts a pool
+handle directly through `submit_pool_payload`; descriptor handoff can resolve
+the same handle through the pool before copying the completed bytes.
+
+This remains a software ownership and submission framework. It is not yet a
+live USB DMA service and must not be treated as proof that a connected device
+has been enumerated.
