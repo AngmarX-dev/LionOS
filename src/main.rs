@@ -365,6 +365,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] USB descriptor parser and bounded enumeration state model (software-only)\n");
     write_str("[ OK ] xHCI guarded command/doorbell dispatch source integrated; not activated\n");
     write_str("[ OK ] Generic USB control-transfer builder and gated EP0/endpoint dispatcher source integrated\n");
+    write_str("[ OK ] USB payload ownership, completion-length validation and descriptor handoff source integrated\n");
     write_str("[ -- ] Live USB command/transfer execution, device enumeration and class drivers not implemented\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");
