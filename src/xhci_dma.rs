@@ -735,17 +735,22 @@ impl CommandEngine {
     }
     pub fn expire(&mut self,now:u64)->usize { self.tracker.expire(now) }
     pub fn has_timed_out(&self)->bool { self.tracker.has_timed_out() }
-    /// Consume at most one cycle-valid event. Non-command events are returned
-    /// intact so a higher-level dispatcher can route them instead of dropping.
-    pub fn poll_one(&mut self,events:&mut EventRing)->CommandPoll {
-        let event=match events.next_event(){Some(v)=>v,None=>return CommandPoll::Empty};
+    /// Process an already-drained event record without consuming another
+    /// Event Ring entry. Unrelated event types are preserved for other engines.
+    pub fn process_event(&mut self,event:&EventRecord)->CommandPoll {
         if event.event_type!=EventType::CommandCompletion {
-            return CommandPoll::Unrelated(event);
+            return CommandPoll::Unrelated(*event);
         }
-        match self.tracker.complete(&event) {
+        match self.tracker.complete(event) {
             Ok(result)=>CommandPoll::Completed(result),
             Err(error)=>CommandPoll::InvalidCompletion(error),
         }
+    }
+    /// Legacy single-event polling API. Prefer EventPump + process_event when
+    /// multiple engines share one Event Ring.
+    pub fn poll_one(&mut self,events:&mut EventRing)->CommandPoll {
+        let event=match events.next_event(){Some(v)=>v,None=>return CommandPoll::Empty};
+        self.process_event(&event)
     }
 }
 
@@ -1096,12 +1101,19 @@ impl TransferEngine {
         self.submit_control(ring,slot_id,endpoint_id,
             UsbSetupPacket::get_device_descriptor(length),data_buffer)
     }
-    pub fn poll_one(&mut self,events:&mut EventRing)->TransferPoll {
-        let event=match events.next_event(){Some(v)=>v,None=>return TransferPoll::Empty};
-        if event.event_type!=EventType::Transfer{return TransferPoll::Unrelated(event);}
-        match self.tracker.complete(&event){
+    /// Process an already-drained Transfer Event without consuming another
+    /// Event Ring entry. Slot, endpoint and TRB-pointer correlation is retained.
+    pub fn process_event(&mut self,event:&EventRecord)->TransferPoll {
+        if event.event_type!=EventType::Transfer{return TransferPoll::Unrelated(*event);}
+        match self.tracker.complete(event){
             Ok(result)=>TransferPoll::Completed(result),
             Err(error)=>TransferPoll::Invalid(error),
         }
+    }
+    /// Legacy single-event polling API. Prefer EventPump + process_event when
+    /// multiple engines share one Event Ring.
+    pub fn poll_one(&mut self,events:&mut EventRing)->TransferPoll {
+        let event=match events.next_event(){Some(v)=>v,None=>return TransferPoll::Empty};
+        self.process_event(&event)
     }
 }
