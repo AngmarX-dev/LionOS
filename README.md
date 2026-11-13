@@ -77,7 +77,8 @@ limited and must not be represented as production-ready:
 | Heap | Page-backed global allocator; page-granular allocations only |
 | PCI / devices | Passive enumeration and BAR metadata, bounded registry and driver-binding API; no BAR sizing, resource mapping or active drivers |
 | USB boot | BIOS firmware + GRUB loads the kernel; post-handoff USB storage is not supported |
-| DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |\n| USB controllers | xHCI/EHCI/OHCI/UHCI drivers not implemented |
+| DMA / MMIO | Zeroed contiguous DMA allocator below 4 GiB; identity MMIO windows with coarse 4 MiB uncached mapping; no IOMMU/cache-coherent abstraction |
+| USB controllers | xHCI/EHCI/OHCI/UHCI drivers not implemented |
 | USB HID | Keyboard/mouse drivers not implemented |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
 | Intel UHD | PCI discovery only; native display/GPU driver not implemented |
