@@ -821,3 +821,12 @@ Not implemented: double-fault task gate/IST-equivalent emergency stack,
 NMI-specific recovery, kernel exception fixup tables, user-mode fault delivery,
 recoverable page-fault demand paging, panic backtraces, watchdog/reset policy,
 and fault-injection tests. No build or runtime tests were run.
+
+
+## Final kernel architecture integration pass
+
+The x86 implementation is exposed through a dedicated src/arch/mod.rs boundary instead of an inline module declaration in the kernel entry file. src/arch/init.rs owns the ordered early architecture sequence: interrupts disabled -> GDT/TSS load -> IDT installation and PIC remap/masking -> PIT programming. The routine deliberately leaves IF clear; the kernel idle path remains responsible for enabling maskable interrupts after subsystem bring-up. This avoids enabling device IRQ delivery during partially initialized subsystems.
+
+The Control Protection exception (#CP, vector 21) ISR now uses the CPU-pushed error-code layout, matching #DF, #TS, #NP, #SS, #GP, #PF, #AC, #VE, #VC and #SX. Exception frames retain the normalized vector/error-code shape expected by the common dispatcher.
+
+This is an architectural source integration pass, not a declaration that the kernel is end-to-end complete. AP startup, APIC/IOAPIC routing, real task switching, per-process address spaces, user-mode entry, and device-driver activation remain outside the current boot contract. No build, QEMU, or hardware validation was run for this pass.
