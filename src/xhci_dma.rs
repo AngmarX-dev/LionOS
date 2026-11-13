@@ -864,6 +864,10 @@ impl UsbSetupPacket {
   Self{request_type:0x80,request:6,
    value:((descriptor_type as u16)<<8)|(descriptor_index as u16),index:0,length}
  }
+ /// Standard GET_DESCRIPTOR(Configuration, index 0), not GET_CONFIGURATION.
+ pub const fn get_configuration_descriptor(length:u16)->Self {
+  Self::get_descriptor(2,0,length)
+ }
  pub const fn get_configuration(length:u16)->Self {
   Self{request_type:0x80,request:8,value:0,index:0,length}
  }
@@ -1100,6 +1104,26 @@ impl TransferEngine {
         if length==0||length>18{return Err(TransferError::InvalidBuffer);}
         self.submit_control(ring,slot_id,endpoint_id,
             UsbSetupPacket::get_device_descriptor(length),data_buffer)
+    }
+    /// First stage: fetch exactly the 9-byte Configuration Descriptor header.
+    pub fn submit_configuration_header(&mut self,ring:&mut ProducerRing,
+      slot_id:u8,endpoint_id:u8,data_buffer:u64)->Result<u64,TransferError>{
+        self.submit_control(ring,slot_id,endpoint_id,
+            UsbSetupPacket::get_configuration_descriptor(9),data_buffer)
+    }
+    /// Second stage: fetch validated wTotalLength, capped by the USB manager.
+    pub fn submit_configuration_body(&mut self,ring:&mut ProducerRing,
+      slot_id:u8,endpoint_id:u8,data_buffer:u64,total_length:u16)->Result<u64,TransferError>{
+        if total_length<9||total_length>4096{return Err(TransferError::InvalidBuffer);}
+        self.submit_control(ring,slot_id,endpoint_id,
+            UsbSetupPacket::get_configuration_descriptor(total_length),data_buffer)
+    }
+    /// Standard no-data control request that selects a parsed configuration.
+    pub fn submit_set_configuration(&mut self,ring:&mut ProducerRing,
+      slot_id:u8,endpoint_id:u8,configuration_value:u8)->Result<u64,TransferError>{
+        if configuration_value==0{return Err(TransferError::InvalidBuffer);}
+        self.submit_control(ring,slot_id,endpoint_id,
+            UsbSetupPacket::set_configuration(configuration_value),0)
     }
     /// Process an already-drained Transfer Event without consuming another
     /// Event Ring entry. Slot, endpoint and TRB-pointer correlation is retained.
