@@ -185,7 +185,7 @@ fn report_xhci(){
         Some(info)=>{
             write_str("[ OK ] xHCI PCI function found at ");
             write_hex(((info.bus as u32)<<8)|((info.device as u32)<<3)|info.function as u32);
-            write_str(" vendor/device ");write_hex(info.vendor_id as u32);put_byte(':');write_hex(info.device_id as u32);write_str("\n");
+            write_str(" vendor/device ");write_hex(info.vendor_id as u32);put_byte(b':');write_hex(info.device_id as u32);write_str("\n");
             write_str("  BAR");write_dec(info.bar_index as u32);write_str(" MMIO ");write_hex(info.bar_base);write_str(" version ");write_hex(info.version as u32);write_str("\n");
             write_str("  Slots ");write_dec(info.max_slots as u32);write_str(" interrupters ");write_dec(info.max_interrupters as u32);write_str(" ports ");write_dec(info.max_ports as u32);write_str("\n");
             write_str("  USBSTS ");write_hex(info.usb_status);write_str("\n");
