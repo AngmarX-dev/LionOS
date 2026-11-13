@@ -17,6 +17,7 @@ pub struct DmaBuffer{
     virtual_address:*mut u8,
     length:usize,
     pages:u32,
+    ownership:AtomicU8,
 }
 impl DmaBuffer{
     pub fn physical_address(&self)->u64{self.physical}
@@ -24,9 +25,37 @@ impl DmaBuffer{
     pub fn length(&self)->usize{self.length}
     pub fn page_count(&self)->u32{self.pages}
 
+    pub fn ownership(&self)->DmaOwnership{
+        match self.ownership.load(Ordering::Acquire){
+            DMA_DEVICE_OWNED=>DmaOwnership::DeviceOwned,
+            DMA_QUARANTINED=>DmaOwnership::Quarantined,
+            _=>DmaOwnership::CpuOwned,
+        }
+    }
+
+    /// Publish initialized DMA memory and transfer ownership to the device.
+    pub fn handoff_to_device(&self)->bool{
+        compiler_fence(Ordering::Release);
+        self.ownership.compare_exchange(DMA_CPU_OWNED,DMA_DEVICE_OWNED,
+            Ordering::AcqRel,Ordering::Acquire).is_ok()
+    }
+
+    /// Quarantined allocations are intentionally never returned to the allocator.
+    pub fn quarantine(&self){
+        self.ownership.store(DMA_QUARANTINED,Ordering::Release);
+    }
+
+    /// Caller must independently verify controller halt, bus-master disable,
+    /// and completion of every outstanding DMA transaction.
+    pub unsafe fn reclaim_after_quiescence(&self)->bool{
+        self.ownership.compare_exchange(DMA_DEVICE_OWNED,DMA_CPU_OWNED,
+            Ordering::AcqRel,Ordering::Acquire).is_ok()
+    }
+
     /// Release the allocation. The caller must first ensure the device no longer
     /// owns or can access this buffer.
     pub unsafe fn release(self)->bool{
+        if self.ownership.load(Ordering::Acquire)!=DMA_CPU_OWNED{return false;}
         compiler_fence(Ordering::SeqCst);
         crate::memory::free_pages(self.physical as u32,self.pages)
     }
