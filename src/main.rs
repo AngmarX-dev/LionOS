@@ -269,6 +269,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         xhci::InitStatus::NoController=>write_str("no controller"),
         xhci::InitStatus::InvalidBar=>write_str("BAR validation failed"),
         xhci::InitStatus::InvalidCapabilities=>write_str("invalid capability chain/register window"),
+        xhci::InitStatus::UnsupportedPageSize=>write_str("controller does not advertise 4 KiB page support; DMA setup skipped"),
         xhci::InitStatus::OwnershipTimeout=>write_str("BIOS ownership timeout; reset skipped"),
         xhci::InitStatus::StopTimeout=>write_str("controller halt timeout; reset skipped"),
         xhci::InitStatus::ResetTimeout=>write_str("host reset timeout"),

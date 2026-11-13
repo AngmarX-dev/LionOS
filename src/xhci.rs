@@ -19,7 +19,7 @@ pub struct XhciInfo{
     pub bar_index:u8,pub bar_base:u32,pub bar_size:u64,
     pub version:u16,pub cap_length:u8,
     pub max_slots:u8,pub max_interrupters:u16,pub max_ports:u8,
-    pub scratchpad_count:u16,pub context_size:usize,
+    pub scratchpad_count:u16,pub context_size:usize,pub page_4k_supported:bool,
     pub address_64bit:bool,pub doorbell_offset:u32,pub runtime_offset:u32,
     pub usb_status:u32,
     pub legacy_support_found:bool,pub bios_owned:bool,pub os_owned:bool,
@@ -27,7 +27,7 @@ pub struct XhciInfo{
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum InitStatus {
-    NoController, InvalidBar, InvalidCapabilities, OwnershipTimeout,
+    NoController, InvalidBar, InvalidCapabilities, UnsupportedPageSize, OwnershipTimeout,
     StopTimeout, ResetTimeout, NotReadyTimeout, ReadyStopped,
 }
 #[derive(Clone,Copy,Debug)]
@@ -73,6 +73,7 @@ unsafe fn inspect(device:PciDevice)->Option<XhciInfo>{
         let dboff=match read(&region,0x14){Some(v)=>v&!3,None=>continue};
         let rtsoff=match read(&region,0x18){Some(v)=>v&!0x1F,None=>continue};
         let op_status=match read(&region,cap_length as usize+4){Some(v)=>v,None=>continue};
+        let page_size=match read(&region,cap_length as usize+8){Some(v)=>v,None=>continue};
         let (legacy_found,bios_owned,os_owned,ext_valid)=match legacy_cap_offset(&region,hccparams1){
             Ok(Some(offset))=>{let h=read(&region,offset)?;(true,h&(1<<16)!=0,h&(1<<24)!=0,true)},
             Ok(None)=>(false,false,false,true),
@@ -84,8 +85,8 @@ unsafe fn inspect(device:PciDevice)->Option<XhciInfo>{
             bar_index:index as u8,bar_base:bar.base as u32,bar_size,
             version,cap_length,max_slots:(hcsparams1&0xFF) as u8,
             max_interrupters:((hcsparams1>>8)&0x7FF) as u16,max_ports:(hcsparams1>>24) as u8,
-            scratchpad_count:((((hcsparams2>>25)&0x7F)<<5)|((hcsparams2>>21)&0x1F)) as u16,
-            context_size:if hccparams1&(1<<2)!=0{64}else{32},
+            scratchpad_count:((((hcsparams2>>21)&0x1F)<<5)|((hcsparams2>>27)&0x1F)) as u16,
+            context_size:if hccparams1&(1<<2)!=0{64}else{32},page_4k_supported:page_size&1!=0,
             address_64bit:hccparams1&1!=0,doorbell_offset:dboff,runtime_offset:rtsoff,
             usb_status:op_status,legacy_support_found:legacy_found,bios_owned,os_owned,ext_caps_valid:ext_valid,
         });
@@ -105,6 +106,7 @@ fn wait_until<F:FnMut()->bool>(mut condition:F)->bool{
 pub fn initialize()->InitReport{
     let info=match discover(){Some(v)=>v,None=>return InitReport{status:InitStatus::NoController,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false}};
     if !info.ext_caps_valid{return InitReport{status:InitStatus::InvalidCapabilities,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};}
+    if !info.page_4k_supported{return InitReport{status:InitStatus::UnsupportedPageSize,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};}
     let device=unsafe{
         let mut selected=None;
         pci::enumerate(|d|{if d.bus==info.bus&&d.device==info.device&&d.function==info.function{selected=Some(d);}});
