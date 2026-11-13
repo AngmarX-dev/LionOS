@@ -23,6 +23,75 @@ struct ErstEntry{base:u64,size:u32,reserved:u32}
 const _:[();16]=[();core::mem::size_of::<ErstEntry>()];
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 pub enum DmaError{AllocationFailed,InvalidAlignment,InvalidAddress,InvalidContextSize,TooManyScratchpads}
+
+/// Errors from the bounded USB payload-buffer owner.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum UsbPayloadError {
+ AllocationFailed,InvalidLength,NotCpuOwned,NotDeviceOwned,
+ CompletionMismatch,InvalidResidualLength,OutputTooSmall,ReleaseFailed,
+}
+
+/// Owns one below-4-GiB USB data buffer. The buffer cannot be read or reused
+/// while device-owned; a matching terminal Transfer Event must be correlated
+/// before the caller may reclaim it.
+pub struct UsbPayloadBuffer { buffer:crate::dma::DmaBuffer }
+impl UsbPayloadBuffer {
+ pub fn allocate(length:usize)->Result<Self,UsbPayloadError>{
+  if length==0{return Err(UsbPayloadError::InvalidLength);}
+  let buffer=crate::dma::alloc(length,PAGE,0,DMA_LIMIT)
+   .ok_or(UsbPayloadError::AllocationFailed)?;
+  Ok(Self{buffer})
+ }
+ pub fn physical_address(&self)->u64{self.buffer.physical_address()}
+ pub fn length(&self)->usize{self.buffer.length()}
+ pub fn ownership(&self)->crate::dma::DmaOwnership{self.buffer.ownership()}
+ pub fn write(&self,bytes:&[u8])->Result<(),UsbPayloadError>{
+  if self.buffer.ownership()!=crate::dma::DmaOwnership::CpuOwned{
+   return Err(UsbPayloadError::NotCpuOwned);
+  }
+  if bytes.len()>self.length(){return Err(UsbPayloadError::OutputTooSmall);}
+  let dst=self.buffer.virtual_address();
+  for (i,value) in bytes.iter().enumerate(){unsafe{write_volatile(dst.add(i),*value);}}
+  compiler_fence(Ordering::Release);Ok(())
+ }
+ pub fn handoff_to_device(&self)->bool{self.buffer.handoff_to_device()}
+ pub fn quarantine(&self){self.buffer.quarantine();}
+ /// The result must be returned by TransferEngine after matching the event
+ /// to this exact payload's TD. Never call this based on an untrusted event.
+ pub unsafe fn reclaim_after_completion(&self,result:&TransferResult)
+  ->Result<(),UsbPayloadError>{
+  if result.data_buffer!=self.physical_address()
+   ||result.requested_length as usize>self.length()
+   ||result.residual_length>result.requested_length as u32 {
+   return Err(UsbPayloadError::CompletionMismatch);
+  }
+  if !self.buffer.reclaim_after_transfer_completion(){
+   return Err(UsbPayloadError::NotDeviceOwned);
+  }
+  Ok(())
+ }
+ /// Copy only successful/short-packet data after the matching payload was reclaimed.
+ pub fn copy_completed_to(&self,result:&TransferResult,out:&mut [u8])
+  ->Result<usize,UsbPayloadError>{
+  if self.buffer.ownership()!=crate::dma::DmaOwnership::CpuOwned{
+   return Err(UsbPayloadError::NotCpuOwned);
+  }
+  if result.data_buffer!=self.physical_address()
+   ||result.requested_length as usize>self.length()
+   ||result.residual_length>result.requested_length as u32 {
+   return Err(UsbPayloadError::CompletionMismatch);
+  }
+  if !result.completion.is_success(){return Err(UsbPayloadError::CompletionMismatch);}
+  let actual=result.actual_length as usize;
+  if actual>out.len(){return Err(UsbPayloadError::OutputTooSmall);}
+  let src=self.buffer.virtual_address();
+  for i in 0..actual{out[i]=unsafe{read_volatile(src.add(i))};}
+  compiler_fence(Ordering::Acquire);Ok(actual)
+ }
+ pub unsafe fn release(self)->Result<(),UsbPayloadError>{
+  if self.buffer.release(){Ok(())}else{Err(UsbPayloadError::ReleaseFailed)}
+ }
+}
 fn alloc_region(length:usize,boundary:usize)->Option<crate::dma::DmaBuffer>{
  crate::dma::alloc(length,PAGE,boundary,DMA_LIMIT)
 }
@@ -780,12 +849,17 @@ pub struct TransferResult {
     pub endpoint_id:u8,
     pub completion:TransferCompletion,
     pub residual_length:u32,
+    pub data_buffer:u64,
+    pub requested_length:u16,
+    pub actual_length:u16,
 }
 #[derive(Clone,Copy)]
 struct PendingTransfer {
     setup_trb_pointer:u64,
     data_trb_pointer:u64,
     status_trb_pointer:u64,
+    data_buffer:u64,
+    requested_length:u16,
     slot_id:u8,
     endpoint_id:u8,
 }
@@ -813,9 +887,15 @@ impl TransferTracker {
             (p.setup_trb_pointer==decoded.trb_pointer||p.data_trb_pointer==decoded.trb_pointer
              ||p.status_trb_pointer==decoded.trb_pointer)&&p.slot_id==decoded.slot_id
              &&p.endpoint_id==decoded.endpoint_id)).ok_or(TransferError::UnknownTransfer)?;
+        let pending=self.pending[index].ok_or(TransferError::UnknownTransfer)?;
+        if decoded.residual_length>pending.requested_length as u32{
+            return Err(TransferError::InvalidResidualLength);
+        }
         let result=TransferResult{trb_pointer:decoded.trb_pointer,slot_id:decoded.slot_id,
             endpoint_id:decoded.endpoint_id,completion:decoded.completion,
-            residual_length:decoded.residual_length};
+            residual_length:decoded.residual_length,data_buffer:pending.data_buffer,
+            requested_length:pending.requested_length,
+            actual_length:pending.requested_length-pending.requested_length.min(decoded.residual_length as u16)};
         for i in index..self.len-1 {self.pending[i]=self.pending[i+1];}
         self.len-=1;self.pending[self.len]=None;Ok(result)
     }
@@ -853,7 +933,7 @@ impl TransferEngine {
         let completion_pointer=base+(status_index*TRB_BYTES) as u64;
         self.tracker.reserve(PendingTransfer{setup_trb_pointer:setup_pointer,
             data_trb_pointer:data_pointer,status_trb_pointer:completion_pointer,
-            slot_id,endpoint_id})?;
+            data_buffer,requested_length:setup.length,slot_id,endpoint_id})?;
         for index in 0..count {
             if !ring.push(trbs[index]) {return Err(TransferError::RingFull);}
             self.submitted_trbs+=1;
