@@ -264,6 +264,58 @@ impl RuntimeLifecycle {
 }
 
 
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferDispatchError {
+    ControllerNotRunning,
+    DmaNotDeviceOwned,
+    InvalidSlot,
+    Transfer(crate::xhci_dma::TransferError),
+    Doorbell(DoorbellError),
+}
+
+/// Control-transfer submission facade. It publishes a prepared TD to the
+/// selected endpoint ring and rings that slot/endpoint doorbell only after
+/// lifecycle and DMA-ownership gates pass.
+pub struct XhciControlTransferDispatcher {
+    engine: crate::xhci_dma::TransferEngine,
+}
+
+impl XhciControlTransferDispatcher {
+    pub const fn new() -> Self {
+        Self { engine: crate::xhci_dma::TransferEngine::new() }
+    }
+
+    pub fn pending_count(&self) -> usize { self.engine.pending_count() }
+    pub fn submitted_trbs(&self) -> usize { self.engine.submitted_trbs() }
+
+    pub fn submit(&mut self, ring: &mut crate::xhci_dma::ProducerRing,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, slot_id: u8, endpoint_id: u8,
+        stream_id: u16, setup: crate::xhci_dma::UsbSetupPacket,
+        data_buffer: u64) -> Result<u64, TransferDispatchError> {
+        if lifecycle.phase() != RuntimePhase::Running {
+            return Err(TransferDispatchError::ControllerNotRunning);
+        }
+        if !dma_device_owned {
+            return Err(TransferDispatchError::DmaNotDeviceOwned);
+        }
+        if slot_id == 0 { return Err(TransferDispatchError::InvalidSlot); }
+        let completion_pointer = self.engine.submit_control(
+            ring, slot_id, endpoint_id, setup, data_buffer)
+            .map_err(TransferDispatchError::Transfer)?;
+        doorbells.ring_endpoint(lifecycle, dma_device_owned,
+            slot_id, endpoint_id, stream_id)
+            .map_err(TransferDispatchError::Doorbell)?;
+        Ok(completion_pointer)
+    }
+
+    pub fn poll_one(&mut self, events: &mut crate::xhci_dma::EventRing)
+        -> crate::xhci_dma::TransferPoll {
+        self.engine.poll_one(events)
+    }
+}
+
 const DOORBELL_REGISTER_BYTES: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
