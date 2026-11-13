@@ -9,6 +9,7 @@ mod memory;
 mod sync;
 mod paging;
 mod dma;
+mod block;
 mod mmio;
 mod xhci;
 mod xhci_dma;
@@ -256,6 +257,8 @@ fn initialize_subsystems() {
     write_str("  RAMFS nodes: "); write_dec(used as u32);
     write_str(" / 63; files: "); write_dec(files as u32);
     write_str("; directories: "); write_dec(directories as u32); write_str("\n");
+    write_str("[ OK ] Block device interface initialized; registered devices: ");
+    write_dec(block::device_count() as u32); write_str("\n");
     if let Some(id)=task::register(1) {
         write_str("[ OK ] Static task registry initialized; bootstrap task id ");
         write_dec(id); write_str("\n");
