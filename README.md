@@ -649,3 +649,32 @@ separate work.
 
 No Cargo build, QEMU boot, or physical USB hardware test was run; validation
 was limited to GitHub source read-back after each edit, as requested.
+
+
+## xHCI event runtime dispatch and ERDP acknowledgement
+
+The bounded EventPump can now drain a cycle-valid batch once and route the
+copied records to both command and transfer engines without either engine
+consuming another Event Ring entry. `CommandEngine::process_event` and
+`TransferEngine::process_event` preserve their existing correlation checks;
+unrelated events remain available to port-status and controller-health
+consumers. The dispatch result retains successful completions, correlation
+errors, and unhandled event records in fixed-capacity storage.
+
+`EventPump::poll_and_ack` connects the drain path to the selected runtime
+interrupter's ERDP register accessor. It snapshots the acknowledgement token,
+writes ERDP, and commits EventRing acknowledgement bookkeeping only after the
+MMIO accessor reports success. If the write fails, the copied batch is still
+returned to the caller and the acknowledgement remains pending for retry.
+A rejected software commit is reported separately. The caller must serialize
+event-ring consumption and acknowledgement; this API does not establish
+interrupt exclusion or hardware synchronization.
+
+The runtime API is not instantiated in the boot path. No controller Run/Stop,
+PCI bus mastering, interrupt delivery, doorbell, or USB transfer was activated.
+Port Status Change and Host Controller events are retained, not yet connected
+to automatic port-reset or controller-recovery actions. Endpoint Stall still
+requires a future Reset Endpoint command/recovery path.
+
+No Cargo build, QEMU boot, or physical hardware test was run; development
+testing remains deferred as requested.
