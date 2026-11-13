@@ -1,0 +1,40 @@
+name: LionOS Rust Rewrite
+
+on:
+  push:
+    branches:
+      - "rewrite/rust-kernel"
+  pull_request:
+    branches:
+      - main
+      - "rewrite/rust-kernel"
+  workflow_dispatch:
+
+jobs:
+  rust-kernel:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install 32-bit linker and NASM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc-multilib nasm grub-common binutils
+
+      - name: Install Rust target
+        run: |
+          rustup update stable
+          rustup target add i686-unknown-linux-gnu
+
+      - name: Build freestanding Rust kernel
+        run: cargo build --release --target i686-unknown-linux-gnu
+
+      - name: Validate Multiboot2 image
+        run: |
+          grub-file --is-x86-multiboot2 target/i686-unknown-linux-gnu/release/lionos-rust
+          readelf -h target/i686-unknown-linux-gnu/release/lionos-rust
+          file target/i686-unknown-linux-gnu/release/lionos-rust
