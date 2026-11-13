@@ -76,31 +76,15 @@ pub fn refresh_pointer() {
             POINTER_LAST_Y=y;
             POINTER_READY=true;
         }
-    } else if keyboard_changed {
-        unsafe {
-            if let Some(fb) = graphics::info() {
-                graphics::fill_rect(12, 12, fb.width.saturating_sub(24).min(420), 18, (13,20,34));
-                graphics::draw_text(18, 16, "INPUT", (135,165,205), 1);
-                if INPUT_TEXT_LEN != 0 {
-                    if let Ok(text) = core::str::from_utf8(&INPUT_TEXT[..INPUT_TEXT_LEN]) {
-                        graphics::draw_text(64, 16, text, (174,205,245), 1);
-                    }
-                }
-                let _ = graphics::present();
-            }
-        }
     }
 }
-
 
 static mut INPUT_TEXT: [u8; 32] = [0; 32];
 static mut INPUT_TEXT_LEN: usize = 0;
 static mut LAST_MOUSE_BUTTONS: u8 = 0;
 static mut LAST_MOUSE_PACKETS: u32 = 0;
 
-/// Drain keyboard transitions into a small desktop status-line text buffer.
-/// Mouse button edges are reflected in the same status line; pointer movement
-/// remains handled by refresh_pointer().
+/// Drain keyboard transitions into a desktop status line and reflect mouse buttons.
 pub fn poll_input() {
     let mut keyboard_changed = false;
     while let Some(event) = crate::input::pop_event() {
@@ -108,12 +92,17 @@ pub fn poll_input() {
         if let Some(byte) = crate::input::scancode_to_ascii(event.scancode) {
             unsafe {
                 if byte == 8 {
-                    if INPUT_TEXT_LEN != 0 { INPUT_TEXT_LEN -= 1; keyboard_changed = true; }
-                } else if byte >= 0x20 && byte <= 0x7E {
-                    keyboard_changed = true;
-                    if INPUT_TEXT_LEN == INPUT_TEXT.len() {
-                        INPUT_TEXT.copy_within(1.., 0);
+                    if INPUT_TEXT_LEN != 0 {
                         INPUT_TEXT_LEN -= 1;
+                        keyboard_changed = true;
+                    }
+                } else if (0x20..=0x7E).contains(&byte) {
+                    keyboard_changed = true;
+                    if INPUT_TEXT_LEN == 32 {
+                        for index in 1..32 {
+                            INPUT_TEXT[index - 1] = INPUT_TEXT[index];
+                        }
+                        INPUT_TEXT_LEN = 31;
                     }
                     INPUT_TEXT[INPUT_TEXT_LEN] = byte;
                     INPUT_TEXT_LEN += 1;
@@ -123,29 +112,37 @@ pub fn poll_input() {
     }
 
     let mouse = crate::mouse::snapshot();
-    if mouse.initialized {
-        unsafe {
-            if keyboard_changed || mouse.buttons != LAST_MOUSE_BUTTONS || mouse.packets != LAST_MOUSE_PACKETS {
-                LAST_MOUSE_BUTTONS = mouse.buttons;
-                LAST_MOUSE_PACKETS = mouse.packets;
-                if let Some(fb) = graphics::info() {
-                    graphics::fill_rect(12, 12, fb.width.saturating_sub(24).min(420), 18, (13,20,34));
-                    graphics::draw_text(18, 16, "INPUT", (135,165,205), 1);
-                    let label = match mouse.buttons & 0x07 {
-                        1 => "LEFT",
-                        2 => "RIGHT",
-                        4 => "MIDDLE",
-                        _ => "MOVE",
-                    };
-                    graphics::draw_text(64, 16, label, (232,240,252), 1);
-                    if INPUT_TEXT_LEN != 0 {
-                        if let Ok(text) = core::str::from_utf8(&INPUT_TEXT[..INPUT_TEXT_LEN]) {
-                            graphics::draw_text(112, 16, text, (174,205,245), 1);
-                        }
-                    }
-                    let _ = graphics::present();
+    let mouse_changed = mouse.initialized
+        && (mouse.buttons != unsafe { LAST_MOUSE_BUTTONS }
+            || mouse.packets != unsafe { LAST_MOUSE_PACKETS });
+    if !keyboard_changed && !mouse_changed { return; }
+
+    unsafe {
+        if mouse.initialized {
+            LAST_MOUSE_BUTTONS = mouse.buttons;
+            LAST_MOUSE_PACKETS = mouse.packets;
+        }
+        if let Some(fb) = graphics::info() {
+            graphics::fill_rect(12, 12, fb.width.saturating_sub(24).min(420), 18, (13,20,34));
+            graphics::draw_text(18, 16, "INPUT", (135,165,205), 1);
+            let text_x = if mouse.initialized {
+                let label = match mouse.buttons & 0x07 {
+                    1 => "LEFT",
+                    2 => "RIGHT",
+                    4 => "MIDDLE",
+                    _ => "MOVE",
+                };
+                graphics::draw_text(64, 16, label, (232,240,252), 1);
+                112
+            } else { 64 };
+            let text_ptr = core::ptr::addr_of!(INPUT_TEXT).cast::<u8>();
+            let text = core::slice::from_raw_parts(text_ptr, INPUT_TEXT_LEN);
+            if let Ok(value) = core::str::from_utf8(text) {
+                if !value.is_empty() {
+                    graphics::draw_text(text_x, 16, value, (174,205,245), 1);
                 }
             }
+            let _ = graphics::present();
         }
     }
 }
