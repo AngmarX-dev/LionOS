@@ -4,13 +4,11 @@ TARGET := i686-unknown-linux-gnu
 KERNEL := target/$(TARGET)/release/lionos-rust
 
 .PHONY: all check clean
-all: $(KERNEL)
-
-$(KERNEL): Cargo.toml Cargo.lock build.rs linker.ld boot/boot.asm src/main.rs
+all:
 	$(CARGO) build --release --target $(TARGET)
-	$(GRUB_FILE) --is-x86-multiboot2 $@
+	$(GRUB_FILE) --is-x86-multiboot2 $(KERNEL)
 
-check: $(KERNEL)
+check: all
 	file $(KERNEL)
 	readelf -h $(KERNEL)
 
