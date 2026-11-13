@@ -9,6 +9,11 @@ or the repository's default branch.
 - 32-bit x86 Multiboot2 entry point, dedicated bootstrap stack and linker script.
 - Freestanding `no_std` Rust kernel with VGA text and COM1 serial diagnostics.
 - Flat ring-0 GDT setup and a 256-entry fail-stop IDT.
+- Legacy PIC remapping with all IRQ lines kept masked.
+- Initial supervisor-only 4 GiB identity mapping using 4 MiB PSE pages.
+- Fixed physical-page allocator with contiguous page allocation; kernel image,
+  boot information, low memory and Multiboot2 modules are reserved.
+- Page-backed Rust global allocator (allocations own contiguous 4 KiB pages).
 - Legacy PIC remapping and masking (interrupt sources remain disabled).
 - Validated Multiboot2 tag traversal.
 - Fixed-capacity 4 KiB physical frame allocator for the 32-bit physical address
@@ -35,7 +40,8 @@ limited and must not be represented as production-ready:
 | Boot / Multiboot2 | Entry and metadata parsing implemented |
 | GDT / IDT | Flat GDT and fail-stop IDT; no per-exception recovery |
 | PIC / IRQ | PIC remapped and masked; interrupt handlers not enabled |
-| Physical memory | Fixed bitmap frame allocator; no paging or virtual memory |
+| Physical memory | Fixed bitmap allocator and 4 GiB identity map; no isolation or demand paging |
+| Heap | Page-backed global allocator; page-granular allocations only |
 | Heap | Not implemented |
 | PCI | Configuration-space enumeration; no general driver manager/BAR mapping |
 | Framebuffer | CPU software drawing; no accelerated GPU command submission |
@@ -86,7 +92,8 @@ is ready, first boot it in QEMU and review serial diagnostics.
 ## Remaining engineering work before meaningful end-to-end testing
 
 1. Verify and correct the current freestanding build/link contract.
-2. Add paging, kernel virtual memory, heap allocation and memory protection.
+2. Replace the bring-up identity map with a deliberate kernel virtual-memory layout,
+   page-level permissions, guard pages and memory protection.
 3. Add per-vector exception stubs, IRQ dispatch, PIT/APIC timer and safe IRQ handling.
 4. Add a real scheduler and architecture context-switch implementation.
 5. Add user-mode transition, process address spaces and syscall entry/return.
