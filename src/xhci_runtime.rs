@@ -163,6 +163,111 @@ pub struct EventPumpReport {
 
 /// Bounded software event pump. It consumes only cycle-valid Event Ring entries
 /// and returns typed records; it does not acknowledge ERDP or touch MMIO.
+/// Results from dispatching one already-drained EventBatch to both engines.
+/// Non-transfer/non-command records are retained for the port/health consumers.
+pub struct EventDispatchBatch {
+    transfers:[Option<crate::xhci_dma::TransferResult>;EVENT_BATCH_CAPACITY],
+    transfer_errors:[Option<crate::xhci_dma::TransferError>;EVENT_BATCH_CAPACITY],
+    commands:[Option<crate::xhci_dma::CommandResult>;EVENT_BATCH_CAPACITY],
+    command_errors:[Option<crate::xhci_dma::CommandError>;EVENT_BATCH_CAPACITY],
+    other:[Option<EventRecord>;EVENT_BATCH_CAPACITY],
+    transfer_count:usize,transfer_error_count:usize,
+    command_count:usize,command_error_count:usize,other_count:usize,
+}
+impl EventDispatchBatch {
+    pub const fn new()->Self{Self{
+        transfers:[None;EVENT_BATCH_CAPACITY],
+        transfer_errors:[None;EVENT_BATCH_CAPACITY],
+        commands:[None;EVENT_BATCH_CAPACITY],
+        command_errors:[None;EVENT_BATCH_CAPACITY],
+        other:[None;EVENT_BATCH_CAPACITY],
+        transfer_count:0,transfer_error_count:0,
+        command_count:0,command_error_count:0,other_count:0,
+    }}
+    pub fn transfer_count(&self)->usize{self.transfer_count}
+    pub fn transfer_error_count(&self)->usize{self.transfer_error_count}
+    pub fn command_count(&self)->usize{self.command_count}
+    pub fn command_error_count(&self)->usize{self.command_error_count}
+    pub fn other_count(&self)->usize{self.other_count}
+    pub fn transfer(&self,index:usize)->Option<crate::xhci_dma::TransferResult>{
+        if index<self.transfer_count{self.transfers[index]}else{None}
+    }
+    pub fn transfer_error(&self,index:usize)->Option<crate::xhci_dma::TransferError>{
+        if index<self.transfer_error_count{self.transfer_errors[index]}else{None}
+    }
+    pub fn command(&self,index:usize)->Option<crate::xhci_dma::CommandResult>{
+        if index<self.command_count{self.commands[index]}else{None}
+    }
+    pub fn command_error(&self,index:usize)->Option<crate::xhci_dma::CommandError>{
+        if index<self.command_error_count{self.command_errors[index]}else{None}
+    }
+    pub fn other(&self,index:usize)->Option<EventRecord>{
+        if index<self.other_count{self.other[index]}else{None}
+    }
+}
+
+/// Route each copied event exactly once. The Event Ring has already been
+/// drained; neither engine is allowed to consume another event in this path.
+pub fn dispatch_event_batch(batch:&EventBatch,
+    transfers:&mut crate::xhci_dma::TransferEngine,
+    commands:&mut crate::xhci_dma::CommandEngine)->EventDispatchBatch{
+    let mut output=EventDispatchBatch::new();
+    for index in 0..batch.len(){
+        let routed=match batch.get(index){Some(value)=>value,None=>continue};
+        let record=routed.record();
+        match routed{
+            RoutedEvent::Transfer(_)=>{
+                match transfers.process_event(&record){
+                    crate::xhci_dma::TransferPoll::Completed(value)=>{
+                        if output.transfer_count<EVENT_BATCH_CAPACITY{
+                            output.transfers[output.transfer_count]=Some(value);
+                            output.transfer_count+=1;
+                        }
+                    }
+                    crate::xhci_dma::TransferPoll::Invalid(error)=>{
+                        if output.transfer_error_count<EVENT_BATCH_CAPACITY{
+                            output.transfer_errors[output.transfer_error_count]=Some(error);
+                            output.transfer_error_count+=1;
+                        }
+                    }
+                    _=>{
+                        if output.other_count<EVENT_BATCH_CAPACITY{
+                            output.other[output.other_count]=Some(record);output.other_count+=1;
+                        }
+                    }
+                }
+            }
+            RoutedEvent::CommandCompletion(_)=>{
+                match commands.process_event(&record){
+                    crate::xhci_dma::CommandPoll::Completed(value)=>{
+                        if output.command_count<EVENT_BATCH_CAPACITY{
+                            output.commands[output.command_count]=Some(value);
+                            output.command_count+=1;
+                        }
+                    }
+                    crate::xhci_dma::CommandPoll::InvalidCompletion(error)=>{
+                        if output.command_error_count<EVENT_BATCH_CAPACITY{
+                            output.command_errors[output.command_error_count]=Some(error);
+                            output.command_error_count+=1;
+                        }
+                    }
+                    _=>{
+                        if output.other_count<EVENT_BATCH_CAPACITY{
+                            output.other[output.other_count]=Some(record);output.other_count+=1;
+                        }
+                    }
+                }
+            }
+            _=>{
+                if output.other_count<EVENT_BATCH_CAPACITY{
+                    output.other[output.other_count]=Some(record);output.other_count+=1;
+                }
+            }
+        }
+    }
+    output
+}
+
 pub struct EventPump;
 
 impl EventPump {
