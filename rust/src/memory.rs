@@ -37,6 +37,7 @@ pub unsafe fn init(multiboot_info: *const u8, total_size: usize) -> bool {
     for word in 0..WORD_COUNT { USED[word] = u32::MAX; }
     FREE_FRAMES = 0;
     let mut offset = 8usize;
+    let mut map_seen = false;
     while offset.checked_add(8).map_or(false, |v| v <= total_size) {
         let tag = multiboot_info.add(offset);
         let kind = read_unaligned(tag.cast::<u32>());
@@ -44,6 +45,7 @@ pub unsafe fn init(multiboot_info: *const u8, total_size: usize) -> bool {
         if size < 8 || offset.checked_add(size).map_or(true, |v| v > total_size) { break; }
         if kind == 0 { break; }
         if kind == 6 && size >= 16 {
+            map_seen = true;
             let entry_size = read_unaligned(tag.add(8).cast::<u32>()) as usize;
             if entry_size < 24 { return false; }
             let mut pos = 16usize;
@@ -58,7 +60,8 @@ pub unsafe fn init(multiboot_info: *const u8, total_size: usize) -> bool {
         }
         offset = (offset + size + 7) & !7;
     }
-    // Keep low memory reserved for real-mode data, firmware structures and the kernel.
+    if !map_seen { return false; }
+    // Keep low memory reserved for firmware data, boot structures and the kernel.
     mark_region(0, 0x10_0000, true);
     READY = true;
     true
