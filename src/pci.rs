@@ -64,9 +64,9 @@ unsafe fn decode_bars(bus:u8,dev:u8,fun:u8,header:u8)->([PciBar;PCI_BAR_COUNT],u
  if header&0x7F!=0{return(bars,count)}
  let mut i=0usize;
  while i<PCI_BAR_COUNT{
-  if bus==0 && dev==0 && fun==0 { crate::trace_pci_bar(i,0); }
+  if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(7); }
   let raw=read_config(bus,dev,fun,0x10+(i as u8)*4);
-  if bus==0 && dev==0 && fun==0 { crate::trace_pci_bar(i,1); }
+  if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(8); }
   if raw==0||raw==u32::MAX{i+=1;continue}
   if raw&1!=0{let base=(raw&0xFFFF_FFFC) as u64;if base!=0{bars[i]=PciBar{kind:1,base,prefetchable:false};count+=1}i+=1;continue}
   let mt=(raw>>1)&3;let pf=raw&8!=0;
