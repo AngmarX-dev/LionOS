@@ -966,3 +966,44 @@ backend. RAMFS remains the only active filesystem, and data is still volatile.
 
 No Cargo build, QEMU boot, or hardware storage test was run; validation for
 this stage was limited to GitHub source read-back.
+
+
+## Rust BIOS ISO build pipeline
+
+The Rust branch includes a reproducible GRUB/Multiboot2 ISO packaging path:
+
+- `make iso` builds the freestanding `i686-unknown-linux-gnu` release kernel,
+  checks its Multiboot2 header, stages it with `iso/boot/grub/grub.cfg`, and
+  creates `dist/lionos-bios-usb.iso` with `grub-mkrescue`.
+- `make verify-iso` inspects the El Torito boot catalog, extracts the embedded
+  kernel and GRUB configuration, validates the embedded kernel with
+  `grub-file`, and compares both extracted files byte-for-byte with their
+  build inputs.
+- `make usb-image` runs the build and verification pipeline.
+- `scripts/build-usb-image.sh` is the local convenience entry point.
+- GitHub Actions runs on pushes to `rewrite/rust-kernel` and on manual
+  dispatch. A successful run uploads `lionos-bios-usb.iso` as the
+  `lionos-bios-usb-image` artifact for 14 days.
+
+### Local build requirements
+
+Install Rust with the `i686-unknown-linux-gnu` target, NASM, a 32-bit capable
+GCC/binutils toolchain, `grub-file`, `grub-mkrescue`, and `xorriso`.
+On Debian/Ubuntu, the build tools are provided by:
+
+```sh
+sudo apt-get install build-essential gcc-multilib nasm grub-common grub-pc-bin xorriso binutils
+rustup target add i686-unknown-linux-gnu
+```
+
+Then run:
+
+```sh
+make verify-iso
+```
+
+The resulting image is currently a legacy BIOS boot image. It is not yet a
+UEFI/GPT installer image, and ISO creation does not imply that the kernel has
+been boot-tested. No ISO build, QEMU boot, or physical USB boot was run while
+adding this pipeline; the GitHub Actions run must complete successfully before
+the artifact can be considered generated and verified.
