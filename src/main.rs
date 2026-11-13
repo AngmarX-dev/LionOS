@@ -164,6 +164,9 @@ pub fn trace_pci_step(step:u32) {
         1 => write_str("[TRACE] PCI scan step 1: first config read returned\n"),
         2 => write_str("[TRACE] PCI scan step 2: BAR decode completed\n"),
         3 => write_str("[TRACE] PCI scan step 3: visitor completed\n"),
+        4 => write_str("[TRACE] PCI scan step 4: multifunction header read completed\n"),
+        5 => write_str("[TRACE] PCI scan step 5: command/class/header reads completed\n"),
+        6 => write_str("[TRACE] PCI scan step 6: entering BAR decoder\n"),
         _ => write_str("[TRACE] PCI scan step: unknown\n"),
     }
 }
