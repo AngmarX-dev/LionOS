@@ -18,74 +18,34 @@ unsafe fn write_config(bus:u8,dev:u8,fun:u8,off:u8,value:u32){
  let a=0x8000_0000|((bus as u32)<<16)|((dev as u32)<<11)|((fun as u32)<<8)|((off as u32)&0xFC);
  outl(0xCF8,a);outl(0xCFC,value);
 }
-/// Probe a memory BAR's implemented size and restore every modified register.
-/// Decoding and bus mastering are disabled during the reversible sizing probe.
 pub unsafe fn probe_memory_bar_size(device:&PciDevice,index:usize)->Option<u64>{
- if index>=PCI_BAR_COUNT{return None;}
- let bar=device.bars[index];
- if bar.kind!=2&&bar.kind!=4{return None;}
- if bar.kind==4&&index+1>=PCI_BAR_COUNT{return None;}
- let off=0x10+(index as u8)*4;
- let command=read_config(device.bus,device.device,device.function,0x04) as u16;
- outl(0xCF8,0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04);
- outw(0xCFC,command&!0x0007);
- let low_original=read_config(device.bus,device.device,device.function,off);
- let high_original=if bar.kind==4{read_config(device.bus,device.device,device.function,off+4)}else{0};
- write_config(device.bus,device.device,device.function,off,u32::MAX);
- if bar.kind==4{write_config(device.bus,device.device,device.function,off+4,u32::MAX);}
- let low_mask=read_config(device.bus,device.device,device.function,off);
- let high_mask=if bar.kind==4{read_config(device.bus,device.device,device.function,off+4)}else{0};
- if bar.kind==4{write_config(device.bus,device.device,device.function,off+4,high_original);}
- write_config(device.bus,device.device,device.function,off,low_original);
- outl(0xCF8,0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04);
- outw(0xCFC,command);
- let mask=if bar.kind==4{((high_mask as u64)<<32)|((low_mask&0xFFFF_FFF0) as u64)}else{(low_mask&0xFFFF_FFF0) as u64};
- if mask==0{return None;}
- let size=if bar.kind==4{(!mask).wrapping_add(1)}else{((!(mask as u32)).wrapping_add(1)) as u64};
- if size==0||!size.is_power_of_two(){return None;}
- Some(size)
+ if index>=PCI_BAR_COUNT{return None;}let bar=device.bars[index];if bar.kind!=2&&bar.kind!=4{return None;}if bar.kind==4&&index+1>=PCI_BAR_COUNT{return None;}
+ let off=0x10+(index as u8)*4;let command=read_config(device.bus,device.device,device.function,0x04) as u16;
+ outl(0xCF8,0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04);outw(0xCFC,command&!0x0007);
+ let low_original=read_config(device.bus,device.device,device.function,off);let high_original=if bar.kind==4{read_config(device.bus,device.device,device.function,off+4)}else{0};
+ write_config(device.bus,device.device,device.function,off,u32::MAX);if bar.kind==4{write_config(device.bus,device.device,device.function,off+4,u32::MAX);}
+ let low_mask=read_config(device.bus,device.device,device.function,off);let high_mask=if bar.kind==4{read_config(device.bus,device.device,device.function,off+4)}else{0};
+ if bar.kind==4{write_config(device.bus,device.device,device.function,off+4,high_original);}write_config(device.bus,device.device,device.function,off,low_original);
+ outl(0xCF8,0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04);outw(0xCFC,command);
+ let mask=if bar.kind==4{((high_mask as u64)<<32)|((low_mask&0xFFFF_FFF0) as u64)}else{(low_mask&0xFFFF_FFF0) as u64};if mask==0{return None;}
+ let size=if bar.kind==4{(!mask).wrapping_add(1)}else{((!(mask as u32)).wrapping_add(1)) as u64};if size==0||!size.is_power_of_two(){return None;}Some(size)
 }
-/// Disable PCI bus mastering without touching the adjacent W1C Status register.
-pub unsafe fn disable_bus_master(device:&PciDevice)->bool{
- let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;
- let command=read_config(device.bus,device.device,device.function,0x04) as u16;
- outl(0xCF8,address);outw(0xCFC,command&!0x0004);
- (read_config(device.bus,device.device,device.function,0x04) as u16)&0x0004==0
-}
-/// Write only the 16-bit PCI Command register; avoid adjacent W1C Status bits.
-pub unsafe fn enable_memory_space(device:&PciDevice)->bool{
- let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;
- let command=read_config(device.bus,device.device,device.function,0x04) as u16;
- outl(0xCF8,address);outw(0xCFC,command|0x0002);
- (read_config(device.bus,device.device,device.function,0x04) as u16)&0x0002!=0
-}
-/// BAR probing is intentionally deferred during early boot. Reading PCI BARs
-/// is isolated from enumeration until the 32-bit config-access path is validated.
-/// This keeps device discovery passive and prevents a broken BAR decoder from
-/// blocking the kernel before subsystem bring-up.
-
+pub unsafe fn disable_bus_master(device:&PciDevice)->bool{let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;let command=read_config(device.bus,device.device,device.function,0x04) as u16;outl(0xCF8,address);outw(0xCFC,command&!0x0004);(read_config(device.bus,device.device,device.function,0x04) as u16)&0x0004==0}
+pub unsafe fn enable_memory_space(device:&PciDevice)->bool{let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;let command=read_config(device.bus,device.device,device.function,0x04) as u16;outl(0xCF8,address);outw(0xCFC,command|0x0002);(read_config(device.bus,device.device,device.function,0x04) as u16)&0x0002!=0}
+/// Early-boot enumeration intentionally defers all BAR probing.
 pub unsafe fn enumerate<F:FnMut(PciDevice)>(mut visit:F){
  for bus in 0u16..=255{for dev in 0u8..32{
-  let id0=read_config(bus as u8,dev,0,0);
-  if bus==0 && dev==0 { crate::trace_pci_step(1); }
-  if id0 as u16==0xFFFF{continue}
-  let h0=read_config(bus as u8,dev,0,0x0C);let funcs=if ((h0>>16) as u8&0x80)!=0{8}else{1};
-  if bus==0 && dev==0 { crate::trace_pci_step(4); }
+  let id0=read_config(bus as u8,dev,0,0);if bus==0&&dev==0{crate::trace_pci_step(1);}if id0 as u16==0xFFFF{continue}
+  let h0=read_config(bus as u8,dev,0,0x0C);let funcs=if((h0>>16) as u8&0x80)!=0{8}else{1};if bus==0&&dev==0{crate::trace_pci_step(4);}
   for fun in 0..funcs{
    let id=if fun==0{id0}else{read_config(bus as u8,dev,fun,0)};if id as u16==0xFFFF{continue}
    let cs=read_config(bus as u8,dev,fun,4);let cr=read_config(bus as u8,dev,fun,8);let hr=read_config(bus as u8,dev,fun,0x0C);let header=(hr>>16) as u8;
-   if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(5); }
-   if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(6); crate::trace_pci_step(7); }
-   // Keep the early-boot path free of a large tuple return from the BAR decoder.
-   // BAR probing remains deferred; descriptors carry an explicitly empty BAR table.
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(5);crate::trace_pci_step(6);crate::trace_pci_step(7);}
    let bars=[PciBar::EMPTY;PCI_BAR_COUNT];let bar_count=0;
-   if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(2); }
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(8);crate::trace_pci_step(2);}
    let irq=read_config(bus as u8,dev,fun,0x3C);
-   visit(PciDevice{bus:bus as u8,device:dev,function:fun,vendor_id:id as u16,device_id:(id>>16) as u16,
-    command:cs as u16,status:(cs>>16) as u16,revision_id:cr as u8,prog_if:(cr>>8) as u8,
-    subclass:(cr>>16) as u8,class:(cr>>24) as u8,header_type:header,interrupt_line:irq as u8,
-    interrupt_pin:(irq>>8) as u8,bars,bar_count});
-   if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(3); }
+   visit(PciDevice{bus:bus as u8,device:dev,function:fun,vendor_id:id as u16,device_id:(id>>16) as u16,command:cs as u16,status:(cs>>16) as u16,revision_id:cr as u8,prog_if:(cr>>8) as u8,subclass:(cr>>16) as u8,class:(cr>>24) as u8,header_type:header,interrupt_line:irq as u8,interrupt_pin:(irq>>8) as u8,bars,bar_count});
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(3);}
   }
  }}
 }
