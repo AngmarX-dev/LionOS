@@ -77,6 +77,7 @@ impl EventRing{
  pub fn segment_trb_count(&self)->u16{RING_TRBS as u16}
  pub fn dequeue_index(&self)->usize{self.dequeue}
  pub fn cycle_state(&self)->bool{self.cycle}
+ pub fn dequeue_pointer(&self)->u64{self.buffer.physical_address()+(self.dequeue*TRB_BYTES) as u64}
  pub fn peek(&self)->Option<Trb>{
   compiler_fence(Ordering::Acquire);
   let trb=unsafe{read_volatile(trb_ptr(&self.buffer,self.dequeue))};
@@ -85,6 +86,16 @@ impl EventRing{
  pub fn consume(&mut self)->bool{
   if self.peek().is_none(){return false;}self.dequeue+=1;
   if self.dequeue==RING_TRBS{self.dequeue=0;self.cycle=!self.cycle;}true
+ }
+ /// Consume one cycle-valid event and return a decoded copy. This does not
+ /// acknowledge ERDP.EHB or write ERDP; the caller must do that via MMIO.
+ pub fn next_event(&mut self)->Option<EventRecord>{
+  let trb=self.peek()?;
+  let raw_type=((trb.control>>TRB_TYPE_SHIFT)&0x3F) as u8;
+  let record=EventRecord{trb,event_type:EventType::from_trb_type(raw_type),
+   completion_code:(trb.status>>24) as u8,endpoint_id:((trb.control>>16)&0x1F) as u8,
+   slot_id:(trb.control>>24) as u8};
+  if !self.consume(){return None;}Some(record)
  }
 }
 pub struct DeviceContext{device:crate::dma::DmaBuffer,input:crate::dma::DmaBuffer,context_size:usize}

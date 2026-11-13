@@ -193,3 +193,19 @@ All addresses remain below 4 GiB, allocations are zeroed and page-backed, and ri
 After the controller has completed the bounded halt/reset sequence and DMA structures have been allocated, the kernel now revalidates the PCI function, BAR size, controller Halted/CNR state, command-ring-running bit, DMA address ranges and alignment. It then programs DCBAAP, CRCR (with RCS=1), interrupter-0 ERSTSZ, ERSTBA and ERDP. The 64-bit register pairs are written as ordered 32-bit high/low writes for the 32-bit kernel. Interrupter 0's IMAN and IMOD are initialized with delivery disabled.
 
 This is intentionally a halted configuration stage: PCI bus mastering is explicitly kept disabled, USBCMD.RS and USBCMD.INTE are not set, CONFIG.MaxSlotsEn is not changed, no command is submitted, and no port/device enumeration occurs. The DMA allocations remain reserved after programming. A partial MMIO write reports failure and does not attempt to start the controller. No build or hardware test has been run.
+
+
+
+## xHCI event decoding foundation
+
+The DMA event-ring abstraction now exposes the physical dequeue pointer and a
+cycle-checked `next_event` operation. It returns a copied record with the TRB
+type, completion code, endpoint ID and slot ID decoded for Transfer,
+Command Completion, Port Status Change, Host Controller and MFINDEX Wrap
+events. Command Completion records expose the referenced command-TRB pointer
+and a success predicate.
+
+This is a parser/consumer primitive only. It does not acknowledge ERDP.EHB,
+write ERDP, enable an interrupter, submit commands, correlate completions with
+outstanding commands, or start the controller. The event ring is not yet
+connected to a live hardware event loop. No build or hardware test has been run.
