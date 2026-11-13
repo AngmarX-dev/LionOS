@@ -386,7 +386,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] Multiboot2 memory map and fixed physical-frame allocator\n");
     write_str("[ OK ] PCI discovery, BAR metadata, bounded MMIO and DMA allocation primitives\n");
     write_str("[ OK ] RGB framebuffer software drawing (when supplied below 4 GiB)\n");
-    write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 keyboard polling and IRQ12 mouse input\n");
+    write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 keyboard polling and bounded mouse driver (IRQ12 on successful init)\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");
     write_str("[ OK ] xHCI PCI capability discovery, BAR sizing and ownership/reset state machine\n");
     write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\\n");
