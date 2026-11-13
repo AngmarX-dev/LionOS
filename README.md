@@ -579,3 +579,33 @@ The event-ring ERDP acknowledgement and transfer-ring reclamation protocols
 remain separate prerequisites.
 
 No build, QEMU, or physical hardware test was run for this stage.
+
+
+## USB DMA payload ownership and completion processing
+
+Added an owned `UsbPayloadBuffer` abstraction for arbitrary USB control-transfer
+payloads. Buffers are allocated below 4 GiB, bounds-checked, and writable only
+while CPU-owned. The guarded dispatcher has a dedicated `submit_payload` path:
+it transfers payload ownership before publishing the TD, and quarantines the
+buffer if enqueue or doorbell notification fails after handoff.
+
+Transfer tracking now retains the payload physical address and requested
+length. A correlated Transfer Event produces a result containing residual and
+actual lengths; residual values larger than the requested transfer are rejected
+without releasing the pending record. Payload reclamation is a separate,
+explicit unsafe operation and is permitted only after the caller has verified
+that the result came from the matching TransferEngine completion. The payload
+can then be copied into CPU memory, and released only while CPU-owned.
+
+`UsbDeviceManager` now accepts a completed payload directly for Device
+Descriptor parsing, and can copy a completed Configuration Descriptor payload
+into caller-provided scratch storage before parsing. These helpers require a
+successful/short-packet result and a payload already reclaimed to CPU ownership.
+
+This stage still does not implement a live xHCI event loop, automatic payload
+reclamation, event-ring ERDP acknowledgement in the polling path, transfer-ring
+dequeue/reuse, or full end-to-end enumeration. The boot path does not instantiate
+the payload manager or activate the controller. The caller must retain payloads
+until their matching completion arrives; uncertain buffers are quarantined.
+
+No build, QEMU, or physical hardware test was run for this stage.
