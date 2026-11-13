@@ -658,7 +658,9 @@ pub struct TransferResult {
 }
 #[derive(Clone,Copy)]
 struct PendingTransfer {
-    event_trb_pointer:u64,
+    setup_trb_pointer:u64,
+    data_trb_pointer:u64,
+    status_trb_pointer:u64,
     slot_id:u8,
     endpoint_id:u8,
 }
@@ -672,7 +674,9 @@ impl TransferTracker {
     pub fn pending_count(&self)->usize { self.len }
     fn reserve(&mut self,p:PendingTransfer)->Result<(),TransferError>{
         if self.len==self.pending.len(){return Err(TransferError::TrackerFull);}
-        if self.pending[..self.len].iter().flatten().any(|v|v.event_trb_pointer==p.event_trb_pointer){
+        if self.pending[..self.len].iter().flatten().any(|v|
+            v.setup_trb_pointer==p.setup_trb_pointer||v.data_trb_pointer==p.data_trb_pointer
+             ||v.status_trb_pointer==p.status_trb_pointer){
             return Err(TransferError::UnknownTransfer);
         }
         self.pending[self.len]=Some(p);self.len+=1;Ok(())
@@ -680,7 +684,8 @@ impl TransferTracker {
     pub fn complete(&mut self,event:&EventRecord)->Result<TransferResult,TransferError>{
         let decoded=TransferEvent::decode(event).ok_or(TransferError::InvalidEvent)?;
         let index=self.pending[..self.len].iter().position(|v|v.map_or(false,|p|
-            p.event_trb_pointer==decoded.trb_pointer&&p.slot_id==decoded.slot_id
+            (p.setup_trb_pointer==decoded.trb_pointer||p.data_trb_pointer==decoded.trb_pointer
+             ||p.status_trb_pointer==decoded.trb_pointer)&&p.slot_id==decoded.slot_id
              &&p.endpoint_id==decoded.endpoint_id)).ok_or(TransferError::UnknownTransfer)?;
         let result=TransferResult{trb_pointer:decoded.trb_pointer,slot_id:decoded.slot_id,
             endpoint_id:decoded.endpoint_id,completion:decoded.completion,
@@ -714,9 +719,15 @@ impl TransferEngine {
             return Err(TransferError::RingFull);
         }
         if self.tracker.len==self.tracker.pending.len(){return Err(TransferError::TrackerFull);}
-        let completion_pointer=ring.physical_base()+((start+2)*TRB_BYTES) as u64;
-        // Reserve correlation before publishing the TD into the ring.
-        self.tracker.reserve(PendingTransfer{event_trb_pointer:completion_pointer,slot_id,endpoint_id})?;
+        let base=ring.physical_base();
+        let setup_pointer=base+(start*TRB_BYTES) as u64;
+        let data_pointer=base+((start+1)*TRB_BYTES) as u64;
+        let completion_pointer=base+((start+2)*TRB_BYTES) as u64;
+        // Transfer Events may identify the Data Stage TRB on a Short Packet,
+        // or another TRB in the TD; retain all three valid correlation pointers.
+        self.tracker.reserve(PendingTransfer{setup_trb_pointer:setup_pointer,
+            data_trb_pointer:data_pointer,status_trb_pointer:completion_pointer,
+            slot_id,endpoint_id})?;
         for trb in trbs {
             if !ring.push(trb) {return Err(TransferError::RingFull);}
             self.submitted_trbs+=1;
