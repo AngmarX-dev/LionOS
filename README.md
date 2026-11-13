@@ -8,7 +8,7 @@ or the repository's default branch.
 
 - 32-bit x86 Multiboot2 entry point, dedicated bootstrap stack and linker script.
 - Freestanding `no_std` Rust kernel with VGA text and COM1 serial diagnostics.
-- Flat ring-0 GDT setup and CPUID feature discovery.
+- Flat ring-0 GDT, loaded 32-bit TSS (SS0/ESP0), explicit kernel/interrupt context layouts, and CPUID feature discovery.
 - 256-entry IDT with normalized stubs for CPU exception vectors and legacy IRQ vectors 0–15.
 - Legacy PIC remapping, per-vector dispatch, fail-closed exception handling and master/slave EOI support.
 - PIT channel 0 timer at nominal 100 Hz; IRQ0 is the only unmasked legacy PIC line.
@@ -72,7 +72,7 @@ limited and must not be represented as production-ready:
 |---|---|
 | Boot / Multiboot2 | 32-bit kernel entry; BIOS GRUB ISO packaging added; boot verification pending |
 | UEFI | Not implemented |
-| GDT / IDT | Flat GDT; dedicated exception/IRQ entry stubs; exceptions fail-stop (no recovery) |
+| GDT / TSS / IDT | Flat ring-0 GDT and loaded 32-bit TSS; context ABI defined; no ring-3 transition or context-switch assembly yet; exceptions fail-stop |
 | PIC / IRQ | PIC remapped; IRQ0 enabled for PIT; remaining IRQs masked; legacy PIC only |
 | Physical memory | Fixed bitmap allocator, aligned/boundary-constrained contiguous allocations and 4 GiB identity map; no isolation or demand paging |
 | Heap | Page-backed global allocator; page-granular allocations only |
