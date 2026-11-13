@@ -5,6 +5,7 @@ pub const MAX_ROOT_PORTS: usize = 32;
 pub const MAX_USB_DEVICES: usize = 32;
 pub const MAX_INTERFACES: usize = 16;
 pub const MAX_ENDPOINTS: usize = 32;
+pub const MAX_CONFIGURATION_BYTES: u16 = 4096;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescriptorError {
@@ -199,8 +200,11 @@ pub enum EnumerationPhase {
     Addressed,
     DeviceDescriptorPending,
     DeviceDescriptorReady,
-    ConfigurationDescriptorPending,
+    ConfigurationHeaderPending,
+    ConfigurationBodyPending,
     ConfigurationReady,
+    DisconnectPending,
+    Quarantined,
     SetConfigurationPending,
     Enumerated,
     Failed,
@@ -241,6 +245,7 @@ struct PortEntry {
     slot_id: u8,
     device: Option<DeviceDescriptor>,
     configuration: Option<ConfigurationSummary>,
+    configuration_total_length: u16,
 }
 
 impl PortEntry {
@@ -251,6 +256,7 @@ impl PortEntry {
         slot_id: 0,
         device: None,
         configuration: None,
+        configuration_total_length: 0,
     };
 }
 
@@ -293,10 +299,18 @@ impl UsbDeviceManager {
         let index = Self::port_index(port)?;
         let entry = &mut self.ports[index];
         if !connected {
-            if entry.slot_id != 0 {
-                self.slot_used[entry.slot_id as usize] = false;
-                entry.slot_id = 0;
+            if entry.phase == EnumerationPhase::Enumerated {
                 self.device_count = self.device_count.saturating_sub(1);
+            }
+            if entry.slot_id != 0 {
+                // Keep the Slot reserved until Disable Slot and independent
+                // DMA-quiescence verification have both completed.
+                entry.connected = false;
+                entry.phase = EnumerationPhase::DisconnectPending;
+                entry.device = None;
+                entry.configuration = None;
+                entry.configuration_total_length = 0;
+                return Ok(EnumerationPhase::DisconnectPending);
             }
             *entry = PortEntry::EMPTY;
             return Ok(EnumerationPhase::Empty);
@@ -304,8 +318,7 @@ impl UsbDeviceManager {
         if speed == 0 || speed > 15 { return Err(EnumerationError::InvalidTransition); }
         if !entry.connected || entry.speed != speed {
             if entry.slot_id != 0 {
-                self.slot_used[entry.slot_id as usize] = false;
-                self.device_count = self.device_count.saturating_sub(1);
+                return Err(EnumerationError::InvalidTransition);
             }
             *entry = PortEntry {
                 connected: true,
@@ -314,9 +327,30 @@ impl UsbDeviceManager {
                 slot_id: 0,
                 device: None,
                 configuration: None,
+                configuration_total_length: 0,
             };
         }
         Ok(entry.phase)
+    }
+
+    /// Release a disconnected Slot only after the caller independently
+    /// proves controller and DMA quiescence. A false proof quarantines it.
+    pub fn complete_disconnect_after_quiescence(&mut self, port: u8, verified: bool)
+        -> Result<(), EnumerationError>
+    {
+        let entry = &mut self.ports[Self::port_index(port)?];
+        if entry.phase != EnumerationPhase::DisconnectPending {
+            return Err(EnumerationError::InvalidTransition);
+        }
+        if !verified {
+            entry.phase = EnumerationPhase::Quarantined;
+            return Err(EnumerationError::InvalidTransition);
+        }
+        if entry.slot_id != 0 {
+            self.slot_used[entry.slot_id as usize] = false;
+        }
+        *entry = PortEntry::EMPTY;
+        Ok(())
     }
 
     pub fn note_reset_complete(&mut self, port: u8) -> Result<(), EnumerationError> {
@@ -417,25 +451,76 @@ impl UsbDeviceManager {
         Ok(descriptor)
     }
 
-    pub fn request_configuration_descriptor(&mut self, port: u8) -> Result<(), EnumerationError> {
+    /// Begin the first bounded GET_DESCRIPTOR(Configuration) request (9 bytes).
+    pub fn request_configuration_header(&mut self, port: u8) -> Result<(), EnumerationError> {
         let entry = &mut self.ports[Self::port_index(port)?];
         if entry.phase != EnumerationPhase::DeviceDescriptorReady {
             return Err(EnumerationError::InvalidTransition);
         }
-        entry.phase = EnumerationPhase::ConfigurationDescriptorPending;
+        entry.configuration_total_length = 0;
+        entry.phase = EnumerationPhase::ConfigurationHeaderPending;
         Ok(())
+    }
+
+    /// Validate the 9-byte configuration header and return the bounded body
+    /// length required for the second descriptor request.
+    pub fn accept_configuration_header(&mut self, port: u8, bytes: &[u8])
+        -> Result<u16, EnumerationError>
+    {
+        let entry = &mut self.ports[Self::port_index(port)?];
+        if entry.phase != EnumerationPhase::ConfigurationHeaderPending {
+            return Err(EnumerationError::InvalidTransition);
+        }
+        if bytes.len() < 9 {
+            return Err(EnumerationError::Descriptor(DescriptorError::TooShort));
+        }
+        if bytes[0] != 9 {
+            return Err(EnumerationError::Descriptor(DescriptorError::InvalidLength));
+        }
+        if bytes[1] != 2 {
+            return Err(EnumerationError::Descriptor(DescriptorError::WrongDescriptorType));
+        }
+        let total = u16::from_le_bytes([bytes[2], bytes[3]]);
+        // Keep descriptor allocation bounded; larger configurations are rejected.
+        if total < 9 || total > MAX_CONFIGURATION_BYTES {
+            return Err(EnumerationError::Descriptor(DescriptorError::InvalidTotalLength));
+        }
+        if bytes[5] == 0 {
+            return Err(EnumerationError::NoConfiguration);
+        }
+        entry.configuration_total_length = total;
+        entry.phase = EnumerationPhase::ConfigurationBodyPending;
+        Ok(total)
+    }
+
+    pub fn configuration_body_length(&self, port: u8) -> Result<u16, EnumerationError> {
+        let entry = &self.ports[Self::port_index(port)?];
+        if entry.phase != EnumerationPhase::ConfigurationBodyPending || entry.configuration_total_length < 9 {
+            return Err(EnumerationError::InvalidTransition);
+        }
+        Ok(entry.configuration_total_length)
+    }
+
+    /// Compatibility transition name: now starts the header-only stage.
+    pub fn request_configuration_descriptor(&mut self, port: u8) -> Result<(), EnumerationError> {
+        self.request_configuration_header(port)
     }
 
     pub fn accept_configuration_descriptor(&mut self, port: u8, bytes: &[u8])
         -> Result<ConfigurationSummary, EnumerationError>
     {
         let entry = &mut self.ports[Self::port_index(port)?];
-        if entry.phase != EnumerationPhase::ConfigurationDescriptorPending {
+        if entry.phase != EnumerationPhase::ConfigurationBodyPending {
             return Err(EnumerationError::InvalidTransition);
+        }
+        if bytes.len() < entry.configuration_total_length as usize {
+            return Err(EnumerationError::Descriptor(DescriptorError::InvalidTotalLength));
         }
         let config = parse_configuration(bytes).map_err(EnumerationError::Descriptor)?;
         let device = entry.device.ok_or(EnumerationError::NoConfiguration)?;
-        if config.interface_count == 0 || config.configuration_value == 0 {
+        if config.interface_count == 0 || config.configuration_value == 0
+            || config.total_length != entry.configuration_total_length
+            || device.configuration_count == 0 {
             return Err(EnumerationError::NoConfiguration);
         }
         entry.configuration = Some(config);
