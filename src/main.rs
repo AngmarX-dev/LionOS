@@ -356,7 +356,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         write_str("[ OK ] Physical frame allocator initialized; usable bytes ");
         write_hex((usable>>32) as u32); write_hex(usable as u32); write_str("\n");
         let stats=memory::stats(usable);
-        write_str("[INFO] Free 4 KiB frames: "); write_dec(stats.free_frames); write_str("\n");
+        write_str("[INFO] Free 4 KiB frames: "); write_hex(stats.free_frames); write_str("\n");
         if let Some(frame)=memory::alloc_frame() {
             write_str("[ OK ] Physical frame allocation probe: "); write_hex(frame); write_str("\n");
             unsafe { let _=memory::free_frame(frame); }
