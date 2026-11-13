@@ -368,3 +368,23 @@ reviewed operation.
 
 Build and hardware validation remain deferred. The Rust rewrite is still not
 a boot-verified or production-ready operating system.
+
+
+## xHCI Event Ring acknowledgement transactions and runtime lifecycle
+
+Added opaque EventAckToken snapshots to EventRing. A token captures the Event
+Ring identity, consumed-event sequence, dequeue pointer, and ERDP value. The
+software commit method rejects foreign, stale, replayed, and future tokens;
+the caller must first perform and verify the hardware ERDP write. A later
+batch of consumed events remains pending when an earlier snapshot is committed.
+
+Added a software RuntimeLifecycle model with explicit Halted,
+DmaConfigured, InterrupterPrepared, Running, Recovering, and Faulted phases.
+Transitions are evidence-recording APIs only; they do not write USBCMD, IMAN,
+ERDP, PCI command registers, or any other MMIO. Returning to Halted requires
+the caller to verify controller halt and DMA quiescence.
+
+This stage does not activate the controller or enable interrupts. Correct
+hardware register ordering, W1C semantics, DMA visibility, and controller
+quiescence still require a dedicated hardware-reviewed layer. Build and
+hardware tests remain deferred.
