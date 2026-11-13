@@ -60,8 +60,10 @@ pub unsafe fn enable_memory_space(device:&PciDevice)->bool{
  (read_config(device.bus,device.device,device.function,0x04) as u16)&0x0002!=0
 }
 unsafe fn decode_bars(bus:u8,dev:u8,fun:u8,header:u8)->([PciBar;PCI_BAR_COUNT],u8){
+ if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(9); }
  let mut bars=[PciBar::EMPTY;PCI_BAR_COUNT];let mut count=0;
- if header&0x7F!=0{return(bars,count)}
+ if header&0x7F!=0 { if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(10); } return(bars,count); }
+ if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(11); }
  let mut i=0usize;
  while i<PCI_BAR_COUNT{
   if bus==0 && dev==0 && fun==0 { crate::trace_pci_step(7); }
