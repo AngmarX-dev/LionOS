@@ -371,6 +371,35 @@ impl UsbDeviceManager {
         Ok(())
     }
 
+    /// Consume a completed DMA payload as the standard Device Descriptor.
+    /// The caller must first reclaim the payload using the matching TransferResult.
+    pub fn accept_device_descriptor_payload(&mut self, port: u8,
+        payload: &crate::xhci_dma::UsbPayloadBuffer,
+        result: &crate::xhci_dma::TransferResult)
+        -> Result<DeviceDescriptor, EnumerationError>
+    {
+        let mut bytes = [0u8; 18];
+        let copied = payload.copy_completed_to(result, &mut bytes)
+            .map_err(EnumerationError::Payload)?;
+        if copied < bytes.len() {
+            return Err(EnumerationError::Descriptor(DescriptorError::TooShort));
+        }
+        self.accept_device_descriptor(port, &bytes)
+    }
+
+    /// Copy a completed Configuration Descriptor payload into caller-owned
+    /// scratch storage, then pass its exact transferred length to the parser.
+    pub fn accept_configuration_descriptor_payload(&mut self, port: u8,
+        payload: &crate::xhci_dma::UsbPayloadBuffer,
+        result: &crate::xhci_dma::TransferResult,
+        scratch: &mut [u8])
+        -> Result<ConfigurationSummary, EnumerationError>
+    {
+        let copied = payload.copy_completed_to(result, scratch)
+            .map_err(EnumerationError::Payload)?;
+        self.accept_configuration_descriptor(port, &scratch[..copied])
+    }
+
     pub fn accept_device_descriptor(&mut self, port: u8, bytes: &[u8])
         -> Result<DeviceDescriptor, EnumerationError>
     {
