@@ -630,7 +630,9 @@ Added a bounded `Ep0TransferRings` owner with a separate DMA Transfer Ring for
 each registered xHCI Slot (up to 32 software-managed slots). Registration
 requires a nonzero, unique Slot ID and allocates a below-4-GiB ring constrained
 to a 64 KiB boundary. Each ring exposes its initial dequeue pointer and cycle
-state for the matching Address Device Input Context.
+state for the matching Address Device Input Context. The DCS value is encoded
+in bit 0 of the low dequeue-pointer dword, as required by the endpoint context
+layout.
 
 The Address Device context helper now resolves the EP0 ring by the same Slot ID,
 rather than accepting an unrelated ring pointer from its caller. The guarded
