@@ -167,7 +167,7 @@ fn report_pci() {
             count+=1;
             if device.class==0x03 {
                 write_str("  Display ");
-                write_hex(device.vendor_id as u32); put_byte(':'); write_hex(device.device_id as u32);
+                write_hex(device.vendor_id as u32); put_byte(b':'); write_hex(device.device_id as u32);
                 write_str(" at "); write_hex(((device.bus as u32)<<8)|((device.device as u32)<<3)|device.function as u32);
                 write_str("\n");
             }
