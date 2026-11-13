@@ -1,5 +1,5 @@
 //! Conservative Multiboot2 framebuffer renderer. Supports packed RGB 24/32 bpp.
-use core::ptr::write_volatile;
+use core::ptr::{read_volatile, write_volatile};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Framebuffer {
