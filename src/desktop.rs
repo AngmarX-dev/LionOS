@@ -9,3 +9,25 @@ pub fn draw_window(window: Window) {
         graphics::fill_rect(window.bounds.x, window.bounds.y, window.bounds.width, window.bounds.height, window.color);
     }
 }
+
+static mut POINTER_LAST_X: u32 = u32::MAX;
+static mut POINTER_LAST_Y: u32 = u32::MAX;
+static mut POINTER_READY: bool = false;
+
+/// Refresh the desktop pointer after input interrupts; the renderer restores
+/// the previous save-under region before drawing the new pointer position.
+pub fn refresh_pointer() {
+    let state = crate::mouse::snapshot();
+    if !state.initialized { return; }
+    let Some(fb) = graphics::info() else { return; };
+    let x = state.x.max(0) as u32;
+    let y = state.y.max(0) as u32;
+    unsafe {
+        if !POINTER_READY || x != POINTER_LAST_X || y != POINTER_LAST_Y {
+            graphics::draw_cursor(x, y);
+            POINTER_LAST_X = x;
+            POINTER_LAST_Y = y;
+            POINTER_READY = true;
+        }
+    }
+}
