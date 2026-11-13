@@ -44,6 +44,7 @@ impl<T> SpinLock<T> {
         SpinLockGuard { lock: self }
     }
 
+    /// Attempt acquisition without waiting; useful for bounded resource probes.
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T>> {
         self.held.compare_exchange(
             false,
@@ -83,6 +84,8 @@ impl<T> Drop for SpinLockGuard<'_, T> {
 }
 
 /// A spin lock that saves and disables the local CPU's interrupt-enable flag.
+/// It also serializes CPUs through its atomic flag. Keep critical sections short;
+/// never block, yield, or perform device waits while holding this lock.
 pub struct IrqSpinLock<T> {
     held: AtomicBool,
     value: UnsafeCell<T>,
