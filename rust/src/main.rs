@@ -10,6 +10,7 @@ mod arch {
     pub mod interrupts;
 }
 mod memory;
+mod paging;
 mod pci;
 mod graphics;
 mod fs;
@@ -204,6 +205,9 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] GDT and fail-stop IDT installed; legacy PIC masked\n");
 
     let (usable,memory_ready)=parse_boot_info(multiboot_info);
+    if unsafe{paging::init_identity_4g()} {
+        write_str("[ OK ] 4 GiB supervisor identity paging enabled (4 MiB PSE pages)\\n");
+    } else { write_str("[WARN] Paging initialization failed\\n"); }
     if memory_ready {
         write_str("[ OK ] Physical frame allocator initialized; usable bytes ");
         write_hex((usable>>32) as u32); write_hex(usable as u32); write_str("\n");
