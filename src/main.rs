@@ -323,7 +323,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         Ok(index) => {
             write_str("[INFO] Per-CPU slot registered: ");
             write_dec(index as u32);
-            write_str("; online CPUs: ");
+            write_str("; registered CPU slots: ");
             write_dec(smp::online_count() as u32);
             write_str("\n");
         }
