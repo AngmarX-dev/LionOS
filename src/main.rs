@@ -256,6 +256,11 @@ fn initialize_subsystems() {
     if let Some(framebuffer)=graphics::info() {
         // Complete software-composited desktop; native GPU acceleration is not claimed.
         desktop::render_frame();
+        if graphics::backbuffer_ready() && graphics::present() {
+            write_str("[ OK ] Dirty-region framebuffer presentation active\\n");
+        } else {
+            write_str("[INFO] Direct framebuffer presentation active\\n");
+        }
         write_str("[ OK ] Software framebuffer renderer active\n");
     }
     if let Some(scancode)=input::poll_scancode() {
@@ -336,6 +341,11 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     if unsafe{paging::init_identity_4g()} {
         write_str("[ OK ] 4 GiB supervisor identity paging enabled (4 MiB PSE pages)\n");
     } else { write_str("[WARN] Paging initialization failed\n"); }
+    if graphics::initialize_pipeline() {
+        write_str("[ OK ] Graphics pipeline backbuffer initialized\\n");
+    } else {
+        write_str("[WARN] Graphics backbuffer unavailable; direct framebuffer mode\\n");
+    }
     if memory_ready {
         write_str("[ OK ] Physical frame allocator initialized; usable bytes ");
         write_hex((usable>>32) as u32); write_hex(usable as u32); write_str("\n");
