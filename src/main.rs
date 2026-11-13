@@ -159,7 +159,14 @@ fn parse_boot_info(address:u32)->(u64,bool) {
 }
 
 #[inline(never)]
-pub fn trace_pci_step(step:u32) { write_str("[TRACE] PCI scan step "); write_dec(step); write_str("\n"); }
+pub fn trace_pci_step(step:u32) {
+    match step {
+        1 => write_str("[TRACE] PCI scan step 1: first config read returned\n"),
+        2 => write_str("[TRACE] PCI scan step 2: BAR decode completed\n"),
+        3 => write_str("[TRACE] PCI scan step 3: visitor completed\n"),
+        _ => write_str("[TRACE] PCI scan step: unknown\n"),
+    }
+}
 
 fn report_pci() {
     write_str("[TRACE] PCI discovery: begin\n");
