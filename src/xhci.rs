@@ -122,9 +122,10 @@ pub fn initialize()->InitReport{
     let mut bios_released=true;
     if let Some(offset)=legacy{
         let header=match read(&region,offset){Some(v)=>v,None=>return InitReport{status:InitStatus::InvalidCapabilities,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false}};
-        if header&(1<<16)!=0{
-            if !region.write32(offset,header|(1<<24)){return InitReport{status:InitStatus::InvalidCapabilities,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};}
-            requested=true;
+        let bios_was_owner=header&(1<<16)!=0;
+        if !region.write32(offset,header|(1<<24)){return InitReport{status:InitStatus::InvalidCapabilities,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};}
+        requested=true;
+        if bios_was_owner{
             bios_released=wait_until(||read(&region,offset).map_or(false,|v|v&(1<<16)==0));
             if !bios_released{return InitReport{status:InitStatus::OwnershipTimeout,ownership_requested:requested,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};}
         }
