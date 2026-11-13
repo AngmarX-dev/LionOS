@@ -529,3 +529,53 @@ pub fn descriptor_at(bytes:&[u8],offset:usize)->Result<Option<(u8,&[u8])>,UsbDes
  if end>bytes.len(){return Err(UsbDescriptorError::TooShort);}
  Ok(Some((bytes[offset+1],&bytes[offset..end])))
 }
+
+
+/// USB SETUP packet used by control-transfer Setup Stage TRBs.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct UsbSetupPacket {
+ pub request_type:u8,pub request:u8,pub value:u16,pub index:u16,pub length:u16,
+}
+impl UsbSetupPacket {
+ pub const fn get_device_descriptor(length:u16)->Self {
+  Self{request_type:0x80,request:6,value:0x0100,index:0,length}
+ }
+ pub const fn to_parameter(self)->u64 {
+  u64::from_le_bytes([self.request_type,self.request,
+   self.value as u8,(self.value>>8) as u8,
+   self.index as u8,(self.index>>8) as u8,
+   self.length as u8,(self.length>>8) as u8])
+ }
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum ControlTransferError { InvalidLength,InvalidBuffer,AddressOverflow }
+const TRB_TYPE_SETUP_STAGE:u32=2;
+const TRB_TYPE_DATA_STAGE:u32=3;
+const TRB_TYPE_STATUS_STAGE:u32=4;
+const TRB_CHAIN:u32=1<<4;
+const TRB_IOC:u32=1<<5;
+const TRB_IDT:u32=1<<6;
+const TRB_DIR_IN:u32=1<<16;
+/// Build the three TRBs for an IN GET_DESCRIPTOR(Device) control TD.
+/// This creates software descriptors only; ProducerRing::push is not called.
+pub fn get_device_descriptor_control_trbs(data_buffer:u64,length:u16)
+ ->Result<[Trb;3],ControlTransferError>{
+ if length==0||length>18{return Err(ControlTransferError::InvalidLength);}
+ if data_buffer==0||data_buffer>=DMA_LIMIT{return Err(ControlTransferError::InvalidBuffer);}
+ let end=data_buffer.checked_add(length as u64).ok_or(ControlTransferError::AddressOverflow)?;
+ if end>DMA_LIMIT{return Err(ControlTransferError::AddressOverflow);}
+ let setup=UsbSetupPacket::get_device_descriptor(length);
+ let setup_trb=Trb{
+  parameter:setup.to_parameter(),status:8,
+  control:(TRB_TYPE_SETUP_STAGE<<TRB_TYPE_SHIFT)|TRB_IDT|TRB_CHAIN|(3<<16),
+ };
+ let data_trb=Trb{
+  parameter:data_buffer,status:length as u32,
+  control:(TRB_TYPE_DATA_STAGE<<TRB_TYPE_SHIFT)|TRB_DIR_IN|TRB_CHAIN,
+ };
+ let status_trb=Trb{
+  parameter:0,status:0,
+  control:(TRB_TYPE_STATUS_STAGE<<TRB_TYPE_SHIFT)|TRB_IOC,
+ };
+ Ok([setup_trb,data_trb,status_trb])
+}

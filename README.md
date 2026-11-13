@@ -298,3 +298,22 @@ The next required hardware-facing work is a carefully sequenced port-reset
 state machine and control-transfer execution for the initial 8-byte
 GET_DESCRIPTOR request, followed by the full Device Descriptor request.
 No USB control transfer or live enumeration is performed by this stage.
+
+
+## xHCI port reset policy and control-transfer TRB preparation
+
+Added a software-only port-reset state machine with connection/over-current
+checks, a minimum reset interval (five nominal 100 Hz PIT ticks), a bounded
+timeout, and a recovery interval. It consumes fresh PORTSC snapshots but does
+not write PORTSC or assert reset itself.
+
+Added USB Setup Packet encoding and a three-TRB builder for an IN
+GET_DESCRIPTOR(Device) control transfer: Setup Stage, Data Stage, and Status
+Stage. It validates descriptor length and the 32-bit DMA address range.
+The builder does not enqueue the TRBs, ring a doorbell, or access a live
+controller. The data buffer must be a valid DMA buffer whose lifetime is
+maintained by the eventual transfer owner.
+
+The next stage must implement verified transfer-ring ownership, event
+completion correlation, and safe PORTSC write semantics before live
+enumeration. Build and hardware tests remain deferred.

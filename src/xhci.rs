@@ -344,3 +344,64 @@ pub fn read_port_status(info:&XhciInfo,port:u8)->Result<PortStatus,PortReadError
     let raw=region.read32(offset).ok_or(PortReadError::ReadFailed)?;
     Ok(PortStatus::decode(raw))
 }
+
+
+/// Software-only root-port reset state machine. It never writes PORTSC.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum PortResetState { Disconnected,Connected,ResetRequested,Resetting,RecoveryWait,Enabled,Failed }
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum PortResetError { NotConnected,OverCurrent,InvalidTransition,TimedOut,Disconnected }
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct PortResetSnapshot { pub state:PortResetState,pub deadline:u64 }
+const PORT_RESET_MIN_TICKS:u64=5; // 50 ms at the nominal 100 Hz PIT rate
+const PORT_RESET_TIMEOUT_TICKS:u64=10;
+const PORT_RECOVERY_TICKS:u64=1;
+fn tick_reached(now:u64,deadline:u64)->bool { now.wrapping_sub(deadline)<(1u64<<63) }
+pub struct PortResetMachine { state:PortResetState,deadline:u64,timeout:u64 }
+impl PortResetMachine {
+ pub const fn new()->Self { Self{state:PortResetState::Disconnected,deadline:0,timeout:0} }
+ pub fn snapshot(&self)->PortResetSnapshot { PortResetSnapshot{state:self.state,deadline:self.deadline} }
+ pub fn observe_connection(&mut self,status:PortStatus)->Result<(),PortResetError>{
+  if !status.connected { self.state=PortResetState::Disconnected;return Err(PortResetError::NotConnected); }
+  if status.over_current { self.state=PortResetState::Failed;return Err(PortResetError::OverCurrent); }
+  if self.state==PortResetState::Disconnected||self.state==PortResetState::Failed { self.state=PortResetState::Connected; }
+  Ok(())
+ }
+ pub fn request_reset(&mut self,status:PortStatus)->Result<(),PortResetError>{
+  self.observe_connection(status)?;
+  if self.state!=PortResetState::Connected { return Err(PortResetError::InvalidTransition); }
+  self.state=PortResetState::ResetRequested;Ok(())
+ }
+ /// Call only after a separate, hardware-reviewed layer asserts PORTSC.PR.
+ pub fn note_reset_asserted(&mut self,now:u64)->Result<(),PortResetError>{
+  if self.state!=PortResetState::ResetRequested{return Err(PortResetError::InvalidTransition);}
+  self.deadline=now.wrapping_add(PORT_RESET_MIN_TICKS);
+  self.timeout=now.wrapping_add(PORT_RESET_TIMEOUT_TICKS);
+  self.state=PortResetState::Resetting;Ok(())
+ }
+ /// Poll using a fresh PORTSC snapshot. State transitions are policy-only.
+ pub fn poll(&mut self,now:u64,status:PortStatus)->Result<PortResetState,PortResetError>{
+  if !status.connected {self.state=PortResetState::Disconnected;return Err(PortResetError::Disconnected);}
+  if status.over_current {self.state=PortResetState::Failed;return Err(PortResetError::OverCurrent);}
+  match self.state {
+   PortResetState::Resetting=>{
+    if tick_reached(now,self.timeout) {self.state=PortResetState::Failed;return Err(PortResetError::TimedOut);}
+    if !status.reset&&status.enabled&&tick_reached(now,self.deadline) {
+     self.deadline=now.wrapping_add(PORT_RECOVERY_TICKS);
+     self.state=PortResetState::RecoveryWait;
+    }
+   }
+   PortResetState::RecoveryWait=>{
+    if tick_reached(now,self.deadline) {
+     if status.enabled {self.state=PortResetState::Enabled;}
+     else {self.state=PortResetState::Failed;return Err(PortResetError::TimedOut);}
+    }
+   }
+   PortResetState::Enabled=>return Ok(self.state),
+   PortResetState::Disconnected=>return Err(PortResetError::NotConnected),
+   PortResetState::Failed=>return Err(PortResetError::TimedOut),
+   _=>return Err(PortResetError::InvalidTransition),
+  }
+  Ok(self.state)
+ }
+}
