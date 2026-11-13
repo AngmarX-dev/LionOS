@@ -293,3 +293,54 @@ pub fn initialize()->InitReport{
     if !ready{return InitReport{status:InitStatus::NotReadyTimeout,ownership_requested:requested,bios_released,controller_halted:true,reset_completed:true,controller_ready:false};}
     InitReport{status:InitStatus::ReadyStopped,ownership_requested:requested,bios_released,controller_halted:true,reset_completed:true,controller_ready:true}
 }
+
+
+/// Read-only snapshot of one xHCI root-port PORTSC register.
+/// Change bits are reported, never acknowledged here (PORTSC is W1C-sensitive).
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct PortStatus {
+    pub connected:bool,pub enabled:bool,pub over_current:bool,
+    pub reset:bool,pub link_state:u8,pub powered:bool,pub speed:u8,
+    pub connect_change:bool,pub enable_change:bool,pub warm_reset_change:bool,
+    pub over_current_change:bool,pub reset_change:bool,pub link_change:bool,
+    pub config_error_change:bool,pub raw:u32,
+}
+impl PortStatus {
+    pub const fn decode(raw:u32)->Self {
+        Self {
+            connected:raw&(1<<0)!=0,enabled:raw&(1<<1)!=0,
+            over_current:raw&(1<<3)!=0,reset:raw&(1<<4)!=0,
+            link_state:((raw>>5)&0xF) as u8,powered:raw&(1<<9)!=0,
+            speed:((raw>>10)&0xF) as u8,
+            connect_change:raw&(1<<17)!=0,enable_change:raw&(1<<18)!=0,
+            warm_reset_change:raw&(1<<19)!=0,over_current_change:raw&(1<<20)!=0,
+            reset_change:raw&(1<<21)!=0,link_change:raw&(1<<22)!=0,
+            config_error_change:raw&(1<<23)!=0,raw,
+        }
+    }
+    pub const fn has_change(self)->bool {
+        self.connect_change||self.enable_change||self.warm_reset_change||
+        self.over_current_change||self.reset_change||self.link_change||
+        self.config_error_change
+    }
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum PortReadError { InvalidPort,InvalidBar,OutOfRange,DeviceNotFound,ReadFailed }
+/// Read PORTSC for a 1-based root-port number. This is strictly read-only.
+pub fn read_port_status(info:&XhciInfo,port:u8)->Result<PortStatus,PortReadError>{
+    if port==0||port>info.max_ports{return Err(PortReadError::InvalidPort);}
+    let device=unsafe{
+        let mut selected=None;
+        pci::enumerate(|d|{if d.bus==info.bus&&d.device==info.device&&d.function==info.function{selected=Some(d);}});
+        selected.ok_or(PortReadError::DeviceNotFound)?
+    };
+    let offset=(info.cap_length as usize).checked_add(0x400)
+        .and_then(|v|v.checked_add((port as usize-1)*0x10))
+        .ok_or(PortReadError::OutOfRange)?;
+    let end=offset.checked_add(4).ok_or(PortReadError::OutOfRange)?;
+    if end as u64>info.bar_size{return Err(PortReadError::OutOfRange);}
+    let region=unsafe{MmioRegion::from_pci_bar(&device,info.bar_index as usize,end)}
+        .ok_or(PortReadError::InvalidBar)?;
+    let raw=region.read32(offset).ok_or(PortReadError::ReadFailed)?;
+    Ok(PortStatus::decode(raw))
+}

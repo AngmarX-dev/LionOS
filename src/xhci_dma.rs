@@ -485,3 +485,47 @@ impl SlotManager {
   if slot.is_none(){return Err(SlotError::UnknownSlot);}*slot=None;Ok(())
  }
 }
+
+
+/// USB standard descriptor type constants.
+pub const USB_DESC_DEVICE:u8=1;
+pub const USB_DESC_CONFIGURATION:u8=2;
+pub const USB_DESC_STRING:u8=3;
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum UsbDescriptorError { TooShort,InvalidLength,WrongType,InvalidConfiguration }
+/// Parsed USB Device Descriptor. Multi-byte fields are decoded little-endian.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct UsbDeviceDescriptor {
+ pub usb_version:u16,pub device_class:u8,pub device_subclass:u8,
+ pub device_protocol:u8,pub max_packet_size0:u8,pub vendor_id:u16,
+ pub product_id:u16,pub device_version:u16,pub manufacturer_index:u8,
+ pub product_index:u8,pub serial_index:u8,pub configuration_count:u8,
+}
+impl UsbDeviceDescriptor {
+ pub const LENGTH:usize=18;
+ pub fn parse(bytes:&[u8])->Result<Self,UsbDescriptorError>{
+  if bytes.len()<Self::LENGTH{return Err(UsbDescriptorError::TooShort);}
+  if bytes[0] as usize!=Self::LENGTH{return Err(UsbDescriptorError::InvalidLength);}
+  if bytes[1]!=USB_DESC_DEVICE{return Err(UsbDescriptorError::WrongType);}
+  Ok(Self{
+   usb_version:u16::from_le_bytes([bytes[2],bytes[3]]),
+   device_class:bytes[4],device_subclass:bytes[5],device_protocol:bytes[6],
+   max_packet_size0:bytes[7],
+   vendor_id:u16::from_le_bytes([bytes[8],bytes[9]]),
+   product_id:u16::from_le_bytes([bytes[10],bytes[11]]),
+   device_version:u16::from_le_bytes([bytes[12],bytes[13]]),
+   manufacturer_index:bytes[14],product_index:bytes[15],
+   serial_index:bytes[16],configuration_count:bytes[17],
+  })
+ }
+}
+/// Bounds-checked iterator step for a raw USB descriptor stream.
+pub fn descriptor_at(bytes:&[u8],offset:usize)->Result<Option<(u8,&[u8])>,UsbDescriptorError>{
+ if offset==bytes.len(){return Ok(None);}
+ if offset>bytes.len()||bytes.len()-offset<2{return Err(UsbDescriptorError::TooShort);}
+ let length=bytes[offset] as usize;
+ if length<2{return Err(UsbDescriptorError::InvalidLength);}
+ let end=offset.checked_add(length).ok_or(UsbDescriptorError::InvalidLength)?;
+ if end>bytes.len(){return Err(UsbDescriptorError::TooShort);}
+ Ok(Some((bytes[offset+1],&bytes[offset..end])))
+}

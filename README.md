@@ -284,3 +284,17 @@ no doorbell is rung, and no slot is allocated by the controller. Port-status
 change handling, descriptor control transfers, real Enable Slot completion,
 and Address Device execution are still pending. Build and hardware tests have
 not been run.
+
+
+## xHCI root-port status and USB descriptor parsing
+
+Added a read-only PORTSC decoder and bounded root-port status accessor. PORTSC
+change bits are exposed as status only; this code deliberately does not write
+the W1C-sensitive register or initiate a port reset. Added bounds-checked USB
+descriptor stream traversal and a parser for the standard 18-byte Device
+Descriptor, including little-endian VID/PID and device metadata.
+
+The next required hardware-facing work is a carefully sequenced port-reset
+state machine and control-transfer execution for the initial 8-byte
+GET_DESCRIPTOR request, followed by the full Device Descriptor request.
+No USB control transfer or live enumeration is performed by this stage.
