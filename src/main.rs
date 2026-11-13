@@ -17,7 +17,7 @@ mod mmio;
 mod xhci;
 mod xhci_dma;
 mod xhci_runtime;
-mod usb;
+mod usb;\nmod usb_recovery;
 mod heap;
 mod pci;
 mod device;
