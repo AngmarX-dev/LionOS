@@ -8,6 +8,8 @@ mod arch {
     pub mod x86;
     pub mod cpu;
     pub mod gdt;
+    pub mod tss;
+    pub mod context;
     pub mod interrupts;
 }
 mod memory;
