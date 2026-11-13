@@ -622,3 +622,28 @@ the same handle through the pool before copying the completed bytes.
 This remains a software ownership and submission framework. It is not yet a
 live USB DMA service and must not be treated as proof that a connected device
 has been enumerated.
+
+
+## Per-slot USB Endpoint 0 transfer rings
+
+Added a bounded `Ep0TransferRings` owner with a separate DMA Transfer Ring for
+each registered xHCI Slot (up to 32 software-managed slots). Registration
+requires a nonzero, unique Slot ID and allocates a below-4-GiB ring constrained
+to a 64 KiB boundary. Each ring exposes its initial dequeue pointer and cycle
+state for the matching Address Device Input Context.
+
+The Address Device context helper now resolves the EP0 ring by the same Slot ID,
+rather than accepting an unrelated ring pointer from its caller. The guarded
+control-transfer dispatcher also has EP0-specific submission methods that bind
+the selected Slot to endpoint target ID 1 and stream ID 0.
+
+Rings are deliberately not removed or recycled. A future implementation must
+prove controller halt/quiescence and endpoint dequeue safety before releasing
+or reusing ring memory. This stage does not instantiate the ring manager in the
+boot path, issue Address Device, submit USB transfers, ring doorbells, or enable
+the controller. Event delivery, Transfer Event correlation across all event
+consumers, hardware ERDP acknowledgement, and endpoint recovery remain
+separate work.
+
+No Cargo build, QEMU boot, or physical USB hardware test was run; validation
+was limited to GitHub source read-back after each edit, as requested.
