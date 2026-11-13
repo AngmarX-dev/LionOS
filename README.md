@@ -411,3 +411,30 @@ offset discovery, and ensuring the MMIO mapping covers the full register set.
 The code has been source-reviewed only; build and hardware validation remain
 deferred. In particular, the 64-bit register access ordering and IMAN W1C
 behavior must be verified against the target xHCI revision before activation.
+
+
+## xHCI DMA ownership and recovery safety
+
+The DMA allocator now tracks each allocation as CPU-owned, device-owned, or
+quarantined. A DMA buffer can be released only while CPU-owned; attempting to
+release a device-owned or quarantined buffer refuses to return its pages to the
+physical allocator. Quarantine intentionally leaks the allocation rather than
+risking reuse while a bus master may still access it.
+
+- `DmaBuffer::handoff_to_device` publishes initialized memory and performs a
+  one-way CPU-to-device ownership transition.
+- `XhciDma::handoff_all_to_device` applies the transition to the complete
+  DCBAA/ring/context/scratchpad allocation set. Any partial or inconsistent
+  transition quarantines the entire set.
+- `RecoveryEvidence` records independently verified recovery facts:
+  Run/Stop cleared, controller halted, PCI bus mastering disabled, and DMA idle.
+- Aggregate DMA reclamation is rejected until all four conditions are recorded.
+  An inconsistent ownership state quarantines the full allocation set.
+- Recovery evidence is software bookkeeping only. It does not read hardware,
+  stop the controller, disable PCI bus mastering, or prove quiescence by itself.
+  Callers must record each fact only after a real hardware read-back.
+
+This stage does not activate xHCI or submit commands. The ownership API is a
+conservative guardrail, not a substitute for device-specific synchronization,
+interrupt exclusion, posted-write flushing, or hardware validation. Build and
+hardware tests remain deferred.
