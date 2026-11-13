@@ -391,9 +391,7 @@ impl UsbDeviceManager {
         }
         let config = parse_configuration(bytes).map_err(EnumerationError::Descriptor)?;
         let device = entry.device.ok_or(EnumerationError::NoConfiguration)?;
-        if config.interface_count == 0 || config.configuration_value == 0
-            || config.interface_count > device.configuration_count as usize + MAX_INTERFACES
-        {
+        if config.interface_count == 0 || config.configuration_value == 0 {
             return Err(EnumerationError::NoConfiguration);
         }
         entry.configuration = Some(config);
