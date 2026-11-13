@@ -162,16 +162,11 @@ fn parse_boot_info(address:u32)->(u64,bool) {
 pub fn trace_pci_step(step:u32) {
     match step {
         1 => write_str("[TRACE] PCI scan step 1: first config read returned\n"),
-        2 => write_str("[TRACE] PCI scan step 2: BAR decode completed\n"),
+        2 => write_str("[TRACE] PCI scan step 2: PCI device descriptor assembled; BAR decode deferred\n"),
         3 => write_str("[TRACE] PCI scan step 3: visitor completed\n"),
         4 => write_str("[TRACE] PCI scan step 4: multifunction header read completed\n"),
         5 => write_str("[TRACE] PCI scan step 5: command/class/header reads completed\n"),
-        6 => write_str("[TRACE] PCI scan step 6: entering BAR decoder\n"),
-        7 => write_str("[TRACE] PCI BAR read: before config access\n"),
-        8 => write_str("[TRACE] PCI BAR read: config access returned\n"),
-        9 => write_str("[TRACE] PCI BAR decoder: entered\n"),
-        10 => write_str("[TRACE] PCI BAR decoder: non-type-0 header, skipped\n"),
-        11 => write_str("[TRACE] PCI BAR decoder: type-0 header accepted\n"),
+        6 => write_str("[TRACE] PCI scan step 6: BAR decoding deferred during early boot\n"),
         _ => write_str("[TRACE] PCI scan step: unknown\n"),
     }
 }
