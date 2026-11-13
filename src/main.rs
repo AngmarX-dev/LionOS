@@ -301,6 +301,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
 
     report_pci();
     report_xhci();
+    report_usb_enumeration();
     let xhci_init=xhci::initialize();
     write_str("xHCI initialization result: ");
     match xhci_init.status {
@@ -361,6 +362,8 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] xHCI PCI capability discovery, BAR sizing and ownership/reset state machine\n");
     write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\\n");
     write_str("[ -- ] xHCI controller DMA activation, interrupter setup, port handling and USB enumeration not implemented\\n");
+    write_str("[ OK ] USB descriptor parser and bounded enumeration state model (software-only)\n");
+    write_str("[ -- ] USB command submission, device addressing and class drivers not implemented\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");
     idle_forever()
