@@ -317,3 +317,19 @@ maintained by the eventual transfer owner.
 The next stage must implement verified transfer-ring ownership, event
 completion correlation, and safe PORTSC write semantics before live
 enumeration. Build and hardware tests remain deferred.
+
+
+## xHCI Transfer Event correlation and conservative transfer submission
+
+Added Transfer Event decoding, completion-code classification (including
+Success, Short Packet, Stall and common controller/transfer errors), residual
+length extraction, and correlation by event TRB pointer, Slot ID and Endpoint
+ID. Added a bounded TransferTracker and a TransferEngine for the initial
+GET_DESCRIPTOR(Device) control TD.
+
+The transfer engine is intentionally one-shot: it refuses to wrap or reuse
+transfer-ring entries because a safe hardware dequeue/reclamation protocol is
+not yet implemented. It only builds and records the three-TRB TD; it does not
+ring a doorbell, enable PCI bus mastering, or start the controller. Live event
+delivery, ERDP acknowledgement, and transfer-ring reclamation remain pending.
+Build and hardware tests have not been run.

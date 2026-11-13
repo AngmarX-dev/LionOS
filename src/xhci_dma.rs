@@ -579,3 +579,156 @@ pub fn get_device_descriptor_control_trbs(data_buffer:u64,length:u16)
  };
  Ok([setup_trb,data_trb,status_trb])
 }
+
+
+/// Completion classification for a USB Transfer Event TRB.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum TransferCompletion {
+    Success,
+    ShortPacket,
+    Stall,
+    TransactionError,
+    Babble,
+    DataBufferError,
+    TrbError,
+    RingUnderrun,
+    RingOverrun,
+    MissedService,
+    Stopped,
+    Unknown(u8),
+}
+impl TransferCompletion {
+    pub const fn from_code(code:u8)->Self {
+        match code {
+            1=>Self::Success,
+            13=>Self::ShortPacket,
+            6=>Self::Stall,
+            4=>Self::TransactionError,
+            3=>Self::Babble,
+            2=>Self::DataBufferError,
+            5=>Self::TrbError,
+            14=>Self::RingUnderrun,
+            15=>Self::RingOverrun,
+            23=>Self::MissedService,
+            26=>Self::Stopped,
+            v=>Self::Unknown(v),
+        }
+    }
+    pub const fn is_success(self)->bool {
+        matches!(self,Self::Success|Self::ShortPacket)
+    }
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct TransferEvent {
+    pub trb_pointer:u64,
+    pub completion:TransferCompletion,
+    pub residual_length:u32,
+    pub endpoint_id:u8,
+    pub slot_id:u8,
+}
+impl TransferEvent {
+    pub fn decode(event:&EventRecord)->Option<Self> {
+        if event.event_type!=EventType::Transfer{return None;}
+        Some(Self{
+            trb_pointer:event.trb.parameter&!0xF,
+            completion:TransferCompletion::from_code(event.completion_code),
+            residual_length:event.trb.status&0x00FF_FFFF,
+            endpoint_id:event.endpoint_id,
+            slot_id:event.slot_id,
+        })
+    }
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum TransferError {
+    RingFull,
+    TrackerFull,
+    InvalidEvent,
+    UnknownTransfer,
+    InvalidSlot,
+    InvalidEndpoint,
+    InvalidBuffer,
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct TransferResult {
+    pub trb_pointer:u64,
+    pub slot_id:u8,
+    pub endpoint_id:u8,
+    pub completion:TransferCompletion,
+    pub residual_length:u32,
+}
+#[derive(Clone,Copy)]
+struct PendingTransfer {
+    event_trb_pointer:u64,
+    slot_id:u8,
+    endpoint_id:u8,
+}
+/// Correlates Transfer Events with the final TRB of each submitted TD.
+pub struct TransferTracker {
+    pending:[Option<PendingTransfer>;64],
+    len:usize,
+}
+impl TransferTracker {
+    pub const fn new()->Self { Self{pending:[None;64],len:0} }
+    pub fn pending_count(&self)->usize { self.len }
+    fn reserve(&mut self,p:PendingTransfer)->Result<(),TransferError>{
+        if self.len==self.pending.len(){return Err(TransferError::TrackerFull);}
+        if self.pending[..self.len].iter().flatten().any(|v|v.event_trb_pointer==p.event_trb_pointer){
+            return Err(TransferError::UnknownTransfer);
+        }
+        self.pending[self.len]=Some(p);self.len+=1;Ok(())
+    }
+    pub fn complete(&mut self,event:&EventRecord)->Result<TransferResult,TransferError>{
+        let decoded=TransferEvent::decode(event).ok_or(TransferError::InvalidEvent)?;
+        let index=self.pending[..self.len].iter().position(|v|v.map_or(false,|p|
+            p.event_trb_pointer==decoded.trb_pointer&&p.slot_id==decoded.slot_id
+             &&p.endpoint_id==decoded.endpoint_id)).ok_or(TransferError::UnknownTransfer)?;
+        let result=TransferResult{trb_pointer:decoded.trb_pointer,slot_id:decoded.slot_id,
+            endpoint_id:decoded.endpoint_id,completion:decoded.completion,
+            residual_length:decoded.residual_length};
+        for i in index..self.len-1 {self.pending[i]=self.pending[i+1];}
+        self.len-=1;self.pending[self.len]=None;Ok(result)
+    }
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum TransferPoll { Empty,Unrelated(EventRecord),Completed(TransferResult),Invalid(TransferError) }
+/// Conservative one-shot transfer submission coordinator. It deliberately
+/// refuses to wrap/reuse the transfer ring: safe reclamation requires a
+/// separately verified dequeue/reuse protocol. Only control GET_DESCRIPTOR
+/// TDs are supported in this stage.
+pub struct TransferEngine {
+    tracker:TransferTracker,
+    submitted_trbs:usize,
+}
+impl TransferEngine {
+    pub const fn new()->Self {Self{tracker:TransferTracker::new(),submitted_trbs:0}}
+    pub fn pending_count(&self)->usize {self.tracker.pending_count()}
+    pub fn submitted_trbs(&self)->usize {self.submitted_trbs}
+    pub fn submit_get_device_descriptor(&mut self,ring:&mut ProducerRing,
+      slot_id:u8,endpoint_id:u8,data_buffer:u64,length:u16)->Result<u64,TransferError>{
+        if slot_id==0{return Err(TransferError::InvalidSlot);}
+        if endpoint_id==0||endpoint_id>31{return Err(TransferError::InvalidEndpoint);}
+        let trbs=get_device_descriptor_control_trbs(data_buffer,length)
+            .map_err(|_|TransferError::InvalidBuffer)?;
+        let start=ring.enqueue_index();
+        if start!=self.submitted_trbs||start.checked_add(3).map_or(true,|end|end>LINK_INDEX+1){
+            return Err(TransferError::RingFull);
+        }
+        if self.tracker.len==self.tracker.pending.len(){return Err(TransferError::TrackerFull);}
+        let completion_pointer=ring.physical_base()+((start+2)*TRB_BYTES) as u64;
+        // Reserve correlation before publishing the TD into the ring.
+        self.tracker.reserve(PendingTransfer{event_trb_pointer:completion_pointer,slot_id,endpoint_id})?;
+        for trb in trbs {
+            if !ring.push(trb) {return Err(TransferError::RingFull);}
+            self.submitted_trbs+=1;
+        }
+        Ok(completion_pointer)
+    }
+    pub fn poll_one(&mut self,events:&mut EventRing)->TransferPoll {
+        let event=match events.next_event(){Some(v)=>v,None=>return TransferPoll::Empty};
+        if event.event_type!=EventType::Transfer{return TransferPoll::Unrelated(event);}
+        match self.tracker.complete(&event){
+            Ok(result)=>TransferPoll::Completed(result),
+            Err(error)=>TransferPoll::Invalid(error),
+        }
+    }
+}
