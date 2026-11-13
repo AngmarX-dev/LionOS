@@ -33,11 +33,13 @@ pub fn find_boot_binding(config: &ConfigurationSummary, wanted: HidKind)
             continue;
         };
         if kind != wanted { continue; }
+        let required_packet_size = if kind == HidKind::Keyboard { 8 } else { 3 };
         for endpoint in config.endpoints.iter().flatten() {
+            let packet_size = endpoint.max_packet_size & 0x07FF;
             if endpoint.interface_number == interface.number
                 && endpoint.address & 0x80 != 0
                 && endpoint.attributes & 0x03 == 0x03
-                && endpoint.max_packet_size & 0x07FF >= if kind == HidKind::Keyboard { 8 } else { 3 }
+                && packet_size >= required_packet_size
             {
                 return Ok(HidBinding {
                     kind,
