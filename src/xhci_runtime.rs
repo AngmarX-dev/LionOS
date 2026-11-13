@@ -263,6 +263,148 @@ impl RuntimeLifecycle {
     }
 }
 
+
+const DOORBELL_REGISTER_BYTES: usize = 4;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DoorbellError {
+    InvalidOffset,
+    OffsetOverflow,
+    OutsideBar,
+    ControllerNotRunning,
+    DmaNotDeviceOwned,
+    InvalidSlot,
+    InvalidEndpoint,
+    MmioWriteFailed,
+}
+
+/// Validated xHCI doorbell register window. Constructing this object performs
+/// no MMIO writes; each ring operation is explicitly gated by runtime state
+/// and caller-confirmed DMA ownership.
+pub struct XhciDoorbells<'a> {
+    mmio: &'a MmioRegion,
+    base: usize,
+    max_slots: u8,
+}
+
+impl<'a> XhciDoorbells<'a> {
+    pub fn new(mmio: &'a MmioRegion, doorbell_offset: u32, max_slots: u8,
+        bar_size: u64) -> Result<Self, DoorbellError> {
+        let base = doorbell_offset as usize;
+        if base < 0x20 || base & 3 != 0 || max_slots == 0 {
+            return Err(DoorbellError::InvalidOffset);
+        }
+        let count = (max_slots as usize).checked_add(1)
+            .ok_or(DoorbellError::OffsetOverflow)?;
+        let bytes = count.checked_mul(DOORBELL_REGISTER_BYTES)
+            .ok_or(DoorbellError::OffsetOverflow)?;
+        let end = base.checked_add(bytes).ok_or(DoorbellError::OffsetOverflow)?;
+        if end as u64 > bar_size || end > mmio.length() {
+            return Err(DoorbellError::OutsideBar);
+        }
+        Ok(Self { mmio, base, max_slots })
+    }
+
+    fn authorize(lifecycle: &RuntimeLifecycle, dma_device_owned: bool)
+        -> Result<(), DoorbellError> {
+        if lifecycle.phase() != RuntimePhase::Running {
+            return Err(DoorbellError::ControllerNotRunning);
+        }
+        if !dma_device_owned {
+            return Err(DoorbellError::DmaNotDeviceOwned);
+        }
+        Ok(())
+    }
+
+    /// Ring DB0 to notify the controller that command-ring entries are ready.
+    /// Caller must have already published the command TRB and verified that
+    /// the controller is running and owns the complete DMA allocation set.
+    pub fn ring_command(&self, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool) -> Result<(), DoorbellError> {
+        Self::authorize(lifecycle, dma_device_owned)?;
+        fence(Ordering::Release);
+        compiler_fence(Ordering::Release);
+        if self.mmio.write32(self.base, 0) { Ok(()) }
+        else { Err(DoorbellError::MmioWriteFailed) }
+    }
+
+    /// Ring a device slot's doorbell for a specific endpoint/stream target.
+    /// Stream ID zero is required for non-stream endpoints.
+    pub fn ring_endpoint(&self, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, slot_id: u8, endpoint_id: u8,
+        stream_id: u16) -> Result<(), DoorbellError> {
+        Self::authorize(lifecycle, dma_device_owned)?;
+        if slot_id == 0 || slot_id > self.max_slots {
+            return Err(DoorbellError::InvalidSlot);
+        }
+        if endpoint_id == 0 || endpoint_id > 31 {
+            return Err(DoorbellError::InvalidEndpoint);
+        }
+        let offset = self.base.checked_add((slot_id as usize) * DOORBELL_REGISTER_BYTES)
+            .ok_or(DoorbellError::OffsetOverflow)?;
+        if offset.checked_add(4).map_or(true, |end| end > self.mmio.length()) {
+            return Err(DoorbellError::OutsideBar);
+        }
+        let target = (endpoint_id as u32) | ((stream_id as u32) << 16);
+        fence(Ordering::Release);
+        compiler_fence(Ordering::Release);
+        if self.mmio.write32(offset, target) { Ok(()) }
+        else { Err(DoorbellError::MmioWriteFailed) }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandDispatchError {
+    ControllerNotRunning,
+    DmaNotDeviceOwned,
+    Command(crate::xhci_dma::CommandError),
+    Doorbell(DoorbellError),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommandDispatchResult {
+    pub command_trb_pointer: u64,
+}
+
+/// Submission + DB0 notification facade. It refuses to enqueue unless the
+/// caller confirms Running state and device ownership. If the MMIO doorbell
+/// write fails, the command remains tracked and its TRB must not be reused.
+pub struct XhciCommandDispatcher {
+    engine: crate::xhci_dma::CommandEngine,
+}
+
+impl XhciCommandDispatcher {
+    pub const fn new() -> Self {
+        Self { engine: crate::xhci_dma::CommandEngine::new() }
+    }
+
+    pub fn pending_count(&self) -> usize { self.engine.pending_count() }
+
+    pub fn submit(&mut self, ring: &mut crate::xhci_dma::ProducerRing,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, trb: crate::xhci_dma::Trb,
+        now: u64, timeout_ticks: u64)
+        -> Result<CommandDispatchResult, CommandDispatchError> {
+        if lifecycle.phase() != RuntimePhase::Running {
+            return Err(CommandDispatchError::ControllerNotRunning);
+        }
+        if !dma_device_owned {
+            return Err(CommandDispatchError::DmaNotDeviceOwned);
+        }
+        let pointer = self.engine.submit(ring, trb, now, timeout_ticks)
+            .map_err(CommandDispatchError::Command)?;
+        doorbells.ring_command(lifecycle, dma_device_owned)
+            .map_err(CommandDispatchError::Doorbell)?;
+        Ok(CommandDispatchResult { command_trb_pointer: pointer })
+    }
+
+    pub fn expire(&mut self, now: u64) -> usize { self.engine.expire(now) }
+    pub fn has_timed_out(&self) -> bool { self.engine.has_timed_out() }
+    pub fn poll_one(&mut self, events: &mut EventRing) -> crate::xhci_dma::CommandPoll {
+        self.engine.poll_one(events)
+    }
+}
+
 /// Snapshot an Event Ring acknowledgement transaction. The caller must
 /// perform the correctly ordered ERDP MMIO write, then commit the token.
 pub fn prepare_event_acknowledgement(ring: &EventRing) -> Option<EventAckToken> {
