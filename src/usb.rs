@@ -406,6 +406,17 @@ impl UsbDeviceManager {
         Ok(())
     }
 
+    /// Validate that a completed payload belongs to this port's EP0 transfer.
+    fn validate_ep0_result(entry: &PortEntry, result: &crate::xhci_dma::TransferResult)
+        -> Result<(), EnumerationError>
+    {
+        if entry.slot_id == 0 || result.slot_id != entry.slot_id || result.endpoint_id != 1
+            || !result.completion.is_success() {
+            return Err(EnumerationError::InvalidTransition);
+        }
+        Ok(())
+    }
+
     /// Consume a completed DMA payload as the standard Device Descriptor.
     /// The caller must first reclaim the payload using the matching TransferResult.
     pub fn accept_device_descriptor_payload(&mut self, port: u8,
@@ -413,6 +424,8 @@ impl UsbDeviceManager {
         result: &crate::xhci_dma::TransferResult)
         -> Result<DeviceDescriptor, EnumerationError>
     {
+        let entry = &self.ports[Self::port_index(port)?];
+        Self::validate_ep0_result(entry, result)?;
         let mut bytes = [0u8; 18];
         let copied = payload.copy_completed_to(result, &mut bytes)
             .map_err(EnumerationError::Payload)?;
@@ -430,6 +443,8 @@ impl UsbDeviceManager {
         scratch: &mut [u8])
         -> Result<ConfigurationSummary, EnumerationError>
     {
+        let entry = &self.ports[Self::port_index(port)?];
+        Self::validate_ep0_result(entry, result)?;
         let copied = payload.copy_completed_to(result, scratch)
             .map_err(EnumerationError::Payload)?;
         self.accept_configuration_descriptor(port, &scratch[..copied])
@@ -460,6 +475,23 @@ impl UsbDeviceManager {
         entry.configuration_total_length = 0;
         entry.phase = EnumerationPhase::ConfigurationHeaderPending;
         Ok(())
+    }
+
+    /// Consume the first-stage header from a reclaimed, correlated EP0 DMA buffer.
+    pub fn accept_configuration_header_payload(&mut self, port: u8,
+        payload: &crate::xhci_dma::UsbPayloadBuffer,
+        result: &crate::xhci_dma::TransferResult)
+        -> Result<u16, EnumerationError>
+    {
+        let entry = &self.ports[Self::port_index(port)?];
+        Self::validate_ep0_result(entry, result)?;
+        let mut header = [0u8; 9];
+        let copied = payload.copy_completed_to(result, &mut header)
+            .map_err(EnumerationError::Payload)?;
+        if copied != header.len() {
+            return Err(EnumerationError::Descriptor(DescriptorError::TooShort));
+        }
+        self.accept_configuration_header(port, &header)
     }
 
     /// Validate the 9-byte configuration header and return the bounded body
@@ -528,6 +560,16 @@ impl UsbDeviceManager {
         Ok(config)
     }
 
+    pub fn selected_configuration_value(&self, port: u8) -> Result<u8, EnumerationError> {
+        let entry = &self.ports[Self::port_index(port)?];
+        if entry.phase != EnumerationPhase::ConfigurationReady
+            && entry.phase != EnumerationPhase::SetConfigurationPending {
+            return Err(EnumerationError::InvalidTransition);
+        }
+        entry.configuration.map(|config| config.configuration_value)
+            .ok_or(EnumerationError::NoConfiguration)
+    }
+
     pub fn request_set_configuration(&mut self, port: u8) -> Result<(), EnumerationError> {
         let entry = &mut self.ports[Self::port_index(port)?];
         if entry.phase != EnumerationPhase::ConfigurationReady {
@@ -561,18 +603,36 @@ impl UsbDeviceManager {
         })
     }
 
+    /// Complete enumeration only from a successful, zero-data EP0 SET_CONFIGURATION
+    /// transfer correlated to this device's Slot ID.
+    pub fn accept_set_configuration_result(&mut self, port: u8,
+        result: &crate::xhci_dma::TransferResult)
+        -> Result<UsbDeviceRecord, EnumerationError>
+    {
+        let entry = &self.ports[Self::port_index(port)?];
+        Self::validate_ep0_result(entry, result)?;
+        if result.requested_length != 0 || result.actual_length != 0
+            || result.completion != crate::xhci_dma::TransferCompletion::Success {
+            return Err(EnumerationError::InvalidTransition);
+        }
+        self.note_configured(port)
+    }
+
     pub fn fail_port(&mut self, port: u8) -> Result<(), EnumerationError> {
         let entry = &mut self.ports[Self::port_index(port)?];
-        if entry.slot_id != 0 {
-            self.slot_used[entry.slot_id as usize] = false;
-            entry.slot_id = 0;
-        }
         if entry.phase == EnumerationPhase::Enumerated {
             self.device_count = self.device_count.saturating_sub(1);
         }
         entry.device = None;
         entry.configuration = None;
-        entry.phase = EnumerationPhase::Failed;
+        entry.configuration_total_length = 0;
+        if entry.slot_id != 0 {
+            // A failed enumeration still needs Disable Slot and DMA quiescence.
+            entry.connected = false;
+            entry.phase = EnumerationPhase::DisconnectPending;
+        } else {
+            entry.phase = EnumerationPhase::Failed;
+        }
         Ok(())
     }
 
