@@ -99,7 +99,7 @@ paths; PCI detection or a framebuffer does not imply GPU acceleration. The
 NVIDIA laptop GPU path also depends on platform firmware, display routing,
 and documented device-specific interfaces.
 
-## Build prerequisites
+## USB endpoint recovery and disconnect safety\n\n`src/usb_recovery.rs` adds a fixed-capacity software recovery coordinator. A correlated STALL result transitions an endpoint through Reset Endpoint, then Set TR Dequeue Pointer; each command requires its own successful completion before the next state is accepted. Endpoint identity is the controller-assigned Slot ID plus Endpoint ID. The module also decodes Port Status Change Event port IDs, but correctly requires a separate PortSC MMIO snapshot to determine current connection and speed.\n\nDisconnect handling is conservative: Disable Slot completion does not by itself authorize freeing DMA. The disconnect guard requires an independently verified DMA-quiescence fact before marking memory safe to reclaim; otherwise the slot remains quarantined. No commands are submitted, no doorbells are rung, and no DMA memory is released by this module.\n\n## Build prerequisites
 
 On Debian/Kali/Ubuntu:
 
