@@ -49,7 +49,7 @@ from supporting USB devices after the kernel starts.
 - In firmware setup, enable legacy BIOS/CSM boot if available and select the USB
   device from the one-time boot menu.
 - This image does not currently provide UEFI boot support.
-- xHCI validates its memory BAR, requests OS ownership, halts and resets the controller with bounded waits. A separate DMA-layout module allocates DCBAA, command/transfer producer rings, a single-segment event ring, ERST, slot-1 Device/Input Contexts, and optional scratchpad buffer arrays/storage using HCSParams2 and the context-size capability. It deliberately does not program these addresses into the controller, enable Run/Stop, ring doorbells, enumerate devices or handle ports.
+- xHCI validates its memory BAR, requests OS ownership, halts and resets the controller with bounded waits. A separate DMA-layout module allocates DCBAA, command/transfer producer rings, a single-segment event ring, ERST, slot-1 Device/Input Contexts, and optional scratchpad buffer arrays/storage using HCSParams2 and the context-size capability. The current setup programs selected DMA base/ring registers while the controller is halted and PCI bus mastering is disabled. It does not enable Run/Stop, ring doorbells, enumerate devices or handle ports.
 - USB keyboard and mouse HID drivers are not implemented. Firmware USB legacy
   emulation may work on some machines, but is not guaranteed.
 - The kernel currently has no persistent block storage or USB filesystem
@@ -464,3 +464,29 @@ The caller must supply truthful hardware read-back evidence. The existing
 controller bring-up path and hardware sequencing still require a separate
 audit before enabling live USB operation. No build or hardware test was run;
 those remain deferred as requested.
+
+
+## xHCI health diagnostics and error policy
+
+The controller health decoder interprets the read-only USBSTS snapshot and
+prioritizes Host System Error, Host Controller Error and Save/Restore Error as
+fatal. Controller Not Ready and an unexpected Halted state are classified as
+recoverable; event-interrupt and port-change indications are informational.
+The diagnostic policy itself does not clear USBSTS or PORTSC write-one-to-clear
+bits.
+
+`XhciDiagnosticLog` is a fixed-capacity, allocation-free 16-record history.
+Each record stores a monotonically wrapping sequence, caller-supplied timer
+tick, raw USBSTS value, primary diagnostic code and severity. When full, the
+oldest entry is overwritten and a counter records the number of overwritten
+records.
+
+`ControllerLifecycle::observe_health` connects health classification to the
+lifecycle model: fatal errors move it to `Quarantined`; recoverable errors move
+active phases to `Recovering`, and recoverable errors outside an active phase
+fail closed to `Faulted`. The boot diagnostic currently displays one
+read-only discovery-time USBSTS snapshot. It does not yet poll continuously,
+acknowledge status bits, run recovery, or perform live interrupt handling.
+
+No build, QEMU, or physical hardware test was run for this stage; those remain
+deferred until the planned implementation work is complete.
