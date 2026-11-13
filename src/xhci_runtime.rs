@@ -639,3 +639,148 @@ impl ControllerLifecycle {
         Ok(())
     }
 }
+
+
+/// Severity assigned to a read-only controller health snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticSeverity {
+    Informational,
+    Recoverable,
+    Fatal,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticCode {
+    HostSystemError,
+    HostControllerError,
+    SaveRestoreError,
+    ControllerNotReady,
+    UnexpectedHalt,
+    EventInterruptPending,
+    PortChangePending,
+    Healthy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ControllerDiagnostic {
+    pub sequence: u32,
+    pub tick: u32,
+    pub raw_status: u32,
+    pub code: DiagnosticCode,
+    pub severity: DiagnosticSeverity,
+}
+
+const DIAGNOSTIC_CAPACITY: usize = 16;
+
+/// Fixed-size, allocation-free diagnostic history. Oldest entries are
+/// overwritten when full; the dropped counter makes loss explicit.
+pub struct XhciDiagnosticLog {
+    entries: [Option<ControllerDiagnostic>; DIAGNOSTIC_CAPACITY],
+    next: usize,
+    len: usize,
+    sequence: u32,
+    dropped: u32,
+}
+
+impl XhciDiagnosticLog {
+    pub const fn new() -> Self {
+        Self {
+            entries: [None; DIAGNOSTIC_CAPACITY],
+            next: 0,
+            len: 0,
+            sequence: 0,
+            dropped: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize { self.len }
+    pub fn is_empty(&self) -> bool { self.len == 0 }
+    pub fn dropped_count(&self) -> u32 { self.dropped }
+
+    /// Return the newest record at age zero, then progressively older records.
+    pub fn newest(&self, age: usize) -> Option<ControllerDiagnostic> {
+        if age >= self.len { return None; }
+        let index = (self.next + DIAGNOSTIC_CAPACITY - 1 - age) % DIAGNOSTIC_CAPACITY;
+        self.entries[index]
+    }
+
+    pub fn record(
+        &mut self,
+        tick: u32,
+        raw_status: u32,
+        code: DiagnosticCode,
+        severity: DiagnosticSeverity,
+    ) -> ControllerDiagnostic {
+        if self.len == DIAGNOSTIC_CAPACITY {
+            self.dropped = self.dropped.saturating_add(1);
+        } else {
+            self.len += 1;
+        }
+        self.sequence = self.sequence.wrapping_add(1);
+        let entry = ControllerDiagnostic {
+            sequence: self.sequence,
+            tick,
+            raw_status,
+            code,
+            severity,
+        };
+        self.entries[self.next] = Some(entry);
+        self.next = (self.next + 1) % DIAGNOSTIC_CAPACITY;
+        entry
+    }
+}
+
+/// Select one primary diagnostic reason from a USBSTS snapshot. Fatal
+/// conditions take precedence over readiness and informational change bits.
+pub const fn diagnose_controller_health(
+    health: crate::xhci::ControllerHealth,
+) -> (DiagnosticCode, DiagnosticSeverity) {
+    if health.host_system_error {
+        (DiagnosticCode::HostSystemError, DiagnosticSeverity::Fatal)
+    } else if health.host_controller_error {
+        (DiagnosticCode::HostControllerError, DiagnosticSeverity::Fatal)
+    } else if health.save_restore_error {
+        (DiagnosticCode::SaveRestoreError, DiagnosticSeverity::Fatal)
+    } else if health.controller_not_ready {
+        (DiagnosticCode::ControllerNotReady, DiagnosticSeverity::Recoverable)
+    } else if health.halted {
+        (DiagnosticCode::UnexpectedHalt, DiagnosticSeverity::Recoverable)
+    } else if health.event_interrupt {
+        (DiagnosticCode::EventInterruptPending, DiagnosticSeverity::Informational)
+    } else if health.port_change_detect {
+        (DiagnosticCode::PortChangePending, DiagnosticSeverity::Informational)
+    } else {
+        (DiagnosticCode::Healthy, DiagnosticSeverity::Informational)
+    }
+}
+
+impl ControllerLifecycle {
+    /// Apply a decoded status snapshot to the software lifecycle model.
+    /// A fatal USBSTS condition quarantines DMA ownership immediately.
+    pub fn observe_health(
+        &mut self,
+        health: crate::xhci::ControllerHealth,
+        log: &mut XhciDiagnosticLog,
+        tick: u32,
+    ) -> ControllerDiagnostic {
+        let (code, severity) = diagnose_controller_health(health);
+        let record = log.record(tick, health.raw, code, severity);
+        match severity {
+            DiagnosticSeverity::Fatal => self.quarantine(),
+            DiagnosticSeverity::Recoverable => {
+                if self.phase == ControllerPhase::Running
+                    || self.phase == ControllerPhase::DmaConfigured
+                    || self.phase == ControllerPhase::InterrupterPrepared
+                {
+                    let _ = self.begin_recovery();
+                } else if self.phase != ControllerPhase::Recovering
+                    && self.phase != ControllerPhase::Quarantined
+                {
+                    self.fault();
+                }
+            }
+            DiagnosticSeverity::Informational => {}
+        }
+        record
+    }
+}
