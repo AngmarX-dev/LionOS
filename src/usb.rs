@@ -339,7 +339,8 @@ impl UsbDeviceManager {
         -> Result<(), EnumerationError>
     {
         let entry = &mut self.ports[Self::port_index(port)?];
-        if entry.phase != EnumerationPhase::DisconnectPending {
+        if entry.phase != EnumerationPhase::DisconnectPending
+            && entry.phase != EnumerationPhase::Quarantined {
             return Err(EnumerationError::InvalidTransition);
         }
         if !verified {
