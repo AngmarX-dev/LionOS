@@ -800,3 +800,24 @@ stacks, local APIC timer/IPI delivery, IOAPIC routing, CPU hotplug/offline
 protocol, TLB shootdown, lock contention diagnostics, and parallel scheduler
 queues. Consequently, this stage does not claim working multi-core execution.
 No build, QEMU SMP boot, or hardware concurrency test was run.
+
+
+## CPU exception diagnostics and conservative recovery
+
+The exception path now classifies the architectural vectors, reports the vector,
+error code, saved EIP/CS/EFLAGS over COM1, and decodes the Page Fault address
+(CR2) plus the standard present/write/user/reserved/instruction-fetch and newer
+protection metadata bits. INT3 (#BP) is the sole automatically resumable trap.
+All other CPU exceptions are fail-stop and halt after diagnostics; this avoids
+pretending that arbitrary kernel faults can be safely resumed without process
+isolation, exception fixups, or validated recovery regions.
+
+The ISR stubs normalize CPU-pushed error-code exceptions, including #VE, #CP,
+#VC and #SX, so the common frame has a consistent vector/error-code pair.
+This is important for newer virtualization/security exceptions. The exception
+handler does not allocate memory or take kernel locks.
+
+Not implemented: double-fault task gate/IST-equivalent emergency stack,
+NMI-specific recovery, kernel exception fixup tables, user-mode fault delivery,
+recoverable page-fault demand paging, panic backtraces, watchdog/reset policy,
+and fault-injection tests. No build or runtime tests were run.
