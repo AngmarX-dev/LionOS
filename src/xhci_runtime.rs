@@ -373,6 +373,7 @@ pub struct RecoveryEvidence {
     controller_halted: bool,
     bus_master_disabled: bool,
     dma_idle: bool,
+    dma_reclaimed: bool,
     generation: u32,
 }
 
@@ -384,6 +385,7 @@ impl RecoveryEvidence {
             controller_halted: false,
             bus_master_disabled: false,
             dma_idle: false,
+            dma_reclaimed: false,
             generation: 0,
         }
     }
@@ -397,6 +399,7 @@ impl RecoveryEvidence {
         self.controller_halted = false;
         self.bus_master_disabled = false;
         self.dma_idle = false;
+        self.dma_reclaimed = false;
         Ok(())
     }
 
@@ -452,7 +455,7 @@ impl RecoveryEvidence {
     }
 
     pub fn finish(&mut self) -> Result<(), RecoveryError> {
-        if !self.safe_to_reclaim() {
+        if !self.safe_to_reclaim() || !self.dma_reclaimed {
             return Err(RecoveryError::NotQuiesced);
         }
         self.active = false;
@@ -466,12 +469,13 @@ impl RecoveryEvidence {
 impl RecoveryEvidence {
     /// Reclaim the complete xHCI DMA set only after all quiescence evidence
     /// has been recorded. Any inconsistent ownership state quarantines all buffers.
-    pub unsafe fn reclaim_xhci_dma(&self, dma: &XhciDma) -> Result<(), RecoveryError> {
+    pub unsafe fn reclaim_xhci_dma(&mut self, dma: &XhciDma) -> Result<(), RecoveryError> {
         if !self.safe_to_reclaim() {
             dma.quarantine_all();
             return Err(RecoveryError::NotQuiesced);
         }
         if dma.reclaim_all_after_quiescence() {
+            self.dma_reclaimed = true;
             Ok(())
         } else {
             dma.quarantine_all();
