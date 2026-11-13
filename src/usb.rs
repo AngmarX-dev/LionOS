@@ -70,6 +70,7 @@ pub struct InterfaceDescriptor {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EndpointDescriptor {
+    pub interface_number: u8,
     pub address: u8,
     pub attributes: u8,
     pub max_packet_size: u16,
@@ -163,7 +164,11 @@ pub fn parse_configuration(bytes: &[u8]) -> Result<ConfigurationSummary, Descrip
                 if summary.endpoint_count == MAX_ENDPOINTS {
                     return Err(DescriptorError::CapacityExceeded);
                 }
+                let interface_index = current_interface.ok_or(DescriptorError::InvalidEndpoint)?;
+                let interface_number = summary.interfaces[interface_index]
+                    .ok_or(DescriptorError::InvalidEndpoint)?.number;
                 let endpoint = EndpointDescriptor {
+                    interface_number,
                     address: bytes[offset + 2],
                     attributes: bytes[offset + 3],
                     max_packet_size: u16::from_le_bytes([bytes[offset + 4], bytes[offset + 5]]),
