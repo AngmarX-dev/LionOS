@@ -167,20 +167,9 @@ pub fn trace_pci_step(step:u32) {
         4 => write_str("[TRACE] PCI scan step 4: multifunction header read completed\n"),
         5 => write_str("[TRACE] PCI scan step 5: command/class/header reads completed\n"),
         6 => write_str("[TRACE] PCI scan step 6: entering BAR decoder\n"),
+        7 => write_str("[TRACE] PCI BAR read: before config access\n"),
+        8 => write_str("[TRACE] PCI BAR read: config access returned\n"),
         _ => write_str("[TRACE] PCI scan step: unknown\n"),
-    }
-}
-
-#[inline(never)]
-pub fn trace_pci_bar(index:usize, phase:u8) {
-    match (index,phase) {
-        (0,0)=>write_str("[TRACE] PCI BAR0: before read\n"), (0,1)=>write_str("[TRACE] PCI BAR0: after read\n"),
-        (1,0)=>write_str("[TRACE] PCI BAR1: before read\n"), (1,1)=>write_str("[TRACE] PCI BAR1: after read\n"),
-        (2,0)=>write_str("[TRACE] PCI BAR2: before read\n"), (2,1)=>write_str("[TRACE] PCI BAR2: after read\n"),
-        (3,0)=>write_str("[TRACE] PCI BAR3: before read\n"), (3,1)=>write_str("[TRACE] PCI BAR3: after read\n"),
-        (4,0)=>write_str("[TRACE] PCI BAR4: before read\n"), (4,1)=>write_str("[TRACE] PCI BAR4: after read\n"),
-        (5,0)=>write_str("[TRACE] PCI BAR5: before read\n"), (5,1)=>write_str("[TRACE] PCI BAR5: after read\n"),
-        _=>write_str("[TRACE] PCI BAR: unknown\n"),
     }
 }
 
