@@ -6,9 +6,6 @@ on:
 jobs:
   rust-kernel:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: rust
     steps:
       - name: Checkout
         uses: actions/checkout@v4
