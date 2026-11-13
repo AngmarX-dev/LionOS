@@ -933,3 +933,36 @@ module does not yet provide an SMP/IRQ-safe filesystem lock. A future storage
 stage must add a block-device abstraction and a persistent filesystem driver
 before claiming disk storage. No Cargo build, QEMU boot, or hardware test was
 run for this stage; validation was limited to GitHub source read-back.
+
+
+## Block device layer
+
+Added `src/block.rs`, a fixed-capacity block-device contract intended to
+decouple filesystems from storage-controller implementations.
+
+The interface provides:
+
+- A bounded registry for up to eight block devices.
+- Geometry metadata: logical block size/count, removable and read-only flags.
+- Generation-checked opaque handles to reject stale references after removal.
+- Synchronous multi-block read and write dispatch through driver callbacks.
+- Request validation for zero-length operations, LBA overflow, device bounds,
+  and caller buffer capacity.
+- Read-only enforcement and an explicit flush callback.
+- Explicit unregister semantics; the caller must stop I/O and prove DMA/device
+  quiescence before removing a live device.
+
+Supported logical block sizes are powers of two from 512 through 4096 bytes.
+The callback contract is synchronous: drivers may not retain caller buffers
+after returning. Registration and registry mutation currently require
+serialized kernel initialization; this registry is not yet protected for
+concurrent SMP or interrupt-context access.
+
+The boot path now links the module and reports its registered-device count.
+No concrete storage driver is registered yet. PCI enumeration alone does not
+activate AHCI, NVMe, USB Mass Storage/BOT, or UAS. There is also no partition
+scanner, GPT/MBR parser, filesystem mount manager, or persistent filesystem
+backend. RAMFS remains the only active filesystem, and data is still volatile.
+
+No Cargo build, QEMU boot, or hardware storage test was run; validation for
+this stage was limited to GitHub source read-back.
