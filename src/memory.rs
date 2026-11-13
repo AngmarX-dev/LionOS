@@ -240,9 +240,16 @@ pub unsafe fn free_pages(address:u32,pages:u32)->bool{
 }
 pub unsafe fn free_frame(address:u32)->bool{free_pages(address,1)}
 
+/// Early-boot diagnostic snapshot. The bootstrap runs with interrupts disabled
+/// and before secondary CPUs are started, so taking the snapshot without the
+/// allocator spinlock is safe and avoids introducing a lock dependency into
+/// boot diagnostics.
 pub fn stats(_legacy_total_usable_bytes:u64)->MemoryStats{
-    let _guard=AllocatorGuard::acquire();
-    unsafe{MemoryStats{total_usable_bytes:TOTAL_USABLE_BYTES,free_frames:FREE_FRAMES,initialized:READY}}
+    unsafe{MemoryStats{
+        total_usable_bytes:core::ptr::read_volatile(core::ptr::addr_of!(TOTAL_USABLE_BYTES)),
+        free_frames:core::ptr::read_volatile(core::ptr::addr_of!(FREE_FRAMES)),
+        initialized:core::ptr::read_volatile(core::ptr::addr_of!(READY)),
+    }}
 }
 
 pub fn is_ready()->bool{
