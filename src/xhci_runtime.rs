@@ -7,6 +7,7 @@
 
 use crate::xhci_dma::{EventAckToken, EventRecord, EventRing, EventType};
 use crate::mmio::MmioRegion;
+use crate::dma::DmaBuffer;
 use core::sync::atomic::{compiler_fence, fence, Ordering};
 
 const IMAN_IE: u32 = 1 << 1;
@@ -353,4 +354,110 @@ impl<'a> XhciRuntimeRegisters<'a> {
         fence(Ordering::SeqCst);
         Ok(())
     }
+}
+
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryError {
+    InvalidState,
+    NotQuiesced,
+}
+
+/// Software evidence gate for DMA reclamation. Each evidence method must be
+/// called only after the corresponding hardware condition was independently
+/// read back and verified by the controller-management layer.
+pub struct RecoveryEvidence {
+    active: bool,
+    run_stop_cleared: bool,
+    controller_halted: bool,
+    bus_master_disabled: bool,
+    dma_idle: bool,
+    generation: u32,
+}
+
+impl RecoveryEvidence {
+    pub const fn new() -> Self {
+        Self {
+            active: false,
+            run_stop_cleared: false,
+            controller_halted: false,
+            bus_master_disabled: false,
+            dma_idle: false,
+            generation: 0,
+        }
+    }
+
+    pub fn begin(&mut self) -> Result<(), RecoveryError> {
+        if self.active {
+            return Err(RecoveryError::InvalidState);
+        }
+        self.active = true;
+        self.run_stop_cleared = false;
+        self.controller_halted = false;
+        self.bus_master_disabled = false;
+        self.dma_idle = false;
+        Ok(())
+    }
+
+    pub fn note_run_stop_cleared(&mut self) -> Result<(), RecoveryError> {
+        if !self.active { return Err(RecoveryError::InvalidState); }
+        self.run_stop_cleared = true;
+        Ok(())
+    }
+
+    pub fn note_controller_halted(&mut self) -> Result<(), RecoveryError> {
+        if !self.active || !self.run_stop_cleared {
+            return Err(RecoveryError::InvalidState);
+        }
+        self.controller_halted = true;
+        Ok(())
+    }
+
+    pub fn note_bus_master_disabled(&mut self) -> Result<(), RecoveryError> {
+        if !self.active { return Err(RecoveryError::InvalidState); }
+        self.bus_master_disabled = true;
+        Ok(())
+    }
+
+    pub fn note_dma_idle(&mut self) -> Result<(), RecoveryError> {
+        if !self.active || !self.controller_halted || !self.bus_master_disabled {
+            return Err(RecoveryError::InvalidState);
+        }
+        self.dma_idle = true;
+        Ok(())
+    }
+
+    pub fn safe_to_reclaim(&self) -> bool {
+        self.active && self.run_stop_cleared && self.controller_halted
+            && self.bus_master_disabled && self.dma_idle
+    }
+
+    /// This is the only runtime helper that returns a device-owned DMA buffer
+    /// to CPU ownership. Safety depends on truthful, hardware-verified evidence.
+    pub unsafe fn reclaim_buffer(&self, buffer: &DmaBuffer) -> Result<(), RecoveryError> {
+        if !self.safe_to_reclaim() {
+            return Err(RecoveryError::NotQuiesced);
+        }
+        if buffer.reclaim_after_quiescence() {
+            Ok(())
+        } else {
+            Err(RecoveryError::InvalidState)
+        }
+    }
+
+    /// Preserve memory permanently when controller activity cannot be ruled out.
+    pub fn quarantine_buffer(&self, buffer: &DmaBuffer) {
+        buffer.quarantine();
+    }
+
+    pub fn finish(&mut self) -> Result<(), RecoveryError> {
+        if !self.safe_to_reclaim() {
+            return Err(RecoveryError::NotQuiesced);
+        }
+        self.active = false;
+        self.generation = self.generation.wrapping_add(1);
+        Ok(())
+    }
+
+    pub fn generation(&self) -> u32 { self.generation }
 }
