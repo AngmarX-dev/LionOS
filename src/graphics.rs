@@ -61,3 +61,84 @@ pub fn fill_rect(x: u32, y: u32, width: u32, height: u32, color: (u8,u8,u8)) {
         for px in x.min(fb.width)..x1 { let _ = put_pixel(px, py, color.0, color.1, color.2); }
     }
 }
+
+const CURSOR_WIDTH: usize = 12;
+const CURSOR_HEIGHT: usize = 16;
+const CURSOR_ROWS: [u16; CURSOR_HEIGHT] = [
+    0x800, 0xC00, 0xA00, 0x980, 0x8C0, 0x860, 0x830, 0x818,
+    0x80C, 0x806, 0x803, 0x87E, 0x8C0, 0xA60, 0xD30, 0xE18,
+];
+static mut CURSOR_VISIBLE: bool = false;
+static mut CURSOR_X: u32 = 0;
+static mut CURSOR_Y: u32 = 0;
+static mut CURSOR_SAVE: [u32; CURSOR_WIDTH * CURSOR_HEIGHT] = [0; CURSOR_WIDTH * CURSOR_HEIGHT];
+
+unsafe fn read_raw_pixel(fb: Framebuffer, x: u32, y: u32) -> u32 {
+    let bytes = (fb.bpp as usize + 7) / 8;
+    let ptr = (fb.address as *const u8).add(y as usize * fb.pitch as usize + x as usize * bytes);
+    let mut value = read_volatile(ptr) as u32;
+    value |= (read_volatile(ptr.add(1)) as u32) << 8;
+    value |= (read_volatile(ptr.add(2)) as u32) << 16;
+    if bytes == 4 { value |= (read_volatile(ptr.add(3)) as u32) << 24; }
+    value
+}
+
+unsafe fn write_raw_pixel(fb: Framebuffer, x: u32, y: u32, value: u32) {
+    let bytes = (fb.bpp as usize + 7) / 8;
+    let ptr = (fb.address as *mut u8).add(y as usize * fb.pitch as usize + x as usize * bytes);
+    write_volatile(ptr, value as u8);
+    write_volatile(ptr.add(1), (value >> 8) as u8);
+    write_volatile(ptr.add(2), (value >> 16) as u8);
+    if bytes == 4 { write_volatile(ptr.add(3), (value >> 24) as u8); }
+}
+
+/// Draw a software pointer with save-under restoration so moving it does not
+/// leave trails or permanently overwrite the desktop beneath it.
+pub fn draw_cursor(x: u32, y: u32) {
+    unsafe {
+        let Some(fb) = FB else { return; };
+        let save = core::ptr::addr_of_mut!(CURSOR_SAVE);
+        if CURSOR_VISIBLE {
+            for row in 0..CURSOR_HEIGHT {
+                for col in 0..CURSOR_WIDTH {
+                    if CURSOR_ROWS[row] & (1 << (CURSOR_WIDTH - 1 - col)) != 0 {
+                        let px = CURSOR_X.saturating_add(col as u32);
+                        let py = CURSOR_Y.saturating_add(row as u32);
+                        if px < fb.width && py < fb.height {
+                            write_raw_pixel(fb, px, py, (*save)[row * CURSOR_WIDTH + col]);
+                        }
+                    }
+                }
+            }
+        }
+
+        let max_x = fb.width.saturating_sub(CURSOR_WIDTH as u32);
+        let max_y = fb.height.saturating_sub(CURSOR_HEIGHT as u32);
+        let origin_x = x.min(max_x);
+        let origin_y = y.min(max_y);
+        for row in 0..CURSOR_HEIGHT {
+            for col in 0..CURSOR_WIDTH {
+                if CURSOR_ROWS[row] & (1 << (CURSOR_WIDTH - 1 - col)) != 0 {
+                    let px = origin_x + col as u32;
+                    let py = origin_y + row as u32;
+                    if px < fb.width && py < fb.height {
+                        (*save)[row * CURSOR_WIDTH + col] = read_raw_pixel(fb, px, py);
+                        let _ = put_pixel(px, py, 8, 10, 16);
+                    }
+                }
+            }
+        }
+        // Bright inner edge for contrast on both light and dark backgrounds.
+        for row in 2..11 {
+            let col = if row < 5 { 1 } else { 2 };
+            let px = origin_x + col;
+            let py = origin_y + row as u32;
+            if px < fb.width && py < fb.height {
+                let _ = put_pixel(px, py, 245, 247, 252);
+            }
+        }
+        CURSOR_X = origin_x;
+        CURSOR_Y = origin_y;
+        CURSOR_VISIBLE = true;
+    }
+}
