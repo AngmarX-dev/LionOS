@@ -7,7 +7,7 @@ struct Node{used:bool,name:[u8;NAME_LEN],len:usize,data:[u8;FILE_CAPACITY]}
 impl Node{const EMPTY:Self=Self{used:false,name:[0;NAME_LEN],len:0,data:[0;FILE_CAPACITY]};}
 static mut NODES:[Node;NODE_COUNT]=[Node::EMPTY;NODE_COUNT];
 fn valid_name(name:&str)->bool{!name.is_empty()&&name.len()<NAME_LEN&&!name.contains("..")&&!name.contains('/')&&!name.contains('\\')}
-fn matches(node:&Node,name:&str)->bool{node.used&&name.len()<NAME_LEN&& &node.name[..name.len()]==name.as_bytes()&&node.name[name.len()]==0}
+fn matches(node:&Node,name:&str)->bool{node.used && name.len()<NAME_LEN && node.name[..name.len()]==name.as_bytes()[..] && node.name[name.len()]==0}
 pub fn create(name:&str)->bool{
     if !valid_name(name){return false;}
     unsafe{
