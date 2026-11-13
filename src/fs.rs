@@ -34,7 +34,7 @@ impl Node {
     };
 }
 
-static mut NODES: [Node; NODE_COUNT] = [Node::EMPTY; NODE_COUNT];
+const fn initial_nodes() -> [Node; NODE_COUNT] {\n    let mut nodes = [Node::EMPTY; NODE_COUNT];\n    nodes[0] = Node::ROOT;\n    nodes\n}\n\nstatic mut NODES: [Node; NODE_COUNT] = initial_nodes();
 static mut NEXT_GENERATION: u32 = 2;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -98,7 +98,7 @@ fn find_child(parent: usize, name: &str) -> Option<usize> {
         while i < NODE_COUNT {
             let node = &NODES[i];
             if node.kind != NodeKind::Free && node.parent == parent
-                && node.name[..name.len()] == *name.as_bytes()
+                && &node.name[..name.len()] == name.as_bytes()
                 && node.name[name.len()] == 0 { return Some(i); }
             i += 1;
         }
