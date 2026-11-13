@@ -176,10 +176,11 @@ pub fn alloc_frame()->Option<u32>{alloc_pages(1)}
 /// Allocate and clear a contiguous physical page run. Requires the bootstrap
 /// identity map so the returned physical range is writable through its address.
 pub fn alloc_zeroed_pages(pages:u32)->Option<u32>{
-    if !crate::paging::is_ready(){return None;}
+    if !crate::paging::is_ready()||pages==0{return None;}
+    let bytes=(pages as u64).checked_mul(PAGE_SIZE as u64)?;
+    if bytes>usize::MAX as u64{return None;}
     let address=alloc_pages(pages)?;
-    let bytes=(pages as usize).checked_mul(PAGE_SIZE as usize)?;
-    unsafe{core::ptr::write_bytes(address as *mut u8,0,bytes);}
+    unsafe{core::ptr::write_bytes(address as *mut u8,0,bytes as usize);}
     Some(address)
 }
 
