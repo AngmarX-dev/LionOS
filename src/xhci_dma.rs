@@ -684,13 +684,13 @@ pub fn control_transfer_trbs(setup:UsbSetupPacket,data_buffer:u64)
  let data_trb=Trb{
   parameter:data_buffer,status:setup.length as u32,
   control:(TRB_TYPE_DATA_STAGE<<TRB_TYPE_SHIFT)
-   |if setup.request_type&0x80!=0{TRB_DIR_IN}else{0}|TRB_CHAIN,
+   |(if setup.request_type&0x80!=0{TRB_DIR_IN}else{0})|TRB_CHAIN,
  };
  let status_in=!has_data||setup.request_type&0x80==0;
  let status_trb=Trb{
   parameter:0,status:0,
   control:(TRB_TYPE_STATUS_STAGE<<TRB_TYPE_SHIFT)
-   |if status_in{TRB_DIR_IN}else{0}|TRB_IOC,
+   |(if status_in{TRB_DIR_IN}else{0})|TRB_IOC,
  };
  let mut trbs=[setup_trb,data_trb,status_trb];
  if !has_data {trbs[1]=status_trb;trbs[2]=Trb::default();}
