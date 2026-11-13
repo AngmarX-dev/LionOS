@@ -1,6 +1,13 @@
 //! DMA-safe physically contiguous buffers for 32-bit bus masters.
 use core::ptr::write_bytes;
-use core::sync::atomic::{compiler_fence,Ordering};
+use core::sync::atomic::{compiler_fence,AtomicU8,Ordering};
+
+const DMA_CPU_OWNED:u8=0;
+const DMA_DEVICE_OWNED:u8=1;
+const DMA_QUARANTINED:u8=2;
+
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum DmaOwnership{CpuOwned,DeviceOwned,Quarantined}
 
 /// Owns a contiguous, page-aligned physical allocation. In the current bring-up
 /// map, its virtual pointer is the same as its physical address (identity map).
@@ -40,5 +47,5 @@ pub fn alloc(length:usize,alignment:usize,boundary:usize,max_address:u64)->Optio
     let pointer=physical as usize as *mut u8;
     unsafe{write_bytes(pointer,0,pages as usize*crate::memory::PAGE_SIZE as usize);}
     compiler_fence(Ordering::SeqCst);
-    Some(DmaBuffer{physical:physical as u64,virtual_address:pointer,length,pages})
+    Some(DmaBuffer{physical:physical as u64,virtual_address:pointer,length,pages,ownership:AtomicU8::new(DMA_CPU_OWNED)})
 }
