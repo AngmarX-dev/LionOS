@@ -99,6 +99,16 @@ paths; PCI detection or a framebuffer does not imply GPU acceleration. The
 NVIDIA laptop GPU path also depends on platform firmware, display routing,
 and documented device-specific interfaces.
 
+## PS/2 mouse input and desktop pointer
+
+Added `src/mouse.rs`, a bounded legacy 8042 auxiliary-port driver. Initialization disables the auxiliary port during setup, reads and updates the controller configuration byte, enables the auxiliary clock and IRQ12, sends the mouse defaults command, negotiates the IntelliMouse wheel protocol (and Explorer extension when available), and enables data reporting. Every controller wait has a finite iteration limit; a missing or unresponsive mouse reports an initialization error rather than hanging boot.
+
+IRQ12 (PIC vector 44) consumes one data byte, feeds a packet decoder, and acknowledges the slave and master PICs. The decoder synchronizes on the PS/2 packet header, rejects X/Y overflow packets, sign-extends movement deltas, inverts the vertical axis for screen coordinates, clamps the pointer to the framebuffer, and exposes left/right/middle plus optional side buttons and wheel movement in an atomic snapshot. Keyboard polling ignores auxiliary-port bytes so it cannot steal mouse packets.
+
+The desktop refresh loop draws a software arrow cursor using framebuffer save-under storage. The previous cursor footprint is restored before a new one is drawn, avoiding cursor trails and preserving the pixels underneath it. The PS/2 mouse is initialized during subsystem bring-up; IRQ12 is unmasked only after the device acknowledges enable-data-reporting. If initialization fails, IRQ12 remains masked. The desktop still has no full window hit-testing or click-action dispatcher, and USB HID mice are not yet supported because live xHCI enumeration/class drivers remain inactive.
+
+This stage has source read-back only. Cargo build, QEMU boot and physical mouse validation have not been run; hardware behavior remains unverified.
+ 
 ## Staged USB configuration enumeration
 
 Configuration Descriptor retrieval is split into two bounded control transfers. The first request fetches exactly the 9-byte descriptor header using **GET_DESCRIPTOR(Configuration)** (request 6, descriptor type 2); this is distinct from the USB **GET_CONFIGURATION** request (request 8). The header parser validates descriptor length/type and reads `wTotalLength`. The second request is limited to the validated total length and a 4096-byte software cap. The full descriptor parser then validates the returned descriptor chain before the manager exposes its configuration value.
