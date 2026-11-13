@@ -858,9 +858,9 @@ The PS/2 keyboard path now uses IRQ1 instead of one-shot boot-time polling:
 - The queue exposes pressed/released state, extended-key metadata, a dropped
   event counter, and a basic ASCII translation helper for common non-extended
   keys. Modifier policy and desktop text entry remain higher-level work.
-- IRQ1 is unmasked without changing unrelated PIC mask bits. The boot path
-  leaves IF disabled until the normal idle path, so the handler is installed
-  before keyboard interrupts can be delivered.
+- Initialization enables the first 8042 port, sets the controller's IRQ1
+  configuration bit, and only then unmasks PIC IRQ1 without changing unrelated
+  mask bits. It runs after auxiliary mouse setup and before IF is enabled.
 
 This is a legacy PS/2 keyboard driver, not USB HID support. USB HID keyboard and
 mouse class drivers still require live xHCI enumeration, endpoint activation,
