@@ -233,6 +233,8 @@ fn report_usb_enumeration(){
     write_str("  Event runtime: bounded batch routing to command/transfer engines; ERDP ack gated by MMIO success\n");
     write_str("  Endpoint recovery: STALL -> Reset Endpoint -> Set TR Dequeue Pointer (software only)\n");
     write_str("  Disconnect safety: Disable Slot plus independent DMA-quiescence proof required\n");
+    write_str("  Configuration enumeration: 9-byte header -> bounded body (max 4096 bytes) -> SET_CONFIGURATION\n");
+    write_str("  USB payload correlation: EP0 Slot/Endpoint and successful Transfer Event required\n");
     write_str("[INFO] Event runtime APIs are not activated in boot; no USB commands submitted or events polled\n");
 }
 
