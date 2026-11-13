@@ -393,6 +393,8 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("\nRUST PORT INVENTORY\n");
     write_str("[ OK ] x86 port I/O, GDT, IDT exception/IRQ dispatch, PIC and PIT timer\n");
     write_str("[ OK ] 32-bit TSS loaded (SS0/ESP0); kernel and interrupt context layouts defined\n");
+    write_str("[ OK ] Cooperative x86 context-switch assembly linked; scheduler integration pending\n");
+    write_str("[ -- ] Preemptive switching and Ring 3 transitions not enabled\n");
     write_str("[ -- ] Assembly context switch, per-task kernel stacks and ring-3 transitions not enabled\n");
     write_str("[ OK ] Multiboot2 memory map and fixed physical-frame allocator\n");
     write_str("[ OK ] PCI discovery, BAR metadata, bounded MMIO and DMA allocation primitives\n");
