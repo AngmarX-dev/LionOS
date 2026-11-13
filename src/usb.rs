@@ -215,6 +215,7 @@ pub enum EnumerationError {
     InvalidSlot,
     Descriptor(DescriptorError),
     NoConfiguration,
+    Payload(crate::xhci_dma::UsbPayloadError),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
