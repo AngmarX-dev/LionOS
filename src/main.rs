@@ -257,9 +257,9 @@ fn initialize_subsystems() {
         // Complete software-composited desktop; native GPU acceleration is not claimed.
         desktop::render_frame();
         if graphics::backbuffer_ready() && graphics::present() {
-            write_str("[ OK ] Dirty-region framebuffer presentation active\\n");
+            write_str("[ OK ] Dirty-region framebuffer presentation active\n");
         } else {
-            write_str("[INFO] Direct framebuffer presentation active\\n");
+            write_str("[INFO] Direct framebuffer presentation active\n");
         }
         write_str("[ OK ] Software framebuffer renderer active\n");
     }
@@ -342,9 +342,9 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         write_str("[ OK ] 4 GiB supervisor identity paging enabled (4 MiB PSE pages)\n");
     } else { write_str("[WARN] Paging initialization failed\n"); }
     if graphics::initialize_pipeline() {
-        write_str("[ OK ] Graphics pipeline backbuffer initialized\\n");
+        write_str("[ OK ] Graphics pipeline backbuffer initialized\n");
     } else {
-        write_str("[WARN] Graphics backbuffer unavailable; direct framebuffer mode\\n");
+        write_str("[WARN] Graphics backbuffer unavailable; direct framebuffer mode\n");
     }
     if memory_ready {
         write_str("[ OK ] Physical frame allocator initialized; usable bytes ");
@@ -373,12 +373,12 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         xhci::InitStatus::NotReadyTimeout=>write_str("controller-not-ready timeout"),
         xhci::InitStatus::ReadyStopped=>write_str("ready and halted; DMA not started"),
     }
-    write_str("\\n");
+    write_str("\n");
     write_str("  OS ownership requested: ");write_str(if xhci_init.ownership_requested{"yes"}else{"not needed"});
     write_str("; BIOS released: ");write_str(if xhci_init.bios_released{"yes"}else{"no/unknown"});
     write_str("; halted: ");write_str(if xhci_init.controller_halted{"yes"}else{"no"});
     write_str("; reset: ");write_str(if xhci_init.reset_completed{"complete"}else{"not complete"});
-    write_str("; CNR clear: ");write_str(if xhci_init.controller_ready{"yes"}else{"no/unknown"});write_str("\\n");
+    write_str("; CNR clear: ");write_str(if xhci_init.controller_ready{"yes"}else{"no/unknown"});write_str("\n");
     if xhci_init.status==xhci::InitStatus::ReadyStopped {
         if let Some(info)=xhci::discover() {
             match xhci_dma::XhciDma::allocate(info.scratchpad_count,info.context_size) {
@@ -387,7 +387,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
                     write_dec(layout.scratchpad_count() as u32);
                     write_str("; context bytes: ");
                     write_dec(layout.device_context.device_context_bytes() as u32);
-                    write_str("\\n");
+                    write_str("\n");
                     let programmed=xhci::program_dma_registers(&info,&layout);
                     write_str("  xHCI DMA register setup: ");
                     match programmed {
@@ -401,10 +401,10 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
                         xhci::DmaProgramStatus::MmioUnavailable=>write_str("MMIO register window unavailable"),
                         xhci::DmaProgramStatus::RegisterWriteFailed=>write_str("one or more register writes failed; controller remains halted"),
                     }
-                    write_str("\\n");
+                    write_str("\n");
                     core::mem::forget(layout);
                 }
-                Err(_)=>write_str("[WARN] xHCI DMA context/scratchpad allocation failed; controller remains halted\\n"),
+                Err(_)=>write_str("[WARN] xHCI DMA context/scratchpad allocation failed; controller remains halted\n"),
             }
         }
     }
@@ -422,8 +422,8 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 keyboard polling and bounded mouse driver (IRQ12 on successful init)\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");
     write_str("[ OK ] xHCI PCI capability discovery, BAR sizing and ownership/reset state machine\n");
-    write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\\n");
-    write_str("[ -- ] xHCI controller DMA activation, interrupter setup, port handling and USB enumeration not implemented\\n");
+    write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\n");
+    write_str("[ -- ] xHCI controller DMA activation, interrupter setup, port handling and USB enumeration not implemented\n");
     write_str("[ OK ] USB descriptor parser and bounded enumeration state model (software-only)\n");
     write_str("[ OK ] xHCI guarded command/doorbell dispatch source integrated; not activated\n");
     write_str("[ OK ] Generic USB control-transfer builder and gated EP0/endpoint dispatcher source integrated\n");
