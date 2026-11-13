@@ -270,6 +270,8 @@ pub enum TransferDispatchError {
     ControllerNotRunning,
     DmaNotDeviceOwned,
     InvalidSlot,
+    InvalidPayload,
+    Payload(crate::xhci_dma::UsbPayloadError),
     Transfer(crate::xhci_dma::TransferError),
     Doorbell(DoorbellError),
 }
@@ -308,6 +310,46 @@ impl XhciControlTransferDispatcher {
             slot_id, endpoint_id, stream_id)
             .map_err(TransferDispatchError::Doorbell)?;
         Ok(completion_pointer)
+    }
+
+    /// Submit a data-stage control TD using an owned USB payload buffer.
+    /// The payload is handed to the device before the TD is published. Any
+    /// failure after handoff quarantines it rather than risking CPU reuse.
+    pub fn submit_payload(&mut self, ring: &mut crate::xhci_dma::ProducerRing,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, slot_id: u8, endpoint_id: u8,
+        stream_id: u16, setup: crate::xhci_dma::UsbSetupPacket,
+        payload: &crate::xhci_dma::UsbPayloadBuffer)
+        -> Result<u64, TransferDispatchError> {
+        if lifecycle.phase() != RuntimePhase::Running {
+            return Err(TransferDispatchError::ControllerNotRunning);
+        }
+        if !dma_device_owned {
+            return Err(TransferDispatchError::DmaNotDeviceOwned);
+        }
+        if slot_id == 0 { return Err(TransferDispatchError::InvalidSlot); }
+        if setup.length == 0 || setup.length as usize > payload.length()
+            || payload.ownership() != crate::dma::DmaOwnership::CpuOwned {
+            return Err(TransferDispatchError::InvalidPayload);
+        }
+        if !payload.handoff_to_device() {
+            return Err(TransferDispatchError::Payload(
+                crate::xhci_dma::UsbPayloadError::NotCpuOwned));
+        }
+        let pointer = match self.engine.submit_control(
+            ring, slot_id, endpoint_id, setup, payload.physical_address()) {
+            Ok(value) => value,
+            Err(error) => {
+                payload.quarantine();
+                return Err(TransferDispatchError::Transfer(error));
+            }
+        };
+        if let Err(error) = doorbells.ring_endpoint(
+            lifecycle, dma_device_owned, slot_id, endpoint_id, stream_id) {
+            payload.quarantine();
+            return Err(TransferDispatchError::Doorbell(error));
+        }
+        Ok(pointer)
     }
 
     pub fn poll_one(&mut self, events: &mut crate::xhci_dma::EventRing)
