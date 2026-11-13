@@ -8,6 +8,7 @@
 use crate::xhci_dma::{EventAckToken, EventRecord, EventRing, EventType};
 use crate::mmio::MmioRegion;
 use crate::dma::DmaBuffer;
+use crate::xhci_dma::XhciDma;
 use core::sync::atomic::{compiler_fence, fence, Ordering};
 
 const IMAN_IE: u32 = 1 << 1;
@@ -460,4 +461,21 @@ impl RecoveryEvidence {
     }
 
     pub fn generation(&self) -> u32 { self.generation }
+}
+
+impl RecoveryEvidence {
+    /// Reclaim the complete xHCI DMA set only after all quiescence evidence
+    /// has been recorded. Any inconsistent ownership state quarantines all buffers.
+    pub unsafe fn reclaim_xhci_dma(&self, dma: &XhciDma) -> Result<(), RecoveryError> {
+        if !self.safe_to_reclaim() {
+            dma.quarantine_all();
+            return Err(RecoveryError::NotQuiesced);
+        }
+        if dma.reclaim_all_after_quiescence() {
+            Ok(())
+        } else {
+            dma.quarantine_all();
+            Err(RecoveryError::InvalidState)
+        }
+    }
 }
