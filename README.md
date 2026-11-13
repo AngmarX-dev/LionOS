@@ -898,3 +898,38 @@ USB HID driver still needs safe controller start, root-port enumeration,
 address/configuration, HID class requests, interrupt-IN transfer scheduling,
 completion correlation, and disconnect/DMA-quiescence handling. No build,
 QEMU, or physical input test was run.
+
+
+## Hierarchical RAM filesystem
+
+The Rust kernel's filesystem core is now a bounded, allocation-free hierarchical
+RAMFS rather than a flat array of named files.
+
+Implemented operations include:
+
+- Root directory and nested directory creation with `create_dir`.
+- File creation/opening and generation-checked opaque file handles.
+- Bounded read, truncate-write and append operations.
+- Path-based read/write helpers, metadata lookup (`stat`) and indexed
+  directory enumeration (`read_dir`).
+- File removal and empty-directory removal. Non-empty directories and the
+  filesystem root cannot be removed.
+- Capacity reporting for allocated nodes, files and directories.
+
+Paths are case-sensitive UTF-8 byte strings using '/' separators. Repeated
+separators and '.' components are accepted; '..', backslashes, invalid UTF-8
+and overlong names are rejected. The fixed limits are 63 non-root nodes,
+63-byte names and 4096 bytes per file. Storage is statically reserved, so this
+implementation does not require the kernel heap.
+
+The boot sequence now creates `/boot/BOOT.TXT` and reports RAMFS node usage.
+Legacy flat-name helpers remain available for existing kernel callers.
+
+**Current limitations:** RAMFS is volatile and loses contents on reboot. There
+is no block-device layer, partition parser, on-disk filesystem (FAT/ext2),
+mount table, journaling, permissions/ownership, symbolic links, or file cache.
+Filesystem calls are currently expected to be serialized by kernel code; the
+module does not yet provide an SMP/IRQ-safe filesystem lock. A future storage
+stage must add a block-device abstraction and a persistent filesystem driver
+before claiming disk storage. No Cargo build, QEMU boot, or hardware test was
+run for this stage; validation was limited to GitHub source read-back.
