@@ -297,7 +297,6 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         CURSOR=0;
         for i in 0..(VGA_COLUMNS*VGA_ROWS) { write_volatile(VGA_TEXT.add(i),0x0F20); }
     }
-    let arch_report = unsafe { arch::init::early_init() };
     serial_init();
     write_str("\nLionOS Rust Kernel - modular rewrite\n");
     write_str("====================================\n");
@@ -306,6 +305,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
         halt_forever();
     }
     write_str("[ OK ] Multiboot2 entry verified\n");
+    let arch_report = unsafe { arch::init::early_init() };
     if arch_report.gdt_tss_loaded && arch_report.idt_loaded {
         write_str("[ OK ] x86 GDT/TSS and 256-entry IDT initialized in order\n");
     }
