@@ -433,7 +433,8 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] xHCI DMA memory layout and halted-register programming: DCBAAP, CRCR, ERSTSZ, ERSTBA, ERDP; no bus mastering, interrupter enable or Run/Stop\n");
     write_str("[ -- ] xHCI controller DMA activation, interrupter setup, port handling and USB enumeration not implemented\n");
     write_str("[ OK ] USB descriptor parser, interface-bound endpoints and bounded enumeration model\n");
-    write_str("[ OK ] USB HID boot keyboard/mouse classification and bounded report decoders (not connected to live transfers)\n");
+    write_str("[ OK ] USB HID boot keyboard/mouse matching, setup requests and bounded report decoders (offline)\n");
+    write_str("[ OK ] Desktop idle-loop keyboard event routing and mouse status updates\n");
     write_str("[ OK ] xHCI guarded command/doorbell dispatch source integrated; not activated\n");
     write_str("[ OK ] Generic USB control-transfer builder and gated EP0/endpoint dispatcher source integrated\n");
     write_str("[ OK ] bounded USB DMA payload pool, completion-length validation and descriptor handoff source integrated\n");
