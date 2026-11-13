@@ -800,7 +800,8 @@ impl TransferTracker {
     fn reserve(&mut self,p:PendingTransfer)->Result<(),TransferError>{
         if self.len==self.pending.len(){return Err(TransferError::TrackerFull);}
         if self.pending[..self.len].iter().flatten().any(|v|
-            v.setup_trb_pointer==p.setup_trb_pointer||v.data_trb_pointer==p.data_trb_pointer
+            v.setup_trb_pointer==p.setup_trb_pointer
+             ||(p.data_trb_pointer!=0&&v.data_trb_pointer==p.data_trb_pointer)
              ||v.status_trb_pointer==p.status_trb_pointer){
             return Err(TransferError::UnknownTransfer);
         }
