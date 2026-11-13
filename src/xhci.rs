@@ -19,6 +19,7 @@ pub struct XhciInfo{
     pub bar_index:u8,pub bar_base:u32,pub bar_size:u64,
     pub version:u16,pub cap_length:u8,
     pub max_slots:u8,pub max_interrupters:u16,pub max_ports:u8,
+    pub scratchpad_count:u16,pub context_size:usize,
     pub address_64bit:bool,pub doorbell_offset:u32,pub runtime_offset:u32,
     pub usb_status:u32,
     pub legacy_support_found:bool,pub bios_owned:bool,pub os_owned:bool,
@@ -67,6 +68,7 @@ unsafe fn inspect(device:PciDevice)->Option<XhciInfo>{
         let version=(cap0>>16) as u16;
         if cap_length<0x20||cap_length as usize+8>PROBE_WINDOW||version==0||version==0xFFFF{continue;}
         let hcsparams1=match read(&region,0x04){Some(v)=>v,None=>continue};
+        let hcsparams2=match read(&region,0x08){Some(v)=>v,None=>continue};
         let hccparams1=match read(&region,0x10){Some(v)=>v,None=>continue};
         let dboff=match read(&region,0x14){Some(v)=>v&!3,None=>continue};
         let rtsoff=match read(&region,0x18){Some(v)=>v&!0x1F,None=>continue};
@@ -82,6 +84,8 @@ unsafe fn inspect(device:PciDevice)->Option<XhciInfo>{
             bar_index:index as u8,bar_base:bar.base as u32,bar_size,
             version,cap_length,max_slots:(hcsparams1&0xFF) as u8,
             max_interrupters:((hcsparams1>>8)&0x7FF) as u16,max_ports:(hcsparams1>>24) as u8,
+            scratchpad_count:((((hcsparams2>>25)&0x7F)<<5)|((hcsparams2>>21)&0x1F)) as u16,
+            context_size:if hccparams1&(1<<2)!=0{64}else{32},
             address_64bit:hccparams1&1!=0,doorbell_offset:dboff,runtime_offset:rtsoff,
             usb_status:op_status,legacy_support_found:legacy_found,bios_owned,os_owned,ext_caps_valid:ext_valid,
         });

@@ -281,6 +281,21 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("; halted: ");write_str(if xhci_init.controller_halted{"yes"}else{"no"});
     write_str("; reset: ");write_str(if xhci_init.reset_completed{"complete"}else{"not complete"});
     write_str("; CNR clear: ");write_str(if xhci_init.controller_ready{"yes"}else{"no/unknown"});write_str("\\n");
+    if xhci_init.status==xhci::InitStatus::ReadyStopped {
+        if let Some(info)=xhci::discover() {
+            match xhci_dma::XhciDma::allocate(info.scratchpad_count,info.context_size) {
+                Ok(layout)=>{
+                    write_str("[ OK ] xHCI DMA context layout allocated; scratchpads: ");
+                    write_dec(layout.scratchpad_count() as u32);
+                    write_str("; context bytes: ");
+                    write_dec(layout.device_context.device_context_bytes() as u32);
+                    write_str("\\n");
+                    core::mem::forget(layout);
+                }
+                Err(_)=>write_str("[WARN] xHCI DMA context/scratchpad allocation failed; controller remains halted\\n"),
+            }
+        }
+    }
     initialize_subsystems();
 
     write_str("\nRUST PORT INVENTORY\n");
@@ -291,7 +306,7 @@ pub extern "C" fn rust_kernel_main(magic:u32,multiboot_info:u32)->! {
     write_str("[ OK ] Bounded RAMFS, static task registry, PS/2 polling primitives\n");
     write_str("[ -- ] Preemptive context switching, user mode and syscall entry not implemented\n");
     write_str("[ OK ] xHCI PCI capability discovery, BAR sizing and ownership/reset state machine\n");
-    write_str("[ OK ] xHCI DMA layout primitives: DCBAA, command/transfer rings, event ring and ERST (not programmed)\\n");
+    write_str("[ OK ] xHCI DMA memory layout: DCBAA, command/transfer rings, event ring, ERST, slot-1 Device/Input Contexts and optional scratchpads (not programmed)\\n");
     write_str("[ -- ] xHCI controller DMA activation, interrupter setup, port handling and USB enumeration not implemented\\n");
     write_str("[ -- ] Intel/NVIDIA native GPU command submission not implemented\n");
     write_str("\nLionOS Rust kernel reached subsystem bring-up.\n");

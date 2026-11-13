@@ -49,7 +49,7 @@ from supporting USB devices after the kernel starts.
 - In firmware setup, enable legacy BIOS/CSM boot if available and select the USB
   device from the one-time boot menu.
 - This image does not currently provide UEFI boot support.
-- xHCI validates its memory BAR, requests OS ownership, halts and resets the controller with bounded waits. A separate DMA-layout module can allocate and prepare DCBAA, command/transfer producer rings, a single-segment event ring and ERST. It deliberately does not program these addresses into the controller, enable Run/Stop, ring doorbells, enumerate devices or handle ports.
+- xHCI validates its memory BAR, requests OS ownership, halts and resets the controller with bounded waits. A separate DMA-layout module allocates DCBAA, command/transfer producer rings, a single-segment event ring, ERST, slot-1 Device/Input Contexts, and optional scratchpad buffer arrays/storage using HCSParams2 and the context-size capability. It deliberately does not program these addresses into the controller, enable Run/Stop, ring doorbells, enumerate devices or handle ports.
 - USB keyboard and mouse HID drivers are not implemented. Firmware USB legacy
   emulation may work on some machines, but is not guaranteed.
 - The kernel currently has no persistent block storage or USB filesystem
@@ -178,4 +178,11 @@ If the xHCI Legacy Support capability is present and BIOS Owned is set, the kern
 
 A dedicated src/xhci_dma.rs module defines 16-byte TRBs, a 256-entry DCBAA, command and transfer producer rings with a terminal Link TRB (Toggle Cycle enabled), a 256-entry single-segment Event Ring, and a one-entry Event Ring Segment Table. Ring allocations are page-backed, physically contiguous, below 4 GiB, 64-byte aligned by the page allocator, and constrained not to cross a 64 KiB boundary. The producer helper maintains the producer Cycle State; the event helper checks the consumer Cycle bit and advances its dequeue index. Allocation unwinds already-acquired pages on failure.
 
-This is a memory-layout foundation only. It does not program DCBAAP, CRCR, ERSTBA, ERSTSZ or ERDP; it does not set CONFIG, enable PCI bus mastering, start Run/Stop, enable interrupters or ring doorbells. Scratchpad buffers are not yet supported: allocation fails closed when the controller reports a nonzero scratchpad requirement. A future stage must parse HCSParams2, allocate scratchpads and device contexts, program registers in the specification-defined order, and only then start the controller. These structures have not been build-tested or hardware-tested in this session.
+This is a memory-layout foundation only. It does not program DCBAAP, CRCR, ERSTBA, ERSTSZ or ERDP; it does not set CONFIG, enable PCI bus mastering, start Run/Stop, enable interrupters or ring doorbells. Scratchpad support is limited to a single contiguous page-backed storage region and pointer array; it is allocated only after the controller reports ReadyStopped. No context or scratchpad addresses are programmed into hardware. A future stage must validate device-context semantics, configure command/event rings and interrupters, program registers in specification order, then enable bus mastering and start the controller. These structures have not been build-tested or hardware-tested in this session.
+
+
+## xHCI device-context and scratchpad memory stage
+
+The DMA allocator now reads HCSParams2 to derive the controller's scratchpad count and HCCPARAMS1.CSZ to select 32-byte or 64-byte contexts. It allocates the 256-entry DCBAA, writes entry 0 to the optional scratchpad pointer array, and reserves DCBAA entry 1 for a first Device Context. It also allocates the corresponding 32-context Device Context and 33-context Input Context for slot 1. Scratchpad buffers are represented by one page-aligned contiguous region plus a pointer array containing each page's physical address.
+
+All addresses remain below 4 GiB, allocations are zeroed and page-backed, and ring allocations retain 64 KiB boundary constraints. This stage only prepares memory while the controller is halted. It does not write DCBAAP/CRCR/ERST registers, configure a slot, set CONFIG, enable PCI bus mastering, start Run/Stop, or issue commands. The slot-1 context is a reserved zeroed allocation, not an enabled USB slot. No build or hardware test has been run for this stage.
