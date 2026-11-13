@@ -359,6 +359,7 @@ pub enum CommandDispatchError {
     DmaNotDeviceOwned,
     Command(crate::xhci_dma::CommandError),
     Doorbell(DoorbellError),
+    InvalidCommandParameters,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -396,6 +397,28 @@ impl XhciCommandDispatcher {
         doorbells.ring_command(lifecycle, dma_device_owned)
             .map_err(CommandDispatchError::Doorbell)?;
         Ok(CommandDispatchResult { command_trb_pointer: pointer })
+    }
+
+    /// Submit an Enable Slot command through the guarded command path.
+    pub fn submit_enable_slot(&mut self, ring: &mut crate::xhci_dma::ProducerRing,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, now: u64, timeout_ticks: u64)
+        -> Result<CommandDispatchResult, CommandDispatchError> {
+        self.submit(ring, doorbells, lifecycle, dma_device_owned,
+            crate::xhci_dma::enable_slot_command(), now, timeout_ticks)
+    }
+
+    /// Submit Address Device only with a validated, prepared Input Context.
+    pub fn submit_address_device(&mut self, ring: &mut crate::xhci_dma::ProducerRing,
+        doorbells: &XhciDoorbells, lifecycle: &RuntimeLifecycle,
+        dma_device_owned: bool, input_context: u64, slot_id: u8,
+        block_set_address: bool, now: u64, timeout_ticks: u64)
+        -> Result<CommandDispatchResult, CommandDispatchError> {
+        let command = crate::xhci_dma::address_device_command(
+            input_context, slot_id, block_set_address)
+            .ok_or(CommandDispatchError::InvalidCommandParameters)?;
+        self.submit(ring, doorbells, lifecycle, dma_device_owned,
+            command, now, timeout_ticks)
     }
 
     pub fn expire(&mut self, now: u64) -> usize { self.engine.expire(now) }
