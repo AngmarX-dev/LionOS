@@ -100,33 +100,48 @@ pub unsafe fn init(info:*const u8,total_size:usize)->bool{
     true
 }
 
-pub fn alloc_frame()->Option<u32>{
+pub fn alloc_pages(pages:u32)->Option<u32>{
+    if pages==0{return None;}
     unsafe{
-        if !READY{return None;}
-        for word in 0..WORD_COUNT{
-            let free=!core::ptr::read_volatile(core::ptr::addr_of!(USED).cast::<u32>().add(word));
-            if free!=0{
-                let frame=word*32+free.trailing_zeros() as usize;
-                if frame>=FRAME_COUNT{return None;}
-                set_bit(core::ptr::addr_of_mut!(USED).cast::<u32>(),frame,true);
-                set_bit(core::ptr::addr_of_mut!(ALLOCATED).cast::<u32>(),frame,true);
-                FREE_FRAMES=FREE_FRAMES.saturating_sub(1);
-                return Some((frame as u32)*PAGE_SIZE);
-            }
+        if !READY||pages as usize>FRAME_COUNT{return None;}
+        let needed=pages as usize;
+        let mut run_start=0usize;
+        let mut run=0usize;
+        for frame in 0..FRAME_COUNT{
+            if !bit(core::ptr::addr_of!(USED).cast::<u32>(),frame){
+                if run==0{run_start=frame;}
+                run+=1;
+                if run==needed{
+                    for allocated in run_start..run_start+needed{
+                        set_bit(core::ptr::addr_of_mut!(USED).cast::<u32>(),allocated,true);
+                        set_bit(core::ptr::addr_of_mut!(ALLOCATED).cast::<u32>(),allocated,true);
+                    }
+                    FREE_FRAMES=FREE_FRAMES.saturating_sub(pages);
+                    return Some((run_start as u32)*PAGE_SIZE);
+                }
+            }else{run=0;}
         }
         None
     }
 }
+pub fn alloc_frame()->Option<u32>{alloc_pages(1)}
 
-pub unsafe fn free_frame(address:u32)->bool{
-    if !READY||address%PAGE_SIZE!=0{return false;}
-    let frame=(address/PAGE_SIZE) as usize;
-    if frame>=FRAME_COUNT||!bit(core::ptr::addr_of!(ALLOCATED).cast::<u32>(),frame){return false;}
-    set_bit(core::ptr::addr_of_mut!(ALLOCATED).cast::<u32>(),frame,false);
-    set_bit(core::ptr::addr_of_mut!(USED).cast::<u32>(),frame,false);
-    FREE_FRAMES=FREE_FRAMES.saturating_add(1);
+pub unsafe fn free_pages(address:u32,pages:u32)->bool{
+    if !READY||pages==0||address%PAGE_SIZE!=0{return false;}
+    let first=(address/PAGE_SIZE) as usize;
+    let count=pages as usize;
+    if first.checked_add(count).map_or(true,|end|end>FRAME_COUNT){return false;}
+    for frame in first..first+count{
+        if !bit(core::ptr::addr_of!(ALLOCATED).cast::<u32>(),frame){return false;}
+    }
+    for frame in first..first+count{
+        set_bit(core::ptr::addr_of_mut!(ALLOCATED).cast::<u32>(),frame,false);
+        set_bit(core::ptr::addr_of_mut!(USED).cast::<u32>(),frame,false);
+    }
+    FREE_FRAMES=FREE_FRAMES.saturating_add(pages);
     true
 }
+pub unsafe fn free_frame(address:u32)->bool{free_pages(address,1)}
 
 pub fn stats(total_usable_bytes:u64)->MemoryStats{
     unsafe{MemoryStats{total_usable_bytes,free_frames:FREE_FRAMES,initialized:READY}}
