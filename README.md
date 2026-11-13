@@ -715,9 +715,13 @@ state changes, ready-task selection, snapshots and task counting. Task IDs
 remain nonzero and callers cannot transition a task back to the Empty state
 through the public state API.
 
-These primitives do not yet provide a scheduler, context switching, SMP
-startup, NMI synchronization, or protection against callers holding locks
-across blocking operations. No build, QEMU boot, or hardware test was run;
+The cooperative x86 context-switch primitive is assembled from
+`boot/context_switch.asm` and linked into the kernel. It saves/restores the
+callee-saved register set, EFLAGS, stack pointer and CR3 using the documented
+`KernelContext` ABI. It requires a correctly constructed stack frame and is
+not yet connected to a runnable-task scheduler. Preemptive switching, SMP
+startup, NMI synchronization, and protection against callers holding locks
+across blocking operations remain out of scope. No build, QEMU boot, or hardware test was run;
 validation for this stage is GitHub source read-back only.
 
 
