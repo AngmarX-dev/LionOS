@@ -70,7 +70,20 @@ pub fn register(priority: u8) -> Option<u32> {
     crate::write_str("[TRACE] task register: before registry lock\n");
     let mut registry = REGISTRY.lock();
     crate::write_str("[TRACE] task register: registry lock acquired\n");
-    let slot_index = registry.tasks.iter().position(|task| task.state == State::Empty)?;
+    let mut slot_index=0usize;
+    while slot_index<MAX_TASKS {
+        crate::write_str("[TRACE] task register: inspect slot ");
+        crate::write_dec(slot_index as u32);
+        crate::write_str("\n");
+        let state=registry.tasks[slot_index].state;
+        crate::write_str("[TRACE] task register: slot state read\n");
+        if state==State::Empty { break; }
+        slot_index+=1;
+    }
+    if slot_index==MAX_TASKS {
+        crate::write_str("[WARN] task register: registry full\n");
+        return None;
+    }
     crate::write_str("[TRACE] task register: free slot found\n");
 
     let id = registry.next_id;
