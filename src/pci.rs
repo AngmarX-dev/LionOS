@@ -10,6 +10,9 @@ pub struct PciDevice{
  pub command:u16,pub status:u16,pub revision_id:u8,pub prog_if:u8,pub subclass:u8,pub class:u8,
  pub header_type:u8,pub interrupt_line:u8,pub interrupt_pin:u8,pub bars:[PciBar;PCI_BAR_COUNT],pub bar_count:u8,
 }
+impl PciDevice {
+ pub const EMPTY:Self=Self{bus:0,device:0,function:0,vendor_id:0,device_id:0,command:0,status:0,revision_id:0,prog_if:0,subclass:0,class:0,header_type:0,interrupt_line:0,interrupt_pin:0,bars:[PciBar::EMPTY;PCI_BAR_COUNT],bar_count:0};
+}
 #[inline] pub unsafe fn read_config(bus:u8,dev:u8,fun:u8,off:u8)->u32{
  let a=0x8000_0000|((bus as u32)<<16)|((dev as u32)<<11)|((fun as u32)<<8)|((off as u32)&0xFC);
  outl(0xCF8,a);inl(0xCFC)
