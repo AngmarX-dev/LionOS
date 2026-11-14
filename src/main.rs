@@ -85,7 +85,7 @@ fn put_byte(byte: u8) {
         }
     }
 }
-fn write_str(value: &str) { for byte in value.bytes() { put_byte(byte); } }
+pub(crate) fn write_str(value: &str) { for byte in value.bytes() { put_byte(byte); } }
 fn write_hex(value: u32) {
     const DIGITS: &[u8;16] = b"0123456789ABCDEF";
     write_str("0x");
