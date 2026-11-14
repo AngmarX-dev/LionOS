@@ -36,7 +36,7 @@ pub unsafe fn probe_memory_bar_size(device:&PciDevice,index:usize)->Option<u64>{
 pub unsafe fn disable_bus_master(device:&PciDevice)->bool{let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;let command=read_config(device.bus,device.device,device.function,0x04) as u16;outl(0xCF8,address);outw(0xCFC,command&!0x0004);(read_config(device.bus,device.device,device.function,0x04) as u16)&0x0004==0}
 pub unsafe fn enable_memory_space(device:&PciDevice)->bool{let address=0x8000_0000|((device.bus as u32)<<16)|((device.device as u32)<<11)|((device.function as u32)<<8)|0x04;let command=read_config(device.bus,device.device,device.function,0x04) as u16;outl(0xCF8,address);outw(0xCFC,command|0x0002);(read_config(device.bus,device.device,device.function,0x04) as u16)&0x0002!=0}
 /// Early-boot enumeration intentionally defers all BAR probing.
-pub unsafe fn enumerate<F:FnMut(PciDevice)>(mut visit:F){
+pub unsafe fn enumerate<F:FnMut(&PciDevice)>(mut visit:F){
  for bus in 0u16..=255{for dev in 0u8..32{
   let id0=read_config(bus as u8,dev,0,0);if bus==0&&dev==0{crate::trace_pci_step(1);}if id0 as u16==0xFFFF{continue}
   let h0=read_config(bus as u8,dev,0,0x0C);let funcs=if((h0>>16) as u8&0x80)!=0{8}else{1};if bus==0&&dev==0{crate::trace_pci_step(4);}
@@ -47,7 +47,7 @@ pub unsafe fn enumerate<F:FnMut(PciDevice)>(mut visit:F){
    let irq=read_config(bus as u8,dev,fun,0x3C);
    let descriptor=PciDevice{bus:bus as u8,device:dev,function:fun,vendor_id:id as u16,device_id:(id>>16) as u16,command:cs as u16,status:(cs>>16) as u16,revision_id:cr as u8,prog_if:(cr>>8) as u8,subclass:(cr>>16) as u8,class:(cr>>24) as u8,header_type:header,interrupt_line:irq as u8,interrupt_pin:(irq>>8) as u8,bars:[PciBar::EMPTY;PCI_BAR_COUNT],bar_count:0};
    if bus==0&&dev==0&&fun==0{crate::trace_pci_step(9);crate::trace_pci_step(2);}
-   visit(descriptor);
+   visit(&descriptor);
    if bus==0&&dev==0&&fun==0{crate::trace_pci_step(3);}
   }
  }}
