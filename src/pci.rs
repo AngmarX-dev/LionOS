@@ -49,12 +49,17 @@ pub unsafe fn enumerate<F:FnMut(&PciDevice)>(mut visit:F){
    let mut descriptor=PciDevice::EMPTY;
    if bus==0&&dev==0&&fun==0{crate::trace_pci_step(19);}
    descriptor.bus=bus as u8;descriptor.device=dev;descriptor.function=fun;
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(20);}
    descriptor.vendor_id=id as u16;descriptor.device_id=(id>>16) as u16;
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(21);}
    descriptor.command=cs as u16;descriptor.status=(cs>>16) as u16;
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(22);}
    descriptor.revision_id=cr as u8;descriptor.prog_if=(cr>>8) as u8;
    descriptor.subclass=(cr>>16) as u8;descriptor.class=(cr>>24) as u8;
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(23);}
    descriptor.header_type=header;descriptor.interrupt_line=irq as u8;descriptor.interrupt_pin=(irq>>8) as u8;
    descriptor.bars=[PciBar::EMPTY;PCI_BAR_COUNT];descriptor.bar_count=0;
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(24);}
    if bus==0&&dev==0&&fun==0{crate::trace_pci_step(18);crate::trace_pci_step(9);crate::trace_pci_step(2);}
    visit(&descriptor);
    if bus==0&&dev==0&&fun==0{crate::trace_pci_step(3);}
