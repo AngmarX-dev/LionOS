@@ -178,6 +178,7 @@ pub fn trace_pci_step(step:u32) {
         11 => write_str("[TRACE] PCI visitor: driver matching completed\n"),
         12 => write_str("[TRACE] PCI visitor: registry slot written\n"),
         13 => write_str("[TRACE] PCI visitor: device count updated\n"),
+        14 => write_str("[TRACE] PCI visitor: registry slot selected\n"),
         _ => write_str("[TRACE] PCI scan step: unknown\n"),
     }
 }
