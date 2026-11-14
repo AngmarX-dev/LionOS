@@ -172,7 +172,7 @@ pub fn trace_pci_step(step:u32) {
         5 => write_str("[TRACE] PCI scan step 5: command/class/header reads completed\n"),
         6 => write_str("[TRACE] PCI scan step 6: BAR decoding deferred during early boot\n"),
         7 => write_str("[TRACE] PCI scan step 7: returned from trace after header reads\n"),
-        8 => write_str("[TRACE] PCI scan step 8: immediately before BAR descriptor array initialization\n"),
+        8 => write_str("[TRACE] PCI scan step 8: immediately before BAR descriptor array initialization\n"),\n        17 => write_str("[TRACE] PCI scan step 17: interrupt register read completed\n"),\n        18 => write_str("[TRACE] PCI scan step 18: PCI descriptor construction completed\n"),
         9 => write_str("[TRACE] PCI scan step 9: BAR descriptor array initialization returned\n"),
         10 => write_str("[TRACE] PCI visitor: entered device registry callback\n"),
         11 => write_str("[TRACE] PCI visitor: driver matching completed\n"),
