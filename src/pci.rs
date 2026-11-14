@@ -46,21 +46,17 @@ pub unsafe fn enumerate<F:FnMut(&PciDevice)>(mut visit:F){
    if bus==0&&dev==0&&fun==0{crate::trace_pci_step(5);crate::trace_pci_step(6);crate::trace_pci_step(7);crate::trace_pci_step(8);}
    let irq=read_config(bus as u8,dev,fun,0x3C);
    if bus==0&&dev==0&&fun==0{crate::trace_pci_step(17);}
-   let mut descriptor=PciDevice::EMPTY;
-   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(19);}
-   descriptor.bus=bus as u8;descriptor.device=dev;descriptor.function=fun;
-   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(20);}
-   descriptor.vendor_id=id as u16;descriptor.device_id=(id>>16) as u16;
-   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(21);}
-   descriptor.command=cs as u16;descriptor.status=(cs>>16) as u16;
-   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(22);}
-   descriptor.revision_id=cr as u8;descriptor.prog_if=(cr>>8) as u8;
-   descriptor.subclass=(cr>>16) as u8;descriptor.class=(cr>>24) as u8;
-   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(23);}
-   descriptor.header_type=header;descriptor.interrupt_line=irq as u8;descriptor.interrupt_pin=(irq>>8) as u8;
-   descriptor.bars=[PciBar::EMPTY;PCI_BAR_COUNT];descriptor.bar_count=0;
-   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(24);}
-   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(18);crate::trace_pci_step(9);crate::trace_pci_step(2);}
+   // Build the descriptor directly in its stack slot. Avoid copying the
+   // large EMPTY constant through the freestanding memcpy shim during boot.
+   let descriptor=PciDevice{
+    bus:bus as u8,device:dev,function:fun,
+    vendor_id:id as u16,device_id:(id>>16) as u16,
+    command:cs as u16,status:(cs>>16) as u16,
+    revision_id:cr as u8,prog_if:(cr>>8) as u8,subclass:(cr>>16) as u8,class:(cr>>24) as u8,
+    header_type:header,interrupt_line:irq as u8,interrupt_pin:(irq>>8) as u8,
+    bars:[PciBar::EMPTY;PCI_BAR_COUNT],bar_count:0,
+   };
+   if bus==0&&dev==0&&fun==0{crate::trace_pci_step(19);crate::trace_pci_step(18);crate::trace_pci_step(9);crate::trace_pci_step(2);}
    visit(&descriptor);
    if bus==0&&dev==0&&fun==0{crate::trace_pci_step(3);}
   }
