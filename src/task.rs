@@ -67,8 +67,11 @@ static REGISTRY: IrqSpinLock<TaskRegistry> = IrqSpinLock::new(TaskRegistry::new(
 
 /// Register a task metadata record and return its nonzero identifier.
 pub fn register(priority: u8) -> Option<u32> {
+    crate::write_str("[TRACE] task register: before registry lock\n");
     let mut registry = REGISTRY.lock();
+    crate::write_str("[TRACE] task register: registry lock acquired\n");
     let slot_index = registry.tasks.iter().position(|task| task.state == State::Empty)?;
+    crate::write_str("[TRACE] task register: free slot found\n");
 
     let id = registry.next_id;
     registry.next_id = registry.next_id.wrapping_add(1).max(1);
@@ -80,6 +83,7 @@ pub fn register(priority: u8) -> Option<u32> {
         ticks: 0,
     };
 
+    crate::write_str("[TRACE] task register: task record committed\n");
     Some(id)
 }
 
