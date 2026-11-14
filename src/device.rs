@@ -5,7 +5,7 @@ pub const WILDCARD_U8:u8=0xFF;pub const WILDCARD_U16:u16=0xFFFF;
 #[derive(Clone,Copy)] pub struct DriverMatch{pub class:u8,pub subclass:u8,pub prog_if:u8,pub vendor_id:u16,pub device_id:u16}
 #[derive(Clone,Copy)] pub struct DeviceDriver{pub name:&'static str,pub matcher:DriverMatch,pub probe:fn(&PciDevice)->bool}
 #[derive(Clone,Copy)] pub struct DeviceRecord{pub pci:PciDevice,pub driver_index:u8}
-static mut DEVICES:[Option<DeviceRecord>;MAX_DEVICES]=[None;MAX_DEVICES];
+static mut DEVICES:[DeviceRecord;MAX_DEVICES]=[DeviceRecord{pci:PciDevice::EMPTY,driver_index:NO_DRIVER};MAX_DEVICES];
 static mut DRIVERS:[Option<DeviceDriver>;MAX_DRIVERS]=[None;MAX_DRIVERS];
 static mut DEVICE_COUNT:usize=0;static mut DRIVER_COUNT:usize=0;static mut BOUND_COUNT:usize=0;static mut DROPPED_COUNT:usize=0;
 fn matches(m:DriverMatch,d:&PciDevice)->bool{
@@ -19,7 +19,7 @@ pub unsafe fn register_driver(driver:DeviceDriver)->Result<u8,()>{
 }
 /// Run passive discovery. Probe callbacks are supplied by future concrete drivers.
 pub unsafe fn discover(){
- DEVICE_COUNT=0;BOUND_COUNT=0;DROPPED_COUNT=0;for i in 0..MAX_DEVICES{DEVICES[i]=None}
+ DEVICE_COUNT=0;BOUND_COUNT=0;DROPPED_COUNT=0;
  pci::enumerate(|d|{
   crate::trace_pci_step(10);
   if DEVICE_COUNT>=MAX_DEVICES{DROPPED_COUNT=DROPPED_COUNT.saturating_add(1);return}
@@ -27,7 +27,8 @@ pub unsafe fn discover(){
   for i in 0..DRIVER_COUNT{if let Some(driver)=DRIVERS[i]{if matches(driver.matcher,&d)&&(driver.probe)(&d){bound=i as u8;BOUND_COUNT+=1;break}}}
   crate::trace_pci_step(11);
   let slot=DEVICE_COUNT;
-  DEVICES[slot]=Some(DeviceRecord{pci:d,driver_index:bound});
+  crate::trace_pci_step(14);
+  core::ptr::write_volatile(core::ptr::addr_of_mut!(DEVICES[slot]),DeviceRecord{pci:d,driver_index:bound});
   crate::trace_pci_step(12);
   DEVICE_COUNT=slot+1;
   crate::trace_pci_step(13);
@@ -35,5 +36,5 @@ pub unsafe fn discover(){
 }
 pub fn device_count()->usize{unsafe{DEVICE_COUNT}}pub fn driver_count()->usize{unsafe{DRIVER_COUNT}}
 pub fn bound_count()->usize{unsafe{BOUND_COUNT}}pub fn dropped_count()->usize{unsafe{DROPPED_COUNT}}
-pub fn get(i:usize)->Option<DeviceRecord>{if i>=MAX_DEVICES{return None}unsafe{DEVICES[i]}}
+pub fn get(i:usize)->Option<DeviceRecord>{if i>=device_count(){return None}unsafe{Some(core::ptr::read_volatile(core::ptr::addr_of!(DEVICES[i])))}}
 pub fn driver_name(i:usize)->Option<&'static str>{if i>=MAX_DRIVERS{return None}unsafe{DRIVERS[i].map(|d|d.name)}}
