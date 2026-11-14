@@ -29,7 +29,7 @@ pub unsafe fn discover(){
   crate::trace_pci_step(11);
   let slot=DEVICE_COUNT;
   crate::trace_pci_step(14);
-  core::ptr::write_volatile(core::ptr::addr_of_mut!(DEVICES[slot]),DeviceRecord{pci:d,driver_index:bound});
+  core::ptr::write_volatile(core::ptr::addr_of_mut!(DEVICES[slot]),DeviceRecord{pci:*d,driver_index:bound});
   crate::trace_pci_step(12);
   DEVICE_COUNT=slot+1;
   crate::trace_pci_step(13);
