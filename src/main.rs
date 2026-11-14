@@ -175,7 +175,7 @@ pub fn trace_pci_step(step:u32) {
         8 => write_str("[TRACE] PCI scan step 8: immediately before BAR descriptor array initialization\n"),
         17 => write_str("[TRACE] PCI scan step 17: interrupt register read completed\n"),
         18 => write_str("[TRACE] PCI scan step 18: PCI descriptor construction completed\n"),
-        19 => write_str("[TRACE] PCI scan step 19: empty PCI descriptor initialized\\n"),
+        19 => write_str("[TRACE] PCI scan step 19: empty PCI descriptor initialized\n"),
         20 => write_str("[TRACE] PCI descriptor field group 1 assigned\n"),
         21 => write_str("[TRACE] PCI descriptor field group 2 assigned\n"),
         22 => write_str("[TRACE] PCI descriptor field group 3 assigned\n"),
