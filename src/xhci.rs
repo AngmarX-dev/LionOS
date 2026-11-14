@@ -164,18 +164,35 @@ pub const fn command_abort_preflight(health:ControllerHealth,crcr_low:u32,bus_ma
 }
 
 pub fn discover()->Option<XhciInfo>{
-    // PCI enumeration has already populated the fixed-capacity device registry
-    // during boot. Reuse that snapshot instead of issuing a second full
-    // mechanism-1 scan while early boot is still running.
+    // PCI enumeration has already populated the fixed-capacity device registry.
+    crate::write_str("[TRACE] xHCI discover: registry scan begin\n");
+    let count=crate::device::device_count();
+    crate::write_str("[TRACE] xHCI discover: registry count ");
+    crate::write_dec(count as u32);
+    crate::write_str("\n");
     let mut index=0usize;
-    while index<crate::device::device_count() {
+    while index<count {
+        crate::write_str("[TRACE] xHCI discover: inspect registry slot ");
+        crate::write_dec(index as u32);
+        crate::write_str("\n");
         if let Some(record)=crate::device::get(index) {
+            crate::write_str("[TRACE] xHCI discover: record read; class ");
+            crate::write_hex(record.pci.class as u32);
+            crate::write_str(" subclass ");
+            crate::write_hex(record.pci.subclass as u32);
+            crate::write_str(" prog-if ");
+            crate::write_hex(record.pci.prog_if as u32);
+            crate::write_str("\n");
             if let Some(info)=unsafe{inspect(record.pci)} {
+                crate::write_str("[TRACE] xHCI discover: controller accepted\n");
                 return Some(info);
             }
+        } else {
+            crate::write_str("[TRACE] xHCI discover: empty registry slot\n");
         }
         index+=1;
     }
+    crate::write_str("[TRACE] xHCI discover: registry scan complete; no controller\n");
     None
 }
 fn wait_until<F:FnMut()->bool>(mut condition:F)->bool{
