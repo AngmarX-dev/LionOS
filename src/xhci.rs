@@ -215,7 +215,7 @@ pub fn program_dma_registers(info:&XhciInfo,dma:&crate::xhci_dma::XhciDma)->DmaP
     let device=unsafe{
         let mut selected=None;
         pci::enumerate(|d|{if d.bus==info.bus&&d.device==info.device&&d.function==info.function
-            &&d.vendor_id==info.vendor_id&&d.device_id==info.device_id{selected=Some(d);}});
+            &&d.vendor_id==info.vendor_id&&d.device_id==info.device_id{selected=Some(*d);}});
         match selected{Some(d)=>d,None=>return DmaProgramStatus::NoController}
     };
     let current_size=unsafe{pci::probe_memory_bar_size(&device,info.bar_index as usize)};
@@ -263,7 +263,7 @@ pub fn initialize()->InitReport{
     if !info.page_4k_supported{return InitReport{status:InitStatus::UnsupportedPageSize,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false};}
     let device=unsafe{
         let mut selected=None;
-        pci::enumerate(|d|{if d.bus==info.bus&&d.device==info.device&&d.function==info.function{selected=Some(d);}});
+        pci::enumerate(|d|{if d.bus==info.bus&&d.device==info.device&&d.function==info.function{selected=Some(*d);}});
         match selected{Some(d)=>d,None=>return InitReport{status:InitStatus::NoController,ownership_requested:false,bios_released:false,controller_halted:false,reset_completed:false,controller_ready:false}}
     };
     let size=unsafe{pci::probe_memory_bar_size(&device,info.bar_index as usize)};
@@ -341,7 +341,7 @@ pub fn read_port_status(info:&XhciInfo,port:u8)->Result<PortStatus,PortReadError
     if port==0||port>info.max_ports{return Err(PortReadError::InvalidPort);}
     let device=unsafe{
         let mut selected=None;
-        pci::enumerate(|d|{if d.bus==info.bus&&d.device==info.device&&d.function==info.function{selected=Some(d);}});
+        pci::enumerate(|d|{if d.bus==info.bus&&d.device==info.device&&d.function==info.function{selected=Some(*d);}});
         selected.ok_or(PortReadError::DeviceNotFound)?
     };
     let offset=(info.cap_length as usize).checked_add(0x400)
