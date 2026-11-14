@@ -228,7 +228,10 @@ fn initialize_subsystems() {
     let (used, files, directories) = fs::capacity();
     write_str("  RAMFS nodes: "); write_dec(used as u32); write_str(" / 63; files: "); write_dec(files as u32); write_str("; directories: "); write_dec(directories as u32); write_str("\n");
     write_str("[ OK ] Block device interface initialized; registered devices: "); write_dec(block::device_count() as u32); write_str("\n");
+    write_str("[TRACE] subsystem init: entering task registration\n");
     if let Some(id)=task::register(1) { write_str("[ OK ] Static task registry initialized; bootstrap task id "); write_dec(id); write_str("\n"); }
+    else { write_str("[WARN] Static task registry has no free slot\n"); }
+    write_str("[TRACE] subsystem init: task registration returned\n");
     if let Some(framebuffer)=graphics::info() { let _=framebuffer; desktop::render_frame(); if graphics::backbuffer_ready() && graphics::present() {write_str("[ OK ] Dirty-region framebuffer presentation active\n");} else {write_str("[INFO] Direct framebuffer presentation active\n");} write_str("[ OK ] Software framebuffer renderer active\n"); }
     if let Some(framebuffer)=graphics::info(){mouse::set_screen_bounds(framebuffer.width,framebuffer.height);}
     match unsafe{mouse::initialize()}{Ok(())=>{write_str("[ OK ] PS/2 auxiliary mouse initialized; IRQ12 enabled\n");write_str("  Mouse packet decoder: 3-byte standard / 4-byte wheel device\n");desktop::refresh_pointer();},Err(error)=>{write_str("[WARN] PS/2 mouse unavailable: ");match error{mouse::MouseInitError::ControllerTimeout=>write_str("8042 controller timeout"),mouse::MouseInitError::MouseTimeout=>write_str("mouse response timeout"),mouse::MouseInitError::CommandRejected=>write_str("mouse command not acknowledged"),mouse::MouseInitError::UnsupportedDevice=>write_str("unsupported auxiliary device ID"),}write_str("; IRQ12 remains masked\n");}}
