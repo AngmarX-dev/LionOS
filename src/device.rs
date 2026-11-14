@@ -22,7 +22,8 @@ pub unsafe fn discover(){
  DEVICE_COUNT=0;BOUND_COUNT=0;DROPPED_COUNT=0;
  pci::enumerate(|d|{
   crate::trace_pci_step(10);
-  if DEVICE_COUNT>=MAX_DEVICES{DROPPED_COUNT=DROPPED_COUNT.saturating_add(1);return}
+  crate::trace_pci_step(15);
+  if DEVICE_COUNT>=MAX_DEVICES{crate::trace_pci_step(16);DROPPED_COUNT=DROPPED_COUNT.saturating_add(1);return}
   let mut bound=NO_DRIVER;
   for i in 0..DRIVER_COUNT{if let Some(driver)=DRIVERS[i]{if matches(driver.matcher,&d)&&(driver.probe)(&d){bound=i as u8;BOUND_COUNT+=1;break}}}
   crate::trace_pci_step(11);
