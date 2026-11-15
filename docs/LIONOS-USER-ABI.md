@@ -165,7 +165,7 @@ This specification does not imply Linux i386 syscall compatibility, POSIX confor
 
 The current user libc is small and native. Its allocator is a 32 KiB monotonic arena; free() does not reclaim memory.
 
-## 8. Conformance and change procedure
+## 9. Conformance and change procedure
 
 Run make abi-check and make test.
 
