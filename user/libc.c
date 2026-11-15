@@ -105,6 +105,9 @@ struct user_heap_block {
     uint32_t reserved;
 };
 
+_Static_assert(sizeof(struct user_heap_block) == USER_HEAP_HEADER_SIZE,
+               "user heap header size must match allocator layout");
+
 static uint64_t user_heap[USER_HEAP_SIZE / sizeof(uint64_t)];
 static struct user_heap_block *user_heap_head;
 static int user_heap_initialized;
