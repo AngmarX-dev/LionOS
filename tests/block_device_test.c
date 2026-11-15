@@ -90,6 +90,11 @@ int main(void) {
                                          sizeof(buffer)) < 0,
                        "reject unsupported sector size");
     malformed = device;
+    malformed.sector_size = 513u;
+    failures += expect(block_device_read(&malformed, 0u, 1u, buffer,
+                                         sizeof(buffer)) < 0,
+                       "reject non-power-of-two sector size");
+    malformed = device;
     malformed.ops = 0;
     failures += expect(block_device_read(&malformed, 0u, 1u, buffer,
                                          sizeof(buffer)) < 0,
