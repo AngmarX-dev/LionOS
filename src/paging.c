@@ -47,6 +47,7 @@ static uint32_t current_directory[LIONOS_MAX_CPUS];
 #define LIONOS_TLB_IPI_VECTOR 49u
 static struct spinlock kernel_map_lock;
 static volatile uint32_t shootdown_address;
+static volatile uint32_t shootdown_pages;
 static volatile uint32_t shootdown_acks;
 /*
  * Keep the temporary high-memory window separate from device mappings:
@@ -108,6 +109,7 @@ static void enable_pae_paging(void) {
 void paging_init(void) {
     spinlock_init(&kernel_map_lock);
     shootdown_address=0u;
+    shootdown_pages=0u;
     shootdown_acks=0u;
     for(uint32_t i=0u;i<HIGH_MAP_PAGES/32u;++i)high_map_bitmap[i]=0u;
     spinlock_init(&high_map_lock);
@@ -154,13 +156,18 @@ uint32_t paging_kernel_directory(void) {
 }
 
 void paging_tlb_shootdown_interrupt(void) {
-    uint32_t address=__atomic_load_n(&shootdown_address,__ATOMIC_ACQUIRE);
-    __asm__ volatile ("invlpg (%0)" : : "r"(address) : "memory");
-    __atomic_add_fetch(&shootdown_acks,1u,__ATOMIC_RELEASE);
+    uint32_t address = __atomic_load_n(&shootdown_address, __ATOMIC_ACQUIRE);
+    uint32_t pages = __atomic_load_n(&shootdown_pages, __ATOMIC_ACQUIRE);
+
+    for (uint32_t i = 0u; i < pages; ++i) {
+        uint32_t current = address + i * PAGE_SIZE;
+        __asm__ volatile ("invlpg (%0)" : : "r"(current) : "memory");
+    }
+    __atomic_add_fetch(&shootdown_acks, 1u, __ATOMIC_RELEASE);
     lapic_eoi();
 }
 
-static void paging_kernel_tlb_shootdown(uint32_t address) {
+static void paging_kernel_tlb_shootdown_range(uint32_t address, uint32_t pages) {
     uint32_t self=cpu_current_index();
     uint32_t targets=0u;
     for(uint32_t i=0u;i<cpu_count_hint()&&i<LIONOS_MAX_CPUS;++i){
@@ -168,8 +175,9 @@ static void paging_kernel_tlb_shootdown(uint32_t address) {
         if(i!=self&&info&&info->online&&info->apic_id<=0xFFu)++targets;
     }
     if(!targets)return;
-    __atomic_store_n(&shootdown_acks,0u,__ATOMIC_RELAXED);
-    __atomic_store_n(&shootdown_address,address,__ATOMIC_RELEASE);
+    __atomic_store_n(&shootdown_acks, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&shootdown_pages, pages, __ATOMIC_RELAXED);
+    __atomic_store_n(&shootdown_address, address, __ATOMIC_RELEASE);
     for(uint32_t i=0u;i<cpu_count_hint()&&i<LIONOS_MAX_CPUS;++i){
         const struct cpu_info *info=cpu_get(i);
         if(i!=self&&info&&info->online&&info->apic_id<=0xFFu)
@@ -205,8 +213,105 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
                       ((uint64_t)flags & PTE_FLAGS_MASK) |
                       PTE_PRESENT);
     __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
-    paging_kernel_tlb_shootdown(virtual_address);
+    paging_kernel_tlb_shootdown_range(virtual_address, 1u);
     spinlock_irqrestore_release(&kernel_map_lock,irq);
+    return 0;
+}
+
+static int paging_kernel_range_valid(uint32_t virtual_address,
+                                       uint64_t physical_address,
+                                       uint32_t size)
+{
+    uint64_t virtual_end;
+    uint64_t physical_end;
+
+    if (size == 0u ||
+        (virtual_address & (PAGE_SIZE - 1u)) != 0u ||
+        (physical_address & (PAGE_SIZE - 1u)) != 0u ||
+        (size & (PAGE_SIZE - 1u)) != 0u)
+        return 0;
+
+    virtual_end = (uint64_t)virtual_address + size;
+    if (virtual_address < KERNEL_MMIO_BASE ||
+        virtual_end > 0x100000000ULL ||
+        (virtual_address >> 30) != 3u)
+        return 0;
+
+    if (((virtual_address >> 21) & 0x1FFu) < KERNEL_MMIO_PD_INDEX)
+        return 0;
+
+    physical_end = physical_address + size;
+    if (physical_end < physical_address ||
+        physical_end > (PTE_ADDR_MASK + PAGE_SIZE))
+        return 0;
+
+    return 1;
+}
+
+int paging_kernel_range_selftest(void)
+{
+    if (!paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL,
+                                   0x01000000u) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL, 0u) ||
+        paging_kernel_range_valid(0xF8000001u, 0x0000006202000000ULL, PAGE_SIZE) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0000006202000001ULL, PAGE_SIZE) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL, PAGE_SIZE + 1u) ||
+        paging_kernel_range_valid(0xEFFFFFFFu, 0x0000006202000000ULL, PAGE_SIZE) ||
+        paging_kernel_range_valid(0xFFFFF000u, 0x0000006202000000ULL, 2u * PAGE_SIZE) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0010000000000000ULL, PAGE_SIZE) ||
+        paging_kernel_range_valid(0xF8000000u, UINT64_MAX - PAGE_SIZE + 1u,
+                                  2u * PAGE_SIZE))
+        return -1;
+    return 0;
+}
+
+int paging_map_kernel_range(uint32_t virtual_address, uint64_t physical_address,
+                            uint32_t size, uint32_t flags)
+{
+    uint32_t pages;
+    uint32_t irq;
+
+    if (!paging_kernel_range_valid(virtual_address, physical_address, size) ||
+        cpu_current_index() != 0u)
+        return -1;
+
+    pages = size / PAGE_SIZE;
+    irq = spinlock_irqsave_acquire(&kernel_map_lock);
+
+    /*
+     * Preflight the complete range before changing any PTE. A collision
+     * therefore leaves every page in the requested range untouched.
+     * Kernel mappings are BSP-owned, and the lock excludes other map writers.
+     */
+    for (uint32_t i = 0u; i < pages; ++i) {
+        uint32_t current = virtual_address + i * PAGE_SIZE;
+        uint32_t pd_index = (current >> 21) & 0x1FFu;
+        uint32_t pt_index = (current >> 12) & 0x1FFu;
+        uint32_t mmio_index = pd_index - KERNEL_MMIO_PD_INDEX;
+        if (mmio_index >= KERNEL_MMIO_PT_COUNT ||
+            (kernel_mmio_pt[mmio_index][pt_index] & PTE_PRESENT) != 0u) {
+            spinlock_irqrestore_release(&kernel_map_lock, irq);
+            return -1;
+        }
+    }
+
+    for (uint32_t i = 0u; i < pages; ++i) {
+        uint32_t current = virtual_address + i * PAGE_SIZE;
+        uint64_t physical = physical_address + (uint64_t)i * PAGE_SIZE;
+        uint32_t pd_index = (current >> 21) & 0x1FFu;
+        uint32_t pt_index = (current >> 12) & 0x1FFu;
+        uint32_t mmio_index = pd_index - KERNEL_MMIO_PD_INDEX;
+
+        pte_store_atomic(&kernel_mmio_pt[mmio_index][pt_index],
+                         (physical & PTE_ADDR_MASK) |
+                         ((uint64_t)flags & PTE_FLAGS_MASK) |
+                         PTE_PRESENT);
+        __asm__ volatile ("invlpg (%0)" : : "r"(current) : "memory");
+    }
+
+    /* One IPI transaction invalidates the whole newly populated range. */
+    paging_kernel_tlb_shootdown_range(virtual_address, pages);
+    spinlock_irqrestore_release(&kernel_map_lock, irq);
     return 0;
 }
 
