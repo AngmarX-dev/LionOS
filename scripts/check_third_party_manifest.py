@@ -42,7 +42,6 @@ UNKNOWN_MARKERS = {
     "UNRECORDED",
     "UNPINNED_BY_CURRENT_BUILD",
     "NOT_RECORDED",
-    "NOT_RECORDED",
     "NOT_APPLICABLE",
     "N/A",
     "NOT_YET_RECORDED",
@@ -60,6 +59,11 @@ def main() -> int:
             reader = csv.DictReader(stream)
             if reader.fieldnames is None:
                 return fail("missing CSV header")
+            if len(reader.fieldnames) != len(set(reader.fieldnames)):
+                return fail("duplicate CSV header names")
+            unexpected_columns = [name for name in reader.fieldnames if name not in REQUIRED]
+            if unexpected_columns:
+                return fail("unexpected columns: " + ", ".join(unexpected_columns))
             missing_columns = [name for name in REQUIRED if name not in reader.fieldnames]
             if missing_columns:
                 return fail("missing columns: " + ", ".join(missing_columns))
