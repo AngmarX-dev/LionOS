@@ -170,6 +170,8 @@ nm -n build/lionos.bin | grep -E " smp_ap_main$| page_root$|kernel_pd|identity_p
 objdump -d --disassemble=smp_ap_main build/lionos.bin | head -n 24
 run_qemu build/qemu-first.log
 grep -q 'LIONOS:READY' build/qemu-first.log
+grep -q 'LIONOS:GFX-PCI-CLASSIFY-SELFTEST-OK' build/qemu-first.log
+grep -q 'LIONOS:GFX-PCI-DISCOVERY-OK' build/qemu-first.log
 grep -q 'LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-OK' build/qemu-first.log
 grep -q 'LIONOS:INTEL-MMIO-PAT-SELFTEST-OK' build/qemu-first.log
 grep -q 'LIONOS:KERNEL-MMIO-RANGE-SELFTEST-OK' build/qemu-first.log
