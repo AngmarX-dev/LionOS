@@ -2,7 +2,44 @@
 #include "user_libc.h"
 #include "posix_compat.h"
 
+static int libc_memory_test(void) {
+    char overlap[8] = "abcdef";
+    (void)memmove(overlap + 2, overlap, 4u);
+    if (memcmp(overlap, "ababcd", 6u) != 0) return 1;
+    (void)memmove(overlap, overlap + 2, 4u);
+    if (memcmp(overlap, "abcdcd", 6u) != 0) return 2;
+
+    if (malloc(0u) != 0 || malloc(UINT32_MAX) != 0) return 3;
+    void *first = malloc(64u);
+    void *second = malloc(64u);
+    if (!first || !second || first == second ||
+        (((uintptr_t)first | (uintptr_t)second) & 7u) != 0u) return 4;
+
+    free(first);
+    void *reused = malloc(32u);
+    if (reused != first) return 5;
+    free(reused);
+    free(second);
+
+    void *left = malloc(128u);
+    void *middle = malloc(128u);
+    void *right = malloc(128u);
+    if (!left || !middle || !right) return 6;
+    free(left);
+    free(middle);
+    void *merged = malloc(240u);
+    if (merged != left) return 7;
+    free(merged);
+    free(right);
+
+    if (printf("%u %d %x", 1u, -2, 10u) != 6) return 8;
+    putchar('\n');
+    return 0;
+}
+
 int main(void) {
+    if (libc_memory_test() != 0) return 19;
+
     static const char path[] = "userspace-posix-test.txt";
     static const char first[] = "LionOS POSIX-inspired read/write ";
     static const char second[] = "append OK\n";
