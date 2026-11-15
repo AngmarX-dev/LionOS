@@ -21,13 +21,11 @@ The current tree has a usable but narrow ATA PIO sector interface:
 
 ### F1 — Block-device contract
 
-Introduce a small generic, read-oriented block-device interface independent of ATA register details. The contract must describe:
+**Implementation progress:** `include/block_device.h` and `src/block_device.c` now define a read-only per-device descriptor with logical sector size, total sector count, opaque backend context, and a bounded multi-sector read callback. `block_device_read` rejects null/incomplete descriptors, zero or unsupported sector sizes, zero-length reads, out-of-range LBAs, arithmetic/32-bit buffer-size overflow, and undersized destination buffers before invoking the backend. There is deliberately no write API.
 
-- logical sector size and sector count;
-- opaque device context;
-- bounded multi-sector reads;
-- explicit error returns;
-- registration/initialization ownership and concurrency rules.
+The descriptor is caller-owned; backend context lifetime is owned by the backend/provider. Backend serialization remains the provider's responsibility. A global device registry and ATA provider are not part of this first slice. The existing ATA implementation is not yet registered because it has no IDENTIFY-derived capacity and currently exposes only unchecked 32-bit LBA calls.
+
+A host-side contract test in `tests/block_device_test.c` covers valid reads, returned data, device-boundary rejection, malformed descriptors, maximal LBA and oversized byte ranges. The test is integrated into `make test` as `block-device-check`.
 
 The first filesystem consumer must use only this interface. ATA may become one backend only after IDENTIFY establishes device capacity and the driver rejects out-of-range requests. Do not expose the current unchecked LBA28 path as a generally safe device.
 
@@ -80,7 +78,7 @@ The first implementation is **ext2 read-only**, not ext3/ext4 compatibility. It 
 
 Stage F is complete only when all of the following are true:
 
-1. Generic block-device bounds and error tests pass.
+1. Generic block-device bounds and error tests pass (contract and host test added; CI verification pending for the current change).
 2. Host-side ext2 parser tests pass on valid and deliberately malformed images.
 3. ATA capacity/range checks pass without regressing LionFS persistence.
 4. QEMU reads a separate ext2 image through the real ATA backend.
