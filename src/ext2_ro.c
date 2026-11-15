@@ -28,9 +28,42 @@ static int add_u64(uint64_t a, uint64_t b, uint64_t *out) {
     return 0;
 }
 
-static int mul_u64(uint64_t a, uint64_t b, uint64_t *out) {
-    if (!out || (b != 0u && a > UINT64_MAX / b)) return -1;
-    *out = a * b;
+static uint64_t div_u64_u32(uint64_t value,
+                             uint32_t divisor,
+                             uint32_t *remainder) {
+    uint64_t quotient = 0u;
+    uint64_t rem = 0u;
+    if (divisor == 0u) {
+        if (remainder) *remainder = 0u;
+        return 0u;
+    }
+    for (uint32_t bit = 64u; bit != 0u; --bit) {
+        rem = (rem << 1) | ((value >> (bit - 1u)) & 1u);
+        if (rem >= divisor) {
+            rem -= divisor;
+            quotient |= (uint64_t)1u << (bit - 1u);
+        }
+    }
+    if (remainder) *remainder = (uint32_t)rem;
+    return quotient;
+}
+
+static uint64_t div_ceil_u64_u32(uint64_t value, uint32_t divisor) {
+    uint32_t remainder;
+    uint64_t quotient = div_u64_u32(value, divisor, &remainder);
+    return quotient + (remainder != 0u ? 1u : 0u);
+}
+
+static int mul_u64_u32(uint64_t a, uint32_t b, uint64_t *out) {
+    uint64_t low;
+    uint64_t high;
+    uint64_t shifted_high;
+    if (!out) return -1;
+    low = (uint64_t)(uint32_t)a * b;
+    high = (uint64_t)(uint32_t)(a >> 32) * b;
+    if (high > UINT32_MAX) return -1;
+    shifted_high = high << 32;
+    if (add_u64(shifted_high, low, out) < 0) return -1;
     return 0;
 }
 
@@ -45,7 +78,7 @@ static int read_fs_block(const struct ext2_ro_fs *fs,
         fs->device->sector_size == 0u ||
         fs->block_size % fs->device->sector_size != 0u)
         return -1;
-    if (mul_u64(block, fs->block_size / fs->device->sector_size,
+    if (mul_u64_u32(block, fs->block_size / fs->device->sector_size,
                 &first_sector) < 0)
         return -1;
     sectors = fs->block_size / fs->device->sector_size;
@@ -84,16 +117,17 @@ static int read_group_desc(const struct ext2_ro_fs *fs,
     if (*inode_table < fs->first_data_block ||
         *inode_table >= fs->blocks_count)
         return -1;
-    if (mul_u64(fs->inodes_per_group, fs->inode_size,
+    if (mul_u64_u32(fs->inodes_per_group, fs->inode_size,
                 &inode_table_blocks) < 0)
         return -1;
     if (add_u64(inode_table_blocks, fs->block_size - 1u,
                 &table_end) < 0)
         return -1;
-    inode_table_blocks = table_end / fs->block_size;
+    inode_table_blocks = div_ceil_u64_u32(inode_table_blocks,
+                                          fs->block_size);
     if (add_u64(*inode_table, inode_table_blocks, &table_end) < 0 ||
         table_end > fs->blocks_count ||
-        mul_u64(group, fs->blocks_per_group, &group_start) < 0 ||
+        mul_u64_u32(group, fs->blocks_per_group, &group_start) < 0 ||
         add_u64(group_start, fs->first_data_block, &group_start) < 0 ||
         add_u64(group_start, fs->blocks_per_group, &group_end) < 0)
         return -1;
@@ -172,21 +206,19 @@ int ext2_ro_mount(struct ext2_ro_fs *fs,
         (ro_compat & ~EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER) != 0u)
         return -1;
 
-    group_blocks = ((uint64_t)candidate.blocks_count -
-                    candidate.first_data_block +
-                    candidate.blocks_per_group - 1u) /
-                   candidate.blocks_per_group;
-    group_inodes = ((uint64_t)candidate.inodes_count +
-                    candidate.inodes_per_group - 1u) /
-                   candidate.inodes_per_group;
+    group_blocks = div_ceil_u64_u32(
+        (uint64_t)candidate.blocks_count - candidate.first_data_block,
+        candidate.blocks_per_group);
+    group_inodes = div_ceil_u64_u32(candidate.inodes_count,
+                                    candidate.inodes_per_group);
     if (group_blocks == 0u || group_blocks != group_inodes ||
         group_blocks > UINT32_MAX)
         return -1;
     candidate.group_count = (uint32_t)group_blocks;
 
-    if (mul_u64(device->sector_count, device->sector_size,
+    if (mul_u64_u32(device->sector_count, device->sector_size,
                 &device_bytes) < 0 ||
-        mul_u64(candidate.blocks_count, candidate.block_size,
+        mul_u64_u32(candidate.blocks_count, candidate.block_size,
                 &candidate.filesystem_bytes) < 0 ||
         candidate.filesystem_bytes > device_bytes)
         return -1;
@@ -223,9 +255,8 @@ int ext2_ro_read_inode(const struct ext2_ro_fs *fs,
     if (group >= fs->group_count ||
         read_group_desc(fs, group, scratch, scratch_size, &inode_table) < 0)
         return -1;
-    if (mul_u64(index, fs->inode_size, &byte_index) < 0) return -1;
-    block_offset = byte_index / fs->block_size;
-    within = (uint32_t)(byte_index % fs->block_size);
+    if (mul_u64_u32(index, fs->inode_size, &byte_index) < 0) return -1;
+    block_offset = div_u64_u32(byte_index, fs->block_size, &within);
     if (block_offset > UINT32_MAX ||
         inode_table > UINT32_MAX - (uint32_t)block_offset ||
         within + EXT2_RO_INODE_SIZE > fs->block_size)
