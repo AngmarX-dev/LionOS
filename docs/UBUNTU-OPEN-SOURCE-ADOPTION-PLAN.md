@@ -157,7 +157,7 @@ BusyBox and external utilities remain candidates for a later applet-by-applet po
 
 ### Stage F — Filesystem interoperability
 
-**Implementation progress (2026-11-16):** the storage/VFS audit is complete and the Stage F design contract is recorded in `docs/EXT2-READ-ONLY-DESIGN.md`. The current branch has a 512-byte ATA PIO sector API and a custom LionFS/DiskFS backend, but it does not yet have a generic block-device interface, ATA IDENTIFY capacity discovery, partition parsing, or a VFS mount namespace. The existing 8 MiB QEMU disk is a LionFS image with metadata beginning at LBA 0; it must not be probed as ext2. Therefore ext2 is **not mounted or operational** at this point.
+**Implementation progress (2026-11-16):** the storage/VFS audit is complete and the Stage F design contract is recorded in `docs/EXT2-READ-ONLY-DESIGN.md`. The current branch has a 512-byte ATA PIO sector API and a custom LionFS/DiskFS backend, and F1 now supplies a generic read-only per-device block interface. The tree still lacks an ATA IDENTIFY-derived capacity, partition parsing, and a VFS mount namespace. The existing 8 MiB QEMU disk is a LionFS image with metadata beginning at LBA 0; it must not be probed as ext2. Therefore ext2 is **not mounted or operational** at this point.
 
 Implementation is deliberately split into dependency-ordered slices:
 
