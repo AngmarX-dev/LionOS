@@ -67,6 +67,8 @@ static int read_group_desc(const struct ext2_ro_fs *fs,
     uint64_t desc_offset;
     uint64_t inode_table_blocks;
     uint64_t table_end;
+    uint64_t group_start;
+    uint64_t group_end;
 
     if (!fs || !scratch || !inode_table || group >= fs->group_count ||
         scratch_size < fs->block_size)
@@ -91,7 +93,13 @@ static int read_group_desc(const struct ext2_ro_fs *fs,
         return -1;
     inode_table_blocks = table_end / fs->block_size;
     if (add_u64(*inode_table, inode_table_blocks, &table_end) < 0 ||
-        table_end > fs->blocks_count)
+        table_end > fs->blocks_count ||
+        mul_u64(group, fs->blocks_per_group, &group_start) < 0 ||
+        add_u64(group_start, fs->first_data_block, &group_start) < 0 ||
+        add_u64(group_start, fs->blocks_per_group, &group_end) < 0)
+        return -1;
+    if (group_end > fs->blocks_count) group_end = fs->blocks_count;
+    if (*inode_table < group_start || table_end > group_end)
         return -1;
     return 0;
 }
@@ -102,7 +110,7 @@ int ext2_ro_mount(struct ext2_ro_fs *fs,
                   uint32_t scratch_size) {
     uint8_t *scratch = (uint8_t *)scratch_buffer;
     uint8_t super[1024];
-    struct ext2_ro_fs candidate;
+    struct ext2_ro_fs candidate = {0};
     uint64_t super_sector;
     uint64_t device_bytes;
     uint64_t group_blocks;
@@ -348,8 +356,15 @@ int ext2_ro_lookup(const struct ext2_ro_fs *fs,
             minimum > record_length ||
             record_length > directory->size - offset)
             return -1;
+        if ((fs->incompat_features & EXT2_FEATURE_INCOMPAT_FILETYPE) != 0u &&
+            scratch[block_offset + 7u] > 7u)
+            return -1;
         if (inode != 0u) {
             if (inode > fs->inodes_count) return -1;
+            for (uint32_t n = 0; n < entry_name_length; ++n) {
+                uint8_t ch = scratch[block_offset + EXT2_DIRENT_HEADER + n];
+                if (ch == 0u || ch == (uint8_t)'/') return -1;
+            }
             if (entry_name_length == name_length) {
                 uint32_t i;
                 for (i = 0; i < name_length; ++i)
