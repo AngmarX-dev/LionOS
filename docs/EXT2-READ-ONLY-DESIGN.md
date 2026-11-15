@@ -31,7 +31,7 @@ The first filesystem consumer must use only this interface. ATA may become one b
 
 ### F2 — ext2 parser core (no VFS mount yet)
 
-**Implementation progress (2026-11-16):** `include/ext2_ro.h` and `src/ext2_ro.c` now provide a standalone read-only parser over the generic block-device contract. It validates the superblock, supported feature masks, group geometry, inode-table bounds and filesystem-vs-device size before publishing a mounted parser context. It reads regular-file/directory inodes, supports direct and one singly-indirect data-block level, reads regular-file ranges, and performs single-component directory-name lookup. Parsing uses explicit little-endian loads and checked 64-bit calculations; the parser has no write path and is not connected to VFS or ATA. Initial deterministic memory-image tests are integrated into `make test`. This is parser-core evidence only, not an ext2 VFS mount or runtime disk test.
+**Implementation progress (2026-11-16):** `include/ext2_ro.h` and `src/ext2_ro.c` now provide a standalone read-only parser over the generic block-device contract. It validates the superblock, supported feature masks, group geometry, inode-table bounds and filesystem-vs-device size before publishing a mounted parser context. It reads regular-file/directory inodes, supports direct and one singly-indirect data-block level, reads regular-file ranges, and performs single-component directory-name lookup. Parsing uses explicit little-endian loads and checked 64-bit calculations; the parser has no write path and is not connected to VFS or ATA. Initial deterministic memory-image tests are integrated into `make test`. The host parser test, kernel link/build, Phase 26 QEMU suite, USB xHCI regression and ISO/USB image checks passed all four required workflows on commit `f53ab75553580417fde06c33f97eb6746f5797a4`. This is parser-core evidence only, not an ext2 VFS mount or runtime disk test.
 
 `EXT2_RO` deliberately rejects unsupported feature flags, indexed directories, symlinks, non-regular/non-directory inode types, sparse file blocks, and double/triple-indirect addressing. It also limits the returned read length to the signed `int` API range.
 
@@ -83,7 +83,7 @@ The first implementation is **ext2 read-only**, not ext3/ext4 compatibility. It 
 Stage F is complete only when all of the following are true:
 
 1. Generic block-device bounds and error tests pass (contract, host test and CI verification complete).
-2. Host-side ext2 parser tests pass on valid and deliberately malformed images.
+2. Host-side ext2 parser tests pass on the initial valid and malformed synthetic image cases; broader corruption/geometry coverage remains in F3.
 3. ATA capacity/range checks pass without regressing LionFS persistence.
 4. QEMU reads a separate ext2 image through the real ATA backend.
 5. VFS can expose ext2 files read-only without changing RAMFS/LionFS behavior.
