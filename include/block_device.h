@@ -9,6 +9,7 @@
  * A backend owns its context and must serialize hardware access when needed.
  * sector_count is the number of addressable logical sectors, not the last LBA.
  * This interface deliberately has no write operation.
+ * A backend read callback returns zero on success and a negative value on error.
  */
 
 #define BLOCK_DEVICE_MAX_SECTOR_SIZE 4096u
