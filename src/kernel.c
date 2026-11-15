@@ -257,6 +257,7 @@ static int integration_pid=-1;
 static int integration_vfs_ok;
 static int integration_cow_ok;
 static int integration_process_ok;
+static int integration_utility_ok;
 
 void lionos_user_integration_step(void){
     if(integration_done)return;
@@ -341,20 +342,59 @@ void lionos_user_integration_step(void){
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
             integration_process_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
-            process_reap_pid((uint32_t)integration_pid);
+            if(process_reap_pid((uint32_t)integration_pid)!=0){
+                integration_done=1;
+                debug_write("LIONOS:USER-PROCESS-REAP-FAIL\n");
+                return;
+            }
+            integration_pid=-1;
+            if(!integration_process_ok){
+                integration_done=1;
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+                console_write("[ERR] Ring-3 process/libc integration test failed\n");
+                return;
+            }
+            integration_stage=6;
+        }else if(s<0){
             integration_done=1;
-            if(integration_process_ok){
+            debug_write("LIONOS:USER-PROCESS-TEST-STATE-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==6){
+        integration_pid=exec_run_file("meminfo.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:USER-MEMINFO-LAUNCHED\n");
+            integration_stage=7;
+        }else{
+            integration_done=1;
+            debug_write("LIONOS:USER-MEMINFO-LAUNCH-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==7){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            integration_utility_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
+            if(process_reap_pid((uint32_t)integration_pid)!=0)
+                integration_utility_ok=0;
+            integration_pid=-1;
+            integration_done=1;
+            if(integration_utility_ok){
                 debug_write("LIONOS:VFS-USER-TEST-OK\n");
                 debug_write("LIONOS:COW-TEST-OK\n");
                 debug_write("LIONOS:USERLAND-UTILITY-TEST-OK\n");
                 console_write("[ OK ] Automated VFS, COW and Ring-3 utility integration tests\n");
             }else{
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
-                console_write("[ERR] Ring-3 process/libc/utility integration test failed\n");
+                console_write("[ERR] Ring-3 meminfo utility integration test failed\n");
             }
         }else if(s<0){
             integration_done=1;
-            debug_write("LIONOS:USER-PROCESS-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-MEMINFO-STATE-FAIL\n");
         }
         return;
     }
