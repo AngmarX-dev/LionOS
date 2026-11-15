@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <limits.h>
 #include "user_libc.h"
 #include "posix_compat.h"
 
@@ -10,6 +11,9 @@ static int libc_memory_test(void) {
     if (memcmp(overlap, "abcdcd", 6u) != 0) return 2;
 
     if (malloc(0u) != 0 || malloc(UINT32_MAX) != 0) return 3;
+    if (atoi("  +42") != 42 || atoi("-42") != -42 ||
+        atoi("2147483648") != INT_MAX || atoi("-2147483649") != INT_MIN)
+        return 9;
     void *first = malloc(64u);
     void *second = malloc(64u);
     if (!first || !second || first == second ||
