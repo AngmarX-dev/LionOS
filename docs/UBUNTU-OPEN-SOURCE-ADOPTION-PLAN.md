@@ -157,13 +157,18 @@ BusyBox and external utilities remain candidates for a later applet-by-applet po
 
 ### Stage F — Filesystem interoperability
 
-- Define a generic block-device interface independently of ATA PIO.
-- Add a read-only ext2 implementation first, with strict superblock, inode, direct/indirect block mapping, directory and bounds validation.
-- Use e2fsprogs on the host to create controlled test images and verify image consistency.
-- Add fuzz/corruption tests before implementing writes.
-- Keep LionFS as the existing native persistent format until migration and recovery are proven.
+**Implementation progress (2026-11-16):** the storage/VFS audit is complete and the Stage F design contract is recorded in `docs/EXT2-READ-ONLY-DESIGN.md`. The current branch has a 512-byte ATA PIO sector API and a custom LionFS/DiskFS backend, but it does not yet have a generic block-device interface, ATA IDENTIFY capacity discovery, partition parsing, or a VFS mount namespace. The existing 8 MiB QEMU disk is a LionFS image with metadata beginning at LBA 0; it must not be probed as ext2. Therefore ext2 is **not mounted or operational** at this point.
 
-**Exit gate:** read-only ext2 image tests pass in QEMU and malformed images fail safely without modifying storage.
+Implementation is deliberately split into dependency-ordered slices:
+
+1. F1: bounded generic block-device contract;
+2. F2: isolated read-only ext2 parser with explicit feature rejection;
+3. F3: host-side memory-backed valid/corrupt image tests;
+4. F4: ATA IDENTIFY/capacity validation, a separate QEMU ext2 disk, then read-only VFS integration.
+
+The initial parser target is ext2 regular files/directories, direct blocks and one singly-indirect level. It will not write, replay journals, repair metadata, or claim ext3/ext4 compatibility. Existing LionFS persistence and xHCI source must remain unchanged.
+
+**Exit gate:** block-device bounds and error tests, host-side ext2 parser/corruption tests, ATA capacity/range tests, QEMU reads from a separate ext2 image, read-only VFS integration, and all required CI workflows green on the same final commit.
 
 ### Stage G — Driver research and native adaptation
 
@@ -234,7 +239,7 @@ The links above are research entry points, not a substitute for checking the exa
 
 **Architecture decision:** APPROVED — keep the LionOS kernel native and adopt selected open-source user-space components incrementally.
 
-**Implementation status:** Stages A and B have passed their recorded CI gates; Stage C's first native file-wrapper slice passed all required workflows on its recorded commit; Stage D's bounded native libc hardening slice passed all required workflows on commit `52869905743a85bfe5a286cfdc42ce5815d7cd8c`. Stage E is in progress: the native `meminfo.elf` utility is embedded in RAMFS and the boot-time Ring-3 integration sequence launches it independently after VFS and COW smoke tests. The separate `process_test.elf` QEMU test currently fails and is tracked as a follow-up; it is not part of the utility smoke-test prerequisite. The revised runtime assertion is pending CI. No external Ubuntu/Linux utility has been imported yet. Do not begin with a wholesale musl, BusyBox, Linux driver or Ubuntu root-filesystem import.
+**Implementation status:** Stages A-D have passed their recorded CI gates. Stage E's native `meminfo.elf` utility and independent Ring-3 smoke test passed all four required workflows on `094675cd6b30af326724ecbd216f075182485a71`. The separate `process_test.elf` QEMU failure remains tracked as a follow-up and was not represented as fixed by Stage E. Stage F has started with a storage/VFS audit and a documented ext2 read-only design contract; no ext2 parser, mount, or operational support is claimed yet. The existing LionFS image must remain separate from ext2 fixtures. No external Ubuntu/Linux utility has been imported yet. Do not begin with a wholesale musl, BusyBox, Linux driver or Ubuntu root-filesystem import.
 
 **Third-party source imported by this audit:** none.  
 **Kernel source changed by this audit:** none.  
