@@ -1,8 +1,8 @@
 # ext2 Read-Only Filesystem: Stage F Design Contract
 
-**Status:** Stage F architecture/audit slice; implementation and mount support are not yet complete.  
+**Status:** Stage F in progress; F1 generic read-only block contract implemented, with ATA integration and ext2 mount support still pending.  
 **Branch:** `feature/graphics-engine-v2`  
-**Baseline:** `094675cd6b30af326724ecbd216f075182485a71`
+**Audit baseline:** `094675cd6b30af326724ecbd216f075182485a71`
 
 ## 1. Findings from the current storage path
 
@@ -10,7 +10,7 @@ The current tree has a usable but narrow ATA PIO sector interface:
 
 - `ata_read_sector(uint32_t lba, void *buffer)` reads one 512-byte sector.
 - `ata_write_sector` also exists and is used by the existing persistent LionFS/DiskFS.
-- The ATA implementation programs LBA28 task-file registers. It does not currently expose a generic block-device object, an identified device capacity, partition discovery, or a per-device lifetime/state contract.
+- The ATA implementation programs LBA28 task-file registers. The generic read-only per-device contract now exists, but ATA does not yet provide an IDENTIFY-derived capacity, partition discovery, or a registered block-device instance.
 - The current QEMU disk fixture is an 8 MiB raw image. LionFS metadata occupies LBA 0 onward (superblock at LBA 0, directory at LBA 1..5, data beginning at LBA 6); it is not an MBR/GPT-partitioned ext2 disk.
 - VFS currently selects RAMFS or LionFS/DiskFS. It has no mount namespace or filesystem-driver registration interface.
 - The existing ATA path must not be assumed safe for arbitrary media until IDENTIFY/capacity handling and LBA range checks are implemented.
