@@ -134,12 +134,12 @@ Use compatibility wrappers over native LionOS services. Do not emulate Linux-onl
 **Implementation progress (2026-11-15):** Stage D has started by hardening the existing native libc without changing the kernel ABI or importing third-party code. The first slice:
 - replaces the monotonic allocator with an 8-byte-aligned, bounded first-fit arena allocator;
 - implements reuse, splitting and adjacent free-block coalescing; invalid, out-of-arena and duplicate frees are ignored;
-- fixes \`memmove\` overlap direction without relational comparison of unrelated C pointers;
-- prevents signed-overflow undefined behavior in the native \`atoi\` implementation by saturating at the \`int\` limits;
-- corrects \`printf\`'s returned character count for \`%u\`, \`%d\` and \`%x\`;
+- fixes `memmove` overlap direction without relational comparison of unrelated C pointers;
+- prevents signed-overflow undefined behavior in the native `atoi` implementation by saturating at the `int` limits;
+- corrects `printf`'s returned character count for `%u`, `%d` and `%x`;
 - extends the existing Ring-3 userland integration test to cover overlap, allocator alignment/reuse/coalescing, overflow rejection and formatted-output counts.
 
-This allocator is a per-process 32 KiB arena and is **not thread-safe**; it is not a general-purpose replacement for a mature libc allocator. The saturating \`atoi\` overflow behavior is a documented LionOS extension, not a claim of strict ISO C behavior. The current implementation remains a deliberately small libc.
+This allocator is a per-process 32 KiB arena and is **not thread-safe**; it is not a general-purpose replacement for a mature libc allocator. The saturating `atoi` overflow behavior is a documented LionOS extension, not a claim of strict ISO C behavior. The current implementation remains a deliberately small libc.
 
 Next work must address allocator concurrency/ownership contracts and expand tests for the remaining string, formatting, process, file, signal, time and threading interfaces. Evaluate musl only as a porting project: its i386 support is useful, but its documented system interface is Linux syscalls. It needs a deliberate LionOS syscall backend and conformance work. Do not replace the current libc until a side-by-side test suite demonstrates equivalent or better behavior. Keep the kernel freestanding and independent of user-space libc.
 
