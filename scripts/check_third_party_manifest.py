@@ -44,6 +44,8 @@ UNKNOWN_MARKERS = {
     "NOT_RECORDED",
     "NOT_RECORDED",
     "NOT_APPLICABLE",
+    "N/A",
+    "NOT_YET_RECORDED",
 }
 
 
@@ -109,7 +111,9 @@ def main() -> int:
                 "license",
                 "copyright",
                 "source_paths",
+                "local_modifications",
                 "source_availability",
+                "notes",
                 "redistribution_obligations",
             )
             for field in evidence_fields:
