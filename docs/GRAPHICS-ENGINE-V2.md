@@ -570,3 +570,27 @@ layout and verifies that changing entry 3 is detected. This does not program
 IA32_PAT, change global cache policy, validate MTRR interactions, or prove
 device coherency. No GGTT PTE, GPU ring, or command submission behavior is
 changed. No xHCI files are modified.
+
+
+## Transactional kernel MMIO range mapping
+
+The kernel paging layer now exposes a BSP-only range-mapping operation for
+reserved kernel MMIO virtual space. It validates page alignment, nonzero size,
+the complete 32-bit virtual-window boundary, and the PAE physical-address
+limit before acquiring the mapping lock. It then checks every target PTE for
+an existing present mapping before writing any PTE. A collision rejects the
+whole request without partially populating the requested range.
+
+After successful preflight, all PTEs are installed while holding the shared
+kernel-map lock. Local invalidations are performed per page, followed by one
+range-scoped TLB shootdown transaction: each online AP invalidates every page
+in the range and acknowledges once. The existing single-page mapping API and
+its call sites retain their prior behavior.
+
+Intel BAR0 now uses this transactional API rather than mapping pages one by
+one. The pure validation self-test covers valid Alder Lake BAR0 geometry,
+alignment failures, zero size, virtual-window overflow, and physical-address
+limit/overflow cases. This test does not emulate a real PTE collision or
+replace physical hardware validation.
+
+No xHCI source files or xHCI mapping call sites were modified.
