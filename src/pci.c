@@ -139,3 +139,33 @@ void pci_print_devices(void) {
     if (discovered > recorded)
         console_write("       WARNING: PCI device storage limit reached\n");
 }
+
+
+int pci_is_initialized(void) {
+    return initialized ? 1 : 0;
+}
+
+uint32_t pci_recorded_device_count(void) {
+    return initialized ? recorded : 0u;
+}
+
+int pci_get_device(uint32_t index, pci_device_info_t *out) {
+    pci_device_info_t result;
+    const pci_device_t *device;
+
+    if (!initialized || !out || index >= recorded)
+        return -1;
+
+    device = &devices[index];
+    result.bus = device->bus;
+    result.device = device->device;
+    result.function = device->function;
+    result.vendor_id = device->vendor;
+    result.device_id = device->product;
+    result.class_code = device->class_code;
+    result.subclass = device->subclass;
+    result.programming_interface = device->prog_if;
+    result.revision = device->revision;
+    *out = result;
+    return 0;
+}
