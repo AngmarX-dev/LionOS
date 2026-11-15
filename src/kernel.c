@@ -35,6 +35,7 @@
 #include "gpu_command_buffer.h"
 #include "gpu_fence.h"
 #include "gpu_submission.h"
+#include "gfx_pci.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -380,10 +381,28 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     paging_init();
 
     /* Enumerate real PCI configuration space before device-driver probing. */
-    if(pci_init() == 0)
+    if(pci_init() == 0) {
+        gfx_pci_discovery_report_t gfx_pci_report;
         pci_print_devices();
-    else
+        if (gfx_pci_discover(&gfx_pci_report) == 0) {
+            console_write("[ OK ] PCI display adapters: ");
+            boot_dec(gfx_pci_report.display_adapter_count);
+            console_write(" / supported vendors: ");
+            boot_dec(gfx_pci_report.supported_adapter_count);
+            console_write(" / unknown vendors: ");
+            boot_dec(gfx_pci_report.unsupported_adapter_count);
+            console_write("\n");
+            debug_write("LIONOS:GFX-PCI-DISCOVERY-OK\n");
+            if (gfx_pci_report.pci_recording_truncated ||
+                gfx_pci_report.adapter_list_truncated)
+                debug_write("LIONOS:GFX-PCI-DISCOVERY-TRUNCATED\n");
+        } else {
+            console_write("[ -- ] PCI display adapter discovery failed\n");
+            debug_write("LIONOS:GFX-PCI-DISCOVERY-FAIL\n");
+        }
+    } else {
         console_write("[ -- ] PCI hardware enumeration unavailable\n");
+    }
 
     if(framebuffer_init(multiboot_info) == 0){
         console_write("[ OK ] Framebuffer ");
@@ -438,6 +457,15 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     } else {
         debug_write("LIONOS:GFX-BACKEND-REGISTRY-SELFTEST-FAIL\n");
         console_write("[ERR] Graphics backend registry / CPU fallback self-test\n");
+    }
+
+    /* Pure vendor/classification test; no GPU registers are accessed. */
+    if (gfx_pci_discovery_selftest() == 0) {
+        debug_write("LIONOS:GFX-PCI-CLASSIFY-SELFTEST-OK\n");
+        console_write("[ OK ] Intel/AMD/NVIDIA PCI display classification self-test\n");
+    } else {
+        debug_write("LIONOS:GFX-PCI-CLASSIFY-SELFTEST-FAIL\n");
+        console_write("[ERR] PCI display classification self-test\n");
     }
 
     if (intel_gpu_ggtt_ownership_report_selftest() == 0)
