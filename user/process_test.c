@@ -87,8 +87,6 @@ int main(int argc, char **argv) {
 
     puts("[PASS] fork + waitpid + exit status");
     print_u32("[parent] PID before exec: ", parent_pid);
-    puts("[parent] exec hello.elf; PID must remain unchanged");
-
     puts("[parent] exec meminfo.elf as an ordinary Ring-3 child");
     uint32_t utility_pid = lion_fork();
     if (utility_pid == 0u) {
@@ -109,6 +107,7 @@ int main(int argc, char **argv) {
     }
     puts("[PASS] meminfo utility executed as Ring-3 child");
 
+    puts("[parent] exec hello.elf; PID must remain unchanged");
     uint32_t exec_result = lion_exec("hello.elf");
     if (exec_result != parent_pid) {
         puts("[FAIL] exec PID mismatch");
