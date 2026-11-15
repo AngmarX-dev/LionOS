@@ -104,7 +104,7 @@ $(BUILD)/signal_test.o: user/signal_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/net_test.o: user/net_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
-$(BUILD)/vfs_test.o: user/vfs_test.c | $(BUILD)
+$(BUILD)/vfs_test.o: user/vfs_test.c include/posix_compat.h include/user_libc.h | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/cow_test.o: user/cow_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
