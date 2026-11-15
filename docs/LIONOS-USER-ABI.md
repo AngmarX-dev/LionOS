@@ -132,7 +132,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 - Network calls require PROCESS_CAP_NET.
 - The dispatcher validates user pointers before dereferencing user buffers. Each call also applies capacity, ownership, and state checks.
 - NET_RECV treats source metadata pointers as optional. If a non-null pointer is not writable, current code skips writing that metadata rather than failing the receive. This is legacy behavior, not a recommended pattern for new calls.
-- PIPE_READ and PIPE_WRITE currently use the readable-range check for their user buffer. Treat this direction/permission handling as an implementation limitation; do not copy it into new syscalls.
+- WAITPID and THREAD_JOIN require writable status pointers; PIPE_READ requires a writable destination buffer, while PIPE_WRITE requires a readable source buffer. The conformance checker guards these access directions against accidental regression.
 
 ## 6. User process entry
 
