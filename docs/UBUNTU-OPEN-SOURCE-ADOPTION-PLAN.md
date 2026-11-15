@@ -36,7 +36,7 @@ Observed architecture:
 - Existing process support includes fork/exec/wait, threads, IPC, pipes and signals, but the public API is LionOS-specific.
 - VFS currently fronts RAMFS and persistent LionFS/DiskFS. The ATA PIO path is not a general Linux block-device layer.
 - Networking includes an RTL8139 path and limited IPv4/ARP/ICMP functionality. The README explicitly lists TCP, socket API and DNS as incomplete.
-- The current user allocator is a 32 KiB monotonic arena; `free()` does not reclaim memory.
+- The current user allocator is a bounded 32 KiB first-fit arena with splitting, reuse and adjacent-block coalescing; it is per-process and not thread-safe.
 - The existing graphics path keeps the firmware framebuffer and CPU compositor operational. GPU mapping and submission remain gated off.
 
 These facts rule out treating ordinary Ubuntu binaries as directly executable on LionOS. A Linux-targeted binary expects Linux ABI behavior, not merely an ELF header.
