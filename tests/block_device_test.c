@@ -8,6 +8,7 @@
 struct memory_disk {
     uint8_t bytes[TEST_SECTORS * TEST_SECTOR_SIZE];
     uint32_t calls;
+    int fail_reads;
 };
 
 static int memory_read(void *context,
@@ -20,6 +21,8 @@ static int memory_read(void *context,
 
     if (!disk || !buffer || offset + length > sizeof(disk->bytes))
         return -1;
+    if (disk->fail_reads)
+        return -7;
 
     for (uint32_t i = 0; i < (uint32_t)length; ++i)
         ((uint8_t *)buffer)[i] = disk->bytes[(uint32_t)offset + i];
@@ -38,7 +41,7 @@ static int expect(int condition, const char *name) {
 
 int main(void) {
     static const struct block_device_ops ops = { memory_read };
-    struct memory_disk disk = {{0}, 0u};
+    struct memory_disk disk = {{0}, 0u, 0};
     struct block_device device = {
         &ops, &disk, TEST_SECTORS, TEST_SECTOR_SIZE
     };
@@ -100,6 +103,12 @@ int main(void) {
     failures += expect(block_device_read(&device, UINT64_MAX, 1u, buffer,
                                          sizeof(buffer)) < 0,
                        "reject maximal LBA without arithmetic wrap");
+
+    disk.fail_reads = 1;
+    failures += expect(block_device_read(&device, 0u, 1u, buffer,
+                                         sizeof(buffer)) == -7,
+                       "propagate backend I/O error");
+    disk.fail_reads = 0;
 
     failures += expect(disk.calls == 1u,
                        "invalid requests never reach backend");
