@@ -13,6 +13,7 @@ int block_device_read(const struct block_device *device,
 
     if (device->sector_size == 0u ||
         device->sector_size > BLOCK_DEVICE_MAX_SECTOR_SIZE ||
+        (device->sector_size & (device->sector_size - 1u)) != 0u ||
         device->sector_count == 0u ||
         sector_count == 0u)
         return -1;
