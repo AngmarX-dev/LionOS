@@ -71,7 +71,7 @@ LionOS uses a custom software interrupt syscall entry and LionOS-specific syscal
 
 ### 4.2 libc gap
 
-The existing libc is intentionally small. It has basic string/memory/stdio helpers and a simple allocator, but it is not a complete POSIX libc. In particular, the current monotonic allocator's `free()` is a no-op. A mature libc or BusyBox must not be linked until allocation, process, file, time, signal, thread and error semantics are complete enough for the selected program set.
+The existing libc is intentionally small. It has basic string/memory/stdio helpers and a bounded 32 KiB first-fit allocator with reuse and coalescing, but it is not a complete POSIX libc and the allocator is not thread-safe. A mature libc or BusyBox must not be linked until allocation, process, file, time, signal, thread and error semantics are complete enough for the selected program set.
 
 ### 4.3 Filesystem and block-device gap
 
