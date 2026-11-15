@@ -289,7 +289,7 @@ int paging_map_kernel_range(uint32_t virtual_address, uint64_t physical_address,
         uint32_t pt_index = (current >> 12) & 0x1FFu;
         uint32_t mmio_index = pd_index - KERNEL_MMIO_PD_INDEX;
         if (mmio_index >= KERNEL_MMIO_PT_COUNT ||
-            (kernel_mmio_pt[mmio_index][pt_index] & PTE_PRESENT) != 0u) {
+            kernel_mmio_pt[mmio_index][pt_index] != 0u) {
             spinlock_irqrestore_release(&kernel_map_lock, irq);
             return -1;
         }
