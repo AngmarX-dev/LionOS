@@ -34,7 +34,7 @@ C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/kernel_runtime.c src/gui.
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso usb disk run check test third-party-check userspace userland process-test ipc-test signal-test net-test
+.PHONY: all clean iso usb disk run check test third-party-check abi-check userspace userland process-test ipc-test signal-test net-test
 all: $(KERNEL)
 userspace userland: $(USER_ELFS)
 process-test: $(BUILD)/process_test.elf
@@ -42,11 +42,15 @@ ipc-test: $(BUILD)/ipc_test.elf
 signal-test: $(BUILD)/signal_test.elf
 net-test: $(BUILD)/net_test.elf
 
-test: third-party-check
+test: third-party-check abi-check
 	bash scripts/test.sh
 
 third-party-check:
 	python3 scripts/check_third_party_manifest.py
+
+abi-check:
+	python3 scripts/check_uapi.py
+	$(CC) $(USER_CFLAGS) -fsyntax-only tests/uapi_layout.c
 
 $(BUILD):
 	mkdir -p $(BUILD)
