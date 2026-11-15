@@ -56,6 +56,16 @@ if not version or not query:
 if int(version.group(1)) != int(query.group(1)):
     fail("header ABI version and syscall 0 response disagree")
 
+# Guard the user-pointer access direction for syscalls that write into user memory.
+required_write_checks = (
+    "if(!user_range_ok_write(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t result=process_waitpid",
+    "case LIONOS_SYS_THREAD_JOIN:if(!has_cap(PROCESS_CAP_PROCESS)||!user_range_ok_write(arg1,sizeof(uint32_t)))",
+    "case LIONOS_SYS_PIPE_READ:if(!has_cap(PROCESS_CAP_IPC)||arg2==0||arg2>IPC_MESSAGE_MAX||!user_range_ok_write(arg1,arg2))",
+)
+for fragment in required_write_checks:
+    if fragment not in dispatcher:
+        fail("writable user-buffer validation missing or changed: " + fragment)
+
 print("UAPI check: PASS (" + str(len(definitions)) +
       " unique syscall numbers; ABI " + version.group(1) +
       "; every registered syscall has a dispatcher case)")
