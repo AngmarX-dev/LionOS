@@ -4,7 +4,7 @@ DISK := $(BUILD)/lionos-disk.img
 KERNEL := $(BUILD)/lionos.bin
 USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o $(BUILD)/posix_compat.o
 
-USER_PROGRAMS := hello process_test ipc_test signal_test net_test vfs_test cow_test echo cat ls pwd uname rm stat ping env grep find cp mv userland_test
+USER_PROGRAMS := hello meminfo process_test ipc_test signal_test net_test vfs_test cow_test echo cat ls pwd uname rm stat ping env grep find cp mv userland_test
 USER_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 
@@ -96,6 +96,8 @@ $(BUILD)/posix_compat.o: user/posix_compat.c include/posix_compat.h include/user
 
 $(BUILD)/hello.o: user/hello.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BUILD)/meminfo.o: user/bin/meminfo.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/process_test.o: user/process_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/ipc_test.o: user/ipc_test.c | $(BUILD)
@@ -141,6 +143,8 @@ $(BUILD)/userland_test.o: user/userland_test.c | $(BUILD)
 
 $(BUILD)/hello.elf: $(USER_COMMON_OBJS) $(BUILD)/hello.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/hello.o
+$(BUILD)/meminfo.elf: $(USER_COMMON_OBJS) $(BUILD)/meminfo.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/meminfo.o
 $(BUILD)/process_test.elf: $(USER_COMMON_OBJS) $(BUILD)/process_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/process_test.o
 $(BUILD)/ipc_test.elf: $(USER_COMMON_OBJS) $(BUILD)/ipc_test.o user/user.ld
