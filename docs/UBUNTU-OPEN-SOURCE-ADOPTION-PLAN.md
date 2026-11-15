@@ -149,7 +149,7 @@ Next work must address allocator concurrency/ownership contracts and expand test
 
 **Implementation progress (2026-11-15):** the first dedicated native utility, `meminfo.elf`, is being added as a non-privileged Ring-3 program. It reports the free physical-page count through the documented LionOS `MEMINFO` syscall and uses only the native user libc. It is deliberately not presented as an imported Ubuntu/Linux binary: no external source or third-party license is involved in this first native utility slice.
 
-The build embeds the ELF in RAMFS as a separate user program; it is not linked into the kernel as executable code. The existing process integration test is extended to fork a child, execute `meminfo.elf` in that child, and verify its exit status. RAMFS capacity is adjusted so adding the embedded program does not reduce the number of ordinary file slots.
+The build embeds the ELF in RAMFS as a separate user program; it is not linked into the kernel as executable code. The boot-time integration state machine launches `meminfo.elf` as an independent Ring-3 process after the existing fork/waitpid/exec process test completes, then checks its exit status and reaps it. This keeps the utility smoke test independent of nested fork/exec behavior. RAMFS capacity is adjusted so adding the embedded program does not reduce the number of ordinary file slots.
 
 BusyBox and external utilities remain candidates for a later applet-by-applet port after libc/API coverage and per-file license review. No Linux-targeted binary is assumed compatible.
 
