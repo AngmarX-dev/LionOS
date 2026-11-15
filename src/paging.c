@@ -359,7 +359,7 @@ int paging_unmap_high_page(uint32_t virtual_address){
     }
     pte_store_atomic(&kernel_mmio_pt[mmio_index][pt_index],0u);
     __asm__ volatile("invlpg (%0)"::"r"(virtual_address):"memory");
-    paging_kernel_tlb_shootdown(virtual_address);
+    paging_kernel_tlb_shootdown_range(virtual_address, 1u);
     spinlock_irqrestore_release(&kernel_map_lock,map_irq);
     irq=spinlock_irqsave_acquire(&high_map_lock);
     high_map_bitmap[slot>>5]&=~(1u<<(slot&31u));
