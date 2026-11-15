@@ -148,7 +148,7 @@ Use compatibility wrappers over native LionOS services. Do not emulate Linux-onl
 ### Stage F — Filesystem interoperability
 
 - Define a generic block-device interface independently of ATA PIO.
-- Add a read-only ext2 implementation first, with strict superblock, inode, extent/block, directory and bounds validation.
+- Add a read-only ext2 implementation first, with strict superblock, inode, direct/indirect block mapping, directory and bounds validation.
 - Use e2fsprogs on the host to create controlled test images and verify image consistency.
 - Add fuzz/corruption tests before implementing writes.
 - Keep LionFS as the existing native persistent format until migration and recovery are proven.
