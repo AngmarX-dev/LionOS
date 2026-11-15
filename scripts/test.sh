@@ -210,6 +210,7 @@ fi
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-second.log
+grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-second.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
 echo "[6/6] Graphical desktop / keyboard escape smoke test"
