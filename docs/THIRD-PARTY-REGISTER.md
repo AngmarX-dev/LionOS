@@ -5,7 +5,7 @@ This register tracks components and unresolved provenance work. It is not a lice
 | ID | Component | Role | Status | Shipped in ISO/USB? | Main unresolved evidence |
 |---|---|---|---|---|---|
 | grub | GRUB bootloader/modules | Runtime boot component | PENDING_AUDIT | Yes / Yes | Exact package version, embedded module inventory, corresponding source and notices |
-| build-tools | GCC/binutils/NASM/xorriso/mtools/syslinux-utils/QEMU/Python | Build/CI only | BUILD_ONLY_NOT_SHIPPED | No / No | Exact package versions should be captured for reproducible builds |
+| gcc / binutils / nasm / xorriso / mtools / syslinux / qemu / python3 | Individually registered build and CI tools | Build/CI only | BUILD_ONLY_NOT_SHIPPED | No / No | Exact package versions are not pinned by the current workflow |
 | project-assets | Existing PNG branding/icons/wallpapers | Embedded runtime assets | PENDING_AUDIT | Yes / Yes | Creator, source and redistribution license per asset |
 | source-audit | Existing source-tree provenance | Audit task | PENDING_AUDIT | N/A | File-level origin and license inventory is incomplete |
 
