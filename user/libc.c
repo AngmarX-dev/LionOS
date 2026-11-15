@@ -218,8 +218,8 @@ int atoi(const char *s) {
     int negative = 0;
 
     if (!s) return 0;
-    while (*s == ' ' || *s == '\\t' || *s == '\\n' || *s == '\\r' ||
-           *s == '\\f' || *s == '\\v') ++s;
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' ||
+           *s == '\f' || *s == '\v') ++s;
     if (*s == '-' || *s == '+') {
         negative = (*s == '-');
         ++s;
