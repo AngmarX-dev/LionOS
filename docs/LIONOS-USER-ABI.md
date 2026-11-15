@@ -1,6 +1,6 @@
 # LionOS User ABI and System Call Contract
 
-**Status:** specification and conformance guards for the existing ABI. No syscall number or runtime behavior is changed by this stage.
+**Status:** specification and conformance guards for the native syscall ABI. Stage C adds user-space wrappers without renumbering syscalls or changing kernel syscall dispatch.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
 **UAPI version:** 5 (LIONOS_UAPI_VERSION).
 **System-call ABI:** 4 (LIONOS_SYSCALL_ABI).
@@ -159,7 +159,7 @@ The wrapper rejects unknown open flags, requires READ or WRITE, and requires WRI
 
 The QEMU VFS userspace test exercises invalid flags, invalid descriptors, zero-length calls, create-via-native-write-open, append, readback, stat and unlink through these wrappers. This validates the selected LionOS path only; it is not a POSIX conformance certification.
 
-## 7. Unsupported compatibility claims
+## 8. Unsupported compatibility claims
 
 This specification does not imply Linux i386 syscall compatibility, POSIX conformance, glibc/musl drop-in compatibility, dynamic ELF linking, Linux device-node/ioctl conventions, Linux signal ABI, or a stable ABI for internal kernel headers.
 
