@@ -161,7 +161,9 @@ BusyBox and external utilities remain candidates for a later applet-by-applet po
 
 Implementation is deliberately split into dependency-ordered slices:
 
-1. F1: bounded generic block-device contract;
+**F1 progress (2026-11-16):** a read-only generic per-device block contract is present in `include/block_device.h` / `src/block_device.c`, with overflow/range validation and a host memory-backend test integrated into `make test`. This is not yet an ATA backend or a globally registered device. CI verification for this F1 slice is pending.
+
+1. F1: bounded generic block-device contract (initial API and host tests implemented; ATA provider deferred);
 2. F2: isolated read-only ext2 parser with explicit feature rejection;
 3. F3: host-side memory-backed valid/corrupt image tests;
 4. F4: ATA IDENTIFY/capacity validation, a separate QEMU ext2 disk, then read-only VFS integration.
