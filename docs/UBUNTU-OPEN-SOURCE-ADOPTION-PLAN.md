@@ -112,6 +112,9 @@ The sequence below is intentionally dependency-ordered. Each stage must have an 
 
 ### Stage C — Build a POSIX-inspired compatibility layer
 
+**Implementation progress (2026-11-15):** the first native user-space file-operation slice is present in `include/posix_compat.h` and `user/posix_compat.c`: open/read/write/close plus path stat/unlink wrappers. The wrappers preserve LionOS's native descriptor and error conventions; they do not claim POSIX conformance. The existing QEMU VFS user test now exercises this layer, including append and negative cases. Descriptor duplication, standard streams, seek, directory APIs, process/environment semantics and time/terminal interfaces remain future work. This stage is therefore **in progress**, not complete.
+
+
 Implement only interfaces needed by a selected program set, in dependency order:
 
 1. file descriptors and `open/read/write/close`;
