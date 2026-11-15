@@ -88,7 +88,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 7 | LIONOS_SYS_WRITE | buffer, length | Console bytes written; max 4096 |
 | 8 | LIONOS_SYS_READ | buffer, capacity | Bytes read; max 4096 |
 | 9 | LIONOS_SYS_CLEAR | — | 0 on success |
-| 10 | LIONOS_SYS_MEMINFO | — | Free physical page count |
+| 10 | LIONOS_SYS_MEMINFO | — | Free physical page count; read-only metadata query used by the native `meminfo.elf` utility |
 | 11 | LIONOS_SYS_EXEC | NUL-terminated program name | Replaces current image; returns PID on success |
 | 12 | LIONOS_SYS_FORK | — | Child PID in parent; child receives 0 |
 | 13 | LIONOS_SYS_WAITPID | PID (0 = any child), writable status pointer | Child PID on completion; may block |
