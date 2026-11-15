@@ -118,8 +118,8 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 37 | LIONOS_SYS_THREAD_JOIN | TID, writable status pointer | TID on completion; may block |
 | 38 | LIONOS_SYS_THREAD_EXIT | exit code | Terminates current thread |
 | 39 | LIONOS_SYS_PIPE_CREATE | writable read-handle pointer, writable write-handle pointer | Pipe creation result |
-| 40 | LIONOS_SYS_PIPE_READ | handle, data buffer, capacity | Bytes read or blocked/error |
-| 41 | LIONOS_SYS_PIPE_WRITE | handle, data buffer, length | Bytes written or blocked/error |
+| 40 | LIONOS_SYS_PIPE_READ | handle, writable data buffer, capacity | Bytes read or blocked/error; capacity max 128 |
+| 41 | LIONOS_SYS_PIPE_WRITE | handle, readable data buffer, length | Bytes written or blocked/error; length max 128 |
 | 42 | LIONOS_SYS_PIPE_CLOSE | handle | Pipe close result |
 | 43 | LIONOS_SYS_IPC_RECV_BLOCKING | writable data, capacity, optional sender-PID pointer | Bytes or blocked/error |
 
@@ -127,12 +127,14 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 
 - Console calls require PROCESS_CAP_CONSOLE.
 - File/VFS calls require PROCESS_CAP_FS.
-- Process/thread control calls require PROCESS_CAP_PROCESS.
+- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS; EXIT and read-only metadata queries are not all gated by that capability.
 - IPC and pipe calls require PROCESS_CAP_IPC.
 - Network calls require PROCESS_CAP_NET.
 - The dispatcher validates user pointers before dereferencing user buffers. Each call also applies capacity, ownership, and state checks.
 - NET_RECV treats source metadata pointers as optional. If a non-null pointer is not writable, current code skips writing that metadata rather than failing the receive. This is legacy behavior, not a recommended pattern for new calls.
 - WAITPID and THREAD_JOIN require writable status pointers; PIPE_READ requires a writable destination buffer, while PIPE_WRITE requires a readable source buffer. The conformance checker guards these access directions against accidental regression.
+- THREAD_CREATE checks that its entry address lies in the user address interval, but the current syscall path does not prove that the address is mapped executable before scheduling the thread; an invalid entry can fault when the thread runs.
+- MEMINFO and the GETPPID, GETSTATE, SIGPENDING, and GETTID metadata queries are not all capability-gated in the current dispatcher. Their access policy should be reviewed before exposing additional untrusted applications.
 
 ## 6. User process entry
 
