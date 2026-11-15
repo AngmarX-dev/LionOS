@@ -34,9 +34,9 @@ static void make_image(struct disk_image *image) {
     uint8_t *indirect_data=image->bytes+9u*BLOCK_SIZE;
 
     for(uint32_t i=0;i<sizeof(image->bytes);++i)image->bytes[i]=0;
-    put32(sb+0u,16u); put32(sb+4u,IMAGE_BLOCKS);
+    put32(sb+0u,8u); put32(sb+4u,IMAGE_BLOCKS);
     put32(sb+20u,1u); put32(sb+24u,0u);
-    put32(sb+32u,31u); put32(sb+40u,16u);
+    put32(sb+32u,31u); put32(sb+40u,8u);
     put32(sb+76u,1u); put16(sb+88u,128u);
     put32(sb+92u,0u); put32(sb+96u,2u); put32(sb+100u,1u);
     put16(sb+56u,0xef53u);
