@@ -326,55 +326,19 @@ void lionos_user_integration_step(void){
     }
 
     if(integration_stage==4){
-        integration_pid=exec_run_file("process_test.elf");
-        if(integration_pid>0)debug_write("LIONOS:USER-PROCESS-TEST-LAUNCHED\n");
-        if(integration_pid<0){
+        integration_pid=exec_run_file("meminfo.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:USER-MEMINFO-LAUNCHED\n");
+            integration_stage=5;
+        }else{
             integration_done=1;
-            debug_write("LIONOS:USER-PROCESS-TEST-LAUNCH-FAIL\n");
-            return;
+            debug_write("LIONOS:USER-MEMINFO-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
-        integration_stage=5;
         return;
     }
 
     if(integration_stage==5){
-        int32_t s=process_get_state((uint32_t)integration_pid);
-        if(s==PROCESS_ZOMBIE){
-            uint32_t code=0xFFFFFFFFu;
-            integration_process_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
-            if(process_reap_pid((uint32_t)integration_pid)!=0){
-                integration_done=1;
-                debug_write("LIONOS:USER-PROCESS-REAP-FAIL\n");
-                return;
-            }
-            integration_pid=-1;
-            if(!integration_process_ok){
-                integration_done=1;
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
-                console_write("[ERR] Ring-3 process/libc integration test failed\n");
-                return;
-            }
-            integration_stage=6;
-        }else if(s<0){
-            integration_done=1;
-            debug_write("LIONOS:USER-PROCESS-TEST-STATE-FAIL\n");
-        }
-        return;
-    }
-
-    if(integration_stage==6){
-        integration_pid=exec_run_file("meminfo.elf");
-        if(integration_pid>0){
-            debug_write("LIONOS:USER-MEMINFO-LAUNCHED\n");
-            integration_stage=7;
-        }else{
-            integration_done=1;
-            debug_write("LIONOS:USER-MEMINFO-LAUNCH-FAIL\n");
-        }
-        return;
-    }
-
-    if(integration_stage==7){
         int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
