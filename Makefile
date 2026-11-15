@@ -2,7 +2,7 @@ BUILD := build
 ISO := $(BUILD)/lionos.iso
 DISK := $(BUILD)/lionos-disk.img
 KERNEL := $(BUILD)/lionos.bin
-USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o
+USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o $(BUILD)/posix_compat.o
 
 USER_PROGRAMS := hello process_test ipc_test signal_test net_test vfs_test cow_test echo cat ls pwd uname rm stat ping env grep find cp mv userland_test
 USER_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_PROGRAMS)))
@@ -89,6 +89,9 @@ $(BUILD)/crt0.o: user/crt0.S | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
 $(BUILD)/libc.o: user/libc.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(BUILD)/posix_compat.o: user/posix_compat.c include/posix_compat.h include/user_api.h | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 
 $(BUILD)/hello.o: user/hello.c | $(BUILD)
