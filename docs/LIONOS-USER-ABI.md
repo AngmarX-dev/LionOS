@@ -142,6 +142,23 @@ The loader creates an initial stack containing argc, argv[0], and a null argv[1]
 
 This is not a complete System V i386 process-start ABI. Environment vectors, auxiliary vectors, TLS setup, dynamic linking, and ELF shared objects are not provided.
 
+## 7. POSIX-inspired compatibility subset
+
+The current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
+
+| Wrapper | Native service | Scope |
+|---|---|---|
+| lion_posix_open | OPEN | Existing LionOS read/write/append flags only |
+| lion_posix_read | FREAD | One buffer up to 4096 bytes |
+| lion_posix_write | FWRITE | One buffer up to 4096 bytes |
+| lion_posix_close | CLOSE | Native process descriptor |
+| lion_posix_stat | STAT | Path-based metadata |
+| lion_posix_unlink | REMOVE | Native VFS removal |
+
+The wrapper rejects unknown open flags, requires READ or WRITE, and requires WRITE when APPEND is selected. It returns -1 for wrapper-detected errors and otherwise preserves the native syscall result. It does not expose errno, O_CREAT/O_TRUNC, fstat, lseek, directory streams, dup/dup2, or POSIX standard descriptors (0/1/2). Zero-length read/write calls are treated as no-ops and do not validate the descriptor, matching the wrapper's documented limited scope rather than full POSIX behavior.
+
+The QEMU VFS userspace test exercises invalid flags, invalid descriptors, zero-length calls, create-via-native-write-open, append, readback, stat and unlink through these wrappers. This validates the selected LionOS path only; it is not a POSIX conformance certification.
+
 ## 7. Unsupported compatibility claims
 
 This specification does not imply Linux i386 syscall compatibility, POSIX conformance, glibc/musl drop-in compatibility, dynamic ELF linking, Linux device-node/ioctl conventions, Linux signal ABI, or a stable ABI for internal kernel headers.
