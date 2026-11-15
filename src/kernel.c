@@ -256,7 +256,6 @@ static int integration_done;
 static int integration_pid=-1;
 static int integration_vfs_ok;
 static int integration_cow_ok;
-static int integration_process_ok;
 static int integration_utility_ok;
 
 void lionos_user_integration_step(void){
