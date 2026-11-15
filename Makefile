@@ -35,7 +35,7 @@ C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/kernel_runtime.c src/gui.
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso usb disk run check test third-party-check abi-check block-device-check userspace userland process-test ipc-test signal-test net-test
+.PHONY: all clean iso usb disk run check test third-party-check abi-check block-device-check ext2-ro-check userspace userland process-test ipc-test signal-test net-test
 all: $(KERNEL)
 userspace userland: $(USER_ELFS)
 process-test: $(BUILD)/process_test.elf
@@ -43,12 +43,16 @@ ipc-test: $(BUILD)/ipc_test.elf
 signal-test: $(BUILD)/signal_test.elf
 net-test: $(BUILD)/net_test.elf
 
-test: third-party-check abi-check block-device-check
+test: third-party-check abi-check block-device-check ext2-ro-check
 	bash scripts/test.sh
 
 block-device-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/block_device.c tests/block_device_test.c -o $(BUILD)/block_device_test
 	$(BUILD)/block_device_test
+
+ext2-ro-check: | $(BUILD)
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/block_device.c src/ext2_ro.c tests/ext2_ro_test.c -o $(BUILD)/ext2_ro_test
+	$(BUILD)/ext2_ro_test
 
 third-party-check:
 	python3 scripts/check_third_party_manifest.py
