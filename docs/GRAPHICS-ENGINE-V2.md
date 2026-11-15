@@ -594,3 +594,27 @@ limit/overflow cases. This test does not emulate a real PTE collision or
 replace physical hardware validation.
 
 No xHCI source files or xHCI mapping call sites were modified.
+
+
+## Vendor-neutral PCI display adapter discovery
+
+The graphics bootstrap now consumes the existing PCI enumeration table through
+a bounded, read-only accessor. It classifies PCI base-class 03h functions by
+vendor ID for Intel (8086h), AMD (1002h), and NVIDIA (10DEh). Unknown vendors
+remain visible in the discovery report but are not assigned a driver backend.
+The report distinguishes total PCI functions discovered from the number
+retained in the fixed PCI record table, and separately reports truncation of
+the display-adapter summary.
+
+Known vendors transition to **DETECTED** only. PCI class/vendor matching does
+not establish that a driver is loaded, initialized, operational, or capable of
+rendering. Intel continues through its existing conservative MMIO diagnostic
+path; AMD and NVIDIA remain detection-only until their respective hardware
+interfaces, memory models, and command submission paths are implemented and
+validated. CPU rendering remains the only operational backend.
+
+The pure classifier self-test covers Intel, AMD, NVIDIA, an unknown display
+vendor, a non-display PCI class, and invalid output arguments. The QEMU smoke
+test checks both the classifier and the live PCI-table discovery markers.
+This work does not write PCI configuration space, touch GPU MMIO registers,
+modify GGTT entries, or alter xHCI source files.
