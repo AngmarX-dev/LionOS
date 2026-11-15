@@ -145,15 +145,15 @@ Next work must address allocator concurrency/ownership contracts and expand test
 
 **Exit gate:** libc tests cover strings, memory, formatting, allocation/free, process, file, signal, time and threading functions selected for the first imported program.
 
-### Stage E — First imported userland utility
+### Stage E — First userland utility
 
-- Start with one small, non-privileged command-line utility.
-- BusyBox may be evaluated as a later multicall option, but GPL-2-only obligations and per-file exceptions must be respected.
-- Build a small applet subset with unsupported features disabled.
-- Keep the binary in user space; never link it into the kernel.
-- Add a test that runs the binary as an ordinary Ring-3 process and exercises its error paths.
+**Implementation progress (2026-11-15):** the first dedicated native utility, `meminfo.elf`, is being added as a non-privileged Ring-3 program. It reports the free physical-page count through the documented LionOS `MEMINFO` syscall and uses only the native user libc. It is deliberately not presented as an imported Ubuntu/Linux binary: no external source or third-party license is involved in this first native utility slice.
 
-**Exit gate:** reproducible ELF32 build, runtime test, license/source package and no regression in existing native utilities.
+The build embeds the ELF in RAMFS as a separate user program; it is not linked into the kernel as executable code. The existing process integration test is extended to fork a child, execute `meminfo.elf` in that child, and verify its exit status. RAMFS capacity is adjusted so adding the embedded program does not reduce the number of ordinary file slots.
+
+BusyBox and external utilities remain candidates for a later applet-by-applet port after libc/API coverage and per-file license review. No Linux-targeted binary is assumed compatible.
+
+**Exit gate:** reproducible ELF32 build, QEMU execution as an ordinary Ring-3 process, checked process exit status, and no regression in existing native utilities.
 
 ### Stage F — Filesystem interoperability
 
@@ -234,7 +234,7 @@ The links above are research entry points, not a substitute for checking the exa
 
 **Architecture decision:** APPROVED — keep the LionOS kernel native and adopt selected open-source user-space components incrementally.
 
-**Implementation status:** Stages A and B have passed their recorded CI gates; Stage C's first native file-wrapper slice passed all required workflows on its recorded commit. Stage D is now in progress with a bounded native libc hardening slice; runtime verification is pending. Do not begin with a wholesale musl, BusyBox, Linux driver or Ubuntu root-filesystem import.
+**Implementation status:** Stages A and B have passed their recorded CI gates; Stage C's first native file-wrapper slice passed all required workflows on its recorded commit; Stage D's bounded native libc hardening slice passed all required workflows on commit `52869905743a85bfe5a286cfdc42ce5815d7cd8c`. Stage E is now in progress with the first dedicated native Ring-3 utility. No external Ubuntu/Linux utility has been imported yet. Do not begin with a wholesale musl, BusyBox, Linux driver or Ubuntu root-filesystem import.
 
 **Third-party source imported by this audit:** none.  
 **Kernel source changed by this audit:** none.  
