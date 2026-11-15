@@ -256,6 +256,7 @@ static int integration_done;
 static int integration_pid=-1;
 static int integration_vfs_ok;
 static int integration_cow_ok;
+static int integration_process_ok;
 
 void lionos_user_integration_step(void){
     if(integration_done)return;
@@ -307,19 +308,55 @@ void lionos_user_integration_step(void){
             uint32_t code=0xFFFFFFFFu;
             integration_cow_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
             process_reap_pid((uint32_t)integration_pid);
-            integration_done=1;
-            if(integration_vfs_ok&&integration_cow_ok){
-                debug_write("LIONOS:VFS-USER-TEST-OK\n");
-                debug_write("LIONOS:COW-TEST-OK\n");
-                console_write("[ OK ] Automated VFS + userspace COW integration tests\n");
-            }else{
+            if(!integration_vfs_ok||!integration_cow_ok){
+                integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
                 console_write("[ERR] Automated userspace integration tests\n");
+                return;
             }
+            integration_stage=4;
+            return;
         }else if(s<0){
             integration_done=1;
             debug_write("LIONOS:USER-COW-STATE-FAIL\n");
+            return;
         }
+        return;
+    }
+
+    if(integration_stage==4){
+        integration_pid=exec_run_file("process_test.elf");
+        if(integration_pid>0)debug_write("LIONOS:USER-PROCESS-TEST-LAUNCHED\n");
+        if(integration_pid<0){
+            integration_done=1;
+            debug_write("LIONOS:USER-PROCESS-TEST-LAUNCH-FAIL\n");
+            return;
+        }
+        integration_stage=5;
+        return;
+    }
+
+    if(integration_stage==5){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            integration_process_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
+            process_reap_pid((uint32_t)integration_pid);
+            integration_done=1;
+            if(integration_process_ok){
+                debug_write("LIONOS:VFS-USER-TEST-OK\n");
+                debug_write("LIONOS:COW-TEST-OK\n");
+                debug_write("LIONOS:USERLAND-UTILITY-TEST-OK\n");
+                console_write("[ OK ] Automated VFS, COW and Ring-3 utility integration tests\n");
+            }else{
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+                console_write("[ERR] Ring-3 process/libc/utility integration test failed\n");
+            }
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:USER-PROCESS-TEST-STATE-FAIL\n");
+        }
+        return;
     }
 }
 
