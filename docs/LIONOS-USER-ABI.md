@@ -163,7 +163,7 @@ The QEMU VFS userspace test exercises invalid flags, invalid descriptors, zero-l
 
 This specification does not imply Linux i386 syscall compatibility, POSIX conformance, glibc/musl drop-in compatibility, dynamic ELF linking, Linux device-node/ioctl conventions, Linux signal ABI, or a stable ABI for internal kernel headers.
 
-The current user libc is small and native. Its allocator is a 32 KiB monotonic arena; free() does not reclaim memory.
+The current user libc is small and native. Its allocator is a bounded 32 KiB first-fit arena with splitting, reuse and adjacent-block coalescing; it is per-process and not thread-safe.
 
 ## 9. Conformance and change procedure
 
