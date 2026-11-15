@@ -59,7 +59,6 @@ static int read_group_desc(const struct ext2_ro_fs *fs,
                            uint8_t *scratch,
                            uint32_t scratch_size,
                            uint32_t *inode_table) {
-    uint32_t gdt_block;
     uint32_t per_block;
     uint32_t block;
     uint32_t index;
