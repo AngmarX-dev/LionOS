@@ -164,7 +164,7 @@ Implementation is deliberately split into dependency-ordered slices:
 **F1 progress (2026-11-16):** a read-only generic per-device block contract is present in `include/block_device.h` / `src/block_device.c`, with overflow/range validation and a host memory-backend test integrated into `make test`. This is not yet an ATA backend or a globally registered device. All four required workflows passed on commit `2f3019da48af6ab2aed38cf0cfb9a44ba5020c6a`.
 
 1. F1: bounded generic block-device contract (implemented and CI-green; ATA provider deferred);
-2. F2: isolated read-only ext2 parser core (implemented with initial synthetic host tests; VFS mount not connected);
+2. F2: isolated read-only ext2 parser core (implemented; synthetic host tests and all required CI workflows passed on `f53ab75553580417fde06c33f97eb6746f5797a4`; VFS mount not connected);
 3. F3: expand host-side valid/corrupt image tests and feature/geometry edge coverage;
 4. F4: ATA IDENTIFY/capacity validation, a separate QEMU ext2 disk, then read-only VFS integration.
 
@@ -241,7 +241,7 @@ The links above are research entry points, not a substitute for checking the exa
 
 **Architecture decision:** APPROVED — keep the LionOS kernel native and adopt selected open-source user-space components incrementally.
 
-**Implementation status:** Stages A-D have passed their recorded CI gates. Stage E's native `meminfo.elf` utility and independent Ring-3 smoke test passed all four required workflows on `094675cd6b30af326724ecbd216f075182485a71`. The separate `process_test.elf` QEMU failure remains tracked as a follow-up and was not represented as fixed by Stage E. Stage F1's generic read-only block-device contract passed all four required workflows on `2f3019da48af6ab2aed38cf0cfb9a44ba5020c6a`. Stage F2 now has an isolated ext2 parser core and initial synthetic host tests; its CI validation is pending, and it is not connected to ATA or VFS. The existing LionFS image must remain separate from ext2 fixtures. No external Ubuntu/Linux utility has been imported yet. Do not begin with a wholesale musl, BusyBox, Linux driver or Ubuntu root-filesystem import.
+**Implementation status:** Stages A-D have passed their recorded CI gates. Stage E's native `meminfo.elf` utility and independent Ring-3 smoke test passed all four required workflows on `094675cd6b30af326724ecbd216f075182485a71`. The separate `process_test.elf` QEMU failure remains tracked as a follow-up and was not represented as fixed by Stage E. Stage F1's generic read-only block-device contract passed all four required workflows on `2f3019da48af6ab2aed38cf0cfb9a44ba5020c6a`. Stage F2 now has an isolated ext2 parser core and synthetic host tests; all four required GitHub Actions workflows passed on `f53ab75553580417fde06c33f97eb6746f5797a4`. It is not connected to ATA or VFS. The existing LionFS image must remain separate from ext2 fixtures. No external Ubuntu/Linux utility has been imported yet. Do not begin with a wholesale musl, BusyBox, Linux driver or Ubuntu root-filesystem import.
 
 **Third-party source imported by this audit:** none.  
 **Kernel source changed by this audit:** none.  
