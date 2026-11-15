@@ -9,9 +9,6 @@
 
 struct disk_image { uint8_t bytes[IMAGE_BLOCKS * BLOCK_SIZE]; };
 
-static uint16_t get16(uint8_t *p) {
-    return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
-}
 static void put16(uint8_t *p, uint16_t v) {
     p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8);
 }
