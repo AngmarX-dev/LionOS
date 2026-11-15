@@ -74,6 +74,7 @@ static int read_group_desc(const struct ext2_ro_fs *fs,
     gdt_start = (uint64_t)(fs->first_data_block + 1u);
     per_block = fs->block_size / 32u;
     if (per_block == 0u) return -1;
+    if (gdt_start + group / per_block > UINT32_MAX) return -1;
     block = (uint32_t)(gdt_start + group / per_block);
     index = group % per_block;
     if (read_fs_block(fs, block, scratch, scratch_size) < 0) return -1;
@@ -85,8 +86,10 @@ static int read_group_desc(const struct ext2_ro_fs *fs,
     if (mul_u64(fs->inodes_per_group, fs->inode_size,
                 &inode_table_blocks) < 0)
         return -1;
-    inode_table_blocks = (inode_table_blocks + fs->block_size - 1u) /
-                         fs->block_size;
+    if (add_u64(inode_table_blocks, fs->block_size - 1u,
+                &table_end) < 0)
+        return -1;
+    inode_table_blocks = table_end / fs->block_size;
     if (add_u64(*inode_table, inode_table_blocks, &table_end) < 0 ||
         table_end > fs->blocks_count)
         return -1;
@@ -99,8 +102,8 @@ int ext2_ro_mount(struct ext2_ro_fs *fs,
                   uint32_t scratch_size) {
     uint8_t *scratch = (uint8_t *)scratch_buffer;
     uint8_t super[1024];
+    struct ext2_ro_fs candidate;
     uint64_t super_sector;
-    uint64_t super_sectors;
     uint64_t device_bytes;
     uint64_t group_blocks;
     uint64_t group_inodes;
@@ -109,6 +112,7 @@ int ext2_ro_mount(struct ext2_ro_fs *fs,
     uint32_t compat;
     uint32_t incompat;
     uint32_t ro_compat;
+    uint32_t first_inode_table;
 
     if (!fs || !device || !scratch ||
         device->sector_size == 0u ||
@@ -119,8 +123,8 @@ int ext2_ro_mount(struct ext2_ro_fs *fs,
         return -1;
 
     super_sector = 1024u / device->sector_size;
-    super_sectors = 1024u / device->sector_size;
-    if (block_device_read(device, super_sector, (uint32_t)super_sectors,
+    if (block_device_read(device, super_sector,
+                          1024u / device->sector_size,
                           super, sizeof(super)) < 0)
         return -1;
     if (le16(super + 56u) != EXT2_MAGIC) return -1;
@@ -130,55 +134,65 @@ int ext2_ro_mount(struct ext2_ro_fs *fs,
     log_block_size = le32(super + 24u);
     if (log_block_size > 2u) return -1;
 
-    fs->block_size = 1024u << log_block_size;
-    fs->blocks_count = le32(super + 4u);
-    fs->inodes_count = le32(super + 0u);
-    fs->first_data_block = le32(super + 20u);
-    fs->blocks_per_group = le32(super + 32u);
-    fs->inodes_per_group = le32(super + 40u);
-    fs->inode_size = revision == 0u ? 128u : le16(super + 88u);
+    candidate.block_size = 1024u << log_block_size;
+    candidate.blocks_count = le32(super + 4u);
+    candidate.inodes_count = le32(super + 0u);
+    candidate.first_data_block = le32(super + 20u);
+    candidate.blocks_per_group = le32(super + 32u);
+    candidate.inodes_per_group = le32(super + 40u);
+    candidate.inode_size = revision == 0u ? 128u : le16(super + 88u);
     compat = le32(super + 92u);
     incompat = le32(super + 96u);
     ro_compat = le32(super + 100u);
 
-    if (fs->block_size < 1024u || fs->block_size > EXT2_RO_BLOCK_MAX ||
-        fs->blocks_count == 0u || fs->inodes_count < 2u ||
-        fs->blocks_per_group == 0u || fs->inodes_per_group == 0u ||
-        fs->inode_size < EXT2_RO_INODE_SIZE ||
-        fs->inode_size > fs->block_size ||
-        (fs->inode_size & 3u) != 0u ||
-        fs->block_size % device->sector_size != 0u)
+    if (candidate.block_size < 1024u ||
+        candidate.block_size > EXT2_RO_BLOCK_MAX ||
+        candidate.blocks_count <= candidate.first_data_block ||
+        candidate.inodes_count < 2u ||
+        candidate.blocks_per_group == 0u ||
+        candidate.inodes_per_group == 0u ||
+        candidate.inode_size < EXT2_RO_INODE_SIZE ||
+        candidate.inode_size > candidate.block_size ||
+        (candidate.inode_size & 3u) != 0u ||
+        candidate.block_size % candidate.inode_size != 0u ||
+        candidate.block_size % device->sector_size != 0u)
         return -1;
-    if (fs->first_data_block != (fs->block_size == 1024u ? 1u : 0u))
+    if (candidate.first_data_block !=
+        (candidate.block_size == 1024u ? 1u : 0u))
         return -1;
     if ((compat & ~EXT2_FEATURE_COMPAT_ALLOWED) != 0u ||
         (incompat & ~EXT2_FEATURE_INCOMPAT_FILETYPE) != 0u ||
         (ro_compat & ~EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER) != 0u)
         return -1;
 
-    group_blocks = ((uint64_t)fs->blocks_count - fs->first_data_block +
-                    fs->blocks_per_group - 1u) / fs->blocks_per_group;
-    group_inodes = ((uint64_t)fs->inodes_count +
-                    fs->inodes_per_group - 1u) / fs->inodes_per_group;
+    group_blocks = ((uint64_t)candidate.blocks_count -
+                    candidate.first_data_block +
+                    candidate.blocks_per_group - 1u) /
+                   candidate.blocks_per_group;
+    group_inodes = ((uint64_t)candidate.inodes_count +
+                    candidate.inodes_per_group - 1u) /
+                   candidate.inodes_per_group;
     if (group_blocks == 0u || group_blocks != group_inodes ||
         group_blocks > UINT32_MAX)
         return -1;
-    fs->group_count = (uint32_t)group_blocks;
+    candidate.group_count = (uint32_t)group_blocks;
 
     if (mul_u64(device->sector_count, device->sector_size,
                 &device_bytes) < 0 ||
-        mul_u64(fs->blocks_count, fs->block_size,
-                &fs->filesystem_bytes) < 0 ||
-        fs->filesystem_bytes > device_bytes)
+        mul_u64(candidate.blocks_count, candidate.block_size,
+                &candidate.filesystem_bytes) < 0 ||
+        candidate.filesystem_bytes > device_bytes)
         return -1;
 
-    fs->device = device;
-    fs->incompat_features = incompat;
-    fs->ro_compat_features = ro_compat;
+    candidate.device = device;
+    candidate.incompat_features = incompat;
+    candidate.ro_compat_features = ro_compat;
 
-    /* Validate the first group's inode table before accepting the volume. */
-    if (read_group_desc(fs, 0u, scratch, scratch_size, &log_block_size) < 0)
+    /* Validate the first group's inode table before publishing the mount. */
+    if (read_group_desc(&candidate, 0u, scratch, scratch_size,
+                        &first_inode_table) < 0)
         return -1;
+    *fs = candidate;
     return 0;
 }
 
@@ -263,7 +277,7 @@ int ext2_ro_read_file(const struct ext2_ro_fs *fs,
     uint32_t remaining;
     uint32_t copied = 0u;
     if (!fs || !inode || (!buffer && length != 0u) || !scratch ||
-        scratch_size < fs->block_size ||
+        length > INT32_MAX || scratch_size < fs->block_size ||
         (inode->mode & EXT2_MODE_TYPE) != EXT2_MODE_REG ||
         offset > inode->size)
         return -1;
