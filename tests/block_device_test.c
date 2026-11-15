@@ -91,6 +91,15 @@ int main(void) {
     failures += expect(block_device_read(&malformed, 0u, 1u, buffer,
                                          sizeof(buffer)) < 0,
                        "reject missing backend operations");
+    malformed = device;
+    malformed.sector_count = UINT64_MAX;
+    malformed.sector_size = BLOCK_DEVICE_MAX_SECTOR_SIZE;
+    failures += expect(block_device_read(&malformed, 0u, UINT32_MAX, buffer,
+                                         UINT32_MAX) < 0,
+                       "reject byte count beyond 32-bit buffer capacity");
+    failures += expect(block_device_read(&device, UINT64_MAX, 1u, buffer,
+                                         sizeof(buffer)) < 0,
+                       "reject maximal LBA without arithmetic wrap");
 
     failures += expect(disk.calls == 1u,
                        "invalid requests never reach backend");
