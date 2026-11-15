@@ -853,14 +853,15 @@ static int map_gpu_mmio(uint64_t physical, uint64_t size)
         (size & (PAGE_SIZE - 1u)))
         return -1;
 
-    for (uint32_t offset = 0u; (uint64_t)offset < size; offset += PAGE_SIZE) {
-        if (paging_map_kernel_page(MMIO_VIRTUAL_BASE + offset,
-                                   physical + offset,
-                                   MMIO_PTE_FLAGS) != 0)
-            return -1;
-    }
+    if (size > UINT32_MAX)
+        return -1;
 
-    return 0;
+    /*
+     * Preflight and install the complete BAR aperture as one transaction.
+     * An occupied virtual page rejects the request before any PTE is changed.
+     */
+    return paging_map_kernel_range(MMIO_VIRTUAL_BASE, physical,
+                                   (uint32_t)size, MMIO_PTE_FLAGS);
 }
 
 /*
