@@ -395,6 +395,7 @@ void lionos_user_integration_step(void){
         }else if(s<0){
             integration_done=1;
             debug_write("LIONOS:USER-MEMINFO-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
