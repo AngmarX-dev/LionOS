@@ -451,6 +451,14 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_write("[ERR] Intel PCI BAR0 resource validation self-test\n");
     }
 
+    if (paging_kernel_range_selftest() == 0) {
+        debug_write("LIONOS:KERNEL-MMIO-RANGE-SELFTEST-OK\\n");
+        console_write("[ OK ] Kernel MMIO range validation self-test\\n");
+    } else {
+        debug_write("LIONOS:KERNEL-MMIO-RANGE-SELFTEST-FAIL\\n");
+        console_write("[ERR] Kernel MMIO range validation self-test\\n");
+    }
+
     if (intel_gpu_mmio_pat_selftest() == 0) {
         console_write("[ OK ] Intel MMIO PAT cache-index self-test\n");
     } else {
