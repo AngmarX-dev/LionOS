@@ -41,6 +41,59 @@ static int libc_memory_test(void) {
     return 0;
 }
 
+static int directory_stream_test(void) {
+    DIR *root;
+    DIR *nested;
+    struct lion_dirent *entry;
+    struct lion_dirent raw_entry;
+    uint32_t offset = 1u;
+    int saw_readme = 0;
+    int saw_subdir = 0;
+    int saw_nested = 0;
+
+    if (opendir("/ext2/README.TXT") != 0)
+        return 20;
+    if (closedir(0) >= 0)
+        return 21;
+    root = opendir("/ext2");
+    if (!root)
+        return 22;
+    while ((entry = readdir(root)) != 0) {
+        if (strcmp(entry->name, "README.TXT") == 0 &&
+            entry->type == LIONOS_DIRENT_REGULAR)
+            saw_readme = 1;
+        if (strcmp(entry->name, "subdir") == 0 &&
+            entry->type == LIONOS_DIRENT_DIRECTORY)
+            saw_subdir = 1;
+    }
+    if (!saw_readme || !saw_subdir || readdir(root) != 0)
+        return 23;
+    if (closedir(root) != 0)
+        return 24;
+
+    nested = opendir("/ext2/subdir");
+    if (!nested)
+        return 25;
+    while ((entry = readdir(nested)) != 0) {
+        if (strcmp(entry->name, "nested.txt") == 0 &&
+            entry->type == LIONOS_DIRENT_REGULAR)
+            saw_nested = 1;
+    }
+    if (!saw_nested || closedir(nested) != 0)
+        return 26;
+
+    if (lion_sys_readdir("/ext2", 0, &raw_entry) >= 0)
+        return 27;
+    if (lion_sys_readdir("/ext2", &offset, &raw_entry) >= 0 ||
+        offset != 1u)
+        return 28;
+    offset = 0u;
+    if (lion_sys_readdir("/ext2", &offset, 0) >= 0 ||
+        offset != 0u)
+        return 29;
+    return 0;
+}
+
 int main(void) {
     if (libc_memory_test() != 0) return 19;
 
@@ -105,5 +158,5 @@ int main(void) {
         return 17;
     if (lion_posix_stat(path, &status) >= 0)
         return 18;
-    return 0;
+    return directory_stream_test();
 }
