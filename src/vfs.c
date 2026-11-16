@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "diskfs.h"
+#include "ext2_vfs.h"
 #include "ramfs.h"
 #include "vfs.h"
 #include "process.h"
@@ -42,14 +43,21 @@ static int path_normalize(char *dst, const char *src) {
 static uint32_t backend_for(const char *p) {
     if (ramfs_data(p)) return VFS_BACKEND_RAMFS;
     if (diskfs_available() && diskfs_exists(p)) return VFS_BACKEND_DISKFS;
+    if (ext2_vfs_exists(p)) return VFS_BACKEND_EXT2_RO;
     return VFS_BACKEND_NONE;
 }
 static int fd_valid(const struct vfs_fd *f) { return f && f->used; }
-static uint32_t file_size(uint32_t backend,const char *path) { return backend==VFS_BACKEND_DISKFS?diskfs_size(path):ramfs_size(path); }
+static uint32_t file_size(uint32_t backend,const char *path) {
+    if (backend == VFS_BACKEND_DISKFS) return diskfs_size(path);
+    if (backend == VFS_BACKEND_EXT2_RO) return ext2_vfs_size(path);
+    return ramfs_size(path);
+}
 static int open_slot(struct vfs_fd *fds,const char *path,uint32_t flags) {
     uint32_t backend=backend_for(path);
+    if (backend == VFS_BACKEND_EXT2_RO && (flags & VFS_F_WRITE))
+        return VFS_FD_INVALID;
     if (backend==VFS_BACKEND_NONE) {
-        if (!(flags&VFS_F_WRITE)) return VFS_FD_INVALID;
+        if (ext2_vfs_path(path) || !(flags&VFS_F_WRITE)) return VFS_FD_INVALID;
         if (diskfs_available()) {
             static const char empty[1]={0};
             if (diskfs_write(path,empty,0)==0) backend=VFS_BACKEND_DISKFS;
@@ -73,7 +81,10 @@ static int read_slot(struct vfs_fd *f,void *buffer,uint32_t length) {
     if(!fd_valid(f)||!buffer||length>VFS_IO_MAX||(f->flags&VFS_F_READ)==0)return -1;
     uint32_t size=file_size(f->backend,f->path); if(f->offset>=size)return 0;
     uint32_t wanted=length; if(wanted>size-f->offset)wanted=size-f->offset;
-    if(f->backend==VFS_BACKEND_DISKFS) {
+    if (f->backend == VFS_BACKEND_EXT2_RO) {
+        int rr = ext2_vfs_read(f->path, f->offset, buffer, wanted);
+        if (rr < 0 || (uint32_t)rr != wanted) return -1;
+    } else if(f->backend==VFS_BACKEND_DISKFS) {
         uint8_t *temp=(uint8_t*)kmalloc(VFS_IO_MAX); if(!temp)return -1; int rr=diskfs_read(f->path,temp,VFS_IO_MAX); if(rr<0){kfree(temp);return -1;}
         for(uint32_t i=0;i<wanted;++i)((uint8_t*)buffer)[i]=temp[f->offset+i];
         kfree(temp);
@@ -84,7 +95,8 @@ static int read_slot(struct vfs_fd *f,void *buffer,uint32_t length) {
     f->offset+=wanted; return (int)wanted;
 }
 static int write_slot(struct vfs_fd *f,const void *buffer,uint32_t length) {
-    if(!fd_valid(f)||!buffer||length>VFS_IO_MAX||(f->flags&VFS_F_WRITE)==0)return -1;
+    if(!fd_valid(f)||!buffer||length>VFS_IO_MAX||(f->flags&VFS_F_WRITE)==0 ||
+       f->backend == VFS_BACKEND_EXT2_RO)return -1;
     if(f->offset!=0 && !(f->flags&VFS_F_APPEND))return -1;
     if(f->flags&VFS_F_APPEND){
         uint32_t old_size=file_size(f->backend,f->path);
@@ -118,8 +130,11 @@ int vfs_open_for_process(struct process *p,const char *path,uint32_t flags){
     char clean[VFS_PATH_MAX]; if(path_normalize(clean,path)<0)return VFS_FD_INVALID;
     uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);
     uint32_t backend=backend_for(clean);
+    if (backend == VFS_BACKEND_EXT2_RO && (flags & VFS_F_WRITE)) {
+        spinlock_irqrestore_release(&vfs_lock,irq); return VFS_FD_INVALID;
+    }
     if(backend==VFS_BACKEND_NONE){
-        if(!(flags&VFS_F_WRITE)){spinlock_irqrestore_release(&vfs_lock,irq);return VFS_FD_INVALID;}
+        if(ext2_vfs_path(clean) || !(flags&VFS_F_WRITE)){spinlock_irqrestore_release(&vfs_lock,irq);return VFS_FD_INVALID;}
         static const char empty[1]={0};
         if(diskfs_available()&&diskfs_write(clean,empty,0)==0)backend=VFS_BACKEND_DISKFS;
         else if(ramfs_write(clean,empty,0)==0)backend=VFS_BACKEND_RAMFS;
@@ -142,7 +157,7 @@ int vfs_open(const char *path,uint32_t flags){char clean[VFS_PATH_MAX];if(path_n
 int vfs_close(int fd){if(fd<0||fd>=(int)VFS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=close_slot(&kernel_fds[fd]);spinlock_irqrestore_release(&vfs_lock,irq);return r;}
 int vfs_read(int fd,void *buffer,uint32_t length){if(fd<0||fd>=(int)VFS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=read_slot(&kernel_fds[fd],buffer,length);spinlock_irqrestore_release(&vfs_lock,irq);return r;}
 int vfs_write(int fd,const void *buffer,uint32_t length){if(fd<0||fd>=(int)VFS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=write_slot(&kernel_fds[fd],buffer,length);spinlock_irqrestore_release(&vfs_lock,irq);return r;}
-int vfs_remove(const char*path){char clean[VFS_PATH_MAX];if(path_normalize(clean,path)<0)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=ramfs_data(clean)?ramfs_remove(clean):(diskfs_available()&&diskfs_exists(clean)?diskfs_remove(clean):-1);spinlock_irqrestore_release(&vfs_lock,irq);return r;}
-int vfs_stat_path(const char*path,struct vfs_stat*st){char clean[VFS_PATH_MAX];if(!st||path_normalize(clean,path)<0)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);if(ramfs_data(clean)){st->size=ramfs_size(clean);st->backend=VFS_BACKEND_RAMFS;st->flags=0;spinlock_irqrestore_release(&vfs_lock,irq);return 0;}if(diskfs_available()&&diskfs_exists(clean)){st->size=diskfs_size(clean);st->backend=VFS_BACKEND_DISKFS;st->flags=0;spinlock_irqrestore_release(&vfs_lock,irq);return 0;}spinlock_irqrestore_release(&vfs_lock,irq);return-1;}
+int vfs_remove(const char*path){char clean[VFS_PATH_MAX];if(path_normalize(clean,path)<0)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=ext2_vfs_path(clean)?-1:(ramfs_data(clean)?ramfs_remove(clean):(diskfs_available()&&diskfs_exists(clean)?diskfs_remove(clean):-1));spinlock_irqrestore_release(&vfs_lock,irq);return r;}
+int vfs_stat_path(const char*path,struct vfs_stat*st){char clean[VFS_PATH_MAX];if(!st||path_normalize(clean,path)<0)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);if(ext2_vfs_exists(clean)){st->size=ext2_vfs_size(clean);st->backend=VFS_BACKEND_EXT2_RO;st->flags=VFS_STAT_READ_ONLY;spinlock_irqrestore_release(&vfs_lock,irq);return 0;}if(ramfs_data(clean)){st->size=ramfs_size(clean);st->backend=VFS_BACKEND_RAMFS;st->flags=0;spinlock_irqrestore_release(&vfs_lock,irq);return 0;}if(diskfs_available()&&diskfs_exists(clean)){st->size=diskfs_size(clean);st->backend=VFS_BACKEND_DISKFS;st->flags=0;spinlock_irqrestore_release(&vfs_lock,irq);return 0;}spinlock_irqrestore_release(&vfs_lock,irq);return-1;}
 const char*vfs_name(uint32_t index){uint32_t n=ramfs_count();if(index<n)return ramfs_name(index);return diskfs_name(index-n);}
 uint32_t vfs_count(void){uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);uint32_t n=ramfs_count()+(diskfs_available()?diskfs_count():0u);spinlock_irqrestore_release(&vfs_lock,irq);return n;}
