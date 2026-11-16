@@ -380,7 +380,7 @@ int main(void) {
 
     make_image(&im, 1024u);
     put32(im.bytes + 1100u + 76u, 0u);
-    put32(im.bytes + 1100u + 100u, 3u);
+    put32(im.bytes + 1124u, 3u);
     fails += expect(ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0,
                     "reject LARGE_FILE feature on revision zero");
 
