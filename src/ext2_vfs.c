@@ -437,6 +437,24 @@ int ext2_vfs_boot_test(void) {
         }
     }
 
+    fd = vfs_open("/ext2/abs-link", 1u);
+    if (fd < 0) {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
+        return -1;
+    }
+    read_result = vfs_read(fd, contents, (uint32_t)sizeof(contents));
+    close_result = vfs_close(fd);
+    if (read_result != (int)(sizeof(expected) - 1u) || close_result < 0) {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
+        return -1;
+    }
+    for (uint32_t i = 0u; i < sizeof(expected) - 1u; ++i) {
+        if (contents[i] != expected[i]) {
+            debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
+            return -1;
+        }
+    }
+
     if (vfs_open("/ext2/loop-a", 1u) != VFS_FD_INVALID) {
         debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
         return -1;
