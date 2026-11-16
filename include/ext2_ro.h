@@ -25,7 +25,7 @@ struct ext2_ro_fs {
 
 struct ext2_ro_inode {
     uint16_t mode;
-    uint32_t size;
+    uint64_t size;
     uint32_t flags;
     uint32_t blocks[15];
 };
@@ -47,7 +47,7 @@ int ext2_ro_read_inode(const struct ext2_ro_fs *fs,
                        uint32_t scratch_size);
 int ext2_ro_read_file(const struct ext2_ro_fs *fs,
                       const struct ext2_ro_inode *inode,
-                      uint32_t offset,
+                      uint64_t offset,
                       void *buffer,
                       uint32_t length,
                       void *scratch,
