@@ -32,7 +32,8 @@ run_qemu() {
     timeout "${TIMEOUT_SECONDS}s" qemu-system-i386 \
         -smp 2 \
         -cdrom build/lionos.iso \
-        -drive file=build/lionos-disk.img,format=raw,if=ide \
+        -drive file=build/lionos-disk.img,format=raw,if=ide,index=0 \
+        -drive file=build/ext2-slave-test.img,format=raw,if=ide,index=1,readonly=on \
         -m "$QEMU_MEMORY" \
         -display none \
         -serial none \
@@ -70,7 +71,8 @@ run_gui_smoke() {
     qemu-system-i386 \
         -smp 2 \
         -cdrom build/lionos.iso \
-        -drive file=build/lionos-disk.img,format=raw,if=ide \
+        -drive file=build/lionos-disk.img,format=raw,if=ide,index=0 \
+        -drive file=build/ext2-slave-test.img,format=raw,if=ide,index=1,readonly=on \
         -m "$QEMU_MEMORY" \
         -display none \
         -serial none \
@@ -154,6 +156,7 @@ make
 make userland
 make iso
 make disk
+make ext2-disk
 
 echo "[2/6] Validating every userspace ELF"
 for elf in build/*.elf; do
@@ -189,6 +192,7 @@ grep -q 'LIONOS:VFS-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-first.log
+grep -q 'LIONOS:EXT2-SLAVE-READ-ONLY-TEST-OK' build/qemu-first.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-first.log
 
 echo "[4/6] High-memory allocator + cross-CPU TLB shootdown"
@@ -211,6 +215,7 @@ grep -q 'LIONOS:VFS-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-second.log
+grep -q 'LIONOS:EXT2-SLAVE-READ-ONLY-TEST-OK' build/qemu-second.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
 echo "[6/6] Graphical desktop / keyboard escape smoke test"
