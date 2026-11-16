@@ -315,7 +315,9 @@ int ext2_vfs_boot_test(void) {
     struct vfs_dirent entry;
     struct vfs_stat st;
     struct vfs_stat link_st;
+    struct vfs_stat loop_st;
     char link_target[VFS_PATH_MAX];
+    char short_link_target[4];
     uint32_t cursor = 0u;
     int saw_subdir = 0;
     int saw_readme = 0;
@@ -438,6 +440,23 @@ int ext2_vfs_boot_test(void) {
         return -1;
     }
 
+    if (vfs_readlink("/ext2/README.TXT", short_link_target,
+                     sizeof(short_link_target)) >= 0 ||
+        vfs_readlink("/ext2/readme-link", short_link_target,
+                     sizeof(short_link_target)) != 4 ||
+        short_link_target[0] != 'R' || short_link_target[1] != 'E' ||
+        short_link_target[2] != 'A' || short_link_target[3] != 'D' ||
+        vfs_lstat_path("/ext2/loop-a", &loop_st) < 0 ||
+        (loop_st.flags & VFS_STAT_SYMLINK) == 0u ||
+        loop_st.size != 6u ||
+        vfs_stat_path("/ext2/loop-a", &st) == 0 ||
+        vfs_lstat_path("/ext2/subdir-link/nested.txt", &st) < 0 ||
+        (st.flags & VFS_STAT_SYMLINK) != 0u ||
+        st.size != sizeof(nested_expected) - 1u) {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-EDGE-TEST-FAIL\n");
+        return -1;
+    }
+
     fd = vfs_open("/ext2/readme-link", 1u);
     if (fd < 0) {
         debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
@@ -520,6 +539,7 @@ int ext2_vfs_boot_test(void) {
     }
 
     debug_write("LIONOS:EXT2-VFS-SYMLINK-API-TEST-OK\n");
+    debug_write("LIONOS:EXT2-VFS-SYMLINK-EDGE-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\n");
