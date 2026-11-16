@@ -117,7 +117,7 @@ Host adapter tests use distinct backing arrays to verify that master and slave r
 
 **Implemented and previously CI-verified:** the ext2 parser exposes `ext2_ro_readdir()` iteration. It validates cursor alignment, record lengths, block boundaries, inode numbers, name lengths, file types, and NUL-terminates/clears returned names. The VFS adapter resolves multi-component paths beneath `/ext2`, exposes directory-aware `stat`, and adds `vfs_readdir()` with `1` for an entry, `0` for end-of-directory, and `-1` for invalid paths or malformed data. The fixture now contains `/subdir/nested.txt`; host parser tests cover enumeration at 1/2/4 KiB block sizes, and QEMU smoke tests cover root/subdirectory enumeration, nested file reads, and read-only enforcement.
 
-**Scope:** F5 provides kernel VFS enumeration for ext2. Symlinks, directory mutation, indexed directories, and triple-indirect blocks remain unsupported. All ext2 access remains read-only.
+**Scope:** F5 provides kernel VFS enumeration for ext2. Symlinks, directory mutation, and indexed directories remain unsupported. All ext2 access remains read-only.
 
 ### F6 — Userland read-only directory streams
 
@@ -127,6 +127,12 @@ The native POSIX-inspired layer adds `opendir()`, `readdir()`, and `closedir()` 
 
 ### F7 — Double-indirect block mapping
 
-**Implementation progress (CI pending):** ext2 file and directory block mapping now supports the twelve direct pointers, the singly-indirect pointer, and the doubly-indirect pointer. The mapper bounds the logical block against the double-indirect capacity, validates the root and leaf pointer blocks through the bounded block reader, and rejects zero or out-of-range data pointers. Triple-indirect mapping remains unsupported and is rejected rather than guessed.
+**Implemented and CI-verified on `9d9ce8c1a26df5d3a40b74fd8093633d6cbf0131`:** ext2 file and directory block mapping supports the twelve direct pointers, the singly-indirect pointer, and the doubly-indirect pointer. The mapper bounds the logical block against the double-indirect capacity, validates the root and leaf pointer blocks through the bounded block reader, and rejects zero or out-of-range data pointers. Triple-indirect mapping is implemented in F8; see the following section.
 
 Host parser tests exercise a double-indirect data read for 1 KiB, 2 KiB, and 4 KiB filesystem block sizes. Negative tests cover an out-of-range double-indirect root and an out-of-range leaf data pointer. Existing direct/single-indirect, directory traversal, malformed-record, and backend-error tests remain in place. QEMU runtime coverage of a double-indirect fixture and real-device qualification are still outstanding.
+
+### F8 — Triple-indirect block mapping
+
+**Implementation progress (CI pending):** ext2 file and directory block mapping now follows all three levels of the inode's triple-indirect pointer. Every intermediate pointer block and final data block is range-checked through the bounded block reader. Capacity arithmetic uses 64-bit bounds, while quotient/remainder calculations use the existing freestanding-safe 64-by-32 division helper to avoid introducing compiler runtime dependencies into the kernel.
+
+Host tests build sparse pointer trees and read data through triple-indirect mapping with 1 KiB and 2 KiB block sizes. Negative tests reject invalid root-to-middle, middle-to-leaf, and leaf-to-data pointers. The 4 KiB triple-indirect region begins beyond the current 32-bit ext2 inode-size/read-offset limit, so it is not reachable through the current API and is not falsely reported as tested. Supporting large-file high-size fields and 64-bit file offsets is a separate ABI/parser task. QEMU runtime coverage and real-device qualification remain outstanding.
