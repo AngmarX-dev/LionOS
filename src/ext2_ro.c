@@ -284,21 +284,50 @@ static int map_file_block(const struct ext2_ro_fs *fs,
                           uint8_t *scratch,
                           uint32_t scratch_size) {
     uint32_t pointers_per_block;
-    uint32_t indirect_index;
     uint32_t block;
+
+    if (!fs || !inode || !physical || !scratch ||
+        fs->block_size < 4u || (fs->block_size & 3u) != 0u)
+        return -1;
+
     if (logical < EXT2_DIRECT_BLOCKS) {
         block = inode->blocks[logical];
     } else {
         logical -= EXT2_DIRECT_BLOCKS;
         pointers_per_block = fs->block_size / 4u;
-        if (logical >= pointers_per_block || inode->blocks[12] == 0u)
-            return -1;
-        if (read_fs_block(fs, inode->blocks[12], scratch, scratch_size) < 0)
-            return -1;
-        indirect_index = logical;
-        block = le32(scratch + indirect_index * 4u);
+
+        if (logical < pointers_per_block) {
+            if (inode->blocks[12] == 0u ||
+                read_fs_block(fs, inode->blocks[12], scratch,
+                              scratch_size) < 0)
+                return -1;
+            block = le32(scratch + logical * 4u);
+        } else {
+            uint32_t double_index;
+            uint32_t leaf_index;
+            uint32_t leaf_block;
+            uint64_t double_capacity =
+                (uint64_t)pointers_per_block * pointers_per_block;
+
+            logical -= pointers_per_block;
+            if ((uint64_t)logical >= double_capacity ||
+                inode->blocks[13] == 0u ||
+                read_fs_block(fs, inode->blocks[13], scratch,
+                              scratch_size) < 0)
+                return -1;
+
+            double_index = logical / pointers_per_block;
+            leaf_index = logical % pointers_per_block;
+            leaf_block = le32(scratch + double_index * 4u);
+            if (leaf_block == 0u || leaf_block >= fs->blocks_count ||
+                read_fs_block(fs, leaf_block, scratch, scratch_size) < 0)
+                return -1;
+            block = le32(scratch + leaf_index * 4u);
+        }
     }
-    if (block == 0u || block >= fs->blocks_count) return -1;
+
+    if (block == 0u || block >= fs->blocks_count)
+        return -1;
     *physical = block;
     return 0;
 }
