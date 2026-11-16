@@ -174,3 +174,9 @@ The deterministic QEMU ext2 fixture contains a fast relative link to the root RE
 **Implementation scope:** extend the QEMU VFS boot regression tests for the G3 read-only readlink and lstat interfaces without changing filesystem semantics or the syscall ABI. Verify that readlink rejects a regular file, returns only the requested prefix for a short destination (without requiring a NUL terminator), and that lstat reports a final cyclic link itself while ordinary stat rejects following that cycle. Also verify that an intermediate symlink is followed before the final regular-file metadata is returned.
 
 **Acceptance:** the new edge-case marker must be emitted on both normal QEMU boots, the existing ext2/LionFS/GUI/xHCI regressions must remain intact, and all required GitHub Actions workflows must pass on the same final commit SHA. No ext2 writes, link mutation, or changes to the resolver traversal limit are included.
+
+### G5 — Ring-3 symbolic-link syscall integration
+
+**Implementation scope:** extend the existing Ring-3 VFS integration program to exercise `lion_lstat()` and `lion_readlink()` through `int 0x80`, not merely through kernel-side VFS calls. The test validates final-component no-follow metadata, target-following `stat`, exact target bytes, short-buffer truncation without a terminator, rejection of regular files and invalid user arguments, cyclic-link behavior, and an intermediate symlink leading to a regular file. The kernel emits a dedicated success/failure marker from the user process exit status.
+
+**Acceptance:** both normal QEMU boots must emit `LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK`; existing VFS, COW, userland utility, GUI, persistence, and xHCI checks remain required. No syscall numbers, UAPI layouts, filesystem write semantics, or symlink traversal limits change.
