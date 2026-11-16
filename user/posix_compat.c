@@ -69,7 +69,7 @@ DIR *opendir(const char *path) {
     if (length == 0u || length >= LION_POSIX_PATH_MAX)
         return 0;
     if (lion_posix_stat(path, &status) < 0 ||
-        (status.flags & LIONOS_VFS_STAT_DIRECTORY) == 0u)
+        (status.flags & LIONOS_STAT_DIRECTORY) == 0u)
         return 0;
 
     directory = (struct lion_DIR *)malloc((uint32_t)sizeof(*directory));
