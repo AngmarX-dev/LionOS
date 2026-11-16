@@ -159,6 +159,49 @@ int vfs_read(int fd,void *buffer,uint32_t length){if(fd<0||fd>=(int)VFS_FD_MAX)r
 int vfs_write(int fd,const void *buffer,uint32_t length){if(fd<0||fd>=(int)VFS_FD_MAX)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=write_slot(&kernel_fds[fd],buffer,length);spinlock_irqrestore_release(&vfs_lock,irq);return r;}
 int vfs_remove(const char*path){char clean[VFS_PATH_MAX];if(path_normalize(clean,path)<0)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);int r=ext2_vfs_path(clean)?-1:(ramfs_data(clean)?ramfs_remove(clean):(diskfs_available()&&diskfs_exists(clean)?diskfs_remove(clean):-1));spinlock_irqrestore_release(&vfs_lock,irq);return r;}
 int vfs_stat_path(const char*path,struct vfs_stat*st){char clean[VFS_PATH_MAX];if(!st||path_normalize(clean,path)<0)return-1;uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);uint32_t ext2_size=0u;int ext2_directory=0;if(ext2_vfs_stat(clean,&ext2_size,&ext2_directory)==0){st->size=ext2_size;st->backend=VFS_BACKEND_EXT2_RO;st->flags=VFS_STAT_READ_ONLY|(ext2_directory?VFS_STAT_DIRECTORY:0u);spinlock_irqrestore_release(&vfs_lock,irq);return 0;}if(ramfs_data(clean)){st->size=ramfs_size(clean);st->backend=VFS_BACKEND_RAMFS;st->flags=0;spinlock_irqrestore_release(&vfs_lock,irq);return 0;}if(diskfs_available()&&diskfs_exists(clean)){st->size=diskfs_size(clean);st->backend=VFS_BACKEND_DISKFS;st->flags=0;spinlock_irqrestore_release(&vfs_lock,irq);return 0;}spinlock_irqrestore_release(&vfs_lock,irq);return-1;}
+int vfs_lstat_path(const char *path, struct vfs_stat *st) {
+    char clean[VFS_PATH_MAX];
+    uint32_t size = 0u;
+    int is_directory = 0;
+    int is_symlink = 0;
+    uint32_t irq;
+    if (!st || path_normalize(clean, path) < 0) return -1;
+    irq = spinlock_irqsave_acquire(&vfs_lock);
+    if (ext2_vfs_lstat(clean, &size, &is_directory, &is_symlink) == 0) {
+        st->size = size;
+        st->backend = VFS_BACKEND_EXT2_RO;
+        st->flags = VFS_STAT_READ_ONLY |
+                    (is_directory ? VFS_STAT_DIRECTORY : 0u) |
+                    (is_symlink ? VFS_STAT_SYMLINK : 0u);
+        spinlock_irqrestore_release(&vfs_lock, irq);
+        return 0;
+    }
+    if (ramfs_data(clean)) {
+        st->size = ramfs_size(clean); st->backend = VFS_BACKEND_RAMFS;
+        st->flags = 0u;
+        spinlock_irqrestore_release(&vfs_lock, irq); return 0;
+    }
+    if (diskfs_available() && diskfs_exists(clean)) {
+        st->size = diskfs_size(clean); st->backend = VFS_BACKEND_DISKFS;
+        st->flags = 0u;
+        spinlock_irqrestore_release(&vfs_lock, irq); return 0;
+    }
+    spinlock_irqrestore_release(&vfs_lock, irq);
+    return -1;
+}
+
+int vfs_readlink(const char *path, char *buffer, uint32_t capacity) {
+    char clean[VFS_PATH_MAX];
+    int result;
+    uint32_t irq;
+    if (!buffer || capacity == 0u || capacity > VFS_IO_MAX ||
+        path_normalize(clean, path) < 0) return -1;
+    irq = spinlock_irqsave_acquire(&vfs_lock);
+    result = ext2_vfs_readlink(clean, buffer, capacity);
+    spinlock_irqrestore_release(&vfs_lock, irq);
+    return result;
+}
+
 const char*vfs_name(uint32_t index){uint32_t n=ramfs_count();if(index<n)return ramfs_name(index);return diskfs_name(index-n);}
 uint32_t vfs_count(void){uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);uint32_t n=ramfs_count()+(diskfs_available()?diskfs_count():0u);spinlock_irqrestore_release(&vfs_lock,irq);return n;}
 
