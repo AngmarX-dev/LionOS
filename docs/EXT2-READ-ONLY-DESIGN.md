@@ -186,3 +186,9 @@ The deterministic QEMU ext2 fixture contains a fast relative link to the root RE
 **Implementation scope:** extend the existing Ring-3 symlink syscall regression test without changing syscall numbers, UAPI layouts, VFS semantics, or path limits. Verify that lstat rejects a user path that has no NUL terminator within the fixed VFS path buffer, that readlink rejects a capacity larger than the syscall copy limit, and that both readlink output and lstat metadata pointers are rejected when their requested ranges cross the user/kernel address boundary. Boundary pointers are chosen so validation must reject the range before dereferencing it.
 
 **Acceptance:** the existing LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK marker must still be emitted on both normal QEMU boots; all previous filesystem, persistence, memory, GUI, and xHCI regression checks remain required. The implementation must preserve bounded user-memory validation and must not write to user buffers before all relevant argument checks succeed.
+
+### G7 — Symbolic-link traversal depth boundary
+
+**Implementation scope:** extend the deterministic ext2 image with a chain of eight distinct fast symbolic links that resolves successfully to the README, plus a ninth-link entry that exceeds the existing resolver limit. The resolver limit remains unchanged. The boot regression verifies that the eight-link chain resolves to the expected regular-file metadata and that the nine-link chain is rejected. No filesystem mutation or resolver policy change is included.
+
+**Acceptance:** both QEMU boot logs must contain LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-OK; the existing symlink, userland syscall, ext2, persistence, GUI, and xHCI checks must continue to pass on the same final commit SHA.
