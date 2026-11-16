@@ -1,6 +1,6 @@
 # ext2 Read-Only Filesystem: Stage F Design Contract
 
-**Status:** F1–F4c implemented; F5 nested paths and directory enumeration implemented, awaiting final CI verification. Hardware testing remains pending.  
+**Status:** F1–F10 implementation and CI validation in progress; physical hardware qualification remains pending.  
 **Branch:** `feature/graphics-engine-v2`  
 **Audit baseline:** `094675cd6b30af326724ecbd216f075182485a71`
 
@@ -139,4 +139,11 @@ Host tests build sparse pointer trees and read data through triple-indirect mapp
 
 ### F9 — ext2 large-file parser support
 
-**Implementation progress (CI pending):** the parser now recognizes the ext2 `LARGE_FILE` read-only-compatible feature, decodes the high 32-bit regular-file size word, and carries 64-bit inode sizes, logical block indexes, and read offsets internally. Triple-indirect reads with 4 KiB blocks are included in host fixtures using a sparse pointer tree beyond the 4 GiB boundary. Directory sizes remain constrained to the existing 32-bit directory cursor contract. The existing VFS deliberately rejects regular files larger than `UINT32_MAX` rather than narrowing their sizes or exposing truncated EOF; 64-bit VFS descriptors, `stat` UAPI, and userland seek APIs require a separate versioned ABI change. QEMU large-file runtime coverage and hardware qualification remain outstanding.
+**Implemented and CI-verified on `fb3ebd909738ec65ccfbc66957c07c361bfadf35`:** the parser now recognizes the ext2 `LARGE_FILE` read-only-compatible feature, decodes the high 32-bit regular-file size word, and carries 64-bit inode sizes, logical block indexes, and read offsets internally. Triple-indirect reads with 4 KiB blocks are included in host fixtures using a sparse pointer tree beyond the 4 GiB boundary. Directory sizes remain constrained to the existing 32-bit directory cursor contract. The existing VFS deliberately rejects regular files larger than `UINT32_MAX` rather than narrowing their sizes or exposing truncated EOF; 64-bit VFS descriptors, `stat` UAPI, and userland seek APIs require a separate versioned ABI change. QEMU large-file runtime coverage and hardware qualification remain outstanding.
+
+
+### F10 — QEMU triple-indirect VFS integration
+
+**Implementation progress (CI pending):** the deterministic ATA-slave ext2 fixture now includes a sparse regular file whose only allocated data block is reached through the inode's triple-indirect pointer. With 1 KiB filesystem blocks, the test data resides at logical block `12 + 256 + 65536` (byte offset 67,383,296), while the physical image remains small because the intervening file range is sparse. The kernel boot test validates the file's VFS metadata and reads the payload at that offset through the ext2 VFS adapter. Both normal SMP boots must emit `LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK`; the existing LionFS persistence, directory, read-only, and GUI regression checks remain required. This is QEMU integration coverage for triple-indirect addressing, not a 4 GiB VFS test or physical-hardware qualification.
+
+F10 acceptance: host parser tests pass; QEMU reads the triple-indirect payload through the ATA primary-slave block device and ext2 VFS on both boots; all required GitHub Actions workflows are green on the same final SHA. Stage F remains read-only and does not add symlink traversal, indexed directories, directory mutation, ext3 journaling, or write support.
