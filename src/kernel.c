@@ -261,9 +261,10 @@ static int integration_utility_ok;
 static int integration_pipe_ok;
 static void debug_write_u32_hex(uint32_t value){
     static const char digits[]="0123456789ABCDEF";
-    char out[8];
+    char out[9];
     for(uint32_t i=0u;i<8u;++i)
         out[i]=digits[(value>>(28u-i*4u))&0xFu];
+    out[8]='\0';
     debug_write(out);
 }
 
