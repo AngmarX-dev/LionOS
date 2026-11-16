@@ -19,6 +19,16 @@
 #define ATA_TIMEOUT     1000000u
 
 static uint32_t identified_sector_count;
+static volatile uint32_t ata_io_lock;
+
+static void ata_lock(void) {
+    while (__sync_lock_test_and_set(&ata_io_lock, 1u) != 0u)
+        __asm__ volatile ("pause");
+}
+
+static void ata_unlock(void) {
+    __sync_lock_release(&ata_io_lock);
+}
 
 static inline void ata_outb(uint16_t port, uint8_t value) {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
@@ -110,10 +120,13 @@ static void select_lba(uint32_t lba) {
 }
 
 int ata_init(void) {
+    int result;
+
+    ata_lock();
     identified_sector_count = 0u;
-    if (identify_primary_master() < 0)
-        return -1;
-    return 0;
+    result = identify_primary_master();
+    ata_unlock();
+    return result;
 }
 
 uint32_t ata_sector_count(void) {
@@ -126,9 +139,13 @@ int ata_read_sector(uint32_t lba, void *buffer) {
         lba >= identified_sector_count)
         return -1;
 
+    ata_lock();
     select_lba(lba);
     ata_outb(ATA_COMMAND, ATA_CMD_READ);
-    if (wait_drq() < 0) return -1;
+    if (wait_drq() < 0) {
+        ata_unlock();
+        return -1;
+    }
 
     for (uint32_t i = 0u; i < 256u; ++i) {
         uint16_t word = ata_inw(ATA_DATA);
@@ -136,6 +153,7 @@ int ata_read_sector(uint32_t lba, void *buffer) {
         dst[i * 2u + 1u] = (uint8_t)(word >> 8);
     }
     (void)ata_inb(ATA_STATUS);
+    ata_unlock();
     return 0;
 }
 
@@ -145,14 +163,20 @@ int ata_write_sector(uint32_t lba, const void *buffer) {
         lba >= identified_sector_count)
         return -1;
 
+    ata_lock();
     select_lba(lba);
     ata_outb(ATA_COMMAND, ATA_CMD_WRITE);
-    if (wait_drq() < 0) return -1;
+    if (wait_drq() < 0) {
+        ata_unlock();
+        return -1;
+    }
 
     for (uint32_t i = 0u; i < 256u; ++i) {
         uint16_t word = (uint16_t)src[i * 2u] |
                         ((uint16_t)src[i * 2u + 1u] << 8);
         ata_outw(ATA_DATA, word);
     }
-    return wait_not_busy();
+    int result = wait_not_busy();
+    ata_unlock();
+    return result;
 }
