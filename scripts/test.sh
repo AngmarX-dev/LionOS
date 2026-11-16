@@ -202,6 +202,7 @@ grep -q 'LIONOS:EXT2-VFS-SYMLINK-EDGE-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-DANGLING-TEST-OK' build/qemu-first.log
+grep -q 'LIONOS:EXT2-VFS-SYMLINK-INLINE60-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-OK' build/qemu-first.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-first.log
 
@@ -235,6 +236,7 @@ grep -q 'LIONOS:EXT2-VFS-SYMLINK-EDGE-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-DANGLING-TEST-OK' build/qemu-second.log
+grep -q 'LIONOS:EXT2-VFS-SYMLINK-INLINE60-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-OK' build/qemu-second.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
