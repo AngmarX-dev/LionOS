@@ -10,6 +10,15 @@ typedef char lion_stat_backend_offset_must_be_4[
 typedef char lion_stat_flags_offset_must_be_8[
     __builtin_offsetof(struct lion_stat, flags) == 8u ? 1 : -1
 ];
+typedef char lion_dirent_size_must_be_264[
+    sizeof(struct lion_dirent) == 264u ? 1 : -1
+];
+typedef char lion_dirent_type_offset_must_be_4[
+    __builtin_offsetof(struct lion_dirent, type) == 4u ? 1 : -1
+];
+typedef char lion_dirent_name_offset_must_be_5[
+    __builtin_offsetof(struct lion_dirent, name) == 5u ? 1 : -1
+];
 typedef char lion_mouse_event_size_must_be_12[
     sizeof(struct lion_mouse_event) == 12u ? 1 : -1
 ];
