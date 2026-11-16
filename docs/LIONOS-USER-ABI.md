@@ -2,9 +2,9 @@
 
 **Status:** specification and conformance guards for the native syscall ABI. Stage C adds user-space wrappers without renumbering syscalls or changing kernel syscall dispatch.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
-**UAPI version:** 5 (LIONOS_UAPI_VERSION).
-**System-call ABI:** 4 (LIONOS_SYSCALL_ABI).
-**Version query:** syscall number 0 returns 4.
+**UAPI version:** 6 (LIONOS_UAPI_VERSION).
+**System-call ABI:** 5 (LIONOS_SYSCALL_ABI).
+**Version query:** syscall number 0 returns 5.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
 
 ## 1. Scope and compatibility
@@ -51,7 +51,7 @@ The inline wrappers in include/user_api.h are the preferred interface for native
 | Structure | Size | Layout |
 |---|---:|---|
 | struct lion_stat | 12 bytes | size at 0, backend at 4, flags at 8; uint32_t fields |
-| struct lion_mouse_event | 12 bytes | dx at 0, dy at 4, buttons at 8, source at 9, reserved bytes at 10 |
+| struct lion_mouse_event | 12 bytes | dx at 0, dy at 4, buttons at 8, source at 9, reserved bytes at 10 |\n| struct lion_dirent | 264 bytes | inode at 0, type at 4, name at 5; 256-byte name array and 4-byte structure alignment |
 
 The two reserved bytes in lion_mouse_event are currently written as zero and must be ignored by callers. tests/uapi_layout.c protects these sizes and offsets at compile time.
 
@@ -97,7 +97,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 16 | LIONOS_SYS_FREAD | fd, writable buffer, capacity | Bytes read / signed VFS result |
 | 17 | LIONOS_SYS_FWRITE | fd, readable buffer, length | Bytes written / signed VFS result |
 | 18 | LIONOS_SYS_REMOVE | path | VFS remove result |
-| 19 | LIONOS_SYS_STAT | path, writable lion_stat pointer | 0 on success |
+| 19 | LIONOS_SYS_STAT | path, writable lion_stat pointer | 0 on success |\n| 44 | LIONOS_SYS_READDIR | path, writable uint32 offset pointer, writable lion_dirent pointer | 1 entry, 0 EOF, generic error; ext2 directories only |
 | 20 | LIONOS_SYS_IPC_SEND | receiver PID, data, length | IPC result; max message 128 bytes |
 | 21 | LIONOS_SYS_IPC_RECV | writable data, capacity, optional sender-PID pointer | Bytes, empty sentinel, or error |
 | 22 | LIONOS_SYS_IPC_PENDING | — | Pending message count |
@@ -132,7 +132,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 - Network calls require PROCESS_CAP_NET.
 - The dispatcher validates user pointers before dereferencing user buffers. Each call also applies capacity, ownership, and state checks.
 - NET_RECV treats source metadata pointers as optional. If a non-null pointer is not writable, current code skips writing that metadata rather than failing the receive. This is legacy behavior, not a recommended pattern for new calls.
-- WAITPID and THREAD_JOIN require writable status pointers; PIPE_READ requires a writable destination buffer, while PIPE_WRITE requires a readable source buffer. The conformance checker guards these access directions against accidental regression.
+- WAITPID and THREAD_JOIN require writable status pointers; PIPE_READ requires a writable destination buffer, while PIPE_WRITE requires a readable source buffer. READDIR requires separately writable, non-overlapping offset and directory-entry buffers. The conformance checker guards these access directions against accidental regression.
 - THREAD_CREATE checks that its entry address lies in the user address interval, but the current syscall path does not prove that the address is mapped executable before scheduling the thread; an invalid entry can fault when the thread runs.
 - MEMINFO and the GETPPID, GETSTATE, SIGPENDING, and GETTID metadata queries are not all capability-gated in the current dispatcher. Their access policy should be reviewed before exposing additional untrusted applications.
 
@@ -153,9 +153,9 @@ The current first compatibility slice is a user-space wrapper layer in include/p
 | lion_posix_write | FWRITE | One buffer up to 4096 bytes |
 | lion_posix_close | CLOSE | Native process descriptor |
 | lion_posix_stat | STAT | Path-based metadata |
-| lion_posix_unlink | REMOVE | Native VFS removal |
+| lion_posix_unlink | REMOVE | Native VFS removal |\n| opendir / readdir / closedir | READDIR + STAT | Heap-owned directory stream; currently ext2 read-only directories only |
 
-The wrapper rejects unknown open flags, requires READ or WRITE, and requires WRITE when APPEND is selected. It returns -1 for wrapper-detected errors and otherwise preserves the native syscall result. It does not expose errno, O_CREAT/O_TRUNC, fstat, lseek, directory streams, dup/dup2, or POSIX standard descriptors (0/1/2). Zero-length read/write calls are treated as no-ops and do not validate the descriptor, matching the wrapper's documented limited scope rather than full POSIX behavior.
+The wrapper rejects unknown open flags, requires READ or WRITE, and requires WRITE when APPEND is selected. It returns -1 for wrapper-detected errors and otherwise preserves the native syscall result. It does not expose errno, O_CREAT/O_TRUNC, fstat, lseek, dup/dup2, or POSIX standard descriptors (0/1/2). Directory streams are a LionOS extension over the native READDIR syscall: `opendir` validates that the path is a directory, `readdir` returns an entry pointer or null, and `closedir` releases the stream. Because errno is not implemented, null from `readdir` does not distinguish EOF from an I/O or validation error. The current kernel READDIR backend supports ext2 only. Zero-length read/write calls are treated as no-ops and do not validate the descriptor, matching the wrapper's documented limited scope rather than full POSIX behavior.
 
 The QEMU VFS userspace test exercises invalid flags, invalid descriptors, zero-length calls, create-via-native-write-open, append, readback, stat and unlink through these wrappers. This validates the selected LionOS path only; it is not a POSIX conformance certification.
 
