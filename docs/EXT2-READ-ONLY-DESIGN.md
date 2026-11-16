@@ -161,3 +161,10 @@ F10 acceptance: host parser tests pass; QEMU reads the triple-indirect payload t
 The deterministic QEMU ext2 fixture contains a fast relative link to the root README, a slow relative link to a nested file (target length greater than the 60-byte inline area), and a self-referential link. Boot integration tests require successful reads through both valid links and rejection of the cyclic link on both QEMU boots. The existing read-only, nested-directory, triple-indirect, LionFS persistence, GUI, and xHCI regression gates remain required.
 
 **Limitations:** this is a bounded ext2-only resolver, not full POSIX pathname semantics. The VFS currently normalizes user paths before backend resolution, so lexical dot/dot-dot handling occurs before symlink traversal for caller-supplied paths. `lstat`, link creation/removal, permissions, and mount-namespace semantics remain out of scope.
+
+
+### G3 — Read-only `readlink` and `lstat` interfaces
+
+**Implementation scope:** the ext2 VFS now has a no-follow final-component resolver mode. Intermediate symbolic links are still followed, while the final inode is returned unchanged. `ext2_vfs_lstat()` exposes the final inode's size and directory/symlink type; `ext2_vfs_readlink()` returns up to the caller's requested number of target bytes without appending a NUL byte. The generic VFS exposes `vfs_lstat_path()` and `vfs_readlink()`, and userland receives `lion_lstat()` and `lion_readlink()` through new system-call numbers 46 and 45. The UAPI version is incremented to 7. All operations remain read-only and require the existing filesystem process capability.
+
+**Validation:** the ext2 boot fixture checks that `lstat` identifies the final link itself, ordinary `stat` follows it, and `readlink` returns the exact target bytes. The ext2 namespace fails closed instead of falling through to another backend when an ext2 lookup fails. Link targets remain bounded by the current 64-byte VFS path buffer; this is not yet a full POSIX implementation. Kernel/QEMU and host tests plus all required CI workflows must pass on the same final commit.
