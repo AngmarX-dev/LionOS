@@ -551,7 +551,7 @@ int ext2_vfs_boot_test(void) {
     debug_write("LIONOS:EXT2-VFS-SYMLINK-API-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-SYMLINK-EDGE-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-OK\n");
-    debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-OK\\n");
+    debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\n");
