@@ -160,6 +160,7 @@ int ext2_vfs_boot_test(void) {
     uint32_t cursor = 0u;
     int saw_subdir = 0;
     int saw_readme = 0;
+    int saw_nested = 0;
     int dir_result;
     int fd;
 
@@ -186,6 +187,18 @@ int ext2_vfs_boot_test(void) {
         vfs_stat_path("/ext2/subdir/nested.txt", &st) < 0 ||
         st.backend != VFS_BACKEND_EXT2_RO ||
         st.size != sizeof(nested_expected) - 1u) {
+        debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-FAIL\n");
+        return -1;
+    }
+
+    cursor = 0u;
+    do {
+        dir_result = vfs_readdir("/ext2/subdir", &cursor, &entry);
+        if (dir_result > 0 && entry.inode == 5u &&
+            entry.type == 1u && entry.name[0] == 'n')
+            saw_nested = 1;
+    } while (dir_result > 0);
+    if (dir_result < 0 || !saw_nested) {
         debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-FAIL\n");
         return -1;
     }
