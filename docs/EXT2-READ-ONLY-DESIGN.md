@@ -1,6 +1,6 @@
 # ext2 Read-Only Filesystem: Stage F Design Contract
 
-**Status:** Stage F in progress; F1 generic read-only block contract, F2 isolated ext2 parser core, F3 synthetic host fixtures, F4a ATA IDENTIFY/capacity checks, and F4b-1 primary-master block-device adapter implemented. A separate ext2 ATA device/image and VFS mount integration remain pending.  
+**Status:** F1–F4c implemented; F5 nested paths and directory enumeration implemented, awaiting final CI verification. Hardware testing remains pending.  
 **Branch:** `feature/graphics-engine-v2`  
 **Audit baseline:** `094675cd6b30af326724ecbd216f075182485a71`
 
@@ -111,4 +111,10 @@ The block-device layer exposes two independent initializers: `ata_block_device_i
 
 Host adapter tests use distinct backing arrays to verify that master and slave reads do not cross device paths, and cover geometry, bounds, missing capacity, null descriptors, and backend failures. These tests do not emulate ATA task-file register behavior. A dedicated QEMU secondary disk and a real ATA slave IDENTIFY/read test are still required.
 
-**Remaining:** create and attach a dedicated ext2 QEMU image as the primary-channel slave, test the real ATA path, then integrate the parser into VFS read-only mounting. The existing LionFS master image must remain unchanged and must never be probed as ext2.
+**F4b-3 / F4c — Separate ext2 disk and read-only VFS mount (implemented):** a deterministic ext2 image is attached as the primary-channel slave, separate from the LionFS primary-master disk. QEMU exercises ATA slave initialization, the block-device adapter, ext2 mount, root lookup, file reads, and a VFS read-only smoke test. The QEMU fixture is attached with a temporary snapshot overlay; the source image remains unchanged. This is a parser/VFS integration test, not a production disk partitioning or hardware qualification.
+
+### F5 — Nested paths and directory enumeration
+
+**Implementation progress (CI pending):** the ext2 parser now exposes `ext2_ro_readdir()` iteration. It validates cursor alignment, record lengths, block boundaries, inode numbers, name lengths, file types, and NUL-terminates/clears returned names. The VFS adapter resolves multi-component paths beneath `/ext2`, exposes directory-aware `stat`, and adds `vfs_readdir()` with `1` for an entry, `0` for end-of-directory, and `-1` for invalid paths or malformed data. The fixture now contains `/subdir/nested.txt`; host parser tests cover enumeration at 1/2/4 KiB block sizes, and QEMU smoke tests cover root/subdirectory enumeration, nested file reads, and read-only enforcement.
+
+**Scope:** directory enumeration is currently a kernel VFS API for ext2 only. It is not yet exposed as a userspace `readdir` syscall/libc wrapper. Symlinks, directory mutation, indexed directories, and multi-level indirect blocks remain unsupported. All ext2 access remains read-only.
