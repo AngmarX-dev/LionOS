@@ -152,6 +152,50 @@ static int ext2_symlink_syscall_test(void) {
     return 0;
 }
 
+static int fork_file_description_test(const char *path) {
+    static const char first_chunk[] = "LionOS";
+    static const char child_chunk[] = " POSIX";
+    static const char parent_chunk[] = "-inspi";
+    char buffer[7] = {0};
+    int32_t fd = lion_open(path, LIONOS_O_READ);
+    if (fd < 0) return 40;
+    if (lion_fread(fd, buffer, 6u) != 6 ||
+        memcmp(buffer, first_chunk, 6u) != 0) {
+        (void)lion_close(fd);
+        return 41;
+    }
+
+    uint32_t child = lion_fork();
+    if (child == 0u) {
+        char child_buffer[7] = {0};
+        int32_t result = lion_fread(fd, child_buffer, 6u);
+        int32_t close_result = lion_close(fd);
+        if (result != 6 || memcmp(child_buffer, child_chunk, 6u) != 0 ||
+            close_result < 0)
+            lion_exit_code(42u);
+        lion_exit_code(0u);
+    }
+    if (child == UINT32_MAX) {
+        (void)lion_close(fd);
+        return 42;
+    }
+
+    int32_t child_status = -1;
+    if (lion_waitpid(child, &child_status) != (int32_t)child ||
+        child_status != 0)
+        return 43;
+
+    for (uint32_t i = 0u; i < sizeof(buffer); ++i) buffer[i] = 0;
+    if (lion_fread(fd, buffer, 6u) != 6 ||
+        memcmp(buffer, parent_chunk, 6u) != 0) {
+        (void)lion_close(fd);
+        return 44;
+    }
+    if (lion_close(fd) < 0) return 45;
+    if (lion_fread(fd, buffer, 1u) >= 0) return 46;
+    return 0;
+}
+
 int main(void) {
     if (libc_memory_test() != 0) return 19;
 
@@ -192,6 +236,10 @@ int main(void) {
     }
     if (lion_posix_close(fd) < 0)
         return 11;
+
+    int fork_fd_result = fork_file_description_test(path);
+    if (fork_fd_result != 0)
+        return fork_fd_result;
 
     if (lion_posix_stat(path, &status) < 0 ||
         status.size != sizeof(expected) - 1u)
