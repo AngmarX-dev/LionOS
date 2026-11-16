@@ -231,7 +231,7 @@ static int valid_geometry(uint32_t bs) {
 int main(void) {
     if (triple_indirect_geometry(1024u) ||
         triple_indirect_geometry(2048u)) {
-        (void)fprintf(stderr, "EXT2 TRIPLE-INDIRECT TEST: FAIL\\n");
+        (void)fprintf(stderr, "EXT2 TRIPLE-INDIRECT TEST: FAIL\n");
         return 1;
     }
 
