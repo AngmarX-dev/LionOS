@@ -7,8 +7,8 @@
 #include "ext2_vfs.h"
 #include "vfs.h"
 
-#define EXT2_VFS_PREFIX "ext2/"
-#define EXT2_VFS_PREFIX_LEN 5u
+#define EXT2_VFS_PREFIX "ext2"
+#define EXT2_VFS_PREFIX_LEN 4u
 #define EXT2_MODE_TYPE 0xf000u
 #define EXT2_MODE_REG 0x8000u
 #define EXT2_MODE_DIR 0x4000u
@@ -20,24 +20,6 @@ static struct ext2_ro_inode ext2_root;
 static uint8_t ext2_scratch[EXT2_VFS_SCRATCH_SIZE];
 static int ext2_mounted;
 
-static int path_name(const char *path, const char **name) {
-    uint32_t length = 0u;
-    if (!path || !name || !ext2_vfs_path(path))
-        return -1;
-    path += EXT2_VFS_PREFIX_LEN;
-    if (!*path)
-        return -1;
-    while (path[length]) {
-        if (path[length] == '/')
-            return -1;
-        ++length;
-        if (length > EXT2_RO_NAME_MAX)
-            return -1;
-    }
-    *name = path;
-    return 0;
-}
-
 int ext2_vfs_path(const char *path) {
     if (!path)
         return 0;
@@ -45,21 +27,61 @@ int ext2_vfs_path(const char *path) {
         if (path[i] == 0 || path[i] != EXT2_VFS_PREFIX[i])
             return 0;
     }
-    return 1;
+    return path[EXT2_VFS_PREFIX_LEN] == 0 ||
+           path[EXT2_VFS_PREFIX_LEN] == '/';
 }
 
-static int resolve_file(const char *path, struct ext2_ro_inode *inode) {
-    const char *name;
-    uint32_t inode_number;
-    if (!ext2_mounted || !inode || path_name(path, &name) < 0)
+static int resolve_path(const char *path, struct ext2_ro_inode *inode,
+                        uint32_t *inode_number) {
+    struct ext2_ro_inode current;
+    uint32_t current_number = 2u;
+    const char *cursor;
+
+    if (!ext2_mounted || !inode || !ext2_vfs_path(path))
         return -1;
-    if (ext2_ro_lookup(&ext2_filesystem, &ext2_root, name,
-                       &inode_number, ext2_scratch,
-                       sizeof(ext2_scratch)) < 0 ||
-        ext2_ro_read_inode(&ext2_filesystem, inode_number, inode,
-                           ext2_scratch, sizeof(ext2_scratch)) < 0 ||
-        (inode->mode & EXT2_MODE_TYPE) != EXT2_MODE_REG)
-        return -1;
+
+    current = ext2_root;
+    cursor = path + EXT2_VFS_PREFIX_LEN;
+    if (*cursor == '/')
+        ++cursor;
+
+    while (*cursor) {
+        char component[EXT2_RO_NAME_MAX + 1u];
+        uint32_t length = 0u;
+        uint32_t next_number;
+        struct ext2_ro_inode next;
+
+        if ((current.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
+            return -1;
+        while (cursor[length] && cursor[length] != '/') {
+            if (length >= EXT2_RO_NAME_MAX)
+                return -1;
+            component[length] = cursor[length];
+            ++length;
+        }
+        if (length == 0u)
+            return -1;
+        component[length] = '\\0';
+        cursor += length;
+        if (*cursor == '/')
+            ++cursor;
+        if (*cursor == '/' || (*cursor && cursor[0] == '.' &&
+            (cursor[1] == '/' || cursor[1] == 0)))
+            return -1;
+
+        if (ext2_ro_lookup(&ext2_filesystem, &current, component,
+                           &next_number, ext2_scratch,
+                           sizeof(ext2_scratch)) < 0 ||
+            ext2_ro_read_inode(&ext2_filesystem, next_number, &next,
+                               ext2_scratch, sizeof(ext2_scratch)) < 0)
+            return -1;
+        current = next;
+        current_number = next_number;
+    }
+
+    *inode = current;
+    if (inode_number)
+        *inode_number = current_number;
     return 0;
 }
 
@@ -77,7 +99,6 @@ int ext2_vfs_init(void) {
         (candidate_root.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
         return -1;
 
-    /* candidate_fs.device points at this static device, never a stack object. */
     ext2_filesystem = candidate_fs;
     ext2_root = candidate_root;
     ext2_mounted = 1;
@@ -86,37 +107,88 @@ int ext2_vfs_init(void) {
 
 int ext2_vfs_exists(const char *path) {
     struct ext2_ro_inode inode;
-    return resolve_file(path, &inode) == 0;
+    return resolve_path(path, &inode, 0) == 0 &&
+           (inode.mode & EXT2_MODE_TYPE) == EXT2_MODE_REG;
+}
+
+int ext2_vfs_stat(const char *path, uint32_t *size, int *is_directory) {
+    struct ext2_ro_inode inode;
+    if (!size || !is_directory || resolve_path(path, &inode, 0) < 0)
+        return -1;
+    if ((inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_REG &&
+        (inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
+        return -1;
+    *size = inode.size;
+    *is_directory = (inode.mode & EXT2_MODE_TYPE) == EXT2_MODE_DIR;
+    return 0;
 }
 
 uint32_t ext2_vfs_size(const char *path) {
-    struct ext2_ro_inode inode;
-    return resolve_file(path, &inode) == 0 ? inode.size : 0u;
+    uint32_t size = 0u;
+    int is_directory = 0;
+    return ext2_vfs_stat(path, &size, &is_directory) == 0 ? size : 0u;
 }
 
 int ext2_vfs_read(const char *path, uint32_t offset,
                   void *buffer, uint32_t length) {
     struct ext2_ro_inode inode;
-    if (resolve_file(path, &inode) < 0)
+    if (resolve_path(path, &inode, 0) < 0 ||
+        (inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_REG)
         return -1;
     return ext2_ro_read_file(&ext2_filesystem, &inode, offset, buffer,
                              length, ext2_scratch, sizeof(ext2_scratch));
 }
 
+int ext2_vfs_readdir(const char *path, uint32_t *offset,
+                     struct ext2_ro_dirent *entry) {
+    struct ext2_ro_inode inode;
+    if (!offset || !entry || resolve_path(path, &inode, 0) < 0 ||
+        (inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
+        return -1;
+    return ext2_ro_readdir(&ext2_filesystem, &inode, offset, entry,
+                           ext2_scratch, sizeof(ext2_scratch));
+}
+
 int ext2_vfs_boot_test(void) {
     static const char expected[] =
-        "LionOS ext2 slave read-only fixture OK\n";
+        "LionOS ext2 slave read-only fixture OK\\n";
+    static const char nested_expected[] =
+        "LionOS nested ext2 fixture OK\\n";
     char contents[sizeof(expected)];
+    struct ext2_ro_dirent entry;
     struct vfs_stat st;
+    uint32_t cursor = 0u;
+    int saw_subdir = 0;
+    int saw_readme = 0;
     int fd;
 
     if (ext2_vfs_init() < 0) {
-        debug_write("LIONOS:EXT2-VFS-MOUNT-UNAVAILABLE\n");
+        debug_write("LIONOS:EXT2-VFS-MOUNT-UNAVAILABLE\\n");
         return -1;
     }
+
+    while (1) {
+        int result = vfs_readdir("/ext2", &cursor, (struct vfs_dirent *)&entry);
+        if (result <= 0)
+            break;
+        if (entry.inode == 4u && entry.type == 2u)
+            saw_subdir = 1;
+        if (entry.inode == 3u)
+            saw_readme = 1;
+    }
+    if (cursor == 0u || !saw_subdir || !saw_readme ||
+        vfs_stat_path("/ext2/subdir", &st) < 0 ||
+        (st.flags & VFS_STAT_DIRECTORY) == 0u ||
+        vfs_stat_path("/ext2/subdir/nested.txt", &st) < 0 ||
+        st.backend != VFS_BACKEND_EXT2_RO ||
+        st.size != sizeof(nested_expected) - 1u) {
+        debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-FAIL\\n");
+        return -1;
+    }
+
     fd = vfs_open("/ext2/README.TXT", 1u);
     if (fd < 0) {
-        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\n");
+        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\\n");
         return -1;
     }
     int read_result = vfs_read(fd, contents, (uint32_t)sizeof(contents));
@@ -128,15 +200,38 @@ int ext2_vfs_boot_test(void) {
         st.size != sizeof(expected) - 1u ||
         vfs_open("/ext2/README.TXT", 2u) != VFS_FD_INVALID ||
         vfs_remove("/ext2/README.TXT") == 0) {
-        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\n");
+        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\\n");
         return -1;
     }
     for (uint32_t i = 0u; i < sizeof(expected) - 1u; ++i) {
         if (contents[i] != expected[i]) {
-            debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\n");
+            debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\\n");
             return -1;
         }
     }
-    debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-OK\n");
+
+    fd = vfs_open("/ext2/subdir/nested.txt", 1u);
+    if (fd < 0) {
+        debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\\n");
+        return -1;
+    }
+    char nested_contents[sizeof(nested_expected)];
+    read_result = vfs_read(fd, nested_contents,
+                           (uint32_t)sizeof(nested_contents));
+    close_result = vfs_close(fd);
+    if (read_result != (int)(sizeof(nested_expected) - 1u) ||
+        close_result < 0) {
+        debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\\n");
+        return -1;
+    }
+    for (uint32_t i = 0u; i < sizeof(nested_expected) - 1u; ++i) {
+        if (nested_contents[i] != nested_expected[i]) {
+            debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\\n");
+            return -1;
+        }
+    }
+
+    debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\\n");
+    debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-OK\\n");
     return 0;
 }
