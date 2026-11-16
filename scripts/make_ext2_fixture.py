@@ -145,8 +145,8 @@ def main():
         offset = 152 + (depth - 1) * 16
         root[offset:offset + 16] = dirent(11 + depth, 16, f"depth{depth}", 7)
     root[296:316] = dirent(21, 20, "parent-link", 7)
-    root[316:336] = dirent(22, 20, "dangling-link", 7)
-    root[336:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 336, "TRIPLE.TXT", 1)
+    root[316:340] = dirent(22, 24, "dangling-link", 7)
+    root[340:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 340, "TRIPLE.TXT", 1)
     image[9 * BLOCK_SIZE:10 * BLOCK_SIZE] = root
 
     subdir = bytearray(BLOCK_SIZE)
