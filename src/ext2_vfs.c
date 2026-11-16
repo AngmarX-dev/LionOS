@@ -28,7 +28,10 @@ static int path_name(const char *path, const char **name) {
     if (!*path)
         return -1;
     while (path[length]) {
-        if (path[length] == '/' || ++length > EXT2_RO_NAME_MAX)
+        if (path[length] == '/')
+            return -1;
+        ++length;
+        if (length > EXT2_RO_NAME_MAX)
             return -1;
     }
     *name = path;
@@ -112,10 +115,14 @@ int ext2_vfs_boot_test(void) {
         return -1;
     }
     fd = vfs_open("/ext2/README.TXT", 1u);
-    if (fd < 0 ||
-        vfs_read(fd, contents, (uint32_t)sizeof(contents)) !=
-            (int)(sizeof(expected) - 1u) ||
-        vfs_close(fd) < 0 ||
+    if (fd < 0) {
+        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\n");
+        return -1;
+    }
+    int read_result = vfs_read(fd, contents, (uint32_t)sizeof(contents));
+    int close_result = vfs_close(fd);
+    if (read_result != (int)(sizeof(expected) - 1u) ||
+        close_result < 0 ||
         vfs_stat_path("/ext2/README.TXT", &st) < 0 ||
         st.backend != VFS_BACKEND_EXT2_RO ||
         st.size != sizeof(expected) - 1u ||
