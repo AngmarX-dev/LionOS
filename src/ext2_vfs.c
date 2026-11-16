@@ -417,6 +417,11 @@ int ext2_vfs_boot_test(void) {
         }
     }
 
+    if (vfs_open("/ext2/loop-a", 1u) != VFS_FD_INVALID) {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
+        return -1;
+    }
+
     debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\n");
