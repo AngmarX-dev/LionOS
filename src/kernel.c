@@ -36,6 +36,7 @@
 #include "gpu_fence.h"
 #include "gpu_submission.h"
 #include "gfx_pci.h"
+#include "ext2_slave_test.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -736,6 +737,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         debug_write("LIONOS:NO-DISK\n");
         kernel_log(KLOG_WARN, "Persistent disk unavailable; using RAMFS");
     }
+    /* Probe only the explicitly attached, independent primary-slave disk. */
+    (void)ext2_slave_boot_test();
     BOOT_STAGE(84u, "STORAGE READY");
 
     vfs_init();
