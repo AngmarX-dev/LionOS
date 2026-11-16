@@ -1,6 +1,6 @@
 # LionOS User ABI and System Call Contract
 
-**Status:** specification and conformance guards for the native syscall ABI. Stage C adds user-space wrappers without renumbering syscalls or changing kernel syscall dispatch.
+**Status:** specification and conformance guards for the native syscall ABI. Stage F6 adds a read-only ext2 directory-stream syscall and user-space wrappers.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
 **UAPI version:** 6 (LIONOS_UAPI_VERSION).
 **System-call ABI:** 5 (LIONOS_SYSCALL_ABI).
@@ -51,7 +51,8 @@ The inline wrappers in include/user_api.h are the preferred interface for native
 | Structure | Size | Layout |
 |---|---:|---|
 | struct lion_stat | 12 bytes | size at 0, backend at 4, flags at 8; uint32_t fields |
-| struct lion_mouse_event | 12 bytes | dx at 0, dy at 4, buttons at 8, source at 9, reserved bytes at 10 |\n| struct lion_dirent | 264 bytes | inode at 0, type at 4, name at 5; 256-byte name array and 4-byte structure alignment |
+| struct lion_mouse_event | 12 bytes | dx at 0, dy at 4, buttons at 8, source at 9, reserved bytes at 10 |
+| struct lion_dirent | 264 bytes | inode at 0, type at 4, name at 5; 256-byte name array and 4-byte structure alignment |
 
 The two reserved bytes in lion_mouse_event are currently written as zero and must be ignored by callers. tests/uapi_layout.c protects these sizes and offsets at compile time.
 
@@ -97,7 +98,8 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 16 | LIONOS_SYS_FREAD | fd, writable buffer, capacity | Bytes read / signed VFS result |
 | 17 | LIONOS_SYS_FWRITE | fd, readable buffer, length | Bytes written / signed VFS result |
 | 18 | LIONOS_SYS_REMOVE | path | VFS remove result |
-| 19 | LIONOS_SYS_STAT | path, writable lion_stat pointer | 0 on success |\n| 44 | LIONOS_SYS_READDIR | path, writable uint32 offset pointer, writable lion_dirent pointer | 1 entry, 0 EOF, generic error; ext2 directories only |
+| 19 | LIONOS_SYS_STAT | path, writable lion_stat pointer | 0 on success |
+| 44 | LIONOS_SYS_READDIR | path, writable uint32 offset pointer, writable lion_dirent pointer | 1 entry, 0 EOF, generic error; ext2 directories only |
 | 20 | LIONOS_SYS_IPC_SEND | receiver PID, data, length | IPC result; max message 128 bytes |
 | 21 | LIONOS_SYS_IPC_RECV | writable data, capacity, optional sender-PID pointer | Bytes, empty sentinel, or error |
 | 22 | LIONOS_SYS_IPC_PENDING | — | Pending message count |
@@ -153,7 +155,8 @@ The current first compatibility slice is a user-space wrapper layer in include/p
 | lion_posix_write | FWRITE | One buffer up to 4096 bytes |
 | lion_posix_close | CLOSE | Native process descriptor |
 | lion_posix_stat | STAT | Path-based metadata |
-| lion_posix_unlink | REMOVE | Native VFS removal |\n| opendir / readdir / closedir | READDIR + STAT | Heap-owned directory stream; currently ext2 read-only directories only |
+| lion_posix_unlink | REMOVE | Native VFS removal |
+| opendir / readdir / closedir | READDIR + STAT | Heap-owned directory stream; currently ext2 read-only directories only |
 
 The wrapper rejects unknown open flags, requires READ or WRITE, and requires WRITE when APPEND is selected. It returns -1 for wrapper-detected errors and otherwise preserves the native syscall result. It does not expose errno, O_CREAT/O_TRUNC, fstat, lseek, dup/dup2, or POSIX standard descriptors (0/1/2). Directory streams are a LionOS extension over the native READDIR syscall: `opendir` validates that the path is a directory, `readdir` returns an entry pointer or null, and `closedir` releases the stream. Because errno is not implemented, null from `readdir` does not distinguish EOF from an I/O or validation error. The current kernel READDIR backend supports ext2 only. Zero-length read/write calls are treated as no-ops and do not validate the descriptor, matching the wrapper's documented limited scope rather than full POSIX behavior.
 
