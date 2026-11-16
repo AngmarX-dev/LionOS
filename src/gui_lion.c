@@ -8,6 +8,8 @@
 #include "memory.h"
 #include "heap.h"
 #include "vfs.h"
+#include "ata.h"
+#include "diskfs.h"
 #include "ext2_vfs.h"
 #include "lapic.h"
 #include "cpu.h"
@@ -206,6 +208,14 @@ static uint32_t file_last_click_tick;
 static struct vfs_dirent file_entries[FILE_MANAGER_MAX_ENTRIES];
 static uint32_t file_entry_count;
 static char file_current_path[VFS_PATH_MAX] = "/ext2";
+static uint32_t file_master_sectors;
+static uint32_t file_slave_sectors;
+static uint32_t file_lionfs_files;
+static uint8_t file_master_detected;
+static uint8_t file_slave_detected;
+static uint8_t file_lionfs_mounted;
+static uint8_t file_ext2_mounted;
+static void draw_uint(uint32_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg);
 static void file_manager_refresh(void) {
     uint32_t offset=0u,count=0u; struct vfs_dirent entry; int result;
     file_entry_count=0u;
@@ -218,6 +228,16 @@ static void file_manager_refresh(void) {
         if(count<FILE_MANAGER_MAX_ENTRIES)file_entries[count++]=entry;
     } while(result>0);
     file_entry_count=count; file_selected=0xFFFFFFFFu;
+    file_master_sectors=ata_sector_count();
+    file_slave_sectors=ata_slave_sector_count();
+    file_master_detected=(file_master_sectors!=0u);
+    file_slave_detected=(file_slave_sectors!=0u);
+    file_lionfs_mounted=(diskfs_available()!=0);
+    file_lionfs_files=diskfs_count();
+    struct vfs_stat root_stat;
+    file_ext2_mounted=(vfs_stat_path("/ext2",&root_stat)==0 &&
+                       root_stat.backend==VFS_BACKEND_EXT2_RO &&
+                       (root_stat.flags&VFS_STAT_DIRECTORY)!=0u);
 }
 static int file_manager_enter(uint32_t index) {
     struct vfs_stat st; char next[VFS_PATH_MAX]; uint32_t n=0u;
@@ -496,13 +516,27 @@ static const uint32_t *file_icon_for_name(const char *name){
 
 static void draw_files(const struct ui_window*w){
     window_chrome(w,"Files");
-    uint32_t left=w->x+16u,top=w->y+TITLE_H+10u,side=128u;
+    uint32_t left=w->x+16u,top=w->y+TITLE_H+10u,side=150u;
     uint32_t body_h=w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u;
     framebuffer_blend_round_rect(left,top,side,body_h,14u,COL_PANEL2,150u);
-    text_line("LOCATIONS",left+12u,top+12u,COL_DIM,COL_PANEL2);
-    text_line("EXT2 DISK",left+12u,top+42u,COL_GOLD,COL_PANEL2);
-    text_line("READ ONLY",left+12u,top+66u,COL_DIM,COL_PANEL2);
-    uint32_t gx=left+side+18u,gy=top+54u,right_w=w->w>side+35u?w->w-side-34u:1u;
+    text_line("STORAGE",left+12u,top+12u,COL_DIM,COL_PANEL2);
+    text_line("PRIMARY MASTER",left+10u,top+40u,COL_TEXT,COL_PANEL2);
+    text_line(file_master_detected?"DETECTED":"NOT FOUND",left+10u,top+62u,
+              file_master_detected?COL_OK:COL_DIM,COL_PANEL2);
+    text_line(file_lionfs_mounted?"LIONFS READY":"NO LIONFS",left+10u,top+82u,
+              file_lionfs_mounted?COL_OK:COL_DIM,COL_PANEL2);
+    text_line("SIZE MiB",left+10u,top+102u,COL_DIM,COL_PANEL2);
+    draw_uint(file_master_sectors/2048u,left+10u,top+120u,COL_GOLD,COL_PANEL2);
+    text_line("PRIMARY SLAVE",left+10u,top+158u,COL_TEXT,COL_PANEL2);
+    text_line(file_slave_detected?"DETECTED":"NOT FOUND",left+10u,top+180u,
+              file_slave_detected?COL_OK:COL_DIM,COL_PANEL2);
+    text_line(file_ext2_mounted?"EXT2 MOUNTED":"NOT MOUNTED",left+10u,top+200u,
+              file_ext2_mounted?COL_OK:COL_DIM,COL_PANEL2);
+    text_line("SIZE MiB",left+10u,top+220u,COL_DIM,COL_PANEL2);
+    draw_uint(file_slave_sectors/2048u,left+10u,top+238u,COL_GOLD,COL_PANEL2);
+    text_line("EXT2: READ ONLY",left+10u,top+276u,COL_DIM,COL_PANEL2);
+    uint32_t gx=left+side+18u,gy=top+54u;
+    uint32_t right_w=w->w>side+35u?w->w-side-34u:1u;
     framebuffer_blend_round_rect(left+side+1u,top,right_w,body_h,14u,COL_PANEL,130u);
     text_line(file_current_path,gx,top+10u,COL_TEXT,COL_PANEL);
     text_line("UP",gx,top+31u,COL_GOLD,COL_PANEL);
