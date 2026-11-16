@@ -283,6 +283,9 @@ void lionos_user_integration_step(void){
             process_reap_pid((uint32_t)integration_pid);
             integration_pid=-1;
             debug_write("LIONOS:USER-VFS-DONE\n");
+            debug_write(integration_vfs_ok
+                ? "LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK\\n"
+                : "LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-FAIL\\n");
             integration_stage=2;
         }else if(s<0){
             integration_done=1;
