@@ -52,6 +52,7 @@
 #define LIONOS_IPC_EMPTY ((uint32_t)-2)
 #define LIONOS_NET_EMPTY ((uint32_t)-2)
 #define LIONOS_MOUSE_BLOCKED ((uint32_t)-2)
+#define LIONOS_READ_BLOCKED ((uint32_t)-2)
 #define LIONOS_THREAD_BLOCKED ((uint32_t)-2)
 #define LIONOS_PIPE_BLOCKED ((uint32_t)-2)
 
