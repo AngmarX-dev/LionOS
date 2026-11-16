@@ -207,6 +207,11 @@ static uint32_t file_last_click_tick;
 #define FILE_MANAGER_MAX_ENTRIES 12u
 static struct vfs_dirent file_entries[FILE_MANAGER_MAX_ENTRIES];
 static uint32_t file_entry_count;
+static uint32_t file_total_entries;
+static uint32_t file_page_start;
+static uint8_t file_has_prev;
+static uint8_t file_has_next;
+static uint8_t file_read_error;
 static char file_current_path[VFS_PATH_MAX] = "/ext2";
 static uint32_t file_master_sectors;
 static uint32_t file_slave_sectors;
@@ -218,17 +223,49 @@ static uint8_t file_ext2_mounted;
 static void draw_uint(uint32_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg);
 static void file_manager_refresh(void);
 static void file_manager_refresh(void) {
-    uint32_t offset=0u,count=0u; struct vfs_dirent entry; int result;
+    uint32_t offset=0u, seen=0u;
+    struct vfs_dirent entry;
+    int result=0;
+
     file_entry_count=0u;
-    if(!ext2_vfs_path(file_current_path))return;
-    do {
-        result=vfs_readdir(file_current_path,&offset,&entry);
-        if(result<=0)break;
-        if(entry.inode==0u || (entry.name[0]=='.' &&
-           (entry.name[1]==0 || (entry.name[1]=='.' && entry.name[2]==0))))continue;
-        if(count<FILE_MANAGER_MAX_ENTRIES)file_entries[count++]=entry;
-    } while(result>0);
-    file_entry_count=count; file_selected=0xFFFFFFFFu;
+    file_total_entries=0u;
+    file_has_prev=(file_page_start!=0u);
+    file_has_next=0u;
+    file_read_error=0u;
+    file_selected=0xFFFFFFFFu;
+
+    if(!ext2_vfs_path(file_current_path)) {
+        file_read_error=1u;
+    } else {
+        for(;;) {
+            result=vfs_readdir(file_current_path,&offset,&entry);
+            if(result==0)break;
+            if(result<0) {
+                file_read_error=1u;
+                break;
+            }
+            if(entry.inode==0u || (entry.name[0]=='.' &&
+               (entry.name[1]==0 ||
+                (entry.name[1]=='.' && entry.name[2]==0))))
+                continue;
+
+            if(seen>=file_page_start &&
+               file_entry_count<FILE_MANAGER_MAX_ENTRIES)
+                file_entries[file_entry_count++]=entry;
+
+            if(file_total_entries<UINT32_MAX)
+                ++file_total_entries;
+            else {
+                file_read_error=1u;
+                break;
+            }
+            ++seen;
+        }
+    }
+
+    file_has_next=(file_total_entries>file_page_start+file_entry_count);
+    if(file_page_start>0u && file_total_entries==0u)
+        file_has_prev=0u;
     file_master_sectors=ata_sector_count();
     file_slave_sectors=ata_slave_sector_count();
     file_master_detected=(file_master_sectors!=0u);
@@ -252,12 +289,32 @@ static int file_manager_enter(uint32_t index) {
     next[n]=0;
     if(vfs_stat_path(next,&st)<0||(st.flags&VFS_STAT_DIRECTORY)==0u)return -1;
     for(uint32_t i=0u;i<=n;++i)file_current_path[i]=next[i];
+    file_page_start=0u;
     file_manager_refresh(); return 1;
 }
 static void file_manager_parent(void) {
     uint32_t n=0u; while(file_current_path[n])++n;
     if(n<=5u)file_current_path[5]=0;
     else {while(n>5u&&file_current_path[n-1u]!='/')--n;if(n>5u)--n;file_current_path[n]=0;}
+    file_page_start=0u;
+    file_manager_refresh();
+}
+static void file_manager_root(void) {
+    static const char root[]="/ext2";
+    for(uint32_t i=0u;i<sizeof(root);++i)file_current_path[i]=root[i];
+    file_page_start=0u;
+    file_manager_refresh();
+}
+static void file_manager_page_previous(void) {
+    if(!file_has_prev)return;
+    file_page_start=file_page_start>=FILE_MANAGER_MAX_ENTRIES
+        ?file_page_start-FILE_MANAGER_MAX_ENTRIES:0u;
+    file_manager_refresh();
+}
+static void file_manager_page_next(void) {
+    if(!file_has_next)return;
+    if(file_page_start>UINT32_MAX-FILE_MANAGER_MAX_ENTRIES)return;
+    file_page_start+=FILE_MANAGER_MAX_ENTRIES;
     file_manager_refresh();
 }
 
@@ -544,7 +601,11 @@ static void draw_files(const struct ui_window*w){
     framebuffer_blend_round_rect(left+side+1u,top,right_w,body_h,14u,COL_PANEL,130u);
     text_line(file_current_path,gx,top+10u,COL_TEXT,COL_PANEL);
     text_line("UP",gx,top+31u,COL_GOLD,COL_PANEL);
-    if(!file_entry_count)text_line("Directory empty or unavailable",gx,gy,COL_DIM,COL_PANEL);
+    text_line("ROOT",gx+60u,top+31u,COL_GOLD,COL_PANEL);
+    if(!file_entry_count) {
+        text_line(file_read_error?"Directory read error":"Directory is empty",
+                  gx,gy,COL_DIM,COL_PANEL);
+    }
     for(uint32_t i=0u;i<file_entry_count;++i){
         uint32_t col=i%3u,row=i/3u,bx=gx+col*96u,by=gy+row*42u;
         uint32_t selected=file_selected==i,bg=selected?COL_SKY_MID:COL_PANEL2;
@@ -555,7 +616,21 @@ static void draw_files(const struct ui_window*w){
         framebuffer_blit_rgba32(ico,LION_ICON_SIZE,LION_ICON_SIZE,bx+3u,by+5u,24u);
         text_line(name,bx+30u,by+12u,selected?COL_GOLD:COL_TEXT,bg);
     }
-    text_line("DOUBLE CLICK FOLDER TO OPEN",gx,top+body_h-22u,COL_DIM,COL_PANEL);
+    uint32_t pager_y=top+body_h-38u;
+    widget_button(gx,pager_y,68u,26u,COL_PANEL2,
+                  file_has_prev?COL_GOLD_DIM:COL_PANEL2,"PREV");
+    widget_button(gx+78u,pager_y,68u,26u,COL_PANEL2,
+                  file_has_next?COL_GOLD_DIM:COL_PANEL2,"NEXT");
+    text_line("PAGE",gx+164u,pager_y+5u,COL_DIM,COL_PANEL);
+    draw_uint(file_page_start/FILE_MANAGER_MAX_ENTRIES+1u,
+              gx+212u,pager_y+5u,COL_GOLD,COL_PANEL);
+    text_line("ITEMS",gx+272u,pager_y+5u,COL_DIM,COL_PANEL);
+    draw_uint(file_total_entries,gx+332u,pager_y+5u,COL_GOLD,COL_PANEL);
+    if(file_read_error)
+        text_line("READ WARNING",gx+430u,pager_y+5u,COL_DANGER,COL_PANEL);
+    else
+        text_line("DOUBLE CLICK FOLDER TO OPEN",gx,pager_y-24u,
+                  COL_DIM,COL_PANEL);
 }
 
 static void draw_about(const struct ui_window*w){
@@ -1383,12 +1458,21 @@ static void handle_window_click(struct ui_window*w){
         }
     }
     if(w->id==WIN_FILES){
-        uint32_t left=w->x+16u,top=w->y+TITLE_H+10u,side=128u;
-        if(hit(left+side+18u,top+27u,48u,22u,x,y)){file_manager_parent();dirty_full();return;}
-        if(hit(left+8u,top+34u,side-16u,34u,x,y)){
-            file_current_path[0]='/';file_current_path[1]='e';file_current_path[2]='x';
-            file_current_path[3]='t';file_current_path[4]='2';file_current_path[5]=0;
-            file_manager_refresh();dirty_full();return;
+        uint32_t left=w->x+16u,top=w->y+TITLE_H+10u,side=150u;
+        uint32_t gx=left+side+18u;
+        uint32_t body_h=w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u;
+        uint32_t pager_y=top+body_h-38u;
+        if(hit(gx,top+27u,48u,22u,x,y)){
+            file_manager_parent();dirty_full();return;
+        }
+        if(hit(gx+60u,top+27u,52u,22u,x,y)){
+            file_manager_root();dirty_full();return;
+        }
+        if(hit(gx,pager_y,68u,26u,x,y)){
+            file_manager_page_previous();dirty_full();return;
+        }
+        if(hit(gx+78u,pager_y,68u,26u,x,y)){
+            file_manager_page_next();dirty_full();return;
         }
         uint32_t idx;
         if(file_manager_hit(w,x,y,&idx)){
