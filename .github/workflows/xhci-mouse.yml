@@ -161,9 +161,22 @@ jobs:
           if sock is None:
               raise SystemExit("QEMU QMP socket did not become available")
 
+          # Wait until the kernel has completed its boot-report pause.
+          # Sending input during the pause can be consumed before the USB
+          # keyboard polling path is active.
+          for _ in range(200):
+              try:
+                  with open("build/qemu-xhci-keyboard-only.log", "r", encoding="utf-8", errors="replace") as log:
+                      if "LIONOS:BOOT-REPORT-PAUSE-COMPLETE" in log.read():
+                          break
+              except FileNotFoundError:
+                  pass
+              time.sleep(0.1)
+          else:
+              raise SystemExit("LionOS did not complete its boot-report pause")
+
           # There is deliberately no usb-mouse in this guest. The mouse
-          # discovery pass must fail without causing keyboard discovery
-          # to skip the same connected port.
+          # discovery pass must not prevent keyboard input from being handled.
           for down in (True, False):
               payload = {
                   "execute": "input-send-event",
@@ -177,8 +190,8 @@ jobs:
                       }]
                   },
               }
-              sock.sendall((json.dumps(payload) + "\r\n").encode())
-              time.sleep(0.05)
+              sock.sendall((json.dumps(payload) + "\\r\\n").encode())
+              time.sleep(0.1)
 
           sock.close()
           PY
