@@ -80,7 +80,7 @@ case LIONOS_SYS_IPC_RECV_BLOCKING:if(!has_cap(PROCESS_CAP_IPC))return SYSCALL_ER
 case LIONOS_SYS_THREAD_CREATE:if(!has_cap(PROCESS_CAP_PROCESS)||arg0<USER_MIN||arg0>=USER_MAX)return SYSCALL_ERR;return process_create_user_thread(arg0);
 case LIONOS_SYS_THREAD_JOIN:if(!has_cap(PROCESS_CAP_PROCESS)||!user_range_ok_write(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t r=process_join_thread(arg0,arg1);return r==PROCESS_WAIT_BLOCKED?(uint32_t)PROCESS_WAIT_BLOCKED:(uint32_t)r;}
 case LIONOS_SYS_THREAD_EXIT:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;process_exit_thread(arg0);return SYSCALL_OK;
-case LIONOS_SYS_PIPE_CREATE:if(!has_cap(PROCESS_CAP_IPC)||!user_range_ok_write(arg0,sizeof(uint32_t))||!user_range_ok_write(arg1,sizeof(uint32_t)))return SYSCALL_ERR;return(uint32_t)pipe_create(process_current_pid(),(uint32_t*)(uintptr_t)arg0,(uint32_t*)(uintptr_t)arg1);
+case LIONOS_SYS_PIPE_CREATE:if(!has_cap(PROCESS_CAP_IPC)||!user_range_ok_write(arg0,sizeof(uint32_t))||!user_range_ok_write(arg1,sizeof(uint32_t)))return SYSCALL_ERR;return(uint32_t)pipe_create((uint32_t*)(uintptr_t)arg0,(uint32_t*)(uintptr_t)arg1);
 case LIONOS_SYS_PIPE_READ:if(!has_cap(PROCESS_CAP_IPC)||arg2==0||arg2>IPC_MESSAGE_MAX||!user_range_ok_write(arg1,arg2))return SYSCALL_ERR;{int32_t r=pipe_read(arg0,(void*)(uintptr_t)arg1,arg2);return r==PIPE_BLOCKED?(uint32_t)PROCESS_WAIT_BLOCKED:(uint32_t)r;}
 case LIONOS_SYS_PIPE_WRITE:if(!has_cap(PROCESS_CAP_IPC)||arg2==0||arg2>IPC_MESSAGE_MAX||!user_range_ok(arg1,arg2))return SYSCALL_ERR;{int32_t r=pipe_write(arg0,(const void*)(uintptr_t)arg1,arg2);return r==PIPE_BLOCKED?(uint32_t)PROCESS_WAIT_BLOCKED:(uint32_t)r;}
 case LIONOS_SYS_PIPE_CLOSE:if(!has_cap(PROCESS_CAP_IPC))return SYSCALL_ERR;return(uint32_t)pipe_close(arg0);
