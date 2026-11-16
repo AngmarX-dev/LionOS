@@ -65,6 +65,10 @@ Create small deterministic ext2 images with host-side tooling and test the parse
 
 The test harness must not require privileged access or modify user disks. Host tooling may create temporary fixtures only.
 
+### F4a — ATA IDENTIFY capacity and bounded LBA28 access
+
+**Implementation progress (2026-11-16):** the primary-master ATA PIO path now issues IDENTIFY DEVICE, requires LBA support, parses the reported LBA28 sector count, and rejects reads/writes outside the detected capacity before issuing a data command. The sector transfer copies bytes explicitly, so caller buffers do not need 16-bit alignment. A host-side parser test covers valid capacity, missing LBA support, zero capacity, null arguments, and clamping to the LBA28 address space. This slice does not add a registered block-device provider, partition discovery, a separate ext2 QEMU image, or VFS mounting. Runtime ATA IDENTIFY behavior remains subject to the pending QEMU/CI gate.
+
 ### F4 — ATA backend and QEMU integration
 
 Only after F1-F3 pass:
