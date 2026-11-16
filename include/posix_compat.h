@@ -20,4 +20,10 @@ int32_t lion_posix_close(int32_t fd);
 int32_t lion_posix_stat(const char *path, struct lion_stat *status);
 int32_t lion_posix_unlink(const char *path);
 
+/* Read-only directory stream API; DIR objects are owned by this library. */
+typedef struct lion_DIR DIR;
+DIR *opendir(const char *path);
+struct lion_dirent *readdir(DIR *directory);
+int32_t closedir(DIR *directory);
+
 #endif
