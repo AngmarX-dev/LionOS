@@ -28,8 +28,14 @@ int main(void) {
         int32_t child_status = -1;
         (void)lion_pipe_close(read_end);
         if (lion_waitpid(child, &child_status) == (int32_t)child &&
-            child_status >= 0 && child_status <= 20)
-            return 40 + child_status;
+            child_status >= 0 && child_status <= 20) {
+            if (read_result == 0) return 70 + child_status;
+            if (read_result == -1) return 90 + child_status;
+            if (read_result == -2) return 110 + child_status;
+            if (read_result > 0 && read_result <= 20)
+                return 130 + (read_result * 21) + child_status;
+            return 600 + child_status;
+        }
         if (read_result == 0) return 60;
         if (read_result == -1) return 61;
         if (read_result == -2) return 62;
