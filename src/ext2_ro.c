@@ -328,6 +328,7 @@ static int map_file_block(const struct ext2_ro_fs *fs,
                 block = le32(scratch + leaf_index * 4u);
             } else {
                 uint64_t triple_logical;
+                uint32_t double_remainder;
                 uint32_t root_index;
                 uint32_t middle_index;
                 uint32_t leaf_index;
@@ -341,12 +342,11 @@ static int map_file_block(const struct ext2_ro_fs *fs,
                                   scratch_size) < 0)
                     return -1;
 
-                root_index = (uint32_t)(triple_logical / double_capacity);
-                triple_logical %= double_capacity;
-                middle_index = (uint32_t)(triple_logical /
-                                           pointers_per_block);
-                leaf_index = (uint32_t)(triple_logical %
-                                         pointers_per_block);
+                root_index = (uint32_t)div_u64_u32(
+                    triple_logical, (uint32_t)double_capacity,
+                    &double_remainder);
+                middle_index = double_remainder / pointers_per_block;
+                leaf_index = double_remainder % pointers_per_block;
 
                 middle_block = le32(scratch + root_index * 4u);
                 if (middle_block == 0u ||
