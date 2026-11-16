@@ -290,12 +290,16 @@ static int map_file_block(const struct ext2_ro_fs *fs,
         fs->block_size < 4u || (fs->block_size & 3u) != 0u)
         return -1;
 
+    pointers_per_block = fs->block_size / 4u;
     if (logical < EXT2_DIRECT_BLOCKS) {
         block = inode->blocks[logical];
     } else {
-        logical -= EXT2_DIRECT_BLOCKS;
-        pointers_per_block = fs->block_size / 4u;
+        uint64_t double_capacity =
+            (uint64_t)pointers_per_block * pointers_per_block;
+        uint64_t triple_capacity =
+            double_capacity * pointers_per_block;
 
+        logical -= EXT2_DIRECT_BLOCKS;
         if (logical < pointers_per_block) {
             if (inode->blocks[12] == 0u ||
                 read_fs_block(fs, inode->blocks[12], scratch,
@@ -303,26 +307,63 @@ static int map_file_block(const struct ext2_ro_fs *fs,
                 return -1;
             block = le32(scratch + logical * 4u);
         } else {
-            uint32_t double_index;
-            uint32_t leaf_index;
-            uint32_t leaf_block;
-            uint64_t double_capacity =
-                (uint64_t)pointers_per_block * pointers_per_block;
-
             logical -= pointers_per_block;
-            if ((uint64_t)logical >= double_capacity ||
-                inode->blocks[13] == 0u ||
-                read_fs_block(fs, inode->blocks[13], scratch,
-                              scratch_size) < 0)
-                return -1;
+            if ((uint64_t)logical < double_capacity) {
+                uint32_t double_index;
+                uint32_t leaf_index;
+                uint32_t leaf_block;
 
-            double_index = logical / pointers_per_block;
-            leaf_index = logical % pointers_per_block;
-            leaf_block = le32(scratch + double_index * 4u);
-            if (leaf_block == 0u || leaf_block >= fs->blocks_count ||
-                read_fs_block(fs, leaf_block, scratch, scratch_size) < 0)
-                return -1;
-            block = le32(scratch + leaf_index * 4u);
+                if (inode->blocks[13] == 0u ||
+                    read_fs_block(fs, inode->blocks[13], scratch,
+                                  scratch_size) < 0)
+                    return -1;
+                double_index = logical / pointers_per_block;
+                leaf_index = logical % pointers_per_block;
+                leaf_block = le32(scratch + double_index * 4u);
+                if (leaf_block == 0u ||
+                    leaf_block >= fs->blocks_count ||
+                    read_fs_block(fs, leaf_block, scratch,
+                                  scratch_size) < 0)
+                    return -1;
+                block = le32(scratch + leaf_index * 4u);
+            } else {
+                uint64_t triple_logical;
+                uint32_t root_index;
+                uint32_t middle_index;
+                uint32_t leaf_index;
+                uint32_t middle_block;
+                uint32_t leaf_block;
+
+                triple_logical = (uint64_t)logical - double_capacity;
+                if (triple_logical >= triple_capacity ||
+                    inode->blocks[14] == 0u ||
+                    read_fs_block(fs, inode->blocks[14], scratch,
+                                  scratch_size) < 0)
+                    return -1;
+
+                root_index = (uint32_t)(triple_logical / double_capacity);
+                triple_logical %= double_capacity;
+                middle_index = (uint32_t)(triple_logical /
+                                           pointers_per_block);
+                leaf_index = (uint32_t)(triple_logical %
+                                         pointers_per_block);
+
+                middle_block = le32(scratch + root_index * 4u);
+                if (middle_block == 0u ||
+                    middle_block >= fs->blocks_count ||
+                    read_fs_block(fs, middle_block, scratch,
+                                  scratch_size) < 0)
+                    return -1;
+
+                leaf_block = le32(scratch + middle_index * 4u);
+                if (leaf_block == 0u ||
+                    leaf_block >= fs->blocks_count ||
+                    read_fs_block(fs, leaf_block, scratch,
+                                  scratch_size) < 0)
+                    return -1;
+
+                block = le32(scratch + leaf_index * 4u);
+            }
         }
     }
 
