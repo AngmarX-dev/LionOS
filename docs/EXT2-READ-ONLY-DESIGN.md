@@ -199,3 +199,10 @@ The deterministic QEMU ext2 fixture contains a fast relative link to the root RE
 **Implementation scope:** extend the existing deterministic ext2 QEMU fixture regression to exercise the already-present `abs-link` entry, whose target begins with `/`. Verify that an absolute symlink is interpreted relative to the ext2 mount root, that VFS open/read returns the exact README payload, and that the normal stat path reports the expected file size. The resolver behavior and eight-link traversal limit remain unchanged.
 
 **Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-OK`; the existing relative, slow, cyclic, intermediate, depth-boundary, Ring-3 syscall, ext2, persistence, GUI, and xHCI regression checks must remain green on the same final commit SHA. This is QEMU regression coverage, not physical-disk qualification.
+
+
+### G9 — Parent-component normalization in relative symlink targets
+
+**Implementation scope:** add a deterministic ext2 fast symlink named `parent-link` with the relative target `subdir/../README.TXT`. The QEMU VFS regression opens and reads through this link, verifies the complete README payload and resolved file size, and checks a dedicated success marker. The path resolver implementation and symlink traversal limit remain unchanged.
+
+**Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-OK`. Existing absolute/relative/slow/cyclic/intermediate/depth-boundary, Ring-3 syscall, ext2, persistence, GUI, and xHCI checks must remain green on the same final commit SHA. This is QEMU regression coverage only.
