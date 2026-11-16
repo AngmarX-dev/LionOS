@@ -11,6 +11,7 @@ void keyboard_poll(void);
 void keyboard_rearm_after_mouse_init(void);
 void keyboard_handle_usb_report(const uint8_t *report, uint32_t length);
 int keyboard_getchar(void);
+int32_t keyboard_read_blocking(uint8_t *dst, uint32_t capacity);
 uint32_t keyboard_available(void);
 int keyboard_ps2_available(void);
 
