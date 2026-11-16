@@ -12,6 +12,7 @@
 #define LION_POSIX_O_WRITE  LIONOS_O_WRITE
 #define LION_POSIX_O_APPEND LIONOS_O_APPEND
 #define LION_POSIX_IO_MAX   4096u
+#define LION_POSIX_PATH_MAX 64u
 
 int32_t lion_posix_open(const char *path, uint32_t flags);
 int32_t lion_posix_read(int32_t fd, void *buffer, uint32_t count);
