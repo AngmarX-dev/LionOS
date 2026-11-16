@@ -11,6 +11,8 @@
 #define EXT2_MODE_TYPE 0xf000u
 #define EXT2_MODE_REG 0x8000u
 #define EXT2_MODE_DIR 0x4000u
+#define EXT2_MODE_SYMLINK 0xa000u
+#define EXT2_SYMLINK_INLINE_MAX 60u
 #define EXT2_DIRECT_BLOCKS 12u
 #define EXT2_DIRENT_HEADER 8u
 
@@ -279,10 +281,14 @@ int ext2_ro_read_inode(const struct ext2_ro_fs *fs,
         inode->size > UINT32_MAX)
         return -1;
     inode->flags = le32(scratch + within + 32u);
+    inode->sectors_512 = le32(scratch + within + 28u);
     for (uint32_t i = 0; i < 15u; ++i)
         inode->blocks[i] = le32(scratch + within + 40u + i * 4u);
+    for (uint32_t i = 0; i < sizeof(inode->inline_data); ++i)
+        inode->inline_data[i] = scratch[within + 40u + i];
     if ((inode->mode & EXT2_MODE_TYPE) != EXT2_MODE_REG &&
-        (inode->mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
+        (inode->mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR &&
+        (inode->mode & EXT2_MODE_TYPE) != EXT2_MODE_SYMLINK)
         return -1;
     if ((inode->flags & EXT2_INODE_FLAG_INDEX) != 0u)
         return -1;
@@ -421,6 +427,50 @@ int ext2_ro_read_file(const struct ext2_ro_fs *fs,
         copied += chunk;
     }
     return (int)copied;
+}
+
+
+int ext2_ro_read_symlink(const struct ext2_ro_fs *fs,
+                         const struct ext2_ro_inode *inode,
+                         char *target,
+                         uint32_t target_capacity,
+                         void *scratch_buffer,
+                         uint32_t scratch_size) {
+    uint32_t length;
+    if (!fs || !inode || !target || !scratch_buffer ||
+        scratch_size < fs->block_size ||
+        (inode->mode & EXT2_MODE_TYPE) != EXT2_MODE_SYMLINK ||
+        inode->size == 0u || inode->size > INT32_MAX ||
+        inode->size >= target_capacity)
+        return -1;
+
+    length = (uint32_t)inode->size;
+    if (inode->sectors_512 == 0u) {
+        if (length > EXT2_SYMLINK_INLINE_MAX) return -1;
+        for (uint32_t i = 0; i < length; ++i)
+            target[i] = (char)inode->inline_data[i];
+    } else {
+        uint64_t data_blocks = div_ceil_u64_u32(inode->size,
+                                                fs->block_size);
+        uint64_t minimum_sectors;
+        struct ext2_ro_inode regular = *inode;
+        if (mul_u64_u32(data_blocks, fs->block_size / 512u,
+                        &minimum_sectors) < 0 ||
+            minimum_sectors > inode->sectors_512)
+            return -1;
+        /* Reuse the validated block mapper while keeping the public
+         * regular-file API strict about inode types. */
+        regular.mode = (uint16_t)((regular.mode & ~EXT2_MODE_TYPE) |
+                                 EXT2_MODE_REG);
+        if (ext2_ro_read_file(fs, &regular, 0u, target, length,
+                              scratch_buffer, scratch_size) != (int)length)
+            return -1;
+    }
+
+    for (uint32_t i = 0; i < length; ++i)
+        if (target[i] == '\0') return -1;
+    target[length] = '\0';
+    return (int)length;
 }
 
 int ext2_ro_lookup(const struct ext2_ro_fs *fs,
