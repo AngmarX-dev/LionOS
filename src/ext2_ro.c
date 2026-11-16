@@ -471,6 +471,9 @@ int ext2_ro_readdir(const struct ext2_ro_fs *fs,
                 entry->name[i] = (char)ch;
             }
             entry->name[name_length] = '\0';
+            for (uint32_t i = (uint32_t)name_length + 1u;
+                 i <= EXT2_RO_NAME_MAX; ++i)
+                entry->name[i] = '\0';
             entry->inode = inode;
             entry->type = file_type;
             *offset = current + record_length;
