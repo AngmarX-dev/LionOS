@@ -12,6 +12,8 @@
 #define EXT2_MODE_TYPE 0xf000u
 #define EXT2_MODE_REG 0x8000u
 #define EXT2_MODE_DIR 0x4000u
+#define EXT2_MODE_SYMLINK 0xa000u
+#define EXT2_VFS_SYMLINK_MAX 8u
 #define EXT2_VFS_SCRATCH_SIZE EXT2_RO_BLOCK_MAX
 
 static struct block_device ext2_device;
@@ -31,57 +33,166 @@ int ext2_vfs_path(const char *path) {
            path[EXT2_VFS_PREFIX_LEN] == '/';
 }
 
+static int append_text(char *dst, uint32_t capacity,
+                       uint32_t *length, const char *src) {
+    if (!dst || !length || !src) return -1;
+    while (*src) {
+        if (*length + 1u >= capacity) return -1;
+        dst[(*length)++] = *src++;
+    }
+    dst[*length] = '\0';
+    return 0;
+}
+
+static int normalize_ext2_relative(char *dst, uint32_t capacity,
+                                    const char *src) {
+    uint32_t out = 0u;
+    uint32_t pos = 0u;
+    if (!dst || !src || capacity == 0u) return -1;
+    dst[0] = '\0';
+    while (src[pos]) {
+        uint32_t start;
+        uint32_t length = 0u;
+        while (src[pos] == '/') ++pos;
+        if (!src[pos]) break;
+        start = pos;
+        while (src[pos] && src[pos] != '/') {
+            ++length;
+            ++pos;
+        }
+        if (length == 1u && src[start] == '.') continue;
+        if (length == 2u && src[start] == '.' && src[start + 1u] == '.') {
+            while (out && dst[out - 1u] != '/') --out;
+            if (out) --out;
+            dst[out] = '\0';
+            continue;
+        }
+        if (out) {
+            if (out + 1u >= capacity) return -1;
+            dst[out++] = '/';
+        }
+        if (length >= capacity - out) return -1;
+        for (uint32_t i = 0u; i < length; ++i)
+            dst[out++] = src[start + i];
+        dst[out] = '\0';
+    }
+    return 0;
+}
+
 static int resolve_path(const char *path, struct ext2_ro_inode *inode,
                         uint32_t *inode_number) {
-    struct ext2_ro_inode current;
-    uint32_t current_number = 2u;
-    const char *cursor;
+    char pending[VFS_PATH_MAX];
+    uint32_t followed[EXT2_VFS_SYMLINK_MAX];
+    uint32_t followed_count = 0u;
 
     if (!ext2_mounted || !inode || !ext2_vfs_path(path))
         return -1;
+    pending[0] = '\0';
+    const char *initial = path + EXT2_VFS_PREFIX_LEN;
+    if (*initial == '/') ++initial;
+    if (normalize_ext2_relative(pending, sizeof(pending), initial) < 0)
+        return -1;
 
-    current = ext2_root;
-    cursor = path + EXT2_VFS_PREFIX_LEN;
-    if (*cursor == '/')
-        ++cursor;
+    for (;;) {
+        struct ext2_ro_inode current = ext2_root;
+        uint32_t current_number = 2u;
+        const char *cursor = pending;
+        int restart = 0;
 
-    while (*cursor) {
-        char component[EXT2_RO_NAME_MAX + 1u];
-        uint32_t length = 0u;
-        uint32_t next_number;
-        struct ext2_ro_inode next;
+        while (*cursor) {
+            char component[EXT2_RO_NAME_MAX + 1u];
+            uint32_t length = 0u;
+            uint32_t next_number;
+            struct ext2_ro_inode next;
 
-        if ((current.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
-            return -1;
-        while (cursor[length] && cursor[length] != '/') {
-            if (length >= EXT2_RO_NAME_MAX)
+            if ((current.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
                 return -1;
-            component[length] = cursor[length];
-            ++length;
+            while (cursor[length] && cursor[length] != '/') {
+                if (length >= EXT2_RO_NAME_MAX) return -1;
+                component[length] = cursor[length];
+                ++length;
+            }
+            if (length == 0u) return -1;
+            component[length] = '\0';
+            cursor += length;
+            if (*cursor == '/') ++cursor;
+
+            if (ext2_ro_lookup(&ext2_filesystem, &current, component,
+                               &next_number, ext2_scratch,
+                               sizeof(ext2_scratch)) < 0 ||
+                ext2_ro_read_inode(&ext2_filesystem, next_number, &next,
+                                   ext2_scratch, sizeof(ext2_scratch)) < 0)
+                return -1;
+
+            if ((next.mode & EXT2_MODE_TYPE) == EXT2_MODE_SYMLINK) {
+                char target[VFS_PATH_MAX];
+                char combined[VFS_PATH_MAX * 3u];
+                char normalized[VFS_PATH_MAX];
+                uint32_t combined_length = 0u;
+                int absolute;
+
+                if (followed_count >= EXT2_VFS_SYMLINK_MAX)
+                    return -1;
+                for (uint32_t i = 0u; i < followed_count; ++i)
+                    if (followed[i] == next_number) return -1;
+                followed[followed_count++] = next_number;
+
+                if (ext2_ro_read_symlink(&ext2_filesystem, &next, target,
+                                         sizeof(target), ext2_scratch,
+                                         sizeof(ext2_scratch)) < 0)
+                    return -1;
+                absolute = target[0] == '/';
+
+                if (!absolute && append_text(combined, sizeof(combined),
+                                             &combined_length, pending) < 0)
+                    return -1;
+                if (!absolute) {
+                    /* Keep only the already-resolved parent directory. */
+                    uint32_t parent_length = 0u;
+                    for (uint32_t i = 0u; i < combined_length; ++i)
+                        if (combined[i] == '/') parent_length = i + 1u;
+                    if (combined_length != 0u) {
+                        if (parent_length == 0u) combined_length = 0u;
+                        else combined_length = parent_length - 1u;
+                        combined[combined_length] = '\0';
+                    }
+                }
+                if (combined_length && target[0] != '/' &&
+                    append_text(combined, sizeof(combined),
+                                &combined_length, "/") < 0)
+                    return -1;
+                if (append_text(combined, sizeof(combined),
+                                &combined_length, target) < 0)
+                    return -1;
+                if (*cursor) {
+                    if (combined_length &&
+                        append_text(combined, sizeof(combined),
+                                    &combined_length, "/") < 0)
+                        return -1;
+                    if (append_text(combined, sizeof(combined),
+                                    &combined_length, cursor) < 0)
+                        return -1;
+                }
+                if (normalize_ext2_relative(normalized, sizeof(normalized),
+                                             combined) < 0)
+                    return -1;
+                uint32_t i = 0u;
+                do {
+                    pending[i] = normalized[i];
+                } while (normalized[i++] != '\0');
+                restart = 1;
+                break;
+            }
+
+            current = next;
+            current_number = next_number;
         }
-        if (length == 0u)
-            return -1;
-        component[length] = '\0';
-        cursor += length;
-        if (*cursor == '/')
-            ++cursor;
-        if (*cursor == '/')
-            return -1;
 
-        if (ext2_ro_lookup(&ext2_filesystem, &current, component,
-                           &next_number, ext2_scratch,
-                           sizeof(ext2_scratch)) < 0 ||
-            ext2_ro_read_inode(&ext2_filesystem, next_number, &next,
-                               ext2_scratch, sizeof(ext2_scratch)) < 0)
-            return -1;
-        current = next;
-        current_number = next_number;
+        if (restart) continue;
+        *inode = current;
+        if (inode_number) *inode_number = current_number;
+        return 0;
     }
-
-    *inode = current;
-    if (inode_number)
-        *inode_number = current_number;
-    return 0;
 }
 
 int ext2_vfs_init(void) {
