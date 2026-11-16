@@ -69,6 +69,12 @@ The test harness must not require privileged access or modify user disks. Host t
 
 **Implementation progress (2026-11-16):** the primary-master ATA PIO path now issues IDENTIFY DEVICE, requires LBA support, parses the reported LBA28 sector count, and rejects reads/writes outside the detected capacity before issuing a data command. The sector transfer copies bytes explicitly, so caller buffers do not need 16-bit alignment. A host-side parser test covers valid capacity, missing LBA support, zero capacity, null arguments, and clamping to the LBA28 address space. This slice does not add a registered block-device provider, partition discovery, a separate ext2 QEMU image, or VFS mounting. Runtime ATA IDENTIFY behavior remains subject to the pending QEMU/CI gate.
 
+### F4b-1 — ATA read-only block-device provider
+
+**Implementation progress (2026-11-16):** added `include/ata_block.h` and `src/ata_block.c`. The provider publishes the already-identified ATA primary-master device through the F1 read-only block-device contract (512-byte sectors and IDENTIFY-derived capacity) and adapts bounded multi-sector requests to the existing single-sector ATA read routine. The host test uses a mock ATA sector backend and checks geometry, multi-sector data integrity, range rejection, backend error propagation, and null descriptors. `make test` now includes `ata-block-device-check`.
+
+**Important limitation:** this provider currently describes the same primary-master disk used by LionFS. It is not mounted as ext2 and must not be used to probe the LionFS image. A separate ATA device selection path and a dedicated ext2 QEMU disk are still required. The adapter has not yet been wired into boot-time VFS or ext2 initialization.
+
 ### F4 — ATA backend and QEMU integration
 
 Only after F1-F3 pass:
