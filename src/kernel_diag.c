@@ -3,6 +3,7 @@
 #include "console.h"
 #include "debug.h"
 #include "cpu.h"
+#include "lapic.h"
 
 #define KLOG_LEVELS 5u
 #define KLOG_VECTORS 256u
@@ -57,6 +58,12 @@ void kernel_panic(uint32_t vector, uint32_t error, uint32_t eip, uint32_t cs, ui
     console_write(" eip=0x"); console_write_hex(eip);
     console_write(" cs=0x"); console_write_hex(cs);
     console_write(" eflags=0x"); console_write_hex(eflags);
+    if (vector == 14u) {
+        uint32_t cr2;
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+        console_write(" CR2=");
+        console_write_hex(cr2);
+    }
     console_write("\nSystem halted.\n");
     debug_write("LIONOS:PANIC vector=");
     debug_hex32(vector);
@@ -88,15 +95,7 @@ void kernel_diag_print(void) {
         console_write_dec(kernel_diag_log_count((enum kernel_log_level)i));
     }
     console_write("\n");
-    console_write("       interrupt counters (BSP): timer=");
-    console_write_dec(kernel_diag_interrupt_count(0u,32u));
-    console_write(" keyboard=");
-    console_write_dec(kernel_diag_interrupt_count(0u,33u));
-    console_write(" mouse=");
-    console_write_dec(kernel_diag_interrupt_count(0u,44u));
-    console_write(" LAPIC=");
-    console_write_dec(kernel_diag_interrupt_count(0u,48u));
-    console_write("\n");
+    console_write("       interrupt counters: deferred until CPU interrupts are enabled\n");
     console_write("       online CPUs=");
     uint32_t online=0u;
     for (uint32_t i=0;i<LIONOS_MAX_CPUS;++i) {
@@ -106,6 +105,49 @@ void kernel_diag_print(void) {
     console_write_dec(online);
     console_write("\n");
 }
+static void debug_dec32(uint32_t value) {
+    char digits[10];
+    uint32_t count = 0u;
+    if (value == 0u) {
+        debug_putc('0');
+        return;
+    }
+    while (value != 0u && count < sizeof(digits)) {
+        digits[count++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    }
+    while (count != 0u)
+        debug_putc(digits[--count]);
+}
+
+void kernel_diag_print_interrupts(void) {
+    uint32_t timer = kernel_diag_interrupt_count(0u,32u);
+    uint32_t keyboard = kernel_diag_interrupt_count(0u,33u);
+    uint32_t mouse = kernel_diag_interrupt_count(0u,44u);
+    uint32_t lapic = kernel_diag_interrupt_count(0u,48u);
+
+    console_write("[ OK ] Interrupt counters after IRQ enable (BSP): timer=");
+    console_write_dec(timer);
+    console_write(" keyboard=");
+    console_write_dec(keyboard);
+    console_write(" mouse=");
+    console_write_dec(mouse);
+    console_write(" LAPIC=");
+    console_write_dec(lapic);
+    console_write("\n");
+
+    /* Preserve the post-STI sample even if the desktop redraws the console. */
+    debug_write("LIONOS:IRQ-COUNTS timer=");
+    debug_dec32(timer);
+    debug_write(" keyboard=");
+    debug_dec32(keyboard);
+    debug_write(" mouse=");
+    debug_dec32(mouse);
+    debug_write(" lapic=");
+    debug_dec32(lapic);
+    debug_write("\n");
+}
+
 void kernel_diag_record_interrupt(uint32_t cpu, uint32_t vector) {
     if (cpu < LIONOS_MAX_CPUS && vector < KLOG_VECTORS)
         __atomic_fetch_add(&interrupt_counts[cpu][vector], 1u, __ATOMIC_RELAXED);
@@ -113,4 +155,60 @@ void kernel_diag_record_interrupt(uint32_t cpu, uint32_t vector) {
 uint32_t kernel_diag_interrupt_count(uint32_t cpu, uint32_t vector) {
     if (cpu >= LIONOS_MAX_CPUS || vector >= KLOG_VECTORS) return 0u;
     return __atomic_load_n(&interrupt_counts[cpu][vector], __ATOMIC_RELAXED);
+}
+
+
+int kernel_diag_validate_timers(void) {
+    if (!lapic_frame_timer_active()) {
+        console_write("[WARN] Timer validation skipped: LAPIC frame clock unavailable\n");
+        debug_write("LIONOS:TIMER-VALIDATION-SKIPPED\n");
+        return -1;
+    }
+
+    const uint32_t start_frame = lapic_frame_ticks();
+    const uint32_t start_pit = kernel_diag_interrupt_count(0u, 32u);
+    const uint32_t start_lapic = kernel_diag_interrupt_count(0u, 48u);
+
+    /* Use the calibrated 120 Hz LAPIC clock as the two-second reference. */
+    /* PIT is also a watchdog: if LAPIC delivery stalls, do not hang boot. */
+    while ((uint32_t)(lapic_frame_ticks() - start_frame) < 240u &&
+           (uint32_t)(kernel_diag_interrupt_count(0u, 32u) - start_pit) < 300u)
+        __asm__ volatile("hlt");
+
+    const uint32_t frame_delta = (uint32_t)(lapic_frame_ticks() - start_frame);
+    const uint32_t pit_delta =
+        (uint32_t)(kernel_diag_interrupt_count(0u, 32u) - start_pit);
+    const uint32_t lapic_delta =
+        (uint32_t)(kernel_diag_interrupt_count(0u, 48u) - start_lapic);
+
+    /* Broad +/-20% windows tolerate timer delivery jitter in virtual machines. */
+    const int frame_ok = frame_delta >= 240u && frame_delta <= 264u;
+    const int pit_ok = pit_delta >= 160u && pit_delta <= 240u;
+    const int lapic_ok = lapic_delta >= 192u && lapic_delta <= 288u;
+
+    console_write("[TIMER] 2-second sample: PIT=");
+    console_write_dec(pit_delta);
+    console_write("/200 LAPIC=");
+    console_write_dec(lapic_delta);
+    console_write("/240 FRAME=");
+    console_write_dec(frame_delta);
+    console_write("/240\n");
+
+    debug_write("LIONOS:TIMER-SAMPLE pit=");
+    debug_dec32(pit_delta);
+    debug_write(" lapic=");
+    debug_dec32(lapic_delta);
+    debug_write(" frame=");
+    debug_dec32(frame_delta);
+    debug_write("\n");
+
+    if (frame_ok && pit_ok && lapic_ok) {
+        console_write("[ OK ] PIT/LAPIC timer delivery within tolerance\n");
+        debug_write("LIONOS:TIMER-VALIDATION-PASS\n");
+        return 0;
+    }
+
+    console_write("[WARN] Timer delivery outside expected tolerance\n");
+    debug_write("LIONOS:TIMER-VALIDATION-WARN\n");
+    return -1;
 }

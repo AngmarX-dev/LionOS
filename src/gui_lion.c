@@ -2,12 +2,15 @@
 #include "gui.h"
 #include "debug.h"
 #include "framebuffer.h"
+#include "gfx.h"
 #include "keyboard.h"
 #include "mouse.h"
 #include "memory.h"
 #include "heap.h"
 #include "vfs.h"
 #include "lapic.h"
+#include "cpu.h"
+#include "intel_gpu.h"
 #include "idt.h"
 #include "browser.h"
 #include "kernel_diag.h"
@@ -69,6 +72,11 @@ static uint32_t mouse_px_x, mouse_px_y, previous_buttons;
 static uint8_t scene_dirty;
 static const char *last_usb_status;
 static uint32_t last_render_tick = 0xFFFFFFFFu;
+static uint32_t render_stats_tick = 0xFFFFFFFFu;
+static uint32_t render_stats_count;
+static uint32_t render_stats_max_cycles;
+static uint32_t render_stats_max_pixels;
+static uint32_t render_stats_full_frames;
 static uint8_t cursor_overlay;
 static uint8_t dirty_valid;
 static uint32_t dirty_x, dirty_y, dirty_w, dirty_h;
@@ -77,6 +85,7 @@ static uint32_t *drag_surface;
 static uint32_t drag_surface_w, drag_surface_h;
 static uint8_t drag_cache_active;
 static uint8_t drag_render_skip_id;
+static uint8_t drag_compositor_ready;
 
 /* Kernel log storage is a bounded in-memory desktop service, not a file. */
 #define KLOG_RING_CAPACITY 64u
@@ -722,15 +731,6 @@ static void draw_top_menu(void){
     }
 }
 
-static void draw_notification(void){
-    uint32_t w=framebuffer_width();
-    if(w<700u)return;
-    uint32_t x=w-360u;
-    glass_panel(x,50u,330u,92u,22u,0xEAF7FFu,22u,1u);
-    text_line("Welcome to LionOS",x+20u,66u,COL_TEXT,COL_PANEL);
-    text_line("Liquid glass desktop",x+20u,94u,COL_DIM,COL_PANEL);
-    text_line("Drag windows to move.",x+20u,118u,COL_DIM,COL_PANEL);
-}
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
     framebuffer_blend_rect(0u,y,w,TASKBAR_H,COL_GROUND,22u);
@@ -748,7 +748,6 @@ static void draw_taskbar(void){
     for(uint32_t i=0u;i<6u;++i)
         draw_glass_icon(start+i*step,dy+9u,icons[i]);
     draw_top_menu();
-    draw_notification();
 }
 
 static void start_geom(uint32_t*x,uint32_t*y,uint32_t*w,uint32_t*h){
@@ -823,6 +822,264 @@ static void draw_cursor(uint32_t x,uint32_t y){
         }
     }
 }
+static void draw_hex32(uint32_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    static const char digits[]="0123456789ABCDEF";
+    char out[9];
+    for(uint32_t i=0u;i<8u;++i)out[i]=digits[(value>>(28u-i*4u))&0xFu];
+    out[8]=0;
+    text_line(out,x,y,fg,bg);
+}
+static void draw_hex64(uint64_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg){
+    draw_hex32((uint32_t)(value>>32),x,y,fg,bg);
+    draw_hex32((uint32_t)value,x+8u*CHAR_W,y,fg,bg);
+}
+
+static void draw_system_monitor(void){
+    uint32_t sw=framebuffer_width();
+    /* Keep the diagnostics card inside the desktop and leave room for full-width hex values. */
+    uint32_t w=sw>676u?660u:(sw>32u?sw-16u:sw);
+    uint32_t x=sw>w+16u?sw-w-8u:8u;
+    uint32_t y=48u,h=648u;
+    cpu_identification_t cpu={0};
+    intel_gpu_info_t gpu;
+    intel_gpu_engine_snapshot_t eng;
+    intel_gt_diag_t diag={0};
+    intel_gpu_memory_stats_t mem={0};
+    uint32_t platform_engines;
+    const char *submission_policy;
+    uint64_t pte_first=0u,pte_last=0u;
+    cpu_get_identification(&cpu);
+    platform_engines=intel_gpu_platform_engine_mask();
+    submission_policy=intel_gpu_submission_policy();
+    int have_gpu=intel_gpu_get_info(&gpu)==0&&gpu.found;
+    int have_eng=intel_gpu_get_engine_snapshot(&eng)==0;
+    int have_diag=intel_gpu_get_gt_diagnostics(&diag)==0;
+    int have_memory=intel_gpu_memory_get_stats(&mem)==0&&mem.initialized;
+    int have_ptes=have_gpu&&gpu.ggtt_ready&&gpu.ggtt_size>=4096u&&
+        intel_gpu_ggtt_read_entry(0u,&pte_first)==0&&
+        intel_gpu_ggtt_read_entry(gpu.ggtt_size/4096u-1u,&pte_last)==0;
+    glass_panel(x,y,w,h,16u,COL_PANEL,190u,0u);
+    text_line("INTEL UHD DRIVER BRING-UP",x+14u,y+9u,COL_GOLD,COL_PANEL);
+    text_line("GPU DETECTED / GT POWER / ENGINE DIAGNOSTICS",x+14u,y+27u,COL_DIM,COL_PANEL);
+    fill(x+12u,y+48u,w-24u,1u,COL_GOLD_DIM);
+    if(!have_gpu){
+        text_line("CPU",x+14u,y+64u,COL_DIM,COL_PANEL);
+        text_line(cpu.brand[0]?cpu.brand:"CPU INFO UNAVAILABLE",x+140u,y+64u,COL_TEXT,COL_PANEL);
+        text_line("GPU NOT DETECTED",x+14u,y+84u,COL_DANGER,COL_PANEL);
+        text_line("PCI DISPLAY FUNCTION UNAVAILABLE",x+190u,y+84u,COL_DIM,COL_PANEL);
+        return;
+    }
+    text_line("PCI ID",x+14u,y+58u,COL_DIM,COL_PANEL);
+    draw_hex32(((uint32_t)gpu.vendor_id<<16)|gpu.device_id,x+140u,y+58u,COL_TEXT,COL_PANEL);
+    text_line("REVISION",x+350u,y+58u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.revision,x+470u,y+58u,COL_TEXT,COL_PANEL);
+    text_line("PCI BDF",x+14u,y+76u,COL_DIM,COL_PANEL);
+    draw_uint(gpu.bus,x+140u,y+76u,COL_TEXT,COL_PANEL);
+    text_line(":",x+164u,y+76u,COL_DIM,COL_PANEL);
+    draw_uint(gpu.slot,x+176u,y+76u,COL_TEXT,COL_PANEL);
+    text_line(".",x+200u,y+76u,COL_DIM,COL_PANEL);
+    draw_uint(gpu.function,x+212u,y+76u,COL_TEXT,COL_PANEL);
+    text_line("PLATFORM",x+350u,y+76u,COL_DIM,COL_PANEL);
+    text_line(gpu.supported_platform?intel_gpu_platform_name():"UNKNOWN",
+              x+470u,y+76u,gpu.supported_platform?COL_OK:COL_DANGER,COL_PANEL);
+    text_line("BAR0 BASE",x+14u,y+94u,COL_DIM,COL_PANEL);
+    draw_hex64(gpu.bar0,x+140u,y+94u,COL_TEXT,COL_PANEL);
+    text_line("BAR0 SIZE",x+14u,y+112u,COL_DIM,COL_PANEL);
+    draw_uint((uint32_t)(gpu.bar0_size/(1024u*1024u)),x+140u,y+112u,COL_TEXT,COL_PANEL);
+    text_line("MiB",x+188u,y+112u,COL_DIM,COL_PANEL);
+    text_line("MMIO VIRT",x+350u,y+112u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.mmio_virtual,x+470u,y+112u,COL_TEXT,COL_PANEL);
+    text_line("MMIO MAP",x+14u,y+130u,COL_DIM,COL_PANEL);
+    text_line(gpu.mmio_mapped?"READY":"NOT MAPPED",x+140u,y+130u,
+              gpu.mmio_mapped?COL_OK:COL_DANGER,COL_PANEL);
+    text_line("GGC",x+350u,y+130u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.host_ggc,x+470u,y+130u,COL_TEXT,COL_PANEL);
+    text_line("BDSM",x+14u,y+148u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.host_bdsm,x+140u,y+148u,COL_TEXT,COL_PANEL);
+    text_line("BGSM",x+350u,y+148u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.host_bgsm,x+470u,y+148u,COL_TEXT,COL_PANEL);
+    text_line("TOLUD",x+14u,y+166u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.host_tolud,x+140u,y+166u,COL_TEXT,COL_PANEL);
+    text_line("GGTT OFFS",x+350u,y+166u,COL_DIM,COL_PANEL);
+    draw_hex32(gpu.ggtt_offset,x+470u,y+166u,COL_TEXT,COL_PANEL);
+    text_line("GGTT SIZE",x+14u,y+184u,COL_DIM,COL_PANEL);
+    draw_uint(gpu.ggtt_size/(1024u*1024u),x+140u,y+184u,COL_TEXT,COL_PANEL);
+    text_line("MiB",x+188u,y+184u,COL_DIM,COL_PANEL);
+    text_line("PTE READ",x+350u,y+184u,COL_DIM,COL_PANEL);
+    text_line(have_ptes?"PASS":"UNAVAILABLE",x+470u,y+184u,
+              have_ptes?COL_OK:COL_DANGER,COL_PANEL);
+    text_line("PTE FIRST",x+14u,y+202u,COL_DIM,COL_PANEL);
+    if(have_ptes)draw_hex64(pte_first,x+140u,y+202u,COL_TEXT,COL_PANEL);
+    else text_line("N/A",x+140u,y+202u,COL_DANGER,COL_PANEL);
+    text_line("PTE LAST",x+14u,y+220u,COL_DIM,COL_PANEL);
+    if(have_ptes)draw_hex64(pte_last,x+140u,y+220u,COL_TEXT,COL_PANEL);
+    else text_line("N/A",x+140u,y+220u,COL_DANGER,COL_PANEL);
+    fill(x+12u,y+240u,w-24u,1u,COL_GOLD_DIM);
+    text_line("GEN12 GT / ENGINE SNAPSHOT",x+14u,y+248u,COL_GOLD,COL_PANEL);
+    if(have_eng){
+        text_line("GMD ID",x+14u,y+268u,COL_DIM,COL_PANEL);
+        if(eng.graphics_gmd_id_valid && eng.graphics_gmd_id != 0u &&
+           eng.graphics_gmd_id != 0xFFFFFFFFu)
+            draw_hex32(eng.graphics_gmd_id,x+140u,y+268u,COL_TEXT,COL_PANEL);
+        else
+            text_line(intel_gpu_gmd_id_status(),x+140u,y+268u,COL_DIM,COL_PANEL);
+        text_line("RCS H/T",x+14u,y+286u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.render.head,x+140u,y+286u,COL_TEXT,COL_PANEL);
+        draw_hex32(eng.render.tail,x+248u,y+286u,COL_TEXT,COL_PANEL);
+        text_line("RCS START/CTL",x+14u,y+304u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.render.start,x+188u,y+304u,COL_TEXT,COL_PANEL);
+        draw_hex32(eng.render.control,x+296u,y+304u,COL_TEXT,COL_PANEL);
+        text_line("BCS H/T",x+14u,y+322u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.blitter.head,x+140u,y+322u,COL_TEXT,COL_PANEL);
+        draw_hex32(eng.blitter.tail,x+248u,y+322u,COL_TEXT,COL_PANEL);
+        text_line("BCS START/CTL",x+14u,y+340u,COL_DIM,COL_PANEL);
+        draw_hex32(eng.blitter.start,x+188u,y+340u,COL_TEXT,COL_PANEL);
+        draw_hex32(eng.blitter.control,x+296u,y+340u,COL_TEXT,COL_PANEL);
+    }else{
+        const char *stage="NOT RUN";
+        if(!have_diag){stage="UNAVAILABLE";}else switch(diag.code){
+            case INTEL_GT_DIAG_GT_FW_MMIO: stage="GT ACK MMIO READ ERROR"; break;
+            case INTEL_GT_DIAG_GT_FW_ACK: stage="GT FORCEWAKE ACK TIMEOUT"; break;
+            case INTEL_GT_DIAG_GT_ID: stage="GMD_ID INVALID AFTER GT WAKE"; break;
+            case INTEL_GT_DIAG_RENDER_FW_MMIO: stage="RENDER ACK MMIO READ ERROR"; break;
+            case INTEL_GT_DIAG_RENDER_FW_ACK: stage="RENDER FORCEWAKE ACK TIMEOUT"; break;
+            case INTEL_GT_DIAG_RCS_READ: stage="RCS REGISTER READ FAILED"; break;
+            case INTEL_GT_DIAG_BCS_READ: stage="BCS REGISTER READ FAILED"; break;
+            case INTEL_GT_DIAG_RELEASE: stage="FORCEWAKE RELEASE ACK FAILED"; break;
+            case INTEL_GT_DIAG_READY: stage="GT SNAPSHOT READY"; break;
+            default: break;
+        }
+        text_line(stage,x+14u,y+270u,
+                  diag.code==INTEL_GT_DIAG_NOT_RUN?COL_DIM:COL_DANGER,COL_PANEL);
+    }
+
+    /*
+     * Keep Forcewake diagnostics visible even when the ring snapshot succeeds.
+     * A valid register read is not evidence that a ring has been initialized
+     * or that GPU command submission is operational.
+     */
+    fill(x+12u,y+360u,w-24u,1u,COL_GOLD_DIM);
+    text_line("FORCEWAKE / ENGINE STATUS",x+14u,y+368u,COL_GOLD,COL_PANEL);
+    text_line("REGISTER",x+14u,y+386u,COL_DIM,COL_PANEL);
+    text_line("GT",x+190u,y+386u,COL_GOLD,COL_PANEL);
+    text_line("RENDER",x+370u,y+386u,COL_GOLD,COL_PANEL);
+    text_line("REQUEST",x+14u,y+404u,COL_DIM,COL_PANEL);
+    draw_hex32(0x0000A188u,x+190u,y+404u,COL_TEXT,COL_PANEL);
+    draw_hex32(0x0000A278u,x+370u,y+404u,COL_TEXT,COL_PANEL);
+    text_line("ACK REG",x+14u,y+422u,COL_DIM,COL_PANEL);
+    draw_hex32(0x00130044u,x+190u,y+422u,COL_TEXT,COL_PANEL);
+    draw_hex32(0x00000D84u,x+370u,y+422u,COL_TEXT,COL_PANEL);
+    text_line("ACK BEFORE",x+14u,y+440u,COL_DIM,COL_PANEL);
+    if(have_diag){draw_hex32(diag.gt_ack_initial,x+190u,y+440u,COL_TEXT,COL_PANEL);draw_hex32(diag.render_ack_initial,x+370u,y+440u,COL_TEXT,COL_PANEL);}else{text_line("N/A",x+190u,y+440u,COL_DIM,COL_PANEL);text_line("N/A",x+370u,y+440u,COL_DIM,COL_PANEL);}
+    text_line("ACK AFTER",x+14u,y+458u,COL_DIM,COL_PANEL);
+    if(have_diag){draw_hex32(diag.gt_ack_final,x+190u,y+458u,COL_TEXT,COL_PANEL);draw_hex32(diag.render_ack_final,x+370u,y+458u,COL_TEXT,COL_PANEL);}else{text_line("N/A",x+190u,y+458u,COL_DIM,COL_PANEL);text_line("N/A",x+370u,y+458u,COL_DIM,COL_PANEL);}
+    text_line("FALLBACK",x+14u,y+476u,COL_DIM,COL_PANEL);
+    if(have_diag){draw_uint(diag.gt_fallback_used,x+190u,y+476u,COL_TEXT,COL_PANEL);draw_uint(diag.render_fallback_used,x+370u,y+476u,COL_TEXT,COL_PANEL);}else{text_line("N/A",x+190u,y+476u,COL_DIM,COL_PANEL);text_line("N/A",x+370u,y+476u,COL_DIM,COL_PANEL);}
+
+    {
+        const char *fw_status="NOT RUN";
+        uint32_t status_color=COL_DIM;
+        if(!have_diag){fw_status="UNAVAILABLE";}else switch(diag.code){
+            case INTEL_GT_DIAG_READY:
+                fw_status="FORCEWAKE + MMIO READ OK";
+                status_color=COL_OK;
+                break;
+            case INTEL_GT_DIAG_GT_FW_MMIO:
+                fw_status="GT ACK MMIO ERROR";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_GT_FW_ACK:
+                fw_status="GT FORCEWAKE ACK TIMEOUT";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_RENDER_FW_MMIO:
+                fw_status="RENDER ACK MMIO ERROR";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_RENDER_FW_ACK:
+                fw_status="RENDER FORCEWAKE ACK TIMEOUT";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_RCS_READ:
+                fw_status="RCS MMIO READ ERROR";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_BCS_READ:
+                fw_status="BCS MMIO READ ERROR";
+                status_color=COL_DANGER;
+                break;
+            case INTEL_GT_DIAG_RELEASE:
+                fw_status="FORCEWAKE RELEASE ERROR";
+                status_color=COL_DANGER;
+                break;
+            default:
+                break;
+        }
+        text_line("DIAGNOSTIC",x+14u,y+496u,COL_DIM,COL_PANEL);
+        text_line(fw_status,x+190u,y+496u,status_color,COL_PANEL);
+    }
+
+    {
+        const char *ring_status="UNAVAILABLE";
+        uint32_t ring_color=COL_DIM;
+        if(have_eng){
+            if(eng.render.head==0u && eng.render.tail==0u &&
+               eng.render.start==0u && eng.render.control==0u &&
+               eng.blitter.head==0u && eng.blitter.tail==0u &&
+               eng.blitter.start==0u && eng.blitter.control==0u){
+                ring_status="ZERO / NOT PROGRAMMED";
+                ring_color=COL_DIM;
+            }else{
+                ring_status="NONZERO / NOT VERIFIED";
+                ring_color=COL_DIM;
+            }
+        }
+        text_line("RING STATE",x+14u,y+512u,COL_DIM,COL_PANEL);
+        text_line(ring_status,x+190u,y+512u,ring_color,COL_PANEL);
+    }
+    text_line("CPU",x+14u,y+528u,COL_DIM,COL_PANEL);
+    text_line(cpu.brand[0]?cpu.brand:"CPU INFO UNAVAILABLE",x+140u,y+528u,COL_TEXT,COL_PANEL);
+    text_line("GPU MEMORY",x+14u,y+544u,COL_DIM,COL_PANEL);
+    if(have_memory){
+        text_line("ALLOC",x+140u,y+544u,COL_DIM,COL_PANEL);
+        draw_uint(mem.active_allocations,x+212u,y+544u,COL_TEXT,COL_PANEL);
+        text_line("PAGES",x+300u,y+544u,COL_DIM,COL_PANEL);
+        draw_uint(mem.allocated_pages,x+372u,y+544u,COL_TEXT,COL_PANEL);
+    }else{
+        text_line("UNAVAILABLE",x+140u,y+544u,COL_DIM,COL_PANEL);
+    }
+    text_line("GGTT MAP",x+14u,y+560u,COL_DIM,COL_PANEL);
+    if(have_memory){
+        text_line("EMPTY",x+140u,y+560u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_empty_candidates,x+212u,y+560u,COL_TEXT,COL_PANEL);
+        text_line("VALID",x+300u,y+560u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_valid_entries,x+360u,y+560u,COL_TEXT,COL_PANEL);
+        text_line("INVALID",x+444u,y+560u,COL_DIM,COL_PANEL);
+        draw_uint(mem.ggtt_nonzero_invalid_entries,x+540u,y+560u,COL_TEXT,COL_PANEL);
+    }else{
+        text_line("UNAVAILABLE",x+140u,y+560u,COL_DIM,COL_PANEL);
+    }
+    text_line("GPU STATUS",x+14u,y+576u,COL_DIM,COL_PANEL);
+    text_line("CPU COMPOSITOR / COMMANDS UNTESTED",x+190u,y+576u,COL_DIM,COL_PANEL);
+    text_line("PLATFORM ENGINES",x+14u,y+592u,COL_DIM,COL_PANEL);
+    if((platform_engines & (INTEL_GPU_ENGINE_RCS0 | INTEL_GPU_ENGINE_BCS0 |
+                            INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
+                            INTEL_GPU_ENGINE_VCS2)) ==
+       (INTEL_GPU_ENGINE_RCS0 | INTEL_GPU_ENGINE_BCS0 |
+        INTEL_GPU_ENGINE_VECS0 | INTEL_GPU_ENGINE_VCS0 |
+        INTEL_GPU_ENGINE_VCS2)){
+        text_line("RCS0 BCS0 VECS0 VCS0 VCS2",
+                  x+190u,y+592u,COL_TEXT,COL_PANEL);
+    }else if(platform_engines==0u){
+        text_line("UNKNOWN",x+190u,y+592u,COL_DIM,COL_PANEL);
+    }else{
+        text_line("PARTIAL / SEE PLATFORM TABLE",
+                  x+190u,y+592u,COL_DIM,COL_PANEL);
+    }
+    text_line("I915 POLICY",x+14u,y+608u,COL_DIM,COL_PANEL);
+    text_line(submission_policy,x+190u,y+608u,COL_DIM,COL_PANEL);
+
+}
 static void draw_desktop_background(void){
     /* Static wallpaper only: no animated background effects. */
     draw_wallpaper();
@@ -842,18 +1099,67 @@ static void draw_windows(void){
         if(windows[i].visible&&windows[i].id!=drag_render_skip_id&&!windows[i].minimized&&windows[i].focused)
             draw_window(&windows[i]);
 }
+static uint32_t gui_render_clock_ticks(void){
+    return lapic_frame_timer_active()
+        ? lapic_frame_ticks()
+        : interrupt_timer_ticks();
+}
+
+/* RDTSC is available on the x86 CPUs supported by this kernel. LFENCE
+   brackets the reads so the measurement includes completed render work. */
+static uint64_t gui_read_tsc(void){
+    uint32_t lo,hi;
+    __asm__ volatile("lfence; rdtsc; lfence" : "=a"(lo),"=d"(hi) :: "memory");
+    return ((uint64_t)hi<<32)|(uint64_t)lo;
+}
+static void gui_debug_dec32(uint32_t value){
+    char digits[10];uint32_t n=0u;
+    if(!value){debug_putc('0');return;}
+    while(value&&n<sizeof(digits)){digits[n++]=(char)('0'+value%10u);value/=10u;}
+    while(n)debug_putc(digits[--n]);
+}
+static void gui_render_stats_record(uint64_t started,uint32_t pixels,uint32_t full){
+    uint32_t cycles=(uint32_t)(gui_read_tsc()-started);
+    if(cycles>render_stats_max_cycles)render_stats_max_cycles=cycles;
+    if(pixels>render_stats_max_pixels)render_stats_max_pixels=pixels;
+    if(full)++render_stats_full_frames;
+    ++render_stats_count;
+    uint32_t now=gui_render_clock_ticks();
+    if(render_stats_tick==0xFFFFFFFFu)render_stats_tick=now;
+    uint32_t elapsed=(uint32_t)(now-render_stats_tick);
+    if(elapsed<240u)return;
+    debug_write("LIONOS:COMPOSITOR-PERF renders=");
+    gui_debug_dec32(render_stats_count);
+    debug_write(" max_cycles=");
+    gui_debug_dec32(render_stats_max_cycles);
+    debug_write(" max_pixels=");
+    gui_debug_dec32(render_stats_max_pixels);
+    debug_write(" full=");
+    gui_debug_dec32(render_stats_full_frames);
+    debug_write(" ticks=");
+    gui_debug_dec32(elapsed);
+    debug_write("\n");
+    render_stats_tick=now;
+    render_stats_count=0u;
+    render_stats_max_cycles=0u;
+    render_stats_max_pixels=0u;
+    render_stats_full_frames=0u;
+}
+
 static void render_all(void){
-    uint32_t now=interrupt_timer_ticks();
+    uint32_t now=gui_render_clock_ticks();
     uint32_t sw=framebuffer_width(), sh=framebuffer_height();
     (void)dirty_valid;
     (void)sw;
     (void)sh;
-    /* Render on the next PIT tick even for a full-screen change so
-       clicks/window opens do not add an extra frame of latency. */
+    /* Pace presentation from the active frame clock, not the PIT scheduler.
+       This lets the calibrated 120 Hz BSP clock actually drive rendering;
+       systems without it retain the 100 Hz PIT fallback. */
     uint32_t min_ticks=1u;
     if(last_render_tick!=0xFFFFFFFFu && (uint32_t)(now-last_render_tick)<min_ticks)return;
 
     if(browser_is_active()){
+        uint64_t render_started=gui_read_tsc();
         framebuffer_cursor_hide();
         browser_render();
         if(!cursor_overlay)draw_cursor(mouse_px_x,mouse_px_y);
@@ -861,17 +1167,20 @@ static void render_all(void){
         last_render_tick=now;
         dirty_valid=0u;
         scene_dirty=0u;
+        gui_render_stats_record(render_started,sw*sh,1u);
         return;
     }
     if(!scene_dirty||!dirty_valid)return;
 
     uint32_t x=dirty_x,y=dirty_y,w=dirty_w,h=dirty_h;
+    uint64_t render_started=gui_read_tsc();
     framebuffer_cursor_hide();
     framebuffer_restore_wallpaper_rect(x,y,w,h);
     framebuffer_set_clip(x,y,w,h);
     draw_desktop_background();
     draw_desktop_icons();
     draw_windows();
+    draw_system_monitor();
     draw_taskbar();
     draw_start_menu();
     if(!cursor_overlay)draw_cursor(mouse_px_x,mouse_px_y);
@@ -880,6 +1189,7 @@ static void render_all(void){
     scene_dirty=0u;
     dirty_valid=0u;
     last_render_tick=now;
+    gui_render_stats_record(render_started,w*h,(x==0u&&y==0u&&w==sw&&h==sh)?1u:0u);
 }
 
 static void init_windows(void){
@@ -914,17 +1224,21 @@ static void drag_cache_free(void){
 }
 
 static int drag_cache_begin(struct ui_window*w){
-    if(!w||!framebuffer_cursor_overlay_supported()) return -1;
+    if(!w||!drag_compositor_ready||!framebuffer_cursor_overlay_supported()) return -1;
     uint64_t screen_pixels=(uint64_t)framebuffer_width()*framebuffer_height();
-    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
+    uint64_t surface_pixels=(uint64_t)w->w*w->h;
+    if(screen_pixels>0xFFFFFFFFu/sizeof(uint32_t) ||
+       surface_pixels>0xFFFFFFFFu/sizeof(uint32_t)) return -1;
 
     drag_background=(uint32_t*)kmalloc((size_t)screen_pixels*sizeof(uint32_t));
-    if(!drag_background){drag_cache_free();return -1;}
+    drag_surface=(uint32_t*)kmalloc((size_t)surface_pixels*sizeof(uint32_t));
+    if(!drag_background||!drag_surface){drag_cache_free();return -1;}
 
     /*
-     * Build one static scene without the dragged window. Every subsequent
-     * mouse sample can then restore/copy rectangles instead of rerendering
-     * fonts, rounded panels and every other window.
+     * Snapshot the static scene without this window. The window itself is
+     * rendered once into an ARGB layer, so transparency is recomposited over
+     * the current background on every frame without rerunning its widgets,
+     * text and rounded-corner rasterization.
      */
     drag_render_skip_id=w->id;
     dirty_full();
@@ -932,8 +1246,26 @@ static int drag_cache_begin(struct ui_window*w){
     last_render_tick=0xFFFFFFFFu;
     render_all();
     framebuffer_copy_to_buffer(drag_background);
-
     drag_render_skip_id=0u;
+
+    __builtin_memset(drag_surface,0,(size_t)surface_pixels*sizeof(uint32_t));
+    if(framebuffer_begin_layer(drag_surface,w->w,w->h,w->x,w->y)!=0){
+        drag_cache_free();
+        dirty_full();
+        last_render_tick=0xFFFFFFFFu;
+        render_all();
+        return -1;
+    }
+    draw_window(w);
+    framebuffer_end_layer();
+
+    framebuffer_set_clip(w->x,w->y,w->w,w->h);
+    framebuffer_composite_layer(drag_surface,w->w,w->h,w->x,w->y);
+    framebuffer_clear_clip();
+    framebuffer_present_rect(w->x,w->y,w->w,w->h);
+
+    drag_surface_w=w->w;
+    drag_surface_h=w->h;
     drag_cache_active=1u;
     scene_dirty=0u;
     dirty_valid=0u;
@@ -949,19 +1281,15 @@ static void drag_cache_move(struct ui_window*w,uint32_t old_x,uint32_t old_y){
     uint32_t right=old_right>new_right?old_right:new_right;
     uint32_t bottom=old_bottom>new_bottom?old_bottom:new_bottom;
     if(right>left&&bottom>top){
-        /* Restore the old hardware cursor before changing the framebuffer.
-           Otherwise its saved-under pixels can overwrite the newly presented
-           drag region when the cursor is moved at the end of gui_step(). */
         framebuffer_cursor_hide();
         uint32_t screen_stride=framebuffer_width();
         const uint32_t *background_src=
             drag_background+(size_t)top*screen_stride+left;
         framebuffer_copy_rect_from_buffer(background_src,screen_stride,
                                            left,top,right-left,bottom-top);
-        /* Re-render the window over its new background so glass/alpha effects
-           are composed at the current position instead of using stale pixels. */
         framebuffer_set_clip(left,top,right-left,bottom-top);
-        draw_window(w);
+        framebuffer_composite_layer(drag_surface,drag_surface_w,drag_surface_h,
+                                     w->x,w->y);
         framebuffer_clear_clip();
         framebuffer_present_rect(left,top,right-left,bottom-top);
     }
@@ -1203,10 +1531,45 @@ void gui_start(void){
     if(!framebuffer_available()){debug_write("LIONOS:GUI-NO-FRAMEBUFFER\n");return;}
     mouse_set_bounds(framebuffer_width(),framebuffer_height());
     if(framebuffer_begin_desktop()!=0){debug_write("LIONOS:GUI-NO-DESKTOP-BUFFER\n");return;}
+    /*
+     * Bind the compositor-owned XRGB backbuffer to the generic graphics API.
+     * This validates the adapter without changing the active rendering path.
+     */
+    {
+        uint32_t *pixels = 0;
+        uint32_t width = 0u, height = 0u, pitch = 0u;
+        gfx_surface_t surface;
+        gfx_context_t context;
+        if (framebuffer_get_desktop_xrgb8888(&pixels, &width, &height, &pitch) == 0) {
+            surface.pixels = pixels;
+            surface.width = width;
+            surface.height = height;
+            surface.pitch_pixels = pitch;
+            surface.pixel_format = GFX_PIXEL_FORMAT_XRGB8888;
+            if (gfx_context_init_auto(&context, &surface) == 0 &&
+                context.backend == GFX_BACKEND_CPU &&
+                context.target.pixels == pixels &&
+                context.target.width == width &&
+                context.target.height == height &&
+                context.target.pitch_pixels == pitch &&
+                context.target.pixel_format == GFX_PIXEL_FORMAT_XRGB8888) {
+                debug_write("LIONOS:GFX-DESKTOP-XRGB8888-READY\n");
+            } else {
+                debug_write("LIONOS:GFX-DESKTOP-XRGB8888-FAIL\n");
+            }
+        } else {
+            debug_write("LIONOS:GFX-DESKTOP-XRGB8888-UNAVAILABLE\n");
+        }
+    }
+    drag_compositor_ready=(uint8_t)(framebuffer_compositor_selftest()==0);
+    debug_write(drag_compositor_ready
+        ? "LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK\n"
+        : "LIONOS:FRAMEBUFFER-ARGB-SELFTEST-FAIL\n");
     while(keyboard_available())(void)keyboard_getchar();
     /* Use the framebuffer-drawn cursor for reliable visibility on all modes. */
     cursor_overlay=(uint8_t)(framebuffer_cursor_overlay_supported()!=0);
-    init_windows();mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
+    init_windows();
+    mouse_px_x=px();mouse_px_y=py();previous_buttons=mouse_buttons();render_all();
     if(cursor_overlay)framebuffer_cursor_move(mouse_px_x,mouse_px_y);
     kernel_log(KLOG_INFO, "Graphical desktop ready");
     debug_write("LIONOS:GUI-READY\n");
@@ -1225,7 +1588,7 @@ void gui_step(void){
     if(mouse_px_x!=old_x||mouse_px_y!=old_y){uint32_t left=(old_x<mouse_px_x?old_x:mouse_px_x)>44u?(old_x<mouse_px_x?old_x:mouse_px_x)-44u:0u,top=(old_y<mouse_px_y?old_y:mouse_px_y)>44u?(old_y<mouse_px_y?old_y:mouse_px_y)-44u:0u,right=(old_x>mouse_px_x?old_x:mouse_px_x)+52u,bottom=(old_y>mouse_px_y?old_y:mouse_px_y)+52u;if(right>framebuffer_width())right=framebuffer_width();if(bottom>framebuffer_height())bottom=framebuffer_height();if(right>left&&bottom>top)dirty_rect(left,top,right-left,bottom-top);}
     if(buttons!=previous_buttons)dirty_around_cursor();
     if((buttons&1u)&&!(previous_buttons&1u)){uint32_t sig=ui_signature();handle_click();if(sig!=ui_signature())dirty_full();}
-    if(!(buttons&1u)&&(previous_buttons&1u)){uint32_t sig=ui_signature();if(desktop_icon_drag>=0){int icon=desktop_icon_drag;desktop_icons[icon].dragging=0u;if(!desktop_icons[icon].moved)activate_desktop_icon(desktop_icons[icon].action);desktop_icon_drag=-1;}drag_active=0u;drag_cache_free();if(sig!=ui_signature())dirty_full();else dirty_full();}
+    if(!(buttons&1u)&&(previous_buttons&1u)){uint32_t sig=ui_signature();if(desktop_icon_drag>=0){int icon=desktop_icon_drag;desktop_icons[icon].dragging=0u;if(!desktop_icons[icon].moved)activate_desktop_icon(desktop_icons[icon].action);desktop_icon_drag=-1;}drag_active=0u;drag_cache_free();if(sig!=ui_signature())dirty_full();else dirty_around_cursor();}
     handle_move();
     if(browser_is_active()){browser_step();previous_buttons=buttons;dirty_full();render_all();return;}
     while(keyboard_available()){handle_key(keyboard_getchar());dirty_focused();}
@@ -1235,13 +1598,25 @@ int gui_is_active(void){return gui_active!=0u;}
 void gui_desktop_run(void){
     gui_start();
     if(!gui_active)return;
+
+    if(lapic_frame_timer_active()){
+        /* The calibrated BSP LAPIC clock drives desktop frames independently
+           from PIT process scheduling. USB mouse reports are sampled at the
+           same cadence in the LAPIC interrupt path. */
+        uint32_t last_frame=lapic_frame_ticks();
+        for(;;){
+            while(gui_active && lapic_frame_ticks()==last_frame)
+                __asm__ volatile("sti; hlt");
+            if(!gui_active)break;
+            last_frame=lapic_frame_ticks();
+            gui_step();
+        }
+        return;
+    }
+
+    /* Safe fallback for machines without a working local APIC frame clock. */
     uint32_t last_frame=interrupt_timer_ticks();
     for(;;){
-        /*
-         * Use the existing PIT 100 Hz interrupt as the desktop/input clock.
-         * It is already the kernel scheduler clock and does not depend on
-         * LAPIC timer calibration, which can vary across physical machines.
-         */
         while(gui_active && interrupt_timer_ticks()==last_frame)
             __asm__ volatile("sti; hlt");
         if(!gui_active)break;

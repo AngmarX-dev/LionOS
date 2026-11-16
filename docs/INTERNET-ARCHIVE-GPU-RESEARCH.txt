@@ -1,0 +1,223 @@
+LIONOS - INTERNET ARCHIVE RESEARCH NOTES
+GPU ACCELERATION, OPERATING-SYSTEM DESIGN, AND DRIVER ARCHITECTURE
+================================================================================
+
+Repository: AngmarX-dev/LionOS
+Branch: feature/graphics-engine-v2
+Research note date: 2026-11-06
+Scope: Intel UHD bring-up first; vendor-neutral graphics architecture; x86 target.
+Explicit exclusion: no xHCI source changes.
+
+1. RESEARCH SCOPE AND SOURCE INTEGRITY
+--------------------------------------------------------------------------------
+This note records an engineering-oriented research plan and the conclusions that
+can currently be supported by the LionOS source tree and the pinned Linux i915
+source review.
+
+IMPORTANT ACCESS LIMITATION:
+Internet Archive catalog/search pages can be linked, but this work session did
+not provide a tool capable of retrieving and verifying the full text of arbitrary
+archive.org books or their lending files. Therefore this note does NOT claim that
+the books listed below were opened, read, or used as evidence for specific
+technical statements. Their availability, edition, OCR quality, and lending or
+download permissions must be checked on each Archive item page before use.
+No access-control or lending restrictions should be bypassed.
+
+Internet Archive computer-science text search:
+https://archive.org/search?query=subject%3A%22Computer%20Science%22
+
+Targeted Archive catalog searches:
+- Operating systems:
+  https://archive.org/search?query=%22Operating%20Systems%22%20AND%20mediatype%3Atexts
+- Computer architecture:
+  https://archive.org/search?query=%22Computer%20Architecture%22%20AND%20mediatype%3Atexts
+- Device drivers:
+  https://archive.org/search?query=%22Device%20Drivers%22%20AND%20mediatype%3Atexts
+- Intel architecture:
+  https://archive.org/search?query=Intel%20architecture%20AND%20mediatype%3Atexts
+- Graphics hardware:
+  https://archive.org/search?query=GPU%20architecture%20AND%20mediatype%3Atexts
+
+2. BOOKS TO LOCATE AND REVIEW
+--------------------------------------------------------------------------------
+The following are bibliographic leads, not claims of verified full-text access
+through Internet Archive. Search each exact title and verify the item metadata,
+edition, author, publication date, and access status.
+
+A. Operating Systems: Design and Implementation - Andrew S. Tanenbaum and
+   Albert S. Woodhull.
+   Relevant study areas: kernel structure, device-independent I/O, drivers,
+   interrupts, process synchronization, memory management.
+
+B. The Design of the UNIX Operating System - Maurice J. Bach.
+   Relevant study areas: kernel data structures, buffer cache, block I/O,
+   device interfaces, synchronization and resource ownership.
+
+C. Operating System Concepts - Abraham Silberschatz, Peter B. Galvin, and
+   Greg Gagne.
+   Relevant study areas: I/O systems, protection, virtual memory, concurrency,
+   deadlocks, and device management.
+
+D. Structured Computer Organization - Andrew S. Tanenbaum.
+   Relevant study areas: CPU/memory hierarchy, buses, interrupts, DMA concepts,
+   and the relationship between hardware architecture and system software.
+
+E. Computer Organization and Design - David A. Patterson and John L. Hennessy.
+   Relevant study areas: memory hierarchy, I/O, caches, parallelism, and
+   performance/correctness trade-offs.
+
+F. Linux Device Drivers - Jonathan Corbet, Alessandro Rubini, and Greg
+   Kroah-Hartman.
+   Relevant study areas: driver boundaries, resource management, interrupts,
+   DMA APIs, memory ordering, and device lifecycle.
+   NOTE: the third edition is old and is not a specification for modern Intel
+   graphics hardware. Use it for general driver concepts only.
+
+3. ENGINEERING FINDINGS APPLICABLE TO LIONOS
+--------------------------------------------------------------------------------
+These findings are based on the current LionOS implementation history and the
+pinned Linux i915 source review; they are not attributed to unread Archive books.
+
+3.1 Separate graphics API from hardware backends
+- Keep the public graphics API independent of Intel/AMD/NVIDIA register details.
+- Keep the CPU rasterizer as a correct, always-available fallback.
+- Keep each vendor backend isolated behind capability and lifecycle interfaces.
+- PCI detection is not proof that a driver is initialized or operational.
+
+3.2 Preserve explicit capability states
+Use the existing distinctions:
+  DETECTED -> INITIALIZED -> OPERATIONAL -> TESTED
+Do not promote a backend to OPERATIONAL merely because PCI IDs match or MMIO
+registers can be read. OPERATIONAL requires a real, validated execution path;
+TESTED requires a reproducible rendering test on hardware.
+
+3.3 GPU memory is not ordinary CPU backing memory
+- A CPU physical allocation is not automatically addressable by the GPU.
+- CPU virtual addresses, CPU physical addresses, GGTT virtual addresses, and
+  GPU virtual addresses are different address domains.
+- Every mapping needs documented ownership, lifetime, alignment, permissions,
+  address-width validation, and teardown behavior.
+- A command buffer must remain pinned and immutable while a consumer can access
+  it. The existing command-buffer lease and submission-lifecycle foundations
+  are CPU-side lifetime mechanisms; they do not establish GPU DMA reachability.
+
+3.4 Intel GGTT must remain fail-closed
+The current LionOS audit found no proven firmware handoff token, display-memory
+reservation contract, complete PTE/cache policy, CPU/GPU coherency contract, or
+generation-correct invalidation protocol.
+Consequently:
+- GGTT ownership remains UNVERIFIED.
+- Mapping permission remains DENIED.
+- No GGTT PTE writes, slot reservations, ring programming, or GPU submissions
+  are authorized by this research note.
+- Existing read-only GGTT inspection must remain read-only until all ownership
+  and invalidation prerequisites are demonstrated.
+
+3.5 Modern Intel submission is more than a ring-tail write
+The pinned Linux i915 review indicates that the Alder Lake-era Execlists path
+uses engine contexts and request tracking. The context image, ring backing
+storage, address-space mappings, execution state, completion tracking, and
+retirement lifetime are interdependent.
+Do not transplant isolated register offsets or command opcodes into LionOS.
+Any implementation must be generation-, engine-, privilege-, and address-space
+aware and backed by the applicable Intel platform programming documentation.
+
+3.6 Completion must represent the final device access
+A software fence becoming signaled is not proof that a GPU has completed work.
+A future hardware completion path must establish:
+- the hardware event or status source is valid for the selected engine;
+- ordering and memory visibility are correct;
+- the device can no longer access submitted buffers before they are unpinned;
+- timeout, reset, partial submission, device removal, and error paths retire
+  resources exactly once.
+
+4. PROPOSED IMPLEMENTATION ORDER
+--------------------------------------------------------------------------------
+Stage 1 - Documentation and platform contract
+- Identify the exact Intel GPU generation and supported engine set.
+- Obtain the matching Intel public programming reference documentation.
+- Document firmware display ownership, stolen-memory boundaries, GGTT aperture,
+  PTE format, cache policy, invalidation method, and MMIO access requirements.
+- Keep hardware writes disabled while any item is unknown.
+
+Stage 2 - Memory and address-space proof
+- Define explicit types/contracts for CPU physical, CPU virtual, GGTT, and GPU
+  virtual addresses.
+- Prove backing-page pinning and lifetime across asynchronous device access.
+- Define cache-coherency and required flush/invalidate operations from platform
+  documentation, not assumptions.
+- Add negative tests for overflow, invalid alignment, stale handles, and
+  incomplete platform capabilities.
+
+Stage 3 - Safe Intel backend initialization
+- Validate PCI identity, BAR size/type, MMIO mapping, device generation, and
+  required capabilities.
+- Read-only diagnostics first.
+- Do not change firmware-owned display mappings or enable an engine until the
+  ownership and reset/teardown contracts are complete.
+
+Stage 4 - Submission design
+- Specify engine context, ring allocation/mapping, request sequence, hardware
+  completion source, timeout, reset, and resource retirement.
+- Review every command and register against the exact supported generation.
+- Keep submission disabled until a complete safety review passes.
+
+Stage 5 - Hardware rendering validation
+- Start with a bounded, minimal operation and a known output buffer.
+- Verify completion independently of CPU-side bookkeeping.
+- Compare rendered output against the CPU reference implementation.
+- Test repeated submissions, error recovery, reset, and resource reuse.
+- Only then mark the backend OPERATIONAL and subsequently TESTED.
+
+Stage 6 - Additional vendors
+- Add AMD and NVIDIA as separate backends with their own specifications,
+  memory models, firmware interfaces, and command submission contracts.
+- Never assume Intel GGTT, Execlists, or cache rules apply to another vendor.
+
+5. PINNED PRIMARY TECHNICAL REFERENCES ALREADY REVIEWED
+--------------------------------------------------------------------------------
+Linux source snapshot used for the previous LionOS Intel submission audit:
+Commit:
+8b1858aaaa20255a42d8eefe7e913c161331af0c
+
+Relevant source files:
+- https://github.com/torvalds/linux/blob/8b1858aaaa20255a42d8eefe7e913c161331af0c/drivers/gpu/drm/i915/gt/intel_execlists_submission.c
+- https://github.com/torvalds/linux/blob/8b1858aaaa20255a42d8eefe7e913c161331af0c/drivers/gpu/drm/i915/gt/intel_lrc.c
+- https://github.com/torvalds/linux/blob/8b1858aaaa20255a42d8eefe7e913c161331af0c/drivers/gpu/drm/i915/gt/intel_ring.c
+- https://github.com/torvalds/linux/blob/8b1858aaaa20255a42d8eefe7e913c161331af0c/drivers/gpu/drm/i915/gt/intel_engine_cs.c
+- https://github.com/torvalds/linux/blob/8b1858aaaa20255a42d8eefe7e913c161331af0c/drivers/gpu/drm/i915/gt/intel_engine_regs.h
+- https://github.com/torvalds/linux/blob/8b1858aaaa20255a42d8eefe7e913c161331af0c/drivers/gpu/drm/i915/gt/intel_gpu_commands.h
+
+Additional authoritative source to obtain for implementation:
+- Intel 64 and IA-32 Architectures Software Developer's Manual:
+  https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
+- Intel graphics programming documentation portal:
+  https://www.intel.com/content/www/us/en/developer/topic-technology/graphics/overview.html
+
+6. CURRENT LIONOS STATUS AND SAFETY BOUNDARIES
+--------------------------------------------------------------------------------
+At the research baseline:
+- CPU graphics backend: implemented and used as fallback.
+- Intel GPU: PCI/MMIO diagnostics have been performed on the observed
+  Alder Lake-S device (PCI 8086:468B, BDF 0:2.0).
+- GGTT ownership: UNVERIFIED.
+- GGTT mapping permission: DENIED.
+- GPU command submission: NOT IMPLEMENTED / NOT TESTED on hardware.
+- GPU acceleration: NOT OPERATIONAL.
+- AMD/NVIDIA backends: not established by this Intel work.
+- xHCI: explicitly out of scope; no xHCI files are to be changed in this work.
+
+7. ACCEPTANCE CRITERIA FOR FUTURE GPU ENABLEMENT
+--------------------------------------------------------------------------------
+A change must not be called complete until:
+- its platform assumptions cite the exact applicable documentation;
+- ownership and address-space invariants are demonstrated;
+- all error and teardown paths are reviewed;
+- two independent code-review passes are complete;
+- build and tests pass;
+- the complete Git diff contains no unrelated changes;
+- all required GitHub Actions workflows for the final commit are GREEN;
+- actual hardware rendering is independently verified before claiming GPU
+  acceleration is operational.
+
+END OF RESEARCH NOTE

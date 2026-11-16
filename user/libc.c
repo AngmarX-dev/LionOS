@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdarg.h>
+#include <limits.h>
 #include "user_libc.h"
 #include "user_api.h"
 
@@ -26,11 +27,14 @@ void *memcpy(void *dst, const void *src, uint32_t length) {
 void *memmove(void *dst, const void *src, uint32_t length) {
     uint8_t *d = (uint8_t *)dst;
     const uint8_t *s = (const uint8_t *)src;
+    uintptr_t da = (uintptr_t)d;
+    uintptr_t sa = (uintptr_t)s;
+
     if (d == s || length == 0) return dst;
-    if (d < s || d >= s + length) {
+    if (da <= sa || da - sa >= length) {
         for (uint32_t i = 0; i < length; ++i) d[i] = s[i];
     } else {
-        for (uint32_t i = length; i != 0; --i) d[i - 1] = s[i - 1];
+        for (uint32_t i = length; i != 0; --i) d[i - 1u] = s[i - 1u];
     }
     return dst;
 }
@@ -91,21 +95,87 @@ char *strrchr(const char *s, int c) {
 }
 
 #define USER_HEAP_SIZE 32768u
-static uint8_t user_heap[USER_HEAP_SIZE];
-static uint32_t user_heap_used;
+#define USER_HEAP_ALIGN 8u
+#define USER_HEAP_HEADER_SIZE 16u
+
+struct user_heap_block {
+    uint32_t size;
+    uint32_t is_free;
+    struct user_heap_block *next;
+    uint32_t reserved;
+};
+
+_Static_assert(sizeof(struct user_heap_block) == USER_HEAP_HEADER_SIZE,
+               "user heap header size must match allocator layout");
+
+static uint64_t user_heap[USER_HEAP_SIZE / sizeof(uint64_t)];
+static struct user_heap_block *user_heap_head;
+static int user_heap_initialized;
+
+static void user_heap_init(void) {
+    if (user_heap_initialized) return;
+    user_heap_head = (struct user_heap_block *)user_heap;
+    user_heap_head->size = USER_HEAP_SIZE - USER_HEAP_HEADER_SIZE;
+    user_heap_head->is_free = 1u;
+    user_heap_head->next = 0;
+    user_heap_head->reserved = 0u;
+    user_heap_initialized = 1;
+}
 
 void *malloc(uint32_t size) {
-    if (!size) return 0;
-    size = (size + 7u) & ~7u;
-    if (size > USER_HEAP_SIZE - user_heap_used) return 0;
-    void *p = &user_heap[user_heap_used];
-    user_heap_used += size;
-    return p;
+    if (size == 0u || size > UINT32_MAX - (USER_HEAP_ALIGN - 1u)) return 0;
+    size = (size + USER_HEAP_ALIGN - 1u) & ~(USER_HEAP_ALIGN - 1u);
+    user_heap_init();
+
+    for (struct user_heap_block *block = user_heap_head; block; block = block->next) {
+        if (!block->is_free || block->size < size) continue;
+
+        uint32_t remainder = block->size - size;
+        if (remainder >= USER_HEAP_HEADER_SIZE + USER_HEAP_ALIGN) {
+            uint8_t *payload = (uint8_t *)block + USER_HEAP_HEADER_SIZE;
+            struct user_heap_block *split =
+                (struct user_heap_block *)(payload + size);
+            split->size = remainder - USER_HEAP_HEADER_SIZE;
+            split->is_free = 1u;
+            split->next = block->next;
+            split->reserved = 0u;
+            block->next = split;
+            block->size = size;
+        }
+
+        block->is_free = 0u;
+        return (uint8_t *)block + USER_HEAP_HEADER_SIZE;
+    }
+    return 0;
 }
 
 void free(void *ptr) {
-    (void)ptr;
-    /* The first userland allocator is a monotonic arena. */
+    if (!ptr || !user_heap_initialized) return;
+
+    uintptr_t base = (uintptr_t)user_heap;
+    uintptr_t address = (uintptr_t)ptr;
+    uintptr_t end = base + USER_HEAP_SIZE;
+    if (address < base + USER_HEAP_HEADER_SIZE || address >= end) return;
+
+    struct user_heap_block *previous = 0;
+    for (struct user_heap_block *block = user_heap_head; block; block = block->next) {
+        uintptr_t payload = (uintptr_t)block + USER_HEAP_HEADER_SIZE;
+        if (payload == address) {
+            if (block->is_free) return;
+            block->is_free = 1u;
+
+            if (block->next && block->next->is_free) {
+                block->size += USER_HEAP_HEADER_SIZE + block->next->size;
+                block->next = block->next->next;
+            }
+            if (previous && previous->is_free) {
+                previous->size += USER_HEAP_HEADER_SIZE + block->size;
+                previous->next = block->next;
+            }
+            return;
+        }
+        previous = block;
+    }
 }
 
 struct user_env_entry { char name[32]; char value[96]; uint8_t used; };
@@ -146,19 +216,33 @@ int unsetenv(const char *name) {
 }
 
 int atoi(const char *s) {
-    int sign = 1;
-    int value = 0;
+    uint32_t value = 0u;
+    uint32_t limit;
+    int negative = 0;
+
     if (!s) return 0;
-    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') ++s;
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' ||
+           *s == '\f' || *s == '\v') ++s;
     if (*s == '-' || *s == '+') {
-        if (*s == '-') sign = -1;
+        negative = (*s == '-');
         ++s;
     }
+
+    limit = negative ? (uint32_t)INT_MAX + 1u : (uint32_t)INT_MAX;
     while (*s >= '0' && *s <= '9') {
-        value = value * 10 + (*s - '0');
+        uint32_t digit = (uint32_t)(*s - '0');
+        if (value > (limit - digit) / 10u) {
+            return negative ? INT_MIN : INT_MAX;
+        }
+        value = value * 10u + digit;
         ++s;
     }
-    return value * sign;
+
+    if (negative) {
+        if (value == (uint32_t)INT_MAX + 1u) return INT_MIN;
+        return -(int)value;
+    }
+    return (int)value;
 }
 
 void putchar(char c) {
@@ -171,13 +255,22 @@ void puts(const char *s) {
     putchar('\n');
 }
 
-static void print_u32(uint32_t value, uint32_t base) {
-    char buf[11];
+static int print_u32(uint32_t value, uint32_t base) {
+    char buf[32];
     uint32_t n = 0;
+    int written = 0;
     const char digits[] = "0123456789abcdef";
-    if (value == 0) { putchar('0'); return; }
-    while (value && n < sizeof(buf)) { buf[n++] = digits[value % base]; value /= base; }
-    while (n) putchar(buf[--n]);
+    if (base < 2u || base > 16u) return -1;
+    if (value == 0u) { putchar('0'); return 1; }
+    while (value && n < sizeof(buf)) {
+        buf[n++] = digits[value % base];
+        value /= base;
+    }
+    while (n) {
+        putchar(buf[--n]);
+        ++written;
+    }
+    return written;
 }
 
 int printf(const char *format, ...) {
@@ -192,9 +285,9 @@ int printf(const char *format, ...) {
         if (spec == '%') { putchar('%'); ++written; }
         else if (spec == 'c') { putchar((char)va_arg(ap, int)); ++written; }
         else if (spec == 's') { const char *s = va_arg(ap, const char *); if (!s) s = "(null)"; uint32_t n = strlen(s); (void)lion_write(s, n); written += (int)n; }
-        else if (spec == 'u') { uint32_t v = va_arg(ap, uint32_t); print_u32(v, 10u); }
-        else if (spec == 'd') { int32_t v = va_arg(ap, int32_t); if (v < 0) { putchar('-'); ++written; print_u32((uint32_t)(-(v + 1)) + 1u, 10u); } else print_u32((uint32_t)v, 10u); }
-        else if (spec == 'x') { print_u32(va_arg(ap, uint32_t), 16u); }
+        else if (spec == 'u') { uint32_t v = va_arg(ap, uint32_t); written += print_u32(v, 10u); }
+        else if (spec == 'd') { int32_t v = va_arg(ap, int32_t); if (v < 0) { putchar('-'); ++written; written += print_u32((uint32_t)(-(v + 1)) + 1u, 10u); } else written += print_u32((uint32_t)v, 10u); }
+        else if (spec == 'x') { written += print_u32(va_arg(ap, uint32_t), 16u); }
         else { putchar('%'); putchar(spec); written += 2; }
     }
     va_end(ap);
