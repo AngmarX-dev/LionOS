@@ -15,6 +15,7 @@
 
 #define VFS_STAT_READ_ONLY 1u
 #define VFS_STAT_DIRECTORY 2u
+#define VFS_STAT_SYMLINK 4u
 #define VFS_DIRENT_NAME_MAX 255u
 
 struct vfs_dirent {
@@ -42,6 +43,8 @@ int vfs_read(int fd, void *buffer, uint32_t length);
 int vfs_write(int fd, const void *buffer, uint32_t length);
 int vfs_remove(const char *path);
 int vfs_stat_path(const char *path, struct vfs_stat *st);
+int vfs_lstat_path(const char *path, struct vfs_stat *st);
+int vfs_readlink(const char *path, char *buffer, uint32_t capacity);
 int vfs_readdir(const char *path, uint32_t *offset, struct vfs_dirent *entry);
 const char *vfs_name(uint32_t index);
 uint32_t vfs_count(void);
