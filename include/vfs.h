@@ -14,6 +14,14 @@
 #define VFS_BACKEND_EXT2_RO 3u
 
 #define VFS_STAT_READ_ONLY 1u
+#define VFS_STAT_DIRECTORY 2u
+#define VFS_DIRENT_NAME_MAX 255u
+
+struct vfs_dirent {
+    uint32_t inode;
+    uint8_t type;
+    char name[VFS_DIRENT_NAME_MAX + 1u];
+};
 
 struct process;
 
@@ -34,6 +42,7 @@ int vfs_read(int fd, void *buffer, uint32_t length);
 int vfs_write(int fd, const void *buffer, uint32_t length);
 int vfs_remove(const char *path);
 int vfs_stat_path(const char *path, struct vfs_stat *st);
+int vfs_readdir(const char *path, uint32_t *offset, struct vfs_dirent *entry);
 const char *vfs_name(uint32_t index);
 uint32_t vfs_count(void);
 
