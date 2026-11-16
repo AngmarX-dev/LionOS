@@ -2,6 +2,7 @@
 #include <limits.h>
 #include "user_libc.h"
 #include "posix_compat.h"
+#include "user_api.h"
 
 static int libc_memory_test(void) {
     char overlap[8] = "abcdef";
