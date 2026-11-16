@@ -57,7 +57,7 @@ case SYS_MOUSE_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{
     return SYSCALL_OK;
 }
 case SYS_WRITE:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg1>USER_COPY_MAX||!user_range_ok(arg0,arg1))return SYSCALL_ERR;console_write_n((const char*)(uintptr_t)arg0,arg1);return arg1;
-case SYS_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{if(arg1>USER_COPY_MAX||!user_range_ok_write(arg0,arg1))return SYSCALL_ERR;if(arg1==0u)return 0u;int32_t n=keyboard_read_blocking((uint8_t*)(uintptr_t)arg0,arg1);return n<0?(uint32_t)n:(uint32_t)n;}
+case SYS_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{if(arg1>USER_COPY_MAX||!user_range_ok_write(arg0,arg1))return SYSCALL_ERR;if(arg1==0u)return 0u;int32_t n=keyboard_read_blocking((uint8_t*)(uintptr_t)arg0,arg1);return (uint32_t)n;}
 case SYS_CLEAR:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;console_clear();return SYSCALL_OK;
 case SYS_MEMINFO:return memory_free_pages();
 case SYS_EXEC:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;{char name[64];if(copy_user_string(name,sizeof(name),arg0)!=0)return SYSCALL_ERR;int pid=exec_replace_current(name);return pid<0?SYSCALL_ERR:(uint32_t)pid;}
