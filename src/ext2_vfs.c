@@ -79,8 +79,8 @@ static int normalize_ext2_relative(char *dst, uint32_t capacity,
     return 0;
 }
 
-static int resolve_path(const char *path, struct ext2_ro_inode *inode,
-                        uint32_t *inode_number) {
+static int resolve_path_internal(const char *path, struct ext2_ro_inode *inode,
+                                 uint32_t *inode_number, int follow_final) {
     char pending[VFS_PATH_MAX];
     uint32_t followed[EXT2_VFS_SYMLINK_MAX];
     uint32_t followed_count = 0u;
@@ -126,7 +126,8 @@ static int resolve_path(const char *path, struct ext2_ro_inode *inode,
                                    ext2_scratch, sizeof(ext2_scratch)) < 0)
                 return -1;
 
-            if ((next.mode & EXT2_MODE_TYPE) == EXT2_MODE_SYMLINK) {
+            if ((next.mode & EXT2_MODE_TYPE) == EXT2_MODE_SYMLINK &&
+                (*cursor || follow_final)) {
                 char target[VFS_PATH_MAX];
                 char combined[VFS_PATH_MAX * 3u];
                 char normalized[VFS_PATH_MAX];
@@ -194,6 +195,11 @@ static int resolve_path(const char *path, struct ext2_ro_inode *inode,
     }
 }
 
+static int resolve_path(const char *path, struct ext2_ro_inode *inode,
+                        uint32_t *inode_number) {
+    return resolve_path_internal(path, inode, inode_number, 1);
+}
+
 int ext2_vfs_init(void) {
     struct ext2_ro_fs candidate_fs;
     struct ext2_ro_inode candidate_root;
@@ -219,6 +225,41 @@ int ext2_vfs_exists(const char *path) {
     return resolve_path(path, &inode, 0) == 0 &&
            (inode.mode & EXT2_MODE_TYPE) == EXT2_MODE_REG &&
            inode.size <= UINT32_MAX;
+}
+
+int ext2_vfs_lstat(const char *path, uint32_t *size,
+                   int *is_directory, int *is_symlink) {
+    struct ext2_ro_inode inode;
+    uint32_t type;
+    if (!size || !is_directory || !is_symlink ||
+        resolve_path_internal(path, &inode, 0, 0) < 0 ||
+        inode.size > UINT32_MAX)
+        return -1;
+    type = inode.mode & EXT2_MODE_TYPE;
+    if (type != EXT2_MODE_REG && type != EXT2_MODE_DIR &&
+        type != EXT2_MODE_SYMLINK)
+        return -1;
+    *size = (uint32_t)inode.size;
+    *is_directory = type == EXT2_MODE_DIR;
+    *is_symlink = type == EXT2_MODE_SYMLINK;
+    return 0;
+}
+
+int ext2_vfs_readlink(const char *path, char *buffer, uint32_t capacity) {
+    struct ext2_ro_inode inode;
+    char target[VFS_PATH_MAX];
+    uint32_t length = 0u;
+    if (!buffer || capacity == 0u ||
+        resolve_path_internal(path, &inode, 0, 0) < 0 ||
+        (inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_SYMLINK ||
+        ext2_ro_read_symlink(&ext2_filesystem, &inode, target,
+                             sizeof(target), ext2_scratch,
+                             sizeof(ext2_scratch)) < 0)
+        return -1;
+    while (target[length]) ++length;
+    if (length > capacity) length = capacity;
+    for (uint32_t i = 0u; i < length; ++i) buffer[i] = target[i];
+    return (int)length;
 }
 
 int ext2_vfs_stat(const char *path, uint32_t *size, int *is_directory) {
@@ -273,6 +314,8 @@ int ext2_vfs_boot_test(void) {
     char triple_contents[sizeof(triple_expected)];
     struct vfs_dirent entry;
     struct vfs_stat st;
+    struct vfs_stat link_st;
+    char link_target[VFS_PATH_MAX];
     uint32_t cursor = 0u;
     int saw_subdir = 0;
     int saw_readme = 0;
@@ -379,6 +422,22 @@ int ext2_vfs_boot_test(void) {
         }
     }
 
+    if (vfs_lstat_path("/ext2/readme-link", &link_st) < 0 ||
+        (link_st.flags & VFS_STAT_SYMLINK) == 0u ||
+        link_st.size != 10u ||
+        vfs_stat_path("/ext2/readme-link", &st) < 0 ||
+        (st.flags & VFS_STAT_SYMLINK) != 0u ||
+        vfs_readlink("/ext2/readme-link", link_target,
+                     sizeof(link_target)) != 10 ||
+        link_target[0] != 'R' || link_target[1] != 'E' ||
+        link_target[2] != 'A' || link_target[3] != 'D' ||
+        link_target[4] != 'M' || link_target[5] != 'E' ||
+        link_target[6] != '.' || link_target[7] != 'T' ||
+        link_target[8] != 'X' || link_target[9] != 'T') {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-API-TEST-FAIL\n");
+        return -1;
+    }
+
     fd = vfs_open("/ext2/readme-link", 1u);
     if (fd < 0) {
         debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
@@ -460,6 +519,7 @@ int ext2_vfs_boot_test(void) {
         return -1;
     }
 
+    debug_write("LIONOS:EXT2-VFS-SYMLINK-API-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\n");
