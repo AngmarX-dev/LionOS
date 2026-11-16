@@ -96,8 +96,10 @@ static int resolve_path(const char *path, struct ext2_ro_inode *inode,
     for (;;) {
         struct ext2_ro_inode current = ext2_root;
         uint32_t current_number = 2u;
+        char resolved[VFS_PATH_MAX];
         const char *cursor = pending;
         int restart = 0;
+        resolved[0] = '\0';
 
         while (*cursor) {
             char component[EXT2_RO_NAME_MAX + 1u];
@@ -129,7 +131,6 @@ static int resolve_path(const char *path, struct ext2_ro_inode *inode,
                 char combined[VFS_PATH_MAX * 3u];
                 char normalized[VFS_PATH_MAX];
                 uint32_t combined_length = 0u;
-                int absolute;
 
                 if (followed_count >= EXT2_VFS_SYMLINK_MAX)
                     return -1;
@@ -141,26 +142,15 @@ static int resolve_path(const char *path, struct ext2_ro_inode *inode,
                                          sizeof(target), ext2_scratch,
                                          sizeof(ext2_scratch)) < 0)
                     return -1;
-                absolute = target[0] == '/';
-
-                if (!absolute && append_text(combined, sizeof(combined),
-                                             &combined_length, pending) < 0)
-                    return -1;
-                if (!absolute) {
-                    /* Keep only the already-resolved parent directory. */
-                    uint32_t parent_length = 0u;
-                    for (uint32_t i = 0u; i < combined_length; ++i)
-                        if (combined[i] == '/') parent_length = i + 1u;
-                    if (combined_length != 0u) {
-                        if (parent_length == 0u) combined_length = 0u;
-                        else combined_length = parent_length - 1u;
-                        combined[combined_length] = '\0';
-                    }
+                if (target[0] != '/') {
+                    if (append_text(combined, sizeof(combined),
+                                    &combined_length, resolved) < 0)
+                        return -1;
+                    if (combined_length &&
+                        append_text(combined, sizeof(combined),
+                                    &combined_length, "/") < 0)
+                        return -1;
                 }
-                if (combined_length && target[0] != '/' &&
-                    append_text(combined, sizeof(combined),
-                                &combined_length, "/") < 0)
-                    return -1;
                 if (append_text(combined, sizeof(combined),
                                 &combined_length, target) < 0)
                     return -1;
@@ -184,6 +174,18 @@ static int resolve_path(const char *path, struct ext2_ro_inode *inode,
                 break;
             }
 
+            if (resolved[0] && append_text(resolved, sizeof(resolved),
+                                           &(uint32_t){0}, "") < 0)
+                return -1;
+            uint32_t resolved_length = 0u;
+            while (resolved[resolved_length]) ++resolved_length;
+            if (resolved_length &&
+                append_text(resolved, sizeof(resolved), &resolved_length,
+                            "/") < 0)
+                return -1;
+            if (append_text(resolved, sizeof(resolved), &resolved_length,
+                            component) < 0)
+                return -1;
             current = next;
             current_number = next_number;
         }
