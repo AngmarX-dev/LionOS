@@ -78,6 +78,72 @@ static int expect(int ok, const char *label) {
     if (!ok) { (void)fprintf(stderr, "FAIL: %s\n", label); return 1; }
     return 0;
 }
+static int triple_indirect_geometry(uint32_t bs) {
+    static const struct block_device_ops ops = { image_read };
+    struct disk_image im;
+    struct block_device dev;
+    struct ext2_ro_fs fs;
+    struct ext2_ro_inode file;
+    uint8_t scratch[MAX_BLOCK_SIZE];
+    uint8_t out[3];
+    uint32_t pointers_per_block = bs / 4u;
+    uint64_t double_capacity =
+        (uint64_t)pointers_per_block * pointers_per_block;
+    uint64_t triple_start =
+        12u + pointers_per_block + double_capacity;
+    uint32_t offset;
+
+    if (bs == 4096u || triple_start * bs > UINT32_MAX)
+        return 0; /* 32-bit ext2 inode size cannot address this region. */
+
+    make_image(&im, bs);
+    dev.ops = &ops;
+    dev.context = &im;
+    dev.sector_size = SECTOR_SIZE;
+    dev.sector_count = im.sector_count;
+    if (ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0 ||
+        ext2_ro_read_inode(&fs, 4u, &file, scratch, sizeof(scratch)) < 0)
+        return 1;
+
+    /* inode[14] -> root(10) -> middle(11) -> leaf(12) -> data(14). */
+    file.blocks[14] = 10u;
+    file.size = (uint32_t)(triple_start * bs + 3u);
+    put32(im.bytes + (uint64_t)10u * bs, 11u);
+    put32(im.bytes + (uint64_t)11u * bs, 12u);
+    put32(im.bytes + (uint64_t)12u * bs, 14u);
+    im.bytes[(uint64_t)14u * bs] = 'T';
+    im.bytes[(uint64_t)14u * bs + 1u] = 'R';
+    im.bytes[(uint64_t)14u * bs + 2u] = 'I';
+
+    offset = (uint32_t)(triple_start * bs);
+    if (ext2_ro_read_file(&fs, &file, offset, out, sizeof(out),
+                          scratch, sizeof(scratch)) != 3 ||
+        out[0] != 'T' || out[1] != 'R' || out[2] != 'I')
+        return 1;
+
+    /* Reject an invalid middle-level pointer without reading past the image. */
+    put32(im.bytes + (uint64_t)10u * bs, IMAGE_BLOCKS);
+    if (ext2_ro_read_file(&fs, &file, offset, out, 1u,
+                          scratch, sizeof(scratch)) >= 0)
+        return 1;
+
+    /* Restore root, then reject an invalid leaf-level pointer. */
+    put32(im.bytes + (uint64_t)10u * bs, 11u);
+    put32(im.bytes + (uint64_t)11u * bs, IMAGE_BLOCKS);
+    if (ext2_ro_read_file(&fs, &file, offset, out, 1u,
+                          scratch, sizeof(scratch)) >= 0)
+        return 1;
+
+    /* Restore leaf table, then reject an invalid final data pointer. */
+    put32(im.bytes + (uint64_t)11u * bs, 12u);
+    put32(im.bytes + (uint64_t)12u * bs, IMAGE_BLOCKS);
+    if (ext2_ro_read_file(&fs, &file, offset, out, 1u,
+                          scratch, sizeof(scratch)) >= 0)
+        return 1;
+
+    return 0;
+}
+
 static int valid_geometry(uint32_t bs) {
     static const struct block_device_ops ops = { image_read };
     struct disk_image im;
@@ -163,6 +229,12 @@ static int valid_geometry(uint32_t bs) {
     return fails;
 }
 int main(void) {
+    if (triple_indirect_geometry(1024u) ||
+        triple_indirect_geometry(2048u)) {
+        (void)fprintf(stderr, "EXT2 TRIPLE-INDIRECT TEST: FAIL\\n");
+        return 1;
+    }
+
     static const struct block_device_ops ops = { image_read };
     struct disk_image im;
     struct block_device dev;
