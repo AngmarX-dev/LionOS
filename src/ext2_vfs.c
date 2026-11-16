@@ -174,9 +174,6 @@ static int resolve_path(const char *path, struct ext2_ro_inode *inode,
                 break;
             }
 
-            if (resolved[0] && append_text(resolved, sizeof(resolved),
-                                           &(uint32_t){0}, "") < 0)
-                return -1;
             uint32_t resolved_length = 0u;
             while (resolved[resolved_length]) ++resolved_length;
             if (resolved_length &&
