@@ -61,12 +61,11 @@ static int resolve_path(const char *path, struct ext2_ro_inode *inode,
         }
         if (length == 0u)
             return -1;
-        component[length] = '\\0';
+        component[length] = '\0';
         cursor += length;
         if (*cursor == '/')
             ++cursor;
-        if (*cursor == '/' || (*cursor && cursor[0] == '.' &&
-            (cursor[1] == '/' || cursor[1] == 0)))
+        if (*cursor == '/')
             return -1;
 
         if (ext2_ro_lookup(&ext2_filesystem, &current, component,
@@ -151,44 +150,49 @@ int ext2_vfs_readdir(const char *path, uint32_t *offset,
 
 int ext2_vfs_boot_test(void) {
     static const char expected[] =
-        "LionOS ext2 slave read-only fixture OK\\n";
+        "LionOS ext2 slave read-only fixture OK\n";
     static const char nested_expected[] =
-        "LionOS nested ext2 fixture OK\\n";
+        "LionOS nested ext2 fixture OK\n";
     char contents[sizeof(expected)];
-    struct ext2_ro_dirent entry;
+    char nested_contents[sizeof(nested_expected)];
+    struct vfs_dirent entry;
     struct vfs_stat st;
     uint32_t cursor = 0u;
     int saw_subdir = 0;
     int saw_readme = 0;
+    int dir_result;
     int fd;
 
     if (ext2_vfs_init() < 0) {
-        debug_write("LIONOS:EXT2-VFS-MOUNT-UNAVAILABLE\\n");
+        debug_write("LIONOS:EXT2-VFS-MOUNT-UNAVAILABLE\n");
         return -1;
     }
 
-    while (1) {
-        int result = vfs_readdir("/ext2", &cursor, (struct vfs_dirent *)&entry);
-        if (result <= 0)
-            break;
-        if (entry.inode == 4u && entry.type == 2u)
-            saw_subdir = 1;
-        if (entry.inode == 3u)
-            saw_readme = 1;
-    }
-    if (cursor == 0u || !saw_subdir || !saw_readme ||
+    do {
+        dir_result = vfs_readdir("/ext2", &cursor, &entry);
+        if (dir_result > 0) {
+            if (entry.inode == 4u && entry.type == 2u)
+                saw_subdir = 1;
+            if (entry.inode == 3u)
+                saw_readme = 1;
+        }
+    } while (dir_result > 0);
+
+    if (dir_result < 0 || cursor == 0u || !saw_subdir || !saw_readme ||
+        vfs_stat_path("/ext2", &st) < 0 ||
+        (st.flags & VFS_STAT_DIRECTORY) == 0u ||
         vfs_stat_path("/ext2/subdir", &st) < 0 ||
         (st.flags & VFS_STAT_DIRECTORY) == 0u ||
         vfs_stat_path("/ext2/subdir/nested.txt", &st) < 0 ||
         st.backend != VFS_BACKEND_EXT2_RO ||
         st.size != sizeof(nested_expected) - 1u) {
-        debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-FAIL\n");
         return -1;
     }
 
     fd = vfs_open("/ext2/README.TXT", 1u);
     if (fd < 0) {
-        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\n");
         return -1;
     }
     int read_result = vfs_read(fd, contents, (uint32_t)sizeof(contents));
@@ -200,38 +204,37 @@ int ext2_vfs_boot_test(void) {
         st.size != sizeof(expected) - 1u ||
         vfs_open("/ext2/README.TXT", 2u) != VFS_FD_INVALID ||
         vfs_remove("/ext2/README.TXT") == 0) {
-        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\n");
         return -1;
     }
     for (uint32_t i = 0u; i < sizeof(expected) - 1u; ++i) {
         if (contents[i] != expected[i]) {
-            debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\\n");
+            debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-FAIL\n");
             return -1;
         }
     }
 
     fd = vfs_open("/ext2/subdir/nested.txt", 1u);
     if (fd < 0) {
-        debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\n");
         return -1;
     }
-    char nested_contents[sizeof(nested_expected)];
     read_result = vfs_read(fd, nested_contents,
                            (uint32_t)sizeof(nested_contents));
     close_result = vfs_close(fd);
     if (read_result != (int)(sizeof(nested_expected) - 1u) ||
         close_result < 0) {
-        debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\n");
         return -1;
     }
     for (uint32_t i = 0u; i < sizeof(nested_expected) - 1u; ++i) {
         if (nested_contents[i] != nested_expected[i]) {
-            debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\\n");
+            debug_write("LIONOS:EXT2-VFS-NESTED-READ-FAIL\n");
             return -1;
         }
     }
 
-    debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\\n");
-    debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-OK\\n");
+    debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\n");
+    debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-OK\n");
     return 0;
 }
