@@ -36,6 +36,8 @@ int vfs_init(void);
 int vfs_open(const char *path, uint32_t flags);
 int vfs_open_for_process(struct process *process, const char *path, uint32_t flags);
 int vfs_close_for_process(struct process *process, int fd);
+int vfs_fork_process(struct process *parent, struct process *child);
+void vfs_close_all_process(struct process *process);
 int vfs_read_for_process(struct process *process, int fd, void *buffer, uint32_t length);
 int vfs_write_for_process(struct process *process, int fd, const void *buffer, uint32_t length);
 int vfs_close(int fd);
