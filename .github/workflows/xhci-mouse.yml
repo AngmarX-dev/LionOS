@@ -161,19 +161,18 @@ jobs:
           if sock is None:
               raise SystemExit("QEMU QMP socket did not become available")
 
-          # Wait until the kernel has completed its boot-report pause.
-          # Sending input during the pause can be consumed before the USB
-          # keyboard polling path is active.
-          for _ in range(200):
+          # Wait until the desktop/input loop is ready. The boot-report
+          # pause ending is not sufficient: GUI initialization still follows it.
+          for _ in range(300):
               try:
                   with open("build/qemu-xhci-keyboard-only.log", "r", encoding="utf-8", errors="replace") as log:
-                      if "LIONOS:BOOT-REPORT-PAUSE-COMPLETE" in log.read():
+                      if "LIONOS:GUI-READY" in log.read():
                           break
               except FileNotFoundError:
                   pass
               time.sleep(0.1)
           else:
-              raise SystemExit("LionOS did not complete its boot-report pause")
+              raise SystemExit("LionOS GUI/input loop did not become ready")
 
           # There is deliberately no usb-mouse in this guest. The mouse
           # discovery pass must not prevent keyboard input from being handled.
@@ -196,9 +195,8 @@ jobs:
           sock.close()
           PY
 
-          # The kernel deliberately pauses its boot report for 10 seconds.
-          # Wait for the USB keyboard input marker instead of killing QEMU
-          # at a fixed deadline that can expire during that pause.
+          # Wait for the USB keyboard input marker after GUI readiness.
+          # Keep a bounded timeout so a missing input event fails clearly.
           for _ in $(seq 1 20); do
             if grep -q 'LIONOS:KEYBOARD-USB-INPUT' build/qemu-xhci-keyboard-only.log; then
               break
