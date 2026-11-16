@@ -9,6 +9,9 @@ BLOCK_COUNT = 128
 IMAGE_SIZE = BLOCK_SIZE * BLOCK_COUNT
 PAYLOAD = b"LionOS ext2 slave read-only fixture OK\n"
 NESTED_PAYLOAD = b"LionOS nested ext2 fixture OK\n"
+TRIPLE_PAYLOAD = b"LionOS triple-indirect QEMU read OK\n"
+TRIPLE_LOGICAL_BLOCK = 12 + (BLOCK_SIZE // 4) + (BLOCK_SIZE // 4) ** 2
+TRIPLE_OFFSET = TRIPLE_LOGICAL_BLOCK * BLOCK_SIZE
 
 def put16(buf, off, value):
     struct.pack_into("<H", buf, off, value)
@@ -63,11 +66,22 @@ def main():
     image[inode_table + 384:inode_table + 512] = make_inode(0x41ED, BLOCK_SIZE, 11)
     image[inode_table + 512:inode_table + 640] = make_inode(0x81A4, len(NESTED_PAYLOAD), 12)
 
+    triple_inode = make_inode(0x81A4, TRIPLE_OFFSET + len(TRIPLE_PAYLOAD), 0)
+    put32(triple_inode, 28, 8)  # Three pointer blocks plus one data block.
+    put32(triple_inode, 40 + 14 * 4, 13)  # i_block[14]: triple-indirect root.
+    image[inode_table + 640:inode_table + 768] = triple_inode
+
+    # Triple-indirect path: root(13) -> middle(14) -> leaf(15) -> data(16).
+    put32(image, 13 * BLOCK_SIZE, 14)
+    put32(image, 14 * BLOCK_SIZE, 15)
+    put32(image, 15 * BLOCK_SIZE, 16)
+
     root = bytearray(BLOCK_SIZE)
     root[0:12] = dirent(2, 12, ".", 2)
     root[12:24] = dirent(2, 12, "..", 2)
     root[24:40] = dirent(4, 16, "subdir", 2)
-    root[40:BLOCK_SIZE] = dirent(3, BLOCK_SIZE - 40, "README.TXT", 1)
+    root[40:60] = dirent(3, 20, "README.TXT", 1)
+    root[60:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 60, "TRIPLE.TXT", 1)
     image[9 * BLOCK_SIZE:10 * BLOCK_SIZE] = root
 
     subdir = bytearray(BLOCK_SIZE)
@@ -78,6 +92,7 @@ def main():
 
     image[10 * BLOCK_SIZE:10 * BLOCK_SIZE + len(PAYLOAD)] = PAYLOAD
     image[12 * BLOCK_SIZE:12 * BLOCK_SIZE + len(NESTED_PAYLOAD)] = NESTED_PAYLOAD
+    image[16 * BLOCK_SIZE:16 * BLOCK_SIZE + len(TRIPLE_PAYLOAD)] = TRIPLE_PAYLOAD
     Path(sys.argv[1]).write_bytes(image)
 
 if __name__ == "__main__":
