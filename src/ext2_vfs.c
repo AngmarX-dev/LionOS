@@ -461,6 +461,27 @@ int ext2_vfs_boot_test(void) {
         }
     }
 
+    fd = vfs_open("/ext2/parent-link", 1u);
+    if (fd < 0) {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-FAIL\n");
+        return -1;
+    }
+    read_result = vfs_read(fd, contents, (uint32_t)sizeof(contents));
+    close_result = vfs_close(fd);
+    if (read_result != (int)(sizeof(expected) - 1u) ||
+        close_result < 0 ||
+        vfs_stat_path("/ext2/parent-link", &st) < 0 ||
+        st.size != sizeof(expected) - 1u) {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-FAIL\n");
+        return -1;
+    }
+    for (uint32_t i = 0u; i < sizeof(expected) - 1u; ++i) {
+        if (contents[i] != expected[i]) {
+            debug_write("LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-FAIL\n");
+            return -1;
+        }
+    }
+
     if (vfs_stat_path("/ext2/depth8", &st) < 0 ||
         st.size != sizeof(expected) - 1u ||
         vfs_stat_path("/ext2/depth9", &st) == 0) {
@@ -552,6 +573,7 @@ int ext2_vfs_boot_test(void) {
     debug_write("LIONOS:EXT2-VFS-SYMLINK-EDGE-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-OK\n");
+    debug_write("LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\n");
