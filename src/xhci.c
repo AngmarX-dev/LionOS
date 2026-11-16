@@ -99,6 +99,7 @@ static uint32_t port_state_neutral(uint32_t ps){
 #define TRB_STATUS 4u
 #define TRB_LINK 6u
 #define TRB_ENABLE_SLOT 9u
+#define TRB_DISABLE_SLOT 10u
 #define TRB_ADDRESS_DEVICE 11u
 #define TRB_CONFIGURE_EP 12u
 #define TRB_EVAL_CONTEXT 13u
@@ -217,6 +218,7 @@ static uint32_t kbd_slot_id, kbd_port_number, kbd_device_speed;
 static uint32_t kbd_endpoint_id, kbd_endpoint_packet, kbd_endpoint_interval;
 static uint32_t kbd_intr_index, kbd_intr_cycle, kbd_intr_segment;
 static uint32_t kbd_report_pending, kbd_report_length, kbd_ready;
+static uint32_t controller_ready;
 static uint8_t hid_wanted_keyboard;
 
 static usb_protocol_t protocols[MAX_PROTOCOLS];
@@ -658,6 +660,15 @@ static int cmd_wait(uint32_t want_slot){
     cmd_recover(); return -1;
 }
 
+static int cmd_disable_slot(uint32_t id){
+    if(!id||id>max_slots||!dcbaa) return -1;
+    cmd_submit(TRB_DISABLE_SLOT,0u,(id&0xFFu)<<24);
+    if(cmd_wait(0u)!=0) return -1;
+    dcbaa[id]=0u;
+    dma_wmb();
+    return 0;
+}
+
 #define ICC_SIZE 32u
 static uint8_t *in_slot(void){ return (uint8_t*)in_ctx+ICC_SIZE; }
 static uint8_t *in_ep(uint32_t dci){ return (uint8_t*)in_ctx+ICC_SIZE+ctx_size*dci; }
@@ -1019,10 +1030,13 @@ static int find_hid(hid_candidate_t *c){
                 uint8_t cls=config_buf[i+5u];
                 uint8_t sub=config_buf[i+6u];
                 uint8_t proto=config_buf[i+7u];
+                /* Never let the generic boot-interface fallback classify a
+                   keyboard (protocol 1) as a mouse or vice versa. Protocol 0
+                   remains eligible for report-protocol HID devices. */
                 if(hid_wanted_keyboard)
-                    sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&(proto==1u||proto==0u)):(alt==0u&&cls==3u&&sub==1u);
+                    sel=(alt==0u&&cls==3u&&sub==1u&&(proto==1u||proto==0u));
                 else
-                    sel=(pass==0u)?(alt==0u&&cls==3u&&sub==1u&&proto==2u):(alt==0u&&cls==3u&&sub==1u);
+                    sel=(alt==0u&&cls==3u&&sub==1u&&(proto==2u||proto==0u));
                 if(sel) c->interface_number=config_buf[i+2u];
             } else if(type==5u&&len>=7u&&sel){
                 uint8_t addr=config_buf[i+2u];
@@ -1370,7 +1384,7 @@ static int enumerate_port(uint32_t p){
     endpoint_packet=c.packet_size;
     if(endpoint_packet>PAGE_SIZE) endpoint_packet=PAGE_SIZE;
 
-    usb_log("[ USB ] mouse: iface="); usb_log_dec(c.interface_number);
+    usb_log("[ USB ] HID: iface="); usb_log_dec(c.interface_number);
     usb_log(" ep=0x"); usb_log_hex(c.endpoint_address);
     usb_log(" pkt="); usb_log_dec(endpoint_packet);
     usb_log(" int="); usb_log_dec(c.interval); usb_log_nl();
@@ -1394,6 +1408,8 @@ static int enumerate_port(uint32_t p){
 }
 int xhci_mouse_init(void){
     if(ready) return 0;
+    if(controller_ready) return -1;
+    slot_id=0u; port_number=0u; endpoint_id=0u;
     diag_stage="SCANNING PCI";
     diag_controller_found=0; diag_init_ok=0;
     diag_transfer_submitted=diag_event_count=0;
@@ -1480,6 +1496,7 @@ int xhci_mouse_init(void){
     diag_stage="NOOP VERIFY";
     cmd_submit(TRB_NOOP_CMD,0,0);
     if(cmd_wait(0)) return usb_fail("NOOP-CMD");
+    controller_ready=1u;
 
     diag_stage="PORT POWER";
     wake_all_ports();
@@ -1499,7 +1516,13 @@ int xhci_mouse_init(void){
             diag_stage="USB PORT CONNECTED";
             usb_log("[ USB ] --- enumerating port "); usb_log_dec(p);
             usb_log(" ---\n");
+            slot_id=0u; endpoint_id=0u; port_number=0u;
             if(enumerate_port(p)==0) return 0;
+            if(slot_id && cmd_disable_slot(slot_id)!=0){
+                controller_ready=0u;
+                return usb_fail("DISABLE FAILED SLOT");
+            }
+            slot_id=0u; endpoint_id=0u; port_number=0u;
             usb_log("[ USB ] port "); usb_log_dec(p);
             usb_log(" failed, moving on\n");
         }
@@ -1516,9 +1539,11 @@ int xhci_mouse_init(void){
 }
 
 int xhci_keyboard_init(void){
-    if(!ready||!slot_id||!endpoint_id)return -1;
+    if(!controller_ready)return -1;
     if(kbd_ready)return 0;
-    uint32_t save_slot=slot_id, save_port=port_number, save_speed=device_speed;
+    uint32_t save_slot=ready?slot_id:0u;
+    uint32_t save_port=ready?port_number:0u;
+    uint32_t save_speed=device_speed;
     uint32_t save_ep=endpoint_id, save_pkt=endpoint_packet, save_int=endpoint_interval;
     uint32_t save_intr_index=intr_index, save_intr_cycle=intr_cycle, save_intr_segment=intr_segment;
     uint32_t save_pending=report_pending, save_length=report_length, save_seen=report_seen;
@@ -1537,11 +1562,17 @@ int xhci_keyboard_init(void){
     hid_wanted_keyboard=1u;
     int found=-1;
     for(uint32_t p=1u;p<=max_ports;++p){
-        if(p==save_port)continue;
+        if(ready && p==save_port)continue;
         uint32_t po=op_base+OP_PORT_BASE+(p-1u)*OP_PORT_STRIDE;
         uint32_t ps=r32(po);
         if(!(ps&PS_CCS))continue;
+        slot_id=0u; endpoint_id=0u; port_number=0u;
         if(enumerate_port(p)==0){found=0;break;}
+        if(slot_id && cmd_disable_slot(slot_id)!=0){
+            controller_ready=0u;
+            found=-1;
+            break;
+        }
     }
     if(found==0){
         kbd_slot_id=slot_id; kbd_port_number=port_number; kbd_device_speed=device_speed;
@@ -1593,9 +1624,9 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
     if(dx) *dx = 0;
     if(dy) *dy = 0;
     if(buttons) *buttons = 0;
-    if(!ready) return 0;
-    if(!hid_controller_healthy()) return -1;
-    if(hid_endpoint_needs_recovery()) return -1;
+    if(!controller_ready) return 0;
+    if(ready && !hid_controller_healthy()) return -1;
+    if(ready && hid_endpoint_needs_recovery()) return -1;
 
     /*
      * Process only the events that were present when this poll started.
@@ -1672,7 +1703,7 @@ int xhci_mouse_poll(int32_t *dx,int32_t *dy,uint8_t *buttons){
      * Do not reset the endpoint merely because the mouse is silent.
      */
     if(kbd_ready && !kbd_report_pending)submit_keyboard_report();
-    if(!report_pending){
+    if(ready && !report_pending){
         if(submit_report()!=0) return -1;
     }
 
