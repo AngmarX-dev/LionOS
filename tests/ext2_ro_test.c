@@ -146,6 +146,20 @@ static int valid_geometry(uint32_t bs) {
     fails += expect(ext2_ro_read_file(&fs, &boundary, 12u * bs + 2u, out, 8u,
                                       scratch, sizeof(scratch)) == 1 && out[0] == 'D',
                     "clip read at EOF");
+
+    /* Double-indirect: inode block[13] -> root table -> leaf table -> data. */
+    put32(im.bytes + (uint64_t)10u * bs, 11u);
+    put32(im.bytes + (uint64_t)11u * bs, 12u);
+    im.bytes[(uint64_t)12u * bs] = 'D';
+    im.bytes[(uint64_t)12u * bs + 1u] = 'B';
+    im.bytes[(uint64_t)12u * bs + 2u] = 'L';
+    boundary.blocks[13] = 10u;
+    boundary.size = (12u + (bs / 4u)) * bs + 3u;
+    fails += expect(ext2_ro_read_file(&fs, &boundary,
+                                      (12u + (bs / 4u)) * bs, out, 3u,
+                                      scratch, sizeof(scratch)) == 3 &&
+                    out[0] == 'D' && out[1] == 'B' && out[2] == 'L',
+                    "read double-indirect data at first leaf entry");
     return fails;
 }
 int main(void) {
@@ -215,10 +229,22 @@ int main(void) {
     make_image(&im, 1024u);
     (void)ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch));
     (void)ext2_ro_read_inode(&fs, 4u, &file, scratch, sizeof(scratch));
-    file.blocks[13] = 10u;
+    file.size = (12u + 256u) * 1024u + 1u;
+    file.blocks[13] = IMAGE_BLOCKS;
     fails += expect(ext2_ro_read_file(&fs, &file, (12u + 256u) * 1024u,
                                       out, 1u, scratch, sizeof(scratch)) < 0,
-                    "reject unsupported double-indirect access");
+                    "reject out-of-range double-indirect root");
+
+    make_image(&im, 1024u);
+    (void)ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch));
+    (void)ext2_ro_read_inode(&fs, 4u, &file, scratch, sizeof(scratch));
+    file.size = (12u + 256u) * 1024u + 1u;
+    file.blocks[13] = 10u;
+    put32(im.bytes + 10u * 1024u, 11u);
+    put32(im.bytes + 11u * 1024u, IMAGE_BLOCKS);
+    fails += expect(ext2_ro_read_file(&fs, &file, (12u + 256u) * 1024u,
+                                      out, 1u, scratch, sizeof(scratch)) < 0,
+                    "reject out-of-range double-indirect leaf data pointer");
 
     make_image(&im, 1024u); (void)ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch));
     (void)ext2_ro_read_inode(&fs, 2u, &root, scratch, sizeof(scratch));
