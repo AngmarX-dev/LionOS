@@ -165,7 +165,7 @@ Implementation is deliberately split into dependency-ordered slices:
 
 1. F1: bounded generic block-device contract (implemented and CI-green; ATA provider deferred);
 2. F2: isolated read-only ext2 parser core (implemented; synthetic host tests and all required CI workflows passed on `f53ab75553580417fde06c33f97eb6746f5797a4`; VFS mount not connected);
-3. F3: expand host-side valid/corrupt image tests and feature/geometry edge coverage;
+3. F3: expand host-side valid/corrupt image tests and feature/geometry edge coverage (**implemented in tests; CI validation pending**);
 4. F4: ATA IDENTIFY/capacity validation, a separate QEMU ext2 disk, then read-only VFS integration.
 
 The initial parser target is ext2 regular files/directories, direct blocks and one singly-indirect level. It will not write, replay journals, repair metadata, or claim ext3/ext4 compatibility. Existing LionFS persistence and xHCI source must remain unchanged.
