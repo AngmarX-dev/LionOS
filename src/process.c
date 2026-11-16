@@ -73,7 +73,8 @@ int process_exec_replace_current(uint32_t entry,uint32_t stack,uint32_t pd,const
 uint32_t process_fork_current(uint32_t *parent_frame){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process*parent=current_local();
-    if(!parent||parent==&processes[0]||!parent_frame||!parent->user_page_count){spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
+    struct process*parent_owner=process_pipe_owner();
+    if(!parent||parent==&processes[0]||!parent_owner||!parent_frame||!parent->user_page_count){spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
     struct process*slot=find_free_slot();
     if(!slot){spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
     uint32_t pd=paging_create_address_space();
@@ -108,8 +109,8 @@ uint32_t process_fork_current(uint32_t *parent_frame){
             slot->fpu_state[i]=parent->fpu_state[i];
         slot->fpu_valid=1u;
     }
-    slot->parent_pid=parent->pid;
-    slot->tid=next_tid++;if(next_tid==0)next_tid=1;slot->thread_group_pid=parent->thread_group_pid;slot->is_thread=0;slot->owns_address_space=1;
+    slot->parent_pid=parent_owner->pid;
+    slot->tid=next_tid++;if(next_tid==0)next_tid=1;slot->thread_group_pid=slot->pid;slot->is_thread=0;slot->owns_address_space=1;
     slot->cpu_owner=cpu_current_index();
     slot->capabilities=parent->capabilities;
     slot->priority=parent->priority;
@@ -128,14 +129,14 @@ uint32_t process_fork_current(uint32_t *parent_frame){
         slot->state=PROCESS_STOPPED;
         spinlock_irqrestore_release(&process_lock,flags);
         uint32_t cleanup_flags;
-        if(vfs_fork_process(process_fd_owner(),slot)!=0){
+        if(vfs_fork_process(parent_owner,slot)!=0){
             cleanup_flags=spinlock_irqsave_acquire(&process_lock);
             if(slot->state==PROCESS_STOPPED)slot->state=PROCESS_ZOMBIE;
             spinlock_irqrestore_release(&process_lock,cleanup_flags);
             (void)process_reap_pid(result);
             return PROCESS_SYSCALL_ERR;
         }
-        if(pipe_fork(parent,slot)!=0){
+        if(pipe_fork(parent_owner,slot)!=0){
             vfs_close_all_process(slot);
             slot->pipe_read_mask=0u;
             slot->pipe_write_mask=0u;
