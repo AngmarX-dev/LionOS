@@ -111,6 +111,8 @@ static int triple_indirect_geometry(uint32_t bs) {
     if (ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0 ||
         ext2_ro_read_inode(&fs, 4u, &file, scratch, sizeof(scratch)) < 0)
         return 1;
+    if (bs == 4096u && file.size != logical_block * bs + 3u)
+        return 1; /* Verify high inode-size word decoding, not just reads. */
 
     /* inode[14] -> root(10) -> middle(11) -> leaf(12) -> data(14). */
     file.blocks[14] = 10u;
