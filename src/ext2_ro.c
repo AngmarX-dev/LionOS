@@ -329,8 +329,8 @@ static int map_file_block(const struct ext2_ro_fs *fs,
                     read_fs_block(fs, inode->blocks[13], scratch,
                                   scratch_size) < 0)
                     return -1;
-                double_index = logical / pointers_per_block;
-                leaf_index = logical % pointers_per_block;
+                double_index = (uint32_t)div_u64_u32(
+                    logical, pointers_per_block, &leaf_index);
                 leaf_block = le32(scratch + double_index * 4u);
                 if (leaf_block == 0u ||
                     leaf_block >= fs->blocks_count ||
@@ -406,8 +406,9 @@ int ext2_ro_read_file(const struct ext2_ro_fs *fs,
     if (length > remaining) length = remaining;
     while (copied < length) {
         uint64_t file_pos = offset + copied;
-        uint64_t logical = file_pos / fs->block_size;
-        uint32_t within = (uint32_t)(file_pos % fs->block_size);
+        uint32_t within;
+        uint64_t logical = div_u64_u32(file_pos, fs->block_size,
+                                       &within);
         uint32_t chunk = fs->block_size - within;
         uint32_t physical;
         if (chunk > length - copied) chunk = length - copied;
