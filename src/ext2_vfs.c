@@ -440,6 +440,13 @@ int ext2_vfs_boot_test(void) {
         return -1;
     }
 
+    if (vfs_stat_path("/ext2/depth8", &st) < 0 ||
+        st.size != sizeof(expected) - 1u ||
+        vfs_stat_path("/ext2/depth9", &st) == 0) {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-FAIL\\n");
+        return -1;
+    }
+
     if (vfs_readlink("/ext2/README.TXT", short_link_target,
                      sizeof(short_link_target)) >= 0 ||
         vfs_readlink("/ext2/readme-link", short_link_target,
