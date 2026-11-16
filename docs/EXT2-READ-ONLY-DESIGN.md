@@ -50,6 +50,8 @@ Use explicit little-endian decoding rather than unaligned structure casts. Use c
 
 ### F3 — Host-side image tests
 
+**Implementation progress (2026-11-16; CI pending):** `tests/ext2_ro_test.c` now builds deterministic memory-backed ext2 fixtures for 1 KiB, 2 KiB and 4 KiB block sizes. Coverage includes root/inode lookup, direct-to-singly-indirect boundaries, EOF clipping, invalid superblock geometry and feature masks, inode-table bounds, backend read failures, invalid direct/indirect references, unsupported double-indirect access, and malformed directory record/name fields. The fixtures remain host-only and never access physical disks. The first CI attempt exposed incorrect fixture block-pointer/EOF offsets; those fixture values were corrected in a follow-up commit. This progress is not considered validated until all required workflows pass on the same final SHA.
+
 Create small deterministic ext2 images with host-side tooling and test the parser through a memory-backed block device. Tests must cover:
 
 - valid superblocks for each supported block size;
