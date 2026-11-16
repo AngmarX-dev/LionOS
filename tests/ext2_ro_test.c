@@ -294,7 +294,7 @@ int main(void) {
     fails += expect(ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0, "reject compat feature");
     make_image(&im, 1024u); put32(im.bytes + 1120u, 0x80000000u);
     fails += expect(ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0, "reject incompat feature");
-    make_image(&im, 1024u); put32(im.bytes + 1124u, 2u);
+    make_image(&im, 1024u); put32(im.bytes + 1124u, 4u);
     fails += expect(ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0, "reject ro-compat feature");
     make_image(&im, 1024u); put32(im.bytes + 2056u, IMAGE_BLOCKS);
     fails += expect(ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0, "reject inode table beyond fs");
