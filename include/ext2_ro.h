@@ -30,6 +30,12 @@ struct ext2_ro_inode {
     uint32_t blocks[15];
 };
 
+struct ext2_ro_dirent {
+    uint32_t inode;
+    uint8_t type;
+    char name[EXT2_RO_NAME_MAX + 1u];
+};
+
 int ext2_ro_mount(struct ext2_ro_fs *fs,
                   const struct block_device *device,
                   void *scratch,
@@ -52,5 +58,11 @@ int ext2_ro_lookup(const struct ext2_ro_fs *fs,
                    uint32_t *inode_number,
                    void *scratch,
                    uint32_t scratch_size);
+int ext2_ro_readdir(const struct ext2_ro_fs *fs,
+                    const struct ext2_ro_inode *directory,
+                    uint32_t *offset,
+                    struct ext2_ro_dirent *entry,
+                    void *scratch,
+                    uint32_t scratch_size);
 
 #endif
