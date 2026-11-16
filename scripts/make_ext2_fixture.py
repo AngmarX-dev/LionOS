@@ -86,6 +86,12 @@ def main():
     put32(slow_link, 40, 17)
     image[inode_table + 896:inode_table + 1024] = slow_link
 
+    loop_link = bytearray(128)
+    put16(loop_link, 0, 0xA1FF)
+    put32(loop_link, 4, len(b"loop-a"))
+    loop_link[40:46] = b"loop-a"
+    image[inode_table + 1024:inode_table + 1152] = loop_link
+
     # Triple-indirect path: root(13) -> middle(14) -> leaf(15) -> data(16).
     put32(image, 13 * BLOCK_SIZE, 14)
     put32(image, 14 * BLOCK_SIZE, 15)
@@ -98,7 +104,7 @@ def main():
     root[40:60] = dirent(3, 20, "README.TXT", 1)
     root[60:80] = dirent(7, 20, "readme-link", 7)
     root[80:100] = dirent(8, 20, "nested-link", 7)
-    root[100:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 100, "TRIPLE.TXT", 1)
+    root[100:116] = dirent(9, 16, "loop-a", 7)\n    root[116:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 116, "TRIPLE.TXT", 1)
     image[9 * BLOCK_SIZE:10 * BLOCK_SIZE] = root
 
     subdir = bytearray(BLOCK_SIZE)
