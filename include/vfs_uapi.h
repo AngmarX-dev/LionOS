@@ -13,6 +13,17 @@
 #define LIONOS_SYS_FWRITE 17u
 #define LIONOS_SYS_REMOVE 18u
 #define LIONOS_SYS_STAT   19u
+#define LIONOS_SYS_READDIR 44u
+
+#define LIONOS_DIRENT_UNKNOWN   0u
+#define LIONOS_DIRENT_REGULAR   1u
+#define LIONOS_DIRENT_DIRECTORY 2u
+
+struct lion_dirent {
+    uint32_t inode;
+    uint8_t type;
+    char name[256];
+};
 
 struct lion_stat {
     uint32_t size;
