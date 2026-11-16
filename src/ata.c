@@ -9,6 +9,7 @@
 #define ATA_HDDEVSEL    0x1F6u
 #define ATA_COMMAND     0x1F7u
 #define ATA_STATUS      0x1F7u
+#define ATA_CMD_IDENTIFY 0xECu
 #define ATA_CMD_READ    0x20u
 #define ATA_CMD_WRITE   0x30u
 #define ATA_SR_BSY      0x80u
@@ -16,6 +17,8 @@
 #define ATA_SR_ERR      0x01u
 #define ATA_SR_DF       0x20u
 #define ATA_TIMEOUT     1000000u
+
+static uint32_t identified_sector_count;
 
 static inline void ata_outb(uint16_t port, uint8_t value) {
     __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
@@ -40,8 +43,9 @@ static inline uint16_t ata_inw(uint16_t port) {
 static int wait_not_busy(void) {
     for (uint32_t i = 0; i < ATA_TIMEOUT; ++i) {
         uint8_t status = ata_inb(ATA_STATUS);
-        if (status == 0) return -1;
-        if (!(status & ATA_SR_BSY)) return (status & (ATA_SR_ERR | ATA_SR_DF)) ? -1 : 0;
+        if (status == 0u || status == 0xFFu) return -1;
+        if (!(status & ATA_SR_BSY))
+            return (status & (ATA_SR_ERR | ATA_SR_DF)) ? -1 : 0;
     }
     return -1;
 }
@@ -49,16 +53,56 @@ static int wait_not_busy(void) {
 static int wait_drq(void) {
     for (uint32_t i = 0; i < ATA_TIMEOUT; ++i) {
         uint8_t status = ata_inb(ATA_STATUS);
-        if (status == 0) return -1;
+        if (status == 0u || status == 0xFFu) return -1;
         if (status & (ATA_SR_ERR | ATA_SR_DF)) return -1;
         if (!(status & ATA_SR_BSY) && (status & ATA_SR_DRQ)) return 0;
     }
     return -1;
 }
 
+static void ata_400ns_delay(void) {
+    for (volatile uint32_t i = 0; i < 4u; ++i)
+        (void)ata_inb(ATA_STATUS);
+}
+
+static int identify_primary_master(void) {
+    uint16_t words[256];
+    uint32_t sectors = 0u;
+    uint8_t status;
+
+    ata_outb(ATA_HDDEVSEL, 0xA0u);
+    ata_400ns_delay();
+    ata_outb(ATA_SECCOUNT0, 0u);
+    ata_outb(ATA_LBA0, 0u);
+    ata_outb(ATA_LBA1, 0u);
+    ata_outb(ATA_LBA2, 0u);
+    ata_outb(ATA_COMMAND, ATA_CMD_IDENTIFY);
+
+    status = ata_inb(ATA_STATUS);
+    if (status == 0u || status == 0xFFu)
+        return -1;
+    if (wait_not_busy() < 0)
+        return -1;
+
+    /* A nonzero signature in these registers identifies a non-ATA device. */
+    if (ata_inb(ATA_LBA1) != 0u || ata_inb(ATA_LBA2) != 0u)
+        return -1;
+    if (wait_drq() < 0)
+        return -1;
+
+    for (uint32_t i = 0u; i < 256u; ++i)
+        words[i] = ata_inw(ATA_DATA);
+    (void)ata_inb(ATA_STATUS);
+
+    if (ata_identify_parse(words, &sectors) < 0)
+        return -1;
+    identified_sector_count = sectors;
+    return 0;
+}
+
 static void select_lba(uint32_t lba) {
     ata_outb(ATA_HDDEVSEL, (uint8_t)(0xE0u | ((lba >> 24) & 0x0Fu)));
-    for (volatile uint32_t i = 0; i < 400u; ++i) (void)ata_inb(ATA_STATUS);
+    ata_400ns_delay();
     ata_outb(ATA_SECCOUNT0, 1u);
     ata_outb(ATA_LBA0, (uint8_t)lba);
     ata_outb(ATA_LBA1, (uint8_t)(lba >> 8));
@@ -66,29 +110,49 @@ static void select_lba(uint32_t lba) {
 }
 
 int ata_init(void) {
-    ata_outb(ATA_HDDEVSEL, 0xE0u);
-    return wait_not_busy() == 0 ? 0 : -1;
+    identified_sector_count = 0u;
+    if (identify_primary_master() < 0)
+        return -1;
+    return 0;
+}
+
+uint32_t ata_sector_count(void) {
+    return identified_sector_count;
 }
 
 int ata_read_sector(uint32_t lba, void *buffer) {
-    if (!buffer) return -1;
+    uint8_t *dst = (uint8_t *)buffer;
+    if (!buffer || identified_sector_count == 0u ||
+        lba >= identified_sector_count)
+        return -1;
+
     select_lba(lba);
     ata_outb(ATA_COMMAND, ATA_CMD_READ);
     if (wait_drq() < 0) return -1;
 
-    uint16_t *dst = (uint16_t *)buffer;
-    for (uint32_t i = 0; i < 256u; ++i) dst[i] = ata_inw(ATA_DATA);
+    for (uint32_t i = 0u; i < 256u; ++i) {
+        uint16_t word = ata_inw(ATA_DATA);
+        dst[i * 2u] = (uint8_t)word;
+        dst[i * 2u + 1u] = (uint8_t)(word >> 8);
+    }
     (void)ata_inb(ATA_STATUS);
     return 0;
 }
 
 int ata_write_sector(uint32_t lba, const void *buffer) {
-    if (!buffer) return -1;
+    const uint8_t *src = (const uint8_t *)buffer;
+    if (!buffer || identified_sector_count == 0u ||
+        lba >= identified_sector_count)
+        return -1;
+
     select_lba(lba);
     ata_outb(ATA_COMMAND, ATA_CMD_WRITE);
     if (wait_drq() < 0) return -1;
 
-    const uint16_t *src = (const uint16_t *)buffer;
-    for (uint32_t i = 0; i < 256u; ++i) ata_outw(ATA_DATA, src[i]);
+    for (uint32_t i = 0u; i < 256u; ++i) {
+        uint16_t word = (uint16_t)src[i * 2u] |
+                        ((uint16_t)src[i * 2u + 1u] << 8);
+        ata_outw(ATA_DATA, word);
+    }
     return wait_not_busy();
 }
