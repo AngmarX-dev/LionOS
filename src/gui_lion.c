@@ -268,9 +268,31 @@ static void file_manager_refresh(void) {
                 ++seen;
             }
         }
-        if(file_page_start>file_total_entries && file_total_entries!=0u)
+        if(file_total_entries==0u) {
+            file_page_start=0u;
+        } else if(file_page_start>=file_total_entries) {
             file_page_start=((file_total_entries-1u)/FILE_MANAGER_MAX_ENTRIES)*
                              FILE_MANAGER_MAX_ENTRIES;
+            file_entry_count=0u;
+            offset=0u;
+            seen=0u;
+            for(;;) {
+                result=vfs_readdir(file_current_path,&offset,&entry);
+                if(result==0)break;
+                if(result<0) {
+                    file_read_error=1u;
+                    break;
+                }
+                if(entry.inode==0u || (entry.name[0]=='.' &&
+                   (entry.name[1]==0 ||
+                    (entry.name[1]=='.' && entry.name[2]==0))))
+                    continue;
+                if(seen>=file_page_start &&
+                   file_entry_count<FILE_MANAGER_MAX_ENTRIES)
+                    file_entries[file_entry_count++]=entry;
+                ++seen;
+            }
+        }
     } else {
         uint32_t count=file_source==FILE_SOURCE_RAMFS
             ?ramfs_count():diskfs_count();
@@ -726,9 +748,34 @@ static void draw_files(const struct ui_window*w){
     draw_uint(file_total_entries,gx+332u,pager_y+5u,COL_GOLD,COL_PANEL);
     if(file_read_error)
         text_line("READ WARNING",gx+430u,pager_y+5u,COL_DANGER,COL_PANEL);
-    else
-        text_line("DOUBLE CLICK FOLDER TO OPEN",gx,pager_y-24u,
-                  COL_DIM,COL_PANEL);
+    if(file_selected<file_entry_count) {
+        uint32_t size=0u;
+        const char *kind="FILE";
+        if(file_source==FILE_SOURCE_RAMFS) {
+            size=ramfs_size(file_entries[file_selected].name);
+            kind="RAMFS";
+        } else if(file_source==FILE_SOURCE_LIONFS) {
+            size=diskfs_size(file_entries[file_selected].name);
+            kind="LIONFS";
+        } else {
+            char selected_path[VFS_PATH_MAX];
+            struct vfs_stat selected_stat;
+            if(file_manager_entry_path(file_selected,selected_path,
+                                       sizeof(selected_path))==0 &&
+               vfs_stat_path(selected_path,&selected_stat)==0) {
+                size=selected_stat.size;
+                kind=(selected_stat.flags&VFS_STAT_READ_ONLY)
+                    ?"EXT2 READ ONLY":"EXT2";
+            }
+        }
+        text_line(kind,gx,pager_y-24u,COL_GOLD,COL_PANEL);
+        text_line("SIZE",gx+112u,pager_y-24u,COL_DIM,COL_PANEL);
+        draw_uint(size,gx+172u,pager_y-24u,COL_TEXT,COL_PANEL);
+        text_line("BYTES",gx+244u,pager_y-24u,COL_DIM,COL_PANEL);
+    } else if(!file_read_error) {
+        text_line("SELECT A FILE  |  DOUBLE CLICK FOLDER TO OPEN",
+                  gx,pager_y-24u,COL_DIM,COL_PANEL);
+    }
 }
 
 static void draw_about(const struct ui_window*w){
