@@ -8,6 +8,7 @@
 #include "memory.h"
 #include "heap.h"
 #include "vfs.h"
+#include "ext2_vfs.h"
 #include "lapic.h"
 #include "cpu.h"
 #include "intel_gpu.h"
@@ -201,6 +202,43 @@ static uint8_t notepad_loaded;
 static uint32_t file_selected = 0xFFFFFFFFu;
 static uint32_t file_last_clicked = 0xFFFFFFFFu;
 static uint32_t file_last_click_tick;
+#define FILE_MANAGER_MAX_ENTRIES 12u
+static struct vfs_dirent file_entries[FILE_MANAGER_MAX_ENTRIES];
+static uint32_t file_entry_count;
+static char file_current_path[VFS_PATH_MAX] = "/ext2";
+static void file_manager_refresh(void) {
+    uint32_t offset=0u,count=0u; struct vfs_dirent entry; int result;
+    file_entry_count=0u;
+    if(!ext2_vfs_path(file_current_path))return;
+    do {
+        result=vfs_readdir(file_current_path,&offset,&entry);
+        if(result<=0)break;
+        if(entry.inode==0u || (entry.name[0]=='.' &&
+           (entry.name[1]==0 || (entry.name[1]=='.' && entry.name[2]==0))))continue;
+        if(count<FILE_MANAGER_MAX_ENTRIES)file_entries[count++]=entry;
+    } while(result>0);
+    file_entry_count=count; file_selected=0xFFFFFFFFu;
+}
+static int file_manager_enter(uint32_t index) {
+    struct vfs_stat st; char next[VFS_PATH_MAX]; uint32_t n=0u;
+    if(index>=file_entry_count||file_entries[index].type!=2u)return 0;
+    while(file_current_path[n]&&n+1u<sizeof(next)){next[n]=file_current_path[n];++n;}
+    if(n+1u>=sizeof(next))return -1;
+    if(n&&next[n-1u]!='/')next[n++]='/';
+    for(uint32_t i=0u;file_entries[index].name[i];++i){
+        if(n+1u>=sizeof(next))return -1; next[n++]=file_entries[index].name[i];
+    }
+    next[n]=0;
+    if(vfs_stat_path(next,&st)<0||(st.flags&VFS_STAT_DIRECTORY)==0u)return -1;
+    for(uint32_t i=0u;i<=n;++i)file_current_path[i]=next[i];
+    file_manager_refresh(); return 1;
+}
+static void file_manager_parent(void) {
+    uint32_t n=0u; while(file_current_path[n])++n;
+    if(n<=5u)file_current_path[5]=0;
+    else {while(n>5u&&file_current_path[n-1u]!='/')--n;if(n>5u)--n;file_current_path[n]=0;}
+    file_manager_refresh();
+}
 
 static void glyph(char c, uint16_t rows[FONT_H]) {
     for (uint32_t i=0u;i< FONT_H;++i) rows[i]=0u;
@@ -408,39 +446,27 @@ static void draw_terminal(const struct ui_window*w){
 
 static int file_manager_hit(const struct ui_window*w,uint32_t x,uint32_t y,uint32_t *index){
     if(!w||!index)return 0;
-    uint32_t left=w->x+16u, top=w->y+TITLE_H+10u, side=128u;
-    uint32_t gx=left+side+18u, gy=top+48u;
-    uint32_t col_w=96u,row_h=70u;
+    uint32_t gx=w->x+162u,gy=w->y+TITLE_H+64u;
     if(x<gx||y<gy)return 0;
-    uint32_t col=(x-gx)/col_w,row=(y-gy)/row_h;
+    uint32_t col=(x-gx)/96u,row=(y-gy)/42u;
     if(col>=3u||row>=4u)return 0;
-    uint32_t bx=gx+col*col_w,by=gy+row*row_h;
-    if(x<bx||x>=bx+84u||y<by||y>=by+60u)return 0;
-    uint32_t idx=row*3u+col;
-    if(idx>=vfs_count()||idx>=12u)return 0;
-    *index=idx;
-    return 1;
+    uint32_t bx=gx+col*96u,by=gy+row*42u,idx=row*3u+col;
+    if(x<bx||x>=bx+90u||y<by||y>=by+38u||idx>=file_entry_count)return 0;
+    *index=idx;return 1;
 }
 static void file_manager_open_selected(void){
-    if(file_selected==0xFFFFFFFFu)return;
-    const char *name=vfs_name(file_selected);
-    if(!name)return;
-    int fd=vfs_open(name,1u);
-    if(fd<0)return;
-    int n=vfs_read(fd,notepad_text,NOTEPAD_TEXT_MAX);
-    (void)vfs_close(fd);
-    if(n<0)return;
-    notepad_len=(uint32_t)n;
-    if(notepad_len>NOTEPAD_TEXT_MAX)notepad_len=NOTEPAD_TEXT_MAX;
-    for(uint32_t i=0u;i<notepad_len;++i){
-        unsigned char c=(unsigned char)notepad_text[i];
-        if(c<32u&&c!='\n'&&c!='\r'&&c!='\t')notepad_text[i]='.';
-        else if(c=='\t')notepad_text[i]=' ';
-    }
-    notepad_text[notepad_len]=0;
-    notepad_cursor=notepad_len;
-    notepad_loaded=1u;
-    show(WIN_NOTEPAD);
+    if(file_selected==0xFFFFFFFFu||file_selected>=file_entry_count)return;
+    if(file_manager_enter(file_selected)>0)return;
+    char path[VFS_PATH_MAX];uint32_t n=0u;
+    while(file_current_path[n]&&n+1u<sizeof(path)){path[n]=file_current_path[n];++n;}
+    if(n+1u>=sizeof(path))return;
+    if(path[n-1u]!='/')path[n++]='/';
+    for(uint32_t i=0u;file_entries[file_selected].name[i];++i){if(n+1u>=sizeof(path))return;path[n++]=file_entries[file_selected].name[i];}
+    path[n]=0;int fd=vfs_open(path,1u);if(fd<0)return;
+    int count=vfs_read(fd,notepad_text,NOTEPAD_TEXT_MAX);(void)vfs_close(fd);if(count<0)return;
+    notepad_len=(uint32_t)count;if(notepad_len>NOTEPAD_TEXT_MAX)notepad_len=NOTEPAD_TEXT_MAX;
+    for(uint32_t i=0u;i<notepad_len;++i){unsigned char c=(unsigned char)notepad_text[i];if(c<32u&&c!='\n'&&c!='\r'&&c!='\t')notepad_text[i]='.';else if(c=='\t')notepad_text[i]=' ';}
+    notepad_text[notepad_len]=0;notepad_cursor=notepad_len;notepad_loaded=1u;show(WIN_NOTEPAD);
 }
 static int filename_has_suffix(const char *name, const char *suffix){
     uint32_t n=0u,s=0u;
@@ -470,40 +496,28 @@ static const uint32_t *file_icon_for_name(const char *name){
 
 static void draw_files(const struct ui_window*w){
     window_chrome(w,"Files");
-    uint32_t left=w->x+16u, top=w->y+TITLE_H+10u, side=128u;
+    uint32_t left=w->x+16u,top=w->y+TITLE_H+10u,side=128u;
     uint32_t body_h=w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u;
-    framebuffer_blend_round_rect(left,top,side,body_h,14u,COL_PANEL2,130u);
-    text_line("HOME",left+14u,top+14u,COL_GOLD,COL_PANEL2);
-    text_line("ALL FILES",left+14u,top+52u,COL_DIM,COL_PANEL2);
-    text_line("DISKS",left+14u,top+90u,COL_DIM,COL_PANEL2);
-
-    uint32_t right_w=w->w>side+35u?w->w-side-34u:1u;
-    framebuffer_blend_round_rect(left+side+1u,top,right_w,body_h,14u,COL_PANEL,120u);
-    text_line("/",left+side+18u,top+14u,COL_TEXT,COL_PANEL);
-    text_line("DOUBLE-CLICK TO OPEN",left+side+44u,top+14u,COL_DIM,COL_PANEL);
-
-    uint32_t gx=left+side+18u, gy=top+48u;
-    uint32_t n=vfs_count();
-    if(n==0u){text_line("Folder is empty",gx,gy,COL_DIM,COL_PANEL);return;}
-    for(uint32_t i=0u;i<n&&i<12u;++i){
-        const char*nme=vfs_name(i);if(!nme)continue;
-        uint32_t col=i%3u,row=i/3u;
-        uint32_t bx=gx+col*96u,by=gy+row*70u;
-        uint32_t selected=(file_selected==i);
-        fill(bx,by,84u,60u,selected?COL_SKY_MID:COL_PANEL2);
-        border(bx,by,84u,60u,selected?COL_GOLD:COL_GOLD_DIM);
-        if(bx+56u<=framebuffer_width()&&by+52u<=framebuffer_height())
-            framebuffer_blit_rgba32(file_icon_for_name(nme),LION_ICON_SIZE,LION_ICON_SIZE,bx+2u,by+2u,48u);
-        text_line(nme,bx+52u,by+12u,COL_TEXT,selected?COL_SKY_MID:COL_PANEL2);
-        text_line(selected?"SELECTED":"FILE",bx+52u,by+34u,selected?COL_GOLD:COL_DIM,selected?COL_SKY_MID:COL_PANEL2);
+    framebuffer_blend_round_rect(left,top,side,body_h,14u,COL_PANEL2,150u);
+    text_line("LOCATIONS",left+12u,top+12u,COL_DIM,COL_PANEL2);
+    text_line("EXT2 DISK",left+12u,top+42u,COL_GOLD,COL_PANEL2);
+    text_line("READ ONLY",left+12u,top+66u,COL_DIM,COL_PANEL2);
+    uint32_t gx=left+side+18u,gy=top+54u,right_w=w->w>side+35u?w->w-side-34u:1u;
+    framebuffer_blend_round_rect(left+side+1u,top,right_w,body_h,14u,COL_PANEL,130u);
+    text_line(file_current_path,gx,top+10u,COL_TEXT,COL_PANEL);
+    text_line("UP",gx,top+31u,COL_GOLD,COL_PANEL);
+    if(!file_entry_count)text_line("Directory empty or unavailable",gx,gy,COL_DIM,COL_PANEL);
+    for(uint32_t i=0u;i<file_entry_count;++i){
+        uint32_t col=i%3u,row=i/3u,bx=gx+col*96u,by=gy+row*42u;
+        uint32_t selected=file_selected==i,bg=selected?COL_SKY_MID:COL_PANEL2;
+        framebuffer_blend_round_rect(bx,by,90u,38u,7u,bg,120u);
+        border(bx,by,90u,38u,selected?COL_GOLD:COL_GOLD_DIM);
+        const char *name=file_entries[i].name;
+        const uint32_t *ico=file_entries[i].type==2u?lion_icon_home:file_icon_for_name(name);
+        framebuffer_blit_rgba32(ico,LION_ICON_SIZE,LION_ICON_SIZE,bx+3u,by+5u,24u);
+        text_line(name,bx+30u,by+12u,selected?COL_GOLD:COL_TEXT,bg);
     }
-    if(file_selected!=0xFFFFFFFFu&&file_selected<n){
-        const char*name=vfs_name(file_selected);
-        if(name){
-            uint32_t status_y=top+body_h>24u?top+body_h-24u:top;
-            text_line("OPEN WITH NOTEPAD",gx,status_y,COL_OK,COL_PANEL);
-        }
-    }
+    text_line("DOUBLE CLICK FOLDER TO OPEN",gx,top+body_h-22u,COL_DIM,COL_PANEL);
 }
 
 static void draw_about(const struct ui_window*w){
@@ -1208,6 +1222,9 @@ static void init_windows(void){
     }
     terminal_focus=0u;
     file_selected=0xFFFFFFFFu;
+    file_current_path[0]='/';file_current_path[1]='e';file_current_path[2]='x';
+    file_current_path[3]='t';file_current_path[4]='2';file_current_path[5]=0;
+    file_manager_refresh();
     file_last_clicked=0xFFFFFFFFu;
     file_last_click_tick=0u;
     dirty_full();
@@ -1328,6 +1345,13 @@ static void handle_window_click(struct ui_window*w){
         }
     }
     if(w->id==WIN_FILES){
+        uint32_t left=w->x+16u,top=w->y+TITLE_H+10u,side=128u;
+        if(hit(left+side+18u,top+27u,48u,22u,x,y)){file_manager_parent();dirty_full();return;}
+        if(hit(left+8u,top+34u,side-16u,34u,x,y)){
+            file_current_path[0]='/';file_current_path[1]='e';file_current_path[2]='x';
+            file_current_path[3]='t';file_current_path[4]='2';file_current_path[5]=0;
+            file_manager_refresh();dirty_full();return;
+        }
         uint32_t idx;
         if(file_manager_hit(w,x,y,&idx)){
             uint32_t now=interrupt_timer_ticks();
