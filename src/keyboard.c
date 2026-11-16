@@ -3,6 +3,8 @@
 #include "io.h"
 #include "keyboard.h"
 #include "mouse.h"
+#include "process.h"
+#include "spinlock.h"
 
 #define KEYBOARD_BUFFER_SIZE 128u
 #define PS2_STATUS 0x64u
@@ -13,6 +15,9 @@
 #define PS2_STATUS_PARITY 0x80u
 
 static volatile uint8_t buffer[KEYBOARD_BUFFER_SIZE];
+static struct spinlock keyboard_buffer_lock;
+static uint8_t keyboard_buffer_lock_ready;
+static uint8_t keyboard_wait_channel_token;
 static volatile uint32_t read_index;
 static volatile uint32_t write_index;
 static volatile uint8_t shift_down;
@@ -56,13 +61,19 @@ static const char shiftmap[128] = {
 };
 
 static void push_char(uint8_t c) {
+    uint32_t irq;
+    if (!keyboard_buffer_lock_ready) return;
+    irq = spinlock_irqsave_acquire(&keyboard_buffer_lock);
     uint32_t next = (write_index + 1u) % KEYBOARD_BUFFER_SIZE;
     if (next == read_index) {
         ++dropped_chars;
+        spinlock_irqrestore_release(&keyboard_buffer_lock, irq);
         return;
     }
     buffer[write_index] = c;
     write_index = next;
+    spinlock_irqrestore_release(&keyboard_buffer_lock, irq);
+    process_wakeup((uintptr_t)&keyboard_wait_channel_token);
 }
 
 static void keyboard_wait_write(void){
@@ -166,6 +177,8 @@ static int keyboard_probe_controller(void) {
 }
 
 void keyboard_init(void) {
+    spinlock_init(&keyboard_buffer_lock);
+    keyboard_buffer_lock_ready = 1u;
     read_index = 0;
     write_index = 0;
     shift_down = 0;
@@ -415,10 +428,37 @@ void keyboard_poll(void){
 
 
 int keyboard_getchar(void) {
-    if (read_index == write_index) return -1;
+    if (!keyboard_buffer_lock_ready) return -1;
+    uint32_t irq = spinlock_irqsave_acquire(&keyboard_buffer_lock);
+    if (read_index == write_index) {
+        spinlock_irqrestore_release(&keyboard_buffer_lock, irq);
+        return -1;
+    }
     uint8_t c = buffer[read_index];
     read_index = (read_index + 1u) % KEYBOARD_BUFFER_SIZE;
+    spinlock_irqrestore_release(&keyboard_buffer_lock, irq);
     return (int)c;
+}
+
+int32_t keyboard_read_blocking(uint8_t *dst, uint32_t capacity) {
+    if (!dst || capacity == 0u || !keyboard_buffer_lock_ready) return -1;
+    for (;;) {
+        uint32_t irq = spinlock_irqsave_acquire(&keyboard_buffer_lock);
+        if (read_index != write_index) {
+            uint32_t copied = 0u;
+            while (copied < capacity && read_index != write_index) {
+                dst[copied++] = buffer[read_index];
+                read_index = (read_index + 1u) % KEYBOARD_BUFFER_SIZE;
+            }
+            spinlock_irqrestore_release(&keyboard_buffer_lock, irq);
+            return (int32_t)copied;
+        }
+        int32_t blocked = process_sleep_on(
+            (uintptr_t)&keyboard_wait_channel_token,
+            &keyboard_buffer_lock, irq);
+        if (blocked == PROCESS_WAIT_BLOCKED) return PROCESS_WAIT_BLOCKED;
+        if (blocked < 0) return blocked;
+    }
 }
 
 int keyboard_ps2_available(void) {
@@ -426,6 +466,11 @@ int keyboard_ps2_available(void) {
 }
 
 uint32_t keyboard_available(void) {
-    if (write_index >= read_index) return write_index - read_index;
-    return KEYBOARD_BUFFER_SIZE - read_index + write_index;
+    if (!keyboard_buffer_lock_ready) return 0u;
+    uint32_t irq = spinlock_irqsave_acquire(&keyboard_buffer_lock);
+    uint32_t available = (write_index >= read_index)
+        ? (write_index - read_index)
+        : (KEYBOARD_BUFFER_SIZE - read_index + write_index);
+    spinlock_irqrestore_release(&keyboard_buffer_lock, irq);
+    return available;
 }
