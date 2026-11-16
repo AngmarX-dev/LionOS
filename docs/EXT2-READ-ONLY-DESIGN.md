@@ -1,6 +1,6 @@
 # ext2 Read-Only Filesystem: Stage F Design Contract
 
-**Status:** Stage F in progress; F1 generic read-only block contract and F2 isolated ext2 parser core implemented. ATA integration and VFS mount support remain pending.  
+**Status:** Stage F in progress; F1 generic read-only block contract, F2 isolated ext2 parser core, F3 synthetic host fixtures, F4a ATA IDENTIFY/capacity checks, and F4b-1 primary-master block-device adapter implemented. A separate ext2 ATA device/image and VFS mount integration remain pending.  
 **Branch:** `feature/graphics-engine-v2`  
 **Audit baseline:** `094675cd6b30af326724ecbd216f075182485a71`
 
@@ -10,7 +10,7 @@ The current tree has a usable but narrow ATA PIO sector interface:
 
 - `ata_read_sector(uint32_t lba, void *buffer)` reads one 512-byte sector.
 - `ata_write_sector` also exists and is used by the existing persistent LionFS/DiskFS.
-- The ATA implementation programs LBA28 task-file registers. The generic read-only per-device contract now exists, but ATA does not yet provide an IDENTIFY-derived capacity, partition discovery, or a registered block-device instance.
+- The ATA implementation programs LBA28 task-file registers and now obtains primary-master capacity through IDENTIFY. The primary-master read-only adapter is available, but a separate ext2 device path, partition discovery, and VFS mount integration do not yet exist.
 - The current QEMU disk fixture is an 8 MiB raw image. LionFS metadata occupies LBA 0 onward (superblock at LBA 0, directory at LBA 1..5, data beginning at LBA 6); it is not an MBR/GPT-partitioned ext2 disk.
 - VFS currently selects RAMFS or LionFS/DiskFS. It has no mount namespace or filesystem-driver registration interface.
 - The existing ATA path must not be assumed safe for arbitrary media until IDENTIFY/capacity handling and LBA range checks are implemented.
@@ -23,11 +23,11 @@ The current tree has a usable but narrow ATA PIO sector interface:
 
 **Implementation progress:** `include/block_device.h` and `src/block_device.c` now define a read-only per-device descriptor with logical sector size, total sector count, opaque backend context, and a bounded multi-sector read callback. `block_device_read` rejects null/incomplete descriptors, zero or unsupported sector sizes, zero-length reads, out-of-range LBAs, arithmetic/32-bit buffer-size overflow, and undersized destination buffers before invoking the backend. There is deliberately no write API.
 
-The descriptor is caller-owned; backend context lifetime is owned by the backend/provider. Backend serialization remains the provider's responsibility. A global device registry and ATA provider are not part of this first slice. The existing ATA implementation is not yet registered because it has no IDENTIFY-derived capacity and currently exposes only unchecked 32-bit LBA calls.
+The descriptor is caller-owned; backend context lifetime is owned by the backend/provider. Backend serialization remains the provider's responsibility. A global device registry is not part of this first slice. The primary-master ATA provider is implemented separately in F4b-1. The existing ATA implementation is not yet registered because it has no IDENTIFY-derived capacity and currently exposes only unchecked 32-bit LBA calls.
 
 A host-side contract test in `tests/block_device_test.c` covers valid reads, returned data, device-boundary rejection, malformed descriptors, maximal LBA and oversized byte ranges. The test is integrated into `make test` as `block-device-check`.
 
-The first filesystem consumer must use only this interface. ATA may become one backend only after IDENTIFY establishes device capacity and the driver rejects out-of-range requests. Do not expose the current unchecked LBA28 path as a generally safe device.
+The first filesystem consumer must use only this interface. The primary-master ATA provider is now bounded by IDENTIFY-derived capacity. Do not use it to probe the existing LionFS disk; ext2 must use a separate device.
 
 ### F2 — ext2 parser core (no VFS mount yet)
 
@@ -75,13 +75,13 @@ The test harness must not require privileged access or modify user disks. Host t
 
 **Important limitation:** this provider currently describes the same primary-master disk used by LionFS. It is not mounted as ext2 and must not be used to probe the LionFS image. A separate ATA device selection path and a dedicated ext2 QEMU disk are still required. The adapter has not yet been wired into boot-time VFS or ext2 initialization.
 
-### F4 — ATA backend and QEMU integration
+### F4b — Separate ATA device, QEMU ext2 image, and VFS integration
 
-Only after F1-F3 pass:
+Remaining work:
 
-- add ATA IDENTIFY/capacity discovery and enforce the device's real LBA28 limit;
+- add an independently selectable ATA device path (for example, primary-channel slave) without changing the primary-master LionFS path;
 - add a dedicated QEMU ext2 disk image, separate from `build/lionos-disk.img` used by LionFS persistence;
-- test sector reads and filesystem parsing against that dedicated image;
+- test IDENTIFY, sector reads, and ext2 parsing against that dedicated image through the ATA provider;
 - add a read-only VFS mount/backend integration with explicit mount lifetime and error propagation.
 
 Keep existing LionFS persistence behavior unchanged. Do not change xHCI source.
