@@ -95,7 +95,7 @@ static int triple_indirect_geometry(uint32_t bs) {
         (uint64_t)2u * pointers_per_block + 3u;
     uint32_t offset;
 
-    if (bs == 4096u || triple_start * bs > UINT32_MAX)
+    if (bs == 4096u || logical_block * bs + 3u > UINT32_MAX)
         return 0; /* 32-bit ext2 inode size cannot address this region. */
 
     make_image(&im, bs);
