@@ -167,7 +167,11 @@ int vfs_lstat_path(const char *path, struct vfs_stat *st) {
     uint32_t irq;
     if (!st || path_normalize(clean, path) < 0) return -1;
     irq = spinlock_irqsave_acquire(&vfs_lock);
-    if (ext2_vfs_lstat(clean, &size, &is_directory, &is_symlink) == 0) {
+    if (ext2_vfs_path(clean)) {
+        if (ext2_vfs_lstat(clean, &size, &is_directory, &is_symlink) < 0) {
+            spinlock_irqrestore_release(&vfs_lock, irq);
+            return -1;
+        }
         st->size = size;
         st->backend = VFS_BACKEND_EXT2_RO;
         st->flags = VFS_STAT_READ_ONLY |
@@ -175,7 +179,7 @@ int vfs_lstat_path(const char *path, struct vfs_stat *st) {
                     (is_symlink ? VFS_STAT_SYMLINK : 0u);
         spinlock_irqrestore_release(&vfs_lock, irq);
         return 0;
-    }
+        }
     if (ramfs_data(clean)) {
         st->size = ramfs_size(clean); st->backend = VFS_BACKEND_RAMFS;
         st->flags = 0u;
