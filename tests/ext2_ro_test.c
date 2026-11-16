@@ -60,8 +60,8 @@ static void make_image(struct disk_image *im, uint32_t bs) {
     put32(it + 168u, 6u);
     put16(it + 256u, 0x81a4u); put32(it + 260u, 5u);
     put32(it + 296u, 7u);
-    put16(it + 384u, 0x81a4u); put32(it + 388u, 13u * bs + 3u);
-    put32(it + 472u, 10u); put32(it + 476u, 8u);
+    put16(it + 384u, 0x81a4u); put32(it + 388u, 12u * bs + 3u);
+    put32(it + 468u, 10u); put32(it + 472u, 8u);
 
     put32(root, 2u); put16(root + 4u, 12u); root[6] = 1u; root[8] = '.';
     put32(root + 12u, 2u); put16(root + 16u, 12u); root[18] = 2u;
@@ -113,7 +113,7 @@ static int valid_geometry(uint32_t bs) {
     fails += expect(ext2_ro_read_file(&fs, &boundary, 12u * bs, out, 3u,
                                       scratch, sizeof(scratch)) == 3 &&
                     out[0] == 'I' && out[2] == 'D', "read singly-indirect data");
-    fails += expect(ext2_ro_read_file(&fs, &boundary, 13u * bs + 2u, out, 8u,
+    fails += expect(ext2_ro_read_file(&fs, &boundary, 12u * bs + 2u, out, 8u,
                                       scratch, sizeof(scratch)) == 1 && out[0] == 'D',
                     "clip read at EOF");
     return fails;
