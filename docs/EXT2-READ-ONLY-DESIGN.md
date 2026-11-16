@@ -117,10 +117,16 @@ Host adapter tests use distinct backing arrays to verify that master and slave r
 
 **Implemented and previously CI-verified:** the ext2 parser exposes `ext2_ro_readdir()` iteration. It validates cursor alignment, record lengths, block boundaries, inode numbers, name lengths, file types, and NUL-terminates/clears returned names. The VFS adapter resolves multi-component paths beneath `/ext2`, exposes directory-aware `stat`, and adds `vfs_readdir()` with `1` for an entry, `0` for end-of-directory, and `-1` for invalid paths or malformed data. The fixture now contains `/subdir/nested.txt`; host parser tests cover enumeration at 1/2/4 KiB block sizes, and QEMU smoke tests cover root/subdirectory enumeration, nested file reads, and read-only enforcement.
 
-**Scope:** F5 provides kernel VFS enumeration for ext2. Symlinks, directory mutation, indexed directories, and multi-level indirect blocks remain unsupported. All ext2 access remains read-only.
+**Scope:** F5 provides kernel VFS enumeration for ext2. Symlinks, directory mutation, indexed directories, and triple-indirect blocks remain unsupported. All ext2 access remains read-only.
 
 ### F6 — Userland read-only directory streams
 
-**Implementation progress (CI pending):** syscall `LIONOS_SYS_READDIR` (44) exposes one validated ext2 directory entry per call using a user-owned cursor and `struct lion_dirent`. The kernel validates FS capability, bounded path strings, writable/COW-resolvable output pages, and non-overlapping cursor/entry buffers before invoking VFS. Return values are `1` for an entry, `0` for end-of-directory, and `-1` for failure.
+**Implemented and CI-verified on `8377a6d203daecda59c2d78d09685efa05d3c380`:** syscall `LIONOS_SYS_READDIR` (44) exposes one validated ext2 directory entry per call using a user-owned cursor and `struct lion_dirent`. The kernel validates FS capability, bounded path strings, writable/COW-resolvable output pages, and non-overlapping cursor/entry buffers before invoking VFS. Return values are `1` for an entry, `0` for end-of-directory, and `-1` for failure.
 
 The native POSIX-inspired layer adds `opendir()`, `readdir()`, and `closedir()` using a bounded 64-byte path and the existing per-process 32 KiB user heap. `ls` now includes the mounted `/ext2` root alongside the existing RAMFS/LionFS listing. Userland integration tests cover root and nested directory enumeration, entry types, repeated EOF, invalid directory paths, null output pointers, and unaligned cursors. Because errno is not implemented, `readdir()` returns null for both EOF and errors. This is a LionOS-specific subset, not full POSIX directory-stream conformance.
+
+### F7 — Double-indirect block mapping
+
+**Implementation progress (CI pending):** ext2 file and directory block mapping now supports the twelve direct pointers, the singly-indirect pointer, and the doubly-indirect pointer. The mapper bounds the logical block against the double-indirect capacity, validates the root and leaf pointer blocks through the bounded block reader, and rejects zero or out-of-range data pointers. Triple-indirect mapping remains unsupported and is rejected rather than guessed.
+
+Host parser tests exercise a double-indirect data read for 1 KiB, 2 KiB, and 4 KiB filesystem block sizes. Negative tests cover an out-of-range double-indirect root and an out-of-range leaf data pointer. Existing direct/single-indirect, directory traversal, malformed-record, and backend-error tests remain in place. QEMU runtime coverage of a double-indirect fixture and real-device qualification are still outstanding.
