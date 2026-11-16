@@ -68,7 +68,7 @@ static void make_image(struct disk_image *im, uint32_t bs) {
     root[20] = '.'; root[21] = '.';
     put32(root + 24u, 3u); put16(root + 28u, 16u); root[30] = 5u;
     root[32] = 'h'; root[33] = 'e'; root[34] = 'l'; root[35] = 'l'; root[36] = 'o';
-    put16(root + 40u, (uint16_t)(bs - 40u));
+    put16(root + 44u, (uint16_t)(bs - 40u));
     data[0] = 'h'; data[1] = 'e'; data[2] = 'l'; data[3] = 'l'; data[4] = 'o';
     im->bytes[10u * bs + bs - 1u] = 'D';
     put32(indirect, 9u);
