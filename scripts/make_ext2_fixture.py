@@ -104,7 +104,8 @@ def main():
     root[40:60] = dirent(3, 20, "README.TXT", 1)
     root[60:80] = dirent(7, 20, "readme-link", 7)
     root[80:100] = dirent(8, 20, "nested-link", 7)
-    root[100:116] = dirent(9, 16, "loop-a", 7)\n    root[116:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 116, "TRIPLE.TXT", 1)
+    root[100:116] = dirent(9, 16, "loop-a", 7)
+    root[116:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 116, "TRIPLE.TXT", 1)
     image[9 * BLOCK_SIZE:10 * BLOCK_SIZE] = root
 
     subdir = bytearray(BLOCK_SIZE)
