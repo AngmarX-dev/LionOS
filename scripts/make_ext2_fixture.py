@@ -12,6 +12,8 @@ NESTED_PAYLOAD = b"LionOS nested ext2 fixture OK\n"
 TRIPLE_PAYLOAD = b"LionOS triple-indirect QEMU read OK\n"
 TRIPLE_LOGICAL_BLOCK = 12 + (BLOCK_SIZE // 4) + (BLOCK_SIZE // 4) ** 2
 TRIPLE_OFFSET = TRIPLE_LOGICAL_BLOCK * BLOCK_SIZE
+FAST_LINK_TARGET = b"README.TXT"
+SLOW_LINK_TARGET = (b"./" * 22) + b"subdir/nested.txt"
 
 def put16(buf, off, value):
     struct.pack_into("<H", buf, off, value)
@@ -71,6 +73,19 @@ def main():
     put32(triple_inode, 40 + 14 * 4, 13)  # i_block[14]: triple-indirect root.
     image[inode_table + 640:inode_table + 768] = triple_inode
 
+    fast_link = bytearray(128)
+    put16(fast_link, 0, 0xA1FF)
+    put32(fast_link, 4, len(FAST_LINK_TARGET))
+    fast_link[40:40 + len(FAST_LINK_TARGET)] = FAST_LINK_TARGET
+    image[inode_table + 768:inode_table + 896] = fast_link
+
+    slow_link = bytearray(128)
+    put16(slow_link, 0, 0xA1FF)
+    put32(slow_link, 4, len(SLOW_LINK_TARGET))
+    put32(slow_link, 28, 2)
+    put32(slow_link, 40, 17)
+    image[inode_table + 896:inode_table + 1024] = slow_link
+
     # Triple-indirect path: root(13) -> middle(14) -> leaf(15) -> data(16).
     put32(image, 13 * BLOCK_SIZE, 14)
     put32(image, 14 * BLOCK_SIZE, 15)
@@ -81,7 +96,9 @@ def main():
     root[12:24] = dirent(2, 12, "..", 2)
     root[24:40] = dirent(4, 16, "subdir", 2)
     root[40:60] = dirent(3, 20, "README.TXT", 1)
-    root[60:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 60, "TRIPLE.TXT", 1)
+    root[60:80] = dirent(7, 20, "readme-link", 7)
+    root[80:100] = dirent(8, 20, "nested-link", 7)
+    root[100:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 100, "TRIPLE.TXT", 1)
     image[9 * BLOCK_SIZE:10 * BLOCK_SIZE] = root
 
     subdir = bytearray(BLOCK_SIZE)
@@ -93,6 +110,7 @@ def main():
     image[10 * BLOCK_SIZE:10 * BLOCK_SIZE + len(PAYLOAD)] = PAYLOAD
     image[12 * BLOCK_SIZE:12 * BLOCK_SIZE + len(NESTED_PAYLOAD)] = NESTED_PAYLOAD
     image[16 * BLOCK_SIZE:16 * BLOCK_SIZE + len(TRIPLE_PAYLOAD)] = TRIPLE_PAYLOAD
+    image[17 * BLOCK_SIZE:17 * BLOCK_SIZE + len(SLOW_LINK_TARGET)] = SLOW_LINK_TARGET
     Path(sys.argv[1]).write_bytes(image)
 
 if __name__ == "__main__":
