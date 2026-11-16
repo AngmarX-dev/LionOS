@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - phase-26-gui
+      - feature/graphics-engine-v2
   pull_request:
     branches:
       - main
