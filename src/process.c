@@ -133,10 +133,11 @@ uint32_t process_fork_current(uint32_t *parent_frame){
         uint32_t result=slot->pid;
         slot->state=PROCESS_STOPPED;
         spinlock_irqrestore_release(&process_lock,flags);
+        uint32_t cleanup_flags;
         if(pipe_fork(parent,slot)!=0){
             slot->pipe_read_mask=0u;
             slot->pipe_write_mask=0u;
-            uint32_t cleanup_flags=spinlock_irqsave_acquire(&process_lock);
+            cleanup_flags=spinlock_irqsave_acquire(&process_lock);
             if(slot->state==PROCESS_STOPPED)slot->state=PROCESS_ZOMBIE;
             spinlock_irqrestore_release(&process_lock,cleanup_flags);
             (void)process_reap_pid(result);
