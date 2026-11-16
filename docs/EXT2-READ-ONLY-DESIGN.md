@@ -151,4 +151,13 @@ F10 acceptance: host parser tests pass; QEMU reads the triple-indirect payload t
 
 ### G1 — Read-only symbolic-link target parsing
 
-**Implementation scope:** ext2 inode parsing recognizes symbolic-link inode types and retains the inode's 512-byte sector count plus the 60-byte inline `i_block` payload. `ext2_ro_read_symlink()` reads fast symlink targets inline when `i_blocks == 0), and slow targets through the existing bounded data-block mapper when sectors are allocated. It validates inode type, target length, destination capacity including the trailing NUL, minimum allocated data sectors, data-block bounds, and embedded NUL bytes. This stage returns the target text only; it does not follow links during VFS path resolution, detect cycles, or mutate the filesystem. The ext2 backend remains read-only.
+**Implementation scope:** ext2 inode parsing recognizes symbolic-link inode types and retains the inode's 512-byte sector count plus the 60-byte inline `i_block` payload. `ext2_ro_read_symlink()` reads fast symlink targets inline when `i_blocks == 0`, and slow targets through the existing bounded data-block mapper when sectors are allocated. It validates inode type, target length, destination capacity including the trailing NUL, minimum allocated data sectors, data-block bounds, and embedded NUL bytes. This stage returns the target text only; it does not follow links during VFS path resolution, detect cycles, or mutate the filesystem. The ext2 backend remains read-only.
+
+
+### G2 — Bounded symbolic-link traversal in the VFS
+
+**Implementation scope:** ext2 VFS path resolution now follows symbolic links in both intermediate and final path components. Relative targets are resolved against the containing directory; absolute targets are interpreted from the ext2 mount root. The resolver normalizes dot components, prevents traversal above the ext2 root, restarts lookup after link expansion, tracks followed inode numbers to reject cycles, and enforces an eight-link traversal limit. Target expansion and intermediate buffers are bounded by the VFS path limit. No write operation or symlink mutation is introduced.
+
+The deterministic QEMU ext2 fixture contains a fast relative link to the root README, a slow relative link to a nested file (target length greater than the 60-byte inline area), and a self-referential link. Boot integration tests require successful reads through both valid links and rejection of the cyclic link on both QEMU boots. The existing read-only, nested-directory, triple-indirect, LionFS persistence, GUI, and xHCI regression gates remain required.
+
+**Limitations:** this is a bounded ext2-only resolver, not full POSIX pathname semantics. The VFS currently normalizes user paths before backend resolution, so lexical dot/dot-dot handling occurs before symlink traversal for caller-supplied paths. `lstat`, link creation/removal, permissions, and mount-namespace semantics remain out of scope.
