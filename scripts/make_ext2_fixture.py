@@ -29,6 +29,15 @@ def make_inode(mode, size, block):
     put32(inode, 40, block)
     return inode
 
+def make_fast_symlink(target):
+    inode = bytearray(128)
+    put16(inode, 0, 0xA1FF)
+    put32(inode, 4, len(target))
+    if len(target) > 60:
+        raise ValueError("fast symlink target exceeds inline inode capacity")
+    inode[40:40 + len(target)] = target
+    return inode
+
 def dirent(inode, rec_len, name, file_type):
     encoded = name.encode("ascii")
     entry = bytearray(rec_len)
@@ -104,6 +113,13 @@ def main():
     absolute_link[40:51] = b"/README.TXT"
     image[inode_table + 1280:inode_table + 1408] = absolute_link
 
+    # Eight-link chain succeeds; the ninth link must exceed the resolver limit.
+    for depth in range(1, 10):
+        target = b"README.TXT" if depth == 1 else f"depth{depth - 1}".encode("ascii")
+        inode_number = 11 + depth
+        start = inode_table + (inode_number - 1) * 128
+        image[start:start + 128] = make_fast_symlink(target)
+
     # Triple-indirect path: root(13) -> middle(14) -> leaf(15) -> data(16).
     put32(image, 13 * BLOCK_SIZE, 14)
     put32(image, 14 * BLOCK_SIZE, 15)
@@ -119,7 +135,10 @@ def main():
     root[100:116] = dirent(9, 16, "loop-a", 7)
     root[116:136] = dirent(10, 20, "subdir-link", 7)
     root[136:152] = dirent(11, 16, "abs-link", 7)
-    root[152:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 152, "TRIPLE.TXT", 1)
+    for depth in range(1, 10):
+        offset = 152 + (depth - 1) * 16
+        root[offset:offset + 16] = dirent(11 + depth, 16, f"depth{depth}", 7)
+    root[296:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 296, "TRIPLE.TXT", 1)
     image[9 * BLOCK_SIZE:10 * BLOCK_SIZE] = root
 
     subdir = bytearray(BLOCK_SIZE)
