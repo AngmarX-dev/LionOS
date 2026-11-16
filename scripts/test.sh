@@ -195,6 +195,7 @@ grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-DIRECTORY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK' build/qemu-first.log
+grep -q 'LIONOS:EXT2-VFS-SYMLINK-TEST-OK' build/qemu-first.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-first.log
 
 echo "[4/6] High-memory allocator + cross-CPU TLB shootdown"
@@ -220,6 +221,7 @@ grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-DIRECTORY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK' build/qemu-second.log
+grep -q 'LIONOS:EXT2-VFS-SYMLINK-TEST-OK' build/qemu-second.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
 echo "[6/6] Graphical desktop / keyboard escape smoke test"
