@@ -107,6 +107,10 @@ static int ext2_symlink_syscall_test(void) {
     struct lion_stat intermediate_status;
     char target[sizeof(expected_target) - 1u];
     char short_target[5] = {'?', '?', '?', '?', '!'};
+    char unterminated_path[64];
+
+    for (uint32_t i = 0u; i < sizeof(unterminated_path); ++i)
+        unterminated_path[i] = 'X';
 
     if (lion_lstat(link_path, &link_status) < 0 ||
         (link_status.flags & LIONOS_STAT_SYMLINK) == 0u ||
@@ -130,6 +134,12 @@ static int ext2_symlink_syscall_test(void) {
         lion_lstat(0, &link_status) >= 0 ||
         lion_lstat(link_path, 0) >= 0)
         return 35;
+    if (lion_lstat(unterminated_path, &link_status) >= 0 ||
+        lion_readlink(link_path, target, 4097u) >= 0)
+        return 38;
+    if (lion_readlink(link_path, (char *)(uintptr_t)0xBFFFFFFFu, 4u) >= 0 ||
+        lion_lstat(link_path, (struct lion_stat *)(uintptr_t)0xBFFFFFFFu) >= 0)
+        return 39;
     if (lion_lstat(loop_path, &loop_status) < 0 ||
         (loop_status.flags & LIONOS_STAT_SYMLINK) == 0u ||
         loop_status.size != 6u || lion_stat(loop_path, &target_status) >= 0)
