@@ -259,6 +259,13 @@ static int integration_vfs_ok;
 static int integration_cow_ok;
 static int integration_utility_ok;
 static int integration_pipe_ok;
+static void debug_write_u32_hex(uint32_t value){
+    static const char digits[]="0123456789ABCDEF";
+    char out[8];
+    for(uint32_t i=0u;i<8u;++i)
+        out[i]=digits[(value>>(28u-i*4u))&0xFu];
+    debug_write(out);
+}
 
 void lionos_user_integration_step(void){
     if(integration_done)return;
@@ -385,7 +392,11 @@ void lionos_user_integration_step(void){
         int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
-            integration_pipe_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
+            int exit_status_valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            integration_pipe_ok=(exit_status_valid&&code==0u);
+            debug_write("LIONOS:PIPE-TEST-EXIT-CODE=0x");
+            debug_write_u32_hex(code);
+            debug_write(exit_status_valid?"\\n":" INVALID\\n");
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 integration_pipe_ok=0;
             integration_pid=-1;
