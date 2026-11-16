@@ -295,6 +295,21 @@ static int symlink_tests(void) {
                     target[0] == 'a' && target[69] == 'r' && target[70] == '\0',
                     "read slow symlink through data block");
 
+    put32(slow_inode + 4u, 61u);
+    for (uint32_t i = 0u; i < 61u; ++i)
+        im.bytes[15u * 1024u + i] = (uint8_t)'X';
+    fails += expect(ext2_ro_read_inode(&fs, 6u, &link, scratch,
+                                       sizeof(scratch)) == 0 &&
+                    ext2_ro_read_symlink(&fs, &link, target, sizeof(target),
+                                         scratch, sizeof(scratch)) == 61 &&
+                    target[0] == 'X' && target[60] == 'X' &&
+                    target[61] == '\0',
+                    "read exact 61-byte slow symlink boundary");
+    put32(slow_inode + 4u, 70u);
+    fails += expect(ext2_ro_read_inode(&fs, 6u, &link, scratch,
+                                       sizeof(scratch)) == 0,
+                    "restore slow symlink fixture");
+
     fails += expect(ext2_ro_read_inode(&fs, 3u, &regular, scratch,
                                        sizeof(scratch)) == 0 &&
                     ext2_ro_read_symlink(&fs, &regular, target, sizeof(target),
