@@ -113,6 +113,9 @@ def main():
     absolute_link[40:51] = b"/README.TXT"
     image[inode_table + 1280:inode_table + 1408] = absolute_link
 
+    parent_link = make_fast_symlink(b"subdir/../README.TXT")
+    image[inode_table + 2560:inode_table + 2688] = parent_link
+
     # Eight-link chain succeeds; the ninth link must exceed the resolver limit.
     for depth in range(1, 10):
         target = b"README.TXT" if depth == 1 else f"depth{depth - 1}".encode("ascii")
@@ -138,7 +141,8 @@ def main():
     for depth in range(1, 10):
         offset = 152 + (depth - 1) * 16
         root[offset:offset + 16] = dirent(11 + depth, 16, f"depth{depth}", 7)
-    root[296:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 296, "TRIPLE.TXT", 1)
+    root[296:316] = dirent(21, 20, "parent-link", 7)
+    root[316:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 316, "TRIPLE.TXT", 1)
     image[9 * BLOCK_SIZE:10 * BLOCK_SIZE] = root
 
     subdir = bytearray(BLOCK_SIZE)
