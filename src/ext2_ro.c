@@ -5,6 +5,7 @@
 #define EXT2_MAGIC 0xef53u
 #define EXT2_FEATURE_INCOMPAT_FILETYPE 0x0002u
 #define EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER 0x0001u
+#define EXT2_FEATURE_RO_COMPAT_LARGE_FILE 0x0002u
 #define EXT2_FEATURE_COMPAT_ALLOWED 0x0038u
 #define EXT2_INODE_FLAG_INDEX 0x00001000u
 #define EXT2_MODE_TYPE 0xf000u
@@ -201,9 +202,12 @@ int ext2_ro_mount(struct ext2_ro_fs *fs,
     if (candidate.first_data_block !=
         (candidate.block_size == 1024u ? 1u : 0u))
         return -1;
-    if ((compat & ~EXT2_FEATURE_COMPAT_ALLOWED) != 0u ||
+    if ((revision == 0u &&
+         (ro_compat & EXT2_FEATURE_RO_COMPAT_LARGE_FILE) != 0u) ||
+        (compat & ~EXT2_FEATURE_COMPAT_ALLOWED) != 0u ||
         (incompat & ~EXT2_FEATURE_INCOMPAT_FILETYPE) != 0u ||
-        (ro_compat & ~EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER) != 0u)
+        (ro_compat & ~(EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER |
+                       EXT2_FEATURE_RO_COMPAT_LARGE_FILE)) != 0u)
         return -1;
 
     group_blocks = div_ceil_u64_u32(
@@ -266,6 +270,14 @@ int ext2_ro_read_inode(const struct ext2_ro_fs *fs,
         return -1;
     inode->mode = le16(scratch + within);
     inode->size = le32(scratch + within + 4u);
+    if ((inode->mode & EXT2_MODE_TYPE) == EXT2_MODE_REG &&
+        (fs->ro_compat_features & EXT2_FEATURE_RO_COMPAT_LARGE_FILE) != 0u)
+        inode->size |= (uint64_t)le32(scratch + within + 108u) << 32;
+    else if (le32(scratch + within + 108u) != 0u)
+        return -1;
+    if ((inode->mode & EXT2_MODE_TYPE) == EXT2_MODE_DIR &&
+        inode->size > UINT32_MAX)
+        return -1;
     inode->flags = le32(scratch + within + 32u);
     for (uint32_t i = 0; i < 15u; ++i)
         inode->blocks[i] = le32(scratch + within + 40u + i * 4u);
@@ -279,7 +291,7 @@ int ext2_ro_read_inode(const struct ext2_ro_fs *fs,
 
 static int map_file_block(const struct ext2_ro_fs *fs,
                           const struct ext2_ro_inode *inode,
-                          uint32_t logical,
+                          uint64_t logical,
                           uint32_t *physical,
                           uint8_t *scratch,
                           uint32_t scratch_size) {
@@ -375,7 +387,7 @@ static int map_file_block(const struct ext2_ro_fs *fs,
 
 int ext2_ro_read_file(const struct ext2_ro_fs *fs,
                       const struct ext2_ro_inode *inode,
-                      uint32_t offset,
+                      uint64_t offset,
                       void *buffer,
                       uint32_t length,
                       void *scratch_buffer,
@@ -393,9 +405,9 @@ int ext2_ro_read_file(const struct ext2_ro_fs *fs,
     remaining = inode->size - offset;
     if (length > remaining) length = remaining;
     while (copied < length) {
-        uint32_t file_pos = offset + copied;
-        uint32_t logical = file_pos / fs->block_size;
-        uint32_t within = file_pos % fs->block_size;
+        uint64_t file_pos = offset + copied;
+        uint64_t logical = file_pos / fs->block_size;
+        uint32_t within = (uint32_t)(file_pos % fs->block_size);
         uint32_t chunk = fs->block_size - within;
         uint32_t physical;
         if (chunk > length - copied) chunk = length - copied;
