@@ -33,7 +33,7 @@ run_qemu() {
         -smp 2 \
         -cdrom build/lionos.iso \
         -drive file=build/lionos-disk.img,format=raw,if=ide,index=0 \
-        -drive file=build/ext2-slave-test.img,format=raw,if=ide,index=1,readonly=on \
+        -drive file=build/ext2-slave-test.img,format=raw,if=ide,index=1,snapshot=on \
         -m "$QEMU_MEMORY" \
         -display none \
         -serial none \
@@ -72,7 +72,7 @@ run_gui_smoke() {
         -smp 2 \
         -cdrom build/lionos.iso \
         -drive file=build/lionos-disk.img,format=raw,if=ide,index=0 \
-        -drive file=build/ext2-slave-test.img,format=raw,if=ide,index=1,readonly=on \
+        -drive file=build/ext2-slave-test.img,format=raw,if=ide,index=1,snapshot=on \
         -m "$QEMU_MEMORY" \
         -display none \
         -serial none \
