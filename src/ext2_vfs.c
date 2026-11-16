@@ -155,8 +155,12 @@ int ext2_vfs_boot_test(void) {
         "LionOS ext2 slave read-only fixture OK\n";
     static const char nested_expected[] =
         "LionOS nested ext2 fixture OK\n";
+    static const char triple_expected[] =
+        "LionOS triple-indirect QEMU read OK\n";
+    const uint32_t triple_offset = (12u + 256u + 65536u) * 1024u;
     char contents[sizeof(expected)];
     char nested_contents[sizeof(nested_expected)];
+    char triple_contents[sizeof(triple_expected)];
     struct vfs_dirent entry;
     struct vfs_stat st;
     uint32_t cursor = 0u;
@@ -249,6 +253,23 @@ int ext2_vfs_boot_test(void) {
         }
     }
 
+    if (vfs_stat_path("/ext2/TRIPLE.TXT", &st) < 0 ||
+        st.backend != VFS_BACKEND_EXT2_RO ||
+        st.size != triple_offset + sizeof(triple_expected) - 1u ||
+        ext2_vfs_read("ext2/TRIPLE.TXT", triple_offset, triple_contents,
+                      (uint32_t)sizeof(triple_contents)) !=
+            (int)(sizeof(triple_expected) - 1u)) {
+        debug_write("LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-FAIL\n");
+        return -1;
+    }
+    for (uint32_t i = 0u; i < sizeof(triple_expected) - 1u; ++i) {
+        if (triple_contents[i] != triple_expected[i]) {
+            debug_write("LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-FAIL\n");
+            return -1;
+        }
+    }
+
+    debug_write("LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-DIRECTORY-TEST-OK\n");
     debug_write("LIONOS:EXT2-VFS-READ-ONLY-TEST-OK\n");
     return 0;
