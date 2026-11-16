@@ -10,6 +10,7 @@
 #include "vfs.h"
 #include "ata.h"
 #include "diskfs.h"
+#include "ramfs.h"
 #include "ext2_vfs.h"
 #include "lapic.h"
 #include "cpu.h"
@@ -212,6 +213,10 @@ static uint32_t file_page_start;
 static uint8_t file_has_prev;
 static uint8_t file_has_next;
 static uint8_t file_read_error;
+#define FILE_SOURCE_EXT2 0u
+#define FILE_SOURCE_RAMFS 1u
+#define FILE_SOURCE_LIONFS 2u
+static uint8_t file_source = FILE_SOURCE_EXT2;
 static char file_current_path[VFS_PATH_MAX] = "/ext2";
 static uint32_t file_master_sectors;
 static uint32_t file_slave_sectors;
@@ -234,38 +239,69 @@ static void file_manager_refresh(void) {
     file_read_error=0u;
     file_selected=0xFFFFFFFFu;
 
-    if(!ext2_vfs_path(file_current_path)) {
-        file_read_error=1u;
+    if(file_source==FILE_SOURCE_EXT2) {
+        if(!ext2_vfs_path(file_current_path)) {
+            file_read_error=1u;
+        } else {
+            for(;;) {
+                result=vfs_readdir(file_current_path,&offset,&entry);
+                if(result==0)break;
+                if(result<0) {
+                    file_read_error=1u;
+                    break;
+                }
+                if(entry.inode==0u || (entry.name[0]=='.' &&
+                   (entry.name[1]==0 ||
+                    (entry.name[1]=='.' && entry.name[2]==0))))
+                    continue;
+
+                if(seen>=file_page_start &&
+                   file_entry_count<FILE_MANAGER_MAX_ENTRIES)
+                    file_entries[file_entry_count++]=entry;
+
+                if(file_total_entries<UINT32_MAX)
+                    ++file_total_entries;
+                else {
+                    file_read_error=1u;
+                    break;
+                }
+                ++seen;
+            }
+        }
+        if(file_page_start>file_total_entries && file_total_entries!=0u)
+            file_page_start=((file_total_entries-1u)/FILE_MANAGER_MAX_ENTRIES)*
+                             FILE_MANAGER_MAX_ENTRIES;
     } else {
-        for(;;) {
-            result=vfs_readdir(file_current_path,&offset,&entry);
-            if(result==0)break;
-            if(result<0) {
+        uint32_t count=file_source==FILE_SOURCE_RAMFS
+            ?ramfs_count():diskfs_count();
+        file_total_entries=count;
+        if(file_page_start>=count && count!=0u)
+            file_page_start=((count-1u)/FILE_MANAGER_MAX_ENTRIES)*
+                             FILE_MANAGER_MAX_ENTRIES;
+        for(uint32_t i=file_page_start;
+            i<count && file_entry_count<FILE_MANAGER_MAX_ENTRIES;++i) {
+            const char *name=file_source==FILE_SOURCE_RAMFS
+                ?ramfs_name(i):diskfs_name(i);
+            if(!name || !name[0]) {
                 file_read_error=1u;
-                break;
-            }
-            if(entry.inode==0u || (entry.name[0]=='.' &&
-               (entry.name[1]==0 ||
-                (entry.name[1]=='.' && entry.name[2]==0))))
                 continue;
-
-            if(seen>=file_page_start &&
-               file_entry_count<FILE_MANAGER_MAX_ENTRIES)
-                file_entries[file_entry_count++]=entry;
-
-            if(file_total_entries<UINT32_MAX)
-                ++file_total_entries;
-            else {
-                file_read_error=1u;
-                break;
             }
-            ++seen;
+            struct vfs_dirent *dst=&file_entries[file_entry_count];
+            dst->inode=i+1u;
+            dst->type=1u;
+            uint32_t n=0u;
+            while(name[n] && n<VFS_DIRENT_NAME_MAX) {
+                dst->name[n]=name[n];
+                ++n;
+            }
+            dst->name[n]=0;
+            ++file_entry_count;
         }
     }
 
-    file_has_next=(file_total_entries>file_page_start+file_entry_count);
-    if(file_page_start>0u && file_total_entries==0u)
-        file_has_prev=0u;
+    file_has_prev=(file_page_start!=0u && file_total_entries!=0u);
+    file_has_next=(file_page_start<file_total_entries &&
+                   file_entry_count<file_total_entries-file_page_start);
     file_master_sectors=ata_sector_count();
     file_slave_sectors=ata_slave_sector_count();
     file_master_detected=(file_master_sectors!=0u);
@@ -276,6 +312,44 @@ static void file_manager_refresh(void) {
     file_ext2_mounted=(vfs_stat_path("/ext2",&root_stat)==0 &&
                        root_stat.backend==VFS_BACKEND_EXT2_RO &&
                        (root_stat.flags&VFS_STAT_DIRECTORY)!=0u);
+}
+static void file_manager_select_source(uint8_t source) {
+    if(source>FILE_SOURCE_LIONFS)return;
+    if(source==FILE_SOURCE_LIONFS && !diskfs_available())return;
+    file_source=source;
+    if(source==FILE_SOURCE_EXT2) {
+        static const char root[]="/ext2";
+        for(uint32_t i=0u;i<sizeof(root);++i)file_current_path[i]=root[i];
+    } else if(source==FILE_SOURCE_RAMFS) {
+        static const char root[]="/RAMFS";
+        for(uint32_t i=0u;i<sizeof(root);++i)file_current_path[i]=root[i];
+    } else {
+        static const char root[]="/LIONFS";
+        for(uint32_t i=0u;i<sizeof(root);++i)file_current_path[i]=root[i];
+    }
+    file_page_start=0u;
+    file_manager_refresh();
+}
+static int file_manager_entry_path(uint32_t index,char *path,uint32_t capacity) {
+    uint32_t n=0u;
+    if(!path || capacity==0u || index>=file_entry_count)return -1;
+    if(file_source==FILE_SOURCE_EXT2) {
+        while(file_current_path[n] && n+1u<capacity) {
+            path[n]=file_current_path[n];
+            ++n;
+        }
+        if(file_current_path[n])return -1;
+        if(n==0u || path[n-1u]!='/') {
+            if(n+1u>=capacity)return -1;
+            path[n++]='/';
+        }
+    }
+    for(uint32_t i=0u;file_entries[index].name[i];++i) {
+        if(n+1u>=capacity)return -1;
+        path[n++]=file_entries[index].name[i];
+    }
+    path[n]=0;
+    return 0;
 }
 static int file_manager_enter(uint32_t index) {
     struct vfs_stat st; char next[VFS_PATH_MAX]; uint32_t n=0u;
@@ -293,6 +367,10 @@ static int file_manager_enter(uint32_t index) {
     file_manager_refresh(); return 1;
 }
 static void file_manager_parent(void) {
+    if(file_source!=FILE_SOURCE_EXT2) {
+        file_manager_select_source(FILE_SOURCE_EXT2);
+        return;
+    }
     uint32_t n=0u; while(file_current_path[n])++n;
     if(n<=5u)file_current_path[5]=0;
     else {while(n>5u&&file_current_path[n-1u]!='/')--n;if(n>5u)--n;file_current_path[n]=0;}
@@ -300,10 +378,7 @@ static void file_manager_parent(void) {
     file_manager_refresh();
 }
 static void file_manager_root(void) {
-    static const char root[]="/ext2";
-    for(uint32_t i=0u;i<sizeof(root);++i)file_current_path[i]=root[i];
-    file_page_start=0u;
-    file_manager_refresh();
+    file_manager_select_source(FILE_SOURCE_EXT2);
 }
 static void file_manager_page_previous(void) {
     if(!file_has_prev)return;
@@ -533,19 +608,30 @@ static int file_manager_hit(const struct ui_window*w,uint32_t x,uint32_t y,uint3
     if(x<bx||x>=bx+90u||y<by||y>=by+38u||idx>=file_entry_count)return 0;
     *index=idx;return 1;
 }
-static void file_manager_open_selected(void){
-    if(file_selected==0xFFFFFFFFu||file_selected>=file_entry_count)return;
-    if(file_manager_enter(file_selected)>0)return;
-    char path[VFS_PATH_MAX];uint32_t n=0u;
-    while(file_current_path[n]&&n+1u<sizeof(path)){path[n]=file_current_path[n];++n;}
-    if(n+1u>=sizeof(path))return;
-    if(path[n-1u]!='/')path[n++]='/';
-    for(uint32_t i=0u;file_entries[file_selected].name[i];++i){if(n+1u>=sizeof(path))return;path[n++]=file_entries[file_selected].name[i];}
-    path[n]=0;int fd=vfs_open(path,1u);if(fd<0)return;
-    int count=vfs_read(fd,notepad_text,NOTEPAD_TEXT_MAX);(void)vfs_close(fd);if(count<0)return;
-    notepad_len=(uint32_t)count;if(notepad_len>NOTEPAD_TEXT_MAX)notepad_len=NOTEPAD_TEXT_MAX;
-    for(uint32_t i=0u;i<notepad_len;++i){unsigned char c=(unsigned char)notepad_text[i];if(c<32u&&c!='\n'&&c!='\r'&&c!='\t')notepad_text[i]='.';else if(c=='\t')notepad_text[i]=' ';}
-    notepad_text[notepad_len]=0;notepad_cursor=notepad_len;notepad_loaded=1u;show(WIN_NOTEPAD);
+static void file_manager_open_selected(void) {
+    if(file_selected==0xFFFFFFFFu || file_selected>=file_entry_count)return;
+    if(file_source==FILE_SOURCE_EXT2 &&
+       file_manager_enter(file_selected)>0)return;
+
+    char path[VFS_PATH_MAX];
+    if(file_manager_entry_path(file_selected,path,sizeof(path))<0)return;
+    int fd=vfs_open(path,1u);
+    if(fd<0)return;
+    int count=vfs_read(fd,notepad_text,NOTEPAD_TEXT_MAX);
+    (void)vfs_close(fd);
+    if(count<0)return;
+    notepad_len=(uint32_t)count;
+    if(notepad_len>NOTEPAD_TEXT_MAX)notepad_len=NOTEPAD_TEXT_MAX;
+    for(uint32_t i=0u;i<notepad_len;++i) {
+        unsigned char ch=(unsigned char)notepad_text[i];
+        if(ch<32u && ch!='\n' && ch!='\r' && ch!='\t')
+            notepad_text[i]='.';
+        else if(ch=='\t')notepad_text[i]=' ';
+    }
+    notepad_text[notepad_len]=0;
+    notepad_cursor=notepad_len;
+    notepad_loaded=1u;
+    show(WIN_NOTEPAD);
 }
 static int filename_has_suffix(const char *name, const char *suffix){
     uint32_t n=0u,s=0u;
@@ -600,8 +686,20 @@ static void draw_files(const struct ui_window*w){
     uint32_t right_w=w->w>side+35u?w->w-side-34u:1u;
     framebuffer_blend_round_rect(left+side+1u,top,right_w,body_h,14u,COL_PANEL,130u);
     text_line(file_current_path,gx,top+10u,COL_TEXT,COL_PANEL);
-    text_line("UP",gx,top+31u,COL_GOLD,COL_PANEL);
-    text_line("ROOT",gx+60u,top+31u,COL_GOLD,COL_PANEL);
+    const char *source_labels[3]={"EXT2","RAMFS","LIONFS"};
+    const uint32_t source_ids[3]={FILE_SOURCE_EXT2,FILE_SOURCE_RAMFS,FILE_SOURCE_LIONFS};
+    for(uint32_t i=0u;i<3u;++i) {
+        uint32_t bx=gx+i*82u;
+        uint32_t active=(file_source==source_ids[i]);
+        if(source_ids[i]==FILE_SOURCE_LIONFS && !file_lionfs_mounted)continue;
+        fill(bx,top+27u,74u,22u,active?COL_SKY_MID:COL_PANEL2);
+        border(bx,top+27u,74u,22u,active?COL_GOLD:COL_GOLD_DIM);
+        text_line(source_labels[i],bx+7u,top+30u,active?COL_GOLD:COL_TEXT,COL_PANEL2);
+    }
+    if(file_source==FILE_SOURCE_EXT2) {
+        text_line("UP",gx+252u,top+31u,COL_GOLD,COL_PANEL);
+        text_line("ROOT",gx+312u,top+31u,COL_GOLD,COL_PANEL);
+    }
     if(!file_entry_count) {
         text_line(file_read_error?"Directory read error":"Directory is empty",
                   gx,gy,COL_DIM,COL_PANEL);
@@ -1462,10 +1560,21 @@ static void handle_window_click(struct ui_window*w){
         uint32_t gx=left+side+18u;
         uint32_t body_h=w->h>TITLE_H+26u?w->h-TITLE_H-26u:1u;
         uint32_t pager_y=top+body_h-38u;
-        if(hit(gx,top+27u,48u,22u,x,y)){
+        if(hit(gx,top+27u,74u,22u,x,y)){
+            file_manager_select_source(FILE_SOURCE_EXT2);dirty_full();return;
+        }
+        if(hit(gx+82u,top+27u,74u,22u,x,y)){
+            file_manager_select_source(FILE_SOURCE_RAMFS);dirty_full();return;
+        }
+        if(file_lionfs_mounted && hit(gx+164u,top+27u,74u,22u,x,y)){
+            file_manager_select_source(FILE_SOURCE_LIONFS);dirty_full();return;
+        }
+        if(file_source==FILE_SOURCE_EXT2 &&
+           hit(gx+252u,top+27u,48u,22u,x,y)){
             file_manager_parent();dirty_full();return;
         }
-        if(hit(gx+60u,top+27u,52u,22u,x,y)){
+        if(file_source==FILE_SOURCE_EXT2 &&
+           hit(gx+312u,top+27u,52u,22u,x,y)){
             file_manager_root();dirty_full();return;
         }
         if(hit(gx,pager_y,68u,26u,x,y)){
