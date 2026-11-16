@@ -470,7 +470,7 @@ int ext2_ro_readdir(const struct ext2_ro_fs *fs,
                     return -1;
                 entry->name[i] = (char)ch;
             }
-            entry->name[name_length] = '\\0';
+            entry->name[name_length] = '\0';
             entry->inode = inode;
             entry->type = file_type;
             *offset = current + record_length;
