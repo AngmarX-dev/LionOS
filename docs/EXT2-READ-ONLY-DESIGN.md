@@ -192,3 +192,10 @@ The deterministic QEMU ext2 fixture contains a fast relative link to the root RE
 **Implementation scope:** extend the deterministic ext2 image with a chain of eight distinct fast symbolic links that resolves successfully to the README, plus a ninth-link entry that exceeds the existing resolver limit. The resolver limit remains unchanged. The boot regression verifies that the eight-link chain resolves to the expected regular-file metadata and that the nine-link chain is rejected. No filesystem mutation or resolver policy change is included.
 
 **Acceptance:** both QEMU boot logs must contain LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-OK; the existing symlink, userland syscall, ext2, persistence, GUI, and xHCI checks must continue to pass on the same final commit SHA.
+
+
+### G8 — Absolute symbolic-link target regression
+
+**Implementation scope:** extend the existing deterministic ext2 QEMU fixture regression to exercise the already-present `abs-link` entry, whose target begins with `/`. Verify that an absolute symlink is interpreted relative to the ext2 mount root, that VFS open/read returns the exact README payload, and that the normal stat path reports the expected file size. The resolver behavior and eight-link traversal limit remain unchanged.
+
+**Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-OK`; the existing relative, slow, cyclic, intermediate, depth-boundary, Ring-3 syscall, ext2, persistence, GUI, and xHCI regression checks must remain green on the same final commit SHA. This is QEMU regression coverage, not physical-disk qualification.
