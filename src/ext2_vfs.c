@@ -63,19 +63,18 @@ static int resolve_file(const char *path, struct ext2_ro_inode *inode) {
 int ext2_vfs_init(void) {
     struct ext2_ro_fs candidate_fs;
     struct ext2_ro_inode candidate_root;
-    struct block_device candidate_device;
 
     ext2_mounted = 0;
     if (ata_slave_init() < 0 ||
-        ata_slave_block_device_init(&candidate_device) < 0 ||
-        ext2_ro_mount(&candidate_fs, &candidate_device, ext2_scratch,
+        ata_slave_block_device_init(&ext2_device) < 0 ||
+        ext2_ro_mount(&candidate_fs, &ext2_device, ext2_scratch,
                       sizeof(ext2_scratch)) < 0 ||
         ext2_ro_read_inode(&candidate_fs, 2u, &candidate_root,
                            ext2_scratch, sizeof(ext2_scratch)) < 0 ||
         (candidate_root.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
         return -1;
 
-    ext2_device = candidate_device;
+    /* candidate_fs.device points at this static device, never a stack object. */
     ext2_filesystem = candidate_fs;
     ext2_root = candidate_root;
     ext2_mounted = 1;
