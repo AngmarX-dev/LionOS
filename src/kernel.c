@@ -258,6 +258,7 @@ static int integration_pid=-1;
 static int integration_vfs_ok;
 static int integration_cow_ok;
 static int integration_utility_ok;
+static int integration_pipe_ok;
 
 void lionos_user_integration_step(void){
     if(integration_done)return;
@@ -349,19 +350,57 @@ void lionos_user_integration_step(void){
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 integration_utility_ok=0;
             integration_pid=-1;
-            integration_done=1;
             if(integration_utility_ok){
                 debug_write("LIONOS:VFS-USER-TEST-OK\n");
                 debug_write("LIONOS:COW-TEST-OK\n");
                 debug_write("LIONOS:USERLAND-UTILITY-TEST-OK\n");
-                console_write("[ OK ] Automated VFS, COW and Ring-3 utility integration tests\n");
+                integration_stage=6;
             }else{
+                integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
                 console_write("[ERR] Ring-3 meminfo utility integration test failed\n");
             }
         }else if(s<0){
             integration_done=1;
             debug_write("LIONOS:USER-MEMINFO-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==6){
+        integration_pid=exec_run_file("pipe_test.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:USER-PIPE-LAUNCHED\n");
+            integration_stage=7;
+        }else{
+            integration_done=1;
+            debug_write("LIONOS:USER-PIPE-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==7){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            integration_pipe_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
+            if(process_reap_pid((uint32_t)integration_pid)!=0)
+                integration_pipe_ok=0;
+            integration_pid=-1;
+            integration_done=1;
+            if(integration_pipe_ok){
+                debug_write("LIONOS:PIPE-LIFECYCLE-TEST-OK\n");
+                console_write("[ OK ] Automated Pipe fork/EOF/exit cleanup test\n");
+            }else{
+                debug_write("LIONOS:PIPE-LIFECYCLE-TEST-FAIL\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+                console_write("[ERR] Pipe lifecycle integration test failed\n");
+            }
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:USER-PIPE-STATE-FAIL\n");
             debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
