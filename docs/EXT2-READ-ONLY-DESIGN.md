@@ -213,3 +213,10 @@ The deterministic QEMU ext2 fixture contains a fast relative link to the root RE
 **Implementation scope:** add a deterministic fast symlink named `dangling-link` targeting the absent `MISSING.TXT`. Verify that `lstat` reports the link itself and its target length, `readlink` returns the exact target bytes, while `stat` and `open` fail because the target does not exist. No resolver, VFS API, or filesystem mutation behavior is changed.
 
 **Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-DANGLING-TEST-OK`; all previous symlink, Ring-3 syscall, ext2, persistence, GUI, and xHCI regressions remain required on the same final commit SHA. This is QEMU regression coverage only.
+
+
+### G11 — Exact 60-byte fast-symlink boundary
+
+**Implementation scope:** add a deterministic fast symbolic link whose target is exactly 60 bytes, the full ext2 inline `i_block` payload. Verify that `lstat` reports a 60-byte symlink, `readlink` returns all 60 bytes unchanged, and target-following `stat`/`open` fail for the deliberately absent target. This exercises the exact inline-size boundary without changing parser, resolver, VFS, or syscall behavior.
+
+**Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-INLINE60-TEST-OK`; all prior ext2, symlink, persistence, GUI, and xHCI regressions remain required on the same final commit SHA. This is QEMU regression coverage only.
