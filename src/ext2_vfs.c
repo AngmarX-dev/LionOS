@@ -107,15 +107,17 @@ int ext2_vfs_init(void) {
 int ext2_vfs_exists(const char *path) {
     struct ext2_ro_inode inode;
     return resolve_path(path, &inode, 0) == 0 &&
-           (inode.mode & EXT2_MODE_TYPE) == EXT2_MODE_REG;
+           (inode.mode & EXT2_MODE_TYPE) == EXT2_MODE_REG &&
+           inode.size <= UINT32_MAX;
 }
 
 int ext2_vfs_stat(const char *path, uint32_t *size, int *is_directory) {
     struct ext2_ro_inode inode;
     if (!size || !is_directory || resolve_path(path, &inode, 0) < 0)
         return -1;
-    if ((inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_REG &&
-        (inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR)
+    if (((inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_REG &&
+         (inode.mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR) ||
+        inode.size > UINT32_MAX)
         return -1;
     *size = inode.size;
     *is_directory = (inode.mode & EXT2_MODE_TYPE) == EXT2_MODE_DIR;
