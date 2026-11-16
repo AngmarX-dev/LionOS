@@ -386,7 +386,9 @@ int main(void) {
 
     make_image(&im, 1024u);
     put32(im.bytes + 5u * 1024u + 384u + 108u, 1u);
-    if (ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) == 0)
+    if (ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0)
+        fails += expect(0, "mount regular LARGE_FILE fixture");
+    else
         fails += expect(ext2_ro_read_inode(&fs, 4u, &file, scratch,
                                            sizeof(scratch)) < 0,
                         "reject high file-size word without LARGE_FILE");
@@ -394,7 +396,9 @@ int main(void) {
     make_image(&im, 1024u);
     put32(im.bytes + 1124u, 3u);
     put32(im.bytes + 5u * 1024u + 128u + 108u, 1u);
-    if (ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) == 0)
+    if (ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0)
+        fails += expect(0, "mount large-directory fixture");
+    else
         fails += expect(ext2_ro_read_inode(&fs, 2u, &root, scratch,
                                            sizeof(scratch)) < 0,
                         "reject large directory size");
