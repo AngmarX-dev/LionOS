@@ -220,3 +220,9 @@ The deterministic QEMU ext2 fixture contains a fast relative link to the root RE
 **Implementation scope:** add a deterministic fast symbolic link whose target is exactly 60 bytes, the full ext2 inline `i_block` payload. Verify that `lstat` reports a 60-byte symlink, `readlink` returns all 60 bytes unchanged, and target-following `stat`/`open` fail for the deliberately absent target. This exercises the exact inline-size boundary without changing parser, resolver, VFS, or syscall behavior.
 
 **Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-INLINE60-TEST-OK`; all prior ext2, symlink, persistence, GUI, and xHCI regressions remain required on the same final commit SHA. This is QEMU regression coverage only.
+
+### G12 — Exact 61-byte slow-symlink boundary
+
+**Implementation scope:** add a deterministic slow symbolic link whose target is exactly 61 bytes, the smallest target that cannot fit in ext2's 60-byte inline `i_block` area. Store its target in one data block and report the required 512-byte sector count. Verify the exact target bytes through the host parser and through QEMU's ATA-slave → block-device → ext2 parser → VFS path. The target is deliberately absent, so `lstat`/`readlink` must succeed while target-following `stat`/`open` fail.
+
+**Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-SLOW61-TEST-OK`; the host parser test must verify all 61 bytes and the terminating NUL; all previous ext2, symlink, persistence, GUI, and xHCI regressions remain required on the same final commit SHA. No resolver, ABI, write-support, or hardware-qualification claim is added.
