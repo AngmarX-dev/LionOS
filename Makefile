@@ -35,7 +35,7 @@ C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/kernel_runtime.c src/gui.
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso usb disk run check test third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check userspace userland process-test ipc-test signal-test net-test
+.PHONY: all clean iso usb disk ext2-disk run check test third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check userspace userland process-test ipc-test signal-test net-test
 all: $(KERNEL)
 userspace userland: $(USER_ELFS)
 process-test: $(BUILD)/process_test.elf
@@ -223,6 +223,11 @@ usb: iso
 
 disk: | $(BUILD)
 	python3 scripts/init_disk_image.py $(DISK)
+
+EXT2_TEST_DISK := $(BUILD)/ext2-slave-test.img
+
+ext2-disk: | $(BUILD)
+	python3 scripts/make_ext2_fixture.py $(EXT2_TEST_DISK)
 
 check: iso disk
 	grub-file --is-x86-multiboot2 $(KERNEL)
