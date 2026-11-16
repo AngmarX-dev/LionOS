@@ -69,6 +69,7 @@ struct process {
     uint32_t pipe_read_mask;
     uint32_t pipe_write_mask;
     uint8_t fd_used[PROCESS_FD_MAX];
+    uint32_t fd_object[PROCESS_FD_MAX];
     uint8_t fd_backend[PROCESS_FD_MAX];
     uint32_t fd_flags[PROCESS_FD_MAX];
     uint32_t fd_offset[PROCESS_FD_MAX];
