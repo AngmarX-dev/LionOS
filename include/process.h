@@ -82,6 +82,7 @@ struct process *process_at(uint32_t index);
 const char *process_state_name(uint32_t state);
 uint32_t process_current_pid(void);
 struct process *process_pipe_owner(void);
+struct process *process_fd_owner(void);
 uint32_t process_current_tid(void);
 struct process *process_create_kernel_thread(uint32_t entry, uint32_t arg);
 uint32_t process_create_user_thread(uint32_t entry);
