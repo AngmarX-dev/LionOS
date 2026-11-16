@@ -66,6 +66,8 @@ struct process {
     uint32_t thread_stack_va;
     uint32_t join_tid;
     uint32_t join_status_ptr;
+    uint32_t pipe_read_mask;
+    uint32_t pipe_write_mask;
     uint8_t fd_used[PROCESS_FD_MAX];
     uint8_t fd_backend[PROCESS_FD_MAX];
     uint32_t fd_flags[PROCESS_FD_MAX];
@@ -78,6 +80,7 @@ struct process *process_current(void);
 struct process *process_at(uint32_t index);
 const char *process_state_name(uint32_t state);
 uint32_t process_current_pid(void);
+struct process *process_pipe_owner(void);
 uint32_t process_current_tid(void);
 struct process *process_create_kernel_thread(uint32_t entry, uint32_t arg);
 uint32_t process_create_user_thread(uint32_t entry);
