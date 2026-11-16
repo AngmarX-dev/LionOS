@@ -23,8 +23,18 @@ int main(void) {
     }
 
     if (lion_pipe_close(write_end) != 0) return 5;
-    if (lion_pipe_read(read_end, buffer, sizeof(buffer)) !=
-        (int32_t)sizeof(message)) return 6;
+    int32_t read_result = lion_pipe_read(read_end, buffer, sizeof(buffer));
+    if (read_result != (int32_t)sizeof(message)) {
+        int32_t child_status = -1;
+        (void)lion_pipe_close(read_end);
+        if (lion_waitpid(child, &child_status) == (int32_t)child &&
+            child_status >= 0 && child_status <= 20)
+            return 40 + child_status;
+        if (read_result == 0) return 60;
+        if (read_result == -1) return 61;
+        if (read_result == -2) return 62;
+        return 63;
+    }
     if (memcmp(buffer, message, sizeof(message)) != 0) return 7;
     if (lion_pipe_read(read_end, buffer, sizeof(buffer)) != 0) return 8;
     if (lion_pipe_close(read_end) != 0) return 9;
