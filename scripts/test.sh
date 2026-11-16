@@ -190,6 +190,7 @@ grep -q 'LIONOS:PERSIST-INIT' build/qemu-first.log
 python3 scripts/check_disk_log.py build/lionos-disk.img --require-complete
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-first.log
+grep -q 'LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-first.log
@@ -218,6 +219,7 @@ if grep -q 'LIONOS:PERSIST-LOG-WRITE-FAILED' build/qemu-second.log; then
 fi
 grep -q 'LIONOS:VFS-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:VFS-USER-TEST-OK' build/qemu-second.log
+grep -q 'LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:COW-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-second.log
