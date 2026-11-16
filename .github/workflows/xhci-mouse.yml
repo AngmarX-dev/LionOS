@@ -183,7 +183,16 @@ jobs:
           sock.close()
           PY
 
-          sleep 2
+          # The kernel deliberately pauses its boot report for 10 seconds.
+          # Wait for the USB keyboard input marker instead of killing QEMU
+          # at a fixed deadline that can expire during that pause.
+          for _ in $(seq 1 20); do
+            if grep -q 'LIONOS:KEYBOARD-USB-INPUT' build/qemu-xhci-keyboard-only.log; then
+              break
+            fi
+            sleep 1
+          done
+
           kill "$qemu_pid" || true
           wait "$qemu_pid" || true
 
