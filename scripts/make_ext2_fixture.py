@@ -10,6 +10,7 @@ IMAGE_SIZE = BLOCK_SIZE * BLOCK_COUNT
 PAYLOAD = b"LionOS ext2 slave read-only fixture OK\n"
 NESTED_PAYLOAD = b"LionOS nested ext2 fixture OK\n"
 TRIPLE_PAYLOAD = b"LionOS triple-indirect QEMU read OK\n"
+SLOW61_LINK_TARGET = b"X" * 61
 TRIPLE_LOGICAL_BLOCK = 12 + (BLOCK_SIZE // 4) + (BLOCK_SIZE // 4) ** 2
 TRIPLE_OFFSET = TRIPLE_LOGICAL_BLOCK * BLOCK_SIZE
 FAST_LINK_TARGET = b"README.TXT"
@@ -122,6 +123,13 @@ def main():
     inline60_link = make_fast_symlink(b"X" * 60)
     image[inode_table + 2816:inode_table + 2944] = inline60_link
 
+    slow61_link = bytearray(128)
+    put16(slow61_link, 0, 0xA1FF)
+    put32(slow61_link, 4, len(SLOW61_LINK_TARGET))
+    put32(slow61_link, 28, 2)
+    put32(slow61_link, 40, 18)
+    image[inode_table + 2944:inode_table + 3072] = slow61_link
+
     # Eight-link chain succeeds; the ninth link must exceed the resolver limit.
     for depth in range(1, 10):
         target = b"README.TXT" if depth == 1 else f"depth{depth - 1}".encode("ascii")
@@ -150,7 +158,8 @@ def main():
     root[296:316] = dirent(21, 20, "parent-link", 7)
     root[316:340] = dirent(22, 24, "dangling-link", 7)
     root[340:364] = dirent(23, 24, "inline60-link", 7)
-    root[364:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 364, "TRIPLE.TXT", 1)
+    root[364:388] = dirent(24, 24, "slow61-link", 7)
+    root[388:BLOCK_SIZE] = dirent(6, BLOCK_SIZE - 388, "TRIPLE.TXT", 1)
     image[9 * BLOCK_SIZE:10 * BLOCK_SIZE] = root
 
     subdir = bytearray(BLOCK_SIZE)
@@ -163,6 +172,7 @@ def main():
     image[12 * BLOCK_SIZE:12 * BLOCK_SIZE + len(NESTED_PAYLOAD)] = NESTED_PAYLOAD
     image[16 * BLOCK_SIZE:16 * BLOCK_SIZE + len(TRIPLE_PAYLOAD)] = TRIPLE_PAYLOAD
     image[17 * BLOCK_SIZE:17 * BLOCK_SIZE + len(SLOW_LINK_TARGET)] = SLOW_LINK_TARGET
+    image[18 * BLOCK_SIZE:18 * BLOCK_SIZE + len(SLOW61_LINK_TARGET)] = SLOW61_LINK_TARGET
     Path(sys.argv[1]).write_bytes(image)
 
 if __name__ == "__main__":
