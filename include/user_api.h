@@ -42,6 +42,8 @@ static inline int32_t lion_fread(int32_t fd,void*b,uint32_t n){return(int32_t)li
 static inline int32_t lion_fwrite(int32_t fd,const void*b,uint32_t n){return(int32_t)lion_syscall3(LIONOS_SYS_FWRITE,(uint32_t)fd,(uint32_t)(uintptr_t)b,n);}
 static inline int32_t lion_remove(const char*p){return(int32_t)lion_syscall1(LIONOS_SYS_REMOVE,(uint32_t)(uintptr_t)p);}
 static inline int32_t lion_stat(const char*p,struct lion_stat*s){return(int32_t)lion_syscall2(LIONOS_SYS_STAT,(uint32_t)(uintptr_t)p,(uint32_t)(uintptr_t)s);}
+static inline int32_t lion_readlink(const char*p,char*b,uint32_t n){return(int32_t)lion_syscall3(LIONOS_SYS_READLINK,(uint32_t)(uintptr_t)p,(uint32_t)(uintptr_t)b,n);}
+static inline int32_t lion_lstat(const char*p,struct lion_stat*s){return(int32_t)lion_syscall2(LIONOS_SYS_LSTAT,(uint32_t)(uintptr_t)p,(uint32_t)(uintptr_t)s);}
 static inline int32_t lion_sys_readdir(const char*p,uint32_t*offset,struct lion_dirent*entry){return(int32_t)lion_syscall3(LIONOS_SYS_READDIR,(uint32_t)(uintptr_t)p,(uint32_t)(uintptr_t)offset,(uint32_t)(uintptr_t)entry);}
 static inline int32_t lion_getfile(uint32_t index,char*name,uint32_t capacity){return(int32_t)lion_syscall3(LIONOS_SYS_GETFILE,index,(uint32_t)(uintptr_t)name,capacity);}
 static inline int32_t lion_ipc_send(uint32_t pid,const void*data,uint32_t length){return(int32_t)lion_syscall3(LIONOS_SYS_IPC_SEND,pid,(uint32_t)(uintptr_t)data,length);}
