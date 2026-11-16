@@ -22,6 +22,9 @@ jobs:
       - name: Build live USB image
         run: make usb
 
+      - name: Prepare QEMU 1080p boot image
+        run: LIONOS_QEMU_DRY_RUN=1 make run
+
       - name: Verify BIOS and UEFI boot entries
         run: |
           xorriso -indev build/lionos.iso -report_el_torito as_mkisofs 2>&1 | tee build/eltorito.txt
@@ -29,7 +32,28 @@ jobs:
 
       - name: Verify LionOS boot UI configuration
         run: |
-          grep -q '^set gfxmode=auto$' boot/grub.cfg
+          grep -q '^set gfxmode=1920x1080x32,auto
+          grep -q '^set gfxpayload=keep$' boot/grub.cfg
+          grep -q '^menuentry "LionOS" {' boot/grub.cfg
+          ! grep -q 'LionOS (Safe Graphics)' boot/grub.cfg
+          grep -q 'framebuffer_boot_splash' src/framebuffer.c
+          grep -q 'console_use_framebuffer' src/kernel.c
+          ! grep -R -E -q 'framebuffer_(set_mode|mode_supported)' src include
+          grep -q -- '-vga std' scripts/qemu_fullscreen.sh
+          awk '/^[[:space:]]*dw 5$/{getline; getline; getline; if ($0 !~ /dd 0$/) exit 1; getline; if ($0 !~ /dd 0$/) exit 1; getline; if ($0 !~ /dd 0$/) exit 1; found=1} END{exit(found ? 0 : 1)}' boot/boot.asm
+
+      - name: Verify USB image is bootable as a disk
+        run: |
+          timeout 20s qemu-system-i386 -drive file=build/lionos-usb.img,format=raw -m 128M -smp 2 -display none -serial stdio || test $? -eq 124
+
+      - name: Upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: lionos-images
+          path: |
+            build/lionos.iso
+            build/lionos-usb.img
+ boot/grub.cfg
           grep -q '^set gfxpayload=keep$' boot/grub.cfg
           grep -q '^menuentry "LionOS" {' boot/grub.cfg
           ! grep -q 'LionOS (Safe Graphics)' boot/grub.cfg
