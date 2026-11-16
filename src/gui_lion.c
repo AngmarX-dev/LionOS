@@ -216,6 +216,7 @@ static uint8_t file_slave_detected;
 static uint8_t file_lionfs_mounted;
 static uint8_t file_ext2_mounted;
 static void draw_uint(uint32_t value,uint32_t x,uint32_t y,uint32_t fg,uint32_t bg);
+static void file_manager_refresh(void);
 static void file_manager_refresh(void) {
     uint32_t offset=0u,count=0u; struct vfs_dirent entry; int result;
     file_entry_count=0u;
@@ -335,6 +336,7 @@ static struct ui_window*window_by_id(uint8_t id){return id>=1u&&id<=WIN_MAX?&win
 static void focus(uint8_t id){for(uint32_t i=0;i<WIN_MAX;++i)windows[i].focused=(windows[i].id==id&&windows[i].visible&&!windows[i].minimized)?1u:0u;}
 static void show(uint8_t id){
     struct ui_window*w=window_by_id(id); if(!w)return;
+    if(id==WIN_FILES)file_manager_refresh();
     uint8_t was_visible=w->visible;
     w->visible=1u;
     w->minimized=0u;
@@ -466,7 +468,7 @@ static void draw_terminal(const struct ui_window*w){
 
 static int file_manager_hit(const struct ui_window*w,uint32_t x,uint32_t y,uint32_t *index){
     if(!w||!index)return 0;
-    uint32_t gx=w->x+162u,gy=w->y+TITLE_H+64u;
+    uint32_t gx=w->x+184u,gy=w->y+TITLE_H+64u;
     if(x<gx||y<gy)return 0;
     uint32_t col=(x-gx)/96u,row=(y-gy)/42u;
     if(col>=3u||row>=4u)return 0;
@@ -527,6 +529,8 @@ static void draw_files(const struct ui_window*w){
               file_lionfs_mounted?COL_OK:COL_DIM,COL_PANEL2);
     text_line("SIZE MiB",left+10u,top+102u,COL_DIM,COL_PANEL2);
     draw_uint(file_master_sectors/2048u,left+10u,top+120u,COL_GOLD,COL_PANEL2);
+    text_line("FILES",left+10u,top+140u,COL_DIM,COL_PANEL2);
+    draw_uint(file_lionfs_files,left+66u,top+140u,COL_GOLD,COL_PANEL2);
     text_line("PRIMARY SLAVE",left+10u,top+158u,COL_TEXT,COL_PANEL2);
     text_line(file_slave_detected?"DETECTED":"NOT FOUND",left+10u,top+180u,
               file_slave_detected?COL_OK:COL_DIM,COL_PANEL2);
