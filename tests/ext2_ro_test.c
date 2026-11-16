@@ -105,15 +105,15 @@ static int valid_geometry(uint32_t bs) {
                                      scratch, sizeof(scratch));
         if (dir_result > 0) {
             if (dirent.inode == 2u && dirent.name[0] == '.' &&
-                dirent.name[1] == '\\0')
+                dirent.name[1] == '\0')
                 saw_dot = 1;
             if (dirent.inode == 2u && dirent.name[0] == '.' &&
-                dirent.name[1] == '.' && dirent.name[2] == '\\0')
+                dirent.name[1] == '.' && dirent.name[2] == '\0')
                 saw_dotdot = 1;
             if (dirent.inode == 3u && dirent.name[0] == 'h' &&
                 dirent.name[1] == 'e' && dirent.name[2] == 'l' &&
                 dirent.name[3] == 'l' && dirent.name[4] == 'o' &&
-                dirent.name[5] == '\\0')
+                dirent.name[5] == '\0')
                 saw_hello = 1;
         }
     } while (dir_result > 0);
