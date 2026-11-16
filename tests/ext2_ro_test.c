@@ -91,6 +91,8 @@ static int triple_indirect_geometry(uint32_t bs) {
         (uint64_t)pointers_per_block * pointers_per_block;
     uint64_t triple_start =
         12u + pointers_per_block + double_capacity;
+    uint64_t logical_block = triple_start + double_capacity +
+        (uint64_t)2u * pointers_per_block + 3u;
     uint32_t offset;
 
     if (bs == 4096u || triple_start * bs > UINT32_MAX)
@@ -107,36 +109,43 @@ static int triple_indirect_geometry(uint32_t bs) {
 
     /* inode[14] -> root(10) -> middle(11) -> leaf(12) -> data(14). */
     file.blocks[14] = 10u;
-    file.size = (uint32_t)(triple_start * bs + 3u);
-    put32(im.bytes + (uint64_t)10u * bs, 11u);
-    put32(im.bytes + (uint64_t)11u * bs, 12u);
-    put32(im.bytes + (uint64_t)12u * bs, 14u);
+    file.size = (uint32_t)(logical_block * bs + 3u);
+    put32(im.bytes + (uint64_t)10u * bs + 4u, 11u);
+    put32(im.bytes + (uint64_t)11u * bs + 8u, 12u);
+    put32(im.bytes + (uint64_t)12u * bs + 12u, 14u);
     im.bytes[(uint64_t)14u * bs] = 'T';
     im.bytes[(uint64_t)14u * bs + 1u] = 'R';
     im.bytes[(uint64_t)14u * bs + 2u] = 'I';
 
-    offset = (uint32_t)(triple_start * bs);
+    offset = (uint32_t)(logical_block * bs);
     if (ext2_ro_read_file(&fs, &file, offset, out, sizeof(out),
                           scratch, sizeof(scratch)) != 3 ||
         out[0] != 'T' || out[1] != 'R' || out[2] != 'I')
         return 1;
 
-    /* Reject an invalid middle-level pointer without reading past the image. */
-    put32(im.bytes + (uint64_t)10u * bs, IMAGE_BLOCKS);
+    /* Reject an invalid inode-level triple-indirect root. */
+    file.blocks[14] = IMAGE_BLOCKS;
+    if (ext2_ro_read_file(&fs, &file, offset, out, 1u,
+                          scratch, sizeof(scratch)) >= 0)
+        return 1;
+    file.blocks[14] = 10u;
+
+    /* Reject an invalid root-to-middle pointer. */
+    put32(im.bytes + (uint64_t)10u * bs + 4u, IMAGE_BLOCKS);
     if (ext2_ro_read_file(&fs, &file, offset, out, 1u,
                           scratch, sizeof(scratch)) >= 0)
         return 1;
 
-    /* Restore root, then reject an invalid leaf-level pointer. */
-    put32(im.bytes + (uint64_t)10u * bs, 11u);
-    put32(im.bytes + (uint64_t)11u * bs, IMAGE_BLOCKS);
+    /* Restore root, then reject an invalid middle-to-leaf pointer. */
+    put32(im.bytes + (uint64_t)10u * bs + 4u, 11u);
+    put32(im.bytes + (uint64_t)11u * bs + 8u, IMAGE_BLOCKS);
     if (ext2_ro_read_file(&fs, &file, offset, out, 1u,
                           scratch, sizeof(scratch)) >= 0)
         return 1;
 
-    /* Restore leaf table, then reject an invalid final data pointer. */
-    put32(im.bytes + (uint64_t)11u * bs, 12u);
-    put32(im.bytes + (uint64_t)12u * bs, IMAGE_BLOCKS);
+    /* Restore middle table, then reject an invalid final data pointer. */
+    put32(im.bytes + (uint64_t)11u * bs + 8u, 12u);
+    put32(im.bytes + (uint64_t)12u * bs + 12u, IMAGE_BLOCKS);
     if (ext2_ro_read_file(&fs, &file, offset, out, 1u,
                           scratch, sizeof(scratch)) >= 0)
         return 1;
