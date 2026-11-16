@@ -93,12 +93,17 @@ static int triple_indirect_geometry(uint32_t bs) {
         12u + pointers_per_block + double_capacity;
     uint64_t logical_block = triple_start + double_capacity +
         (uint64_t)2u * pointers_per_block + 3u;
-    uint32_t offset;
-
-    if (bs == 4096u || logical_block * bs + 3u > UINT32_MAX)
-        return 0; /* 32-bit ext2 inode size cannot address this region. */
+    uint64_t offset;
 
     make_image(&im, bs);
+    if (bs == 4096u) {
+        /* Enable ext2 LARGE_FILE and encode the high inode-size word. */
+        put32(im.bytes + 1024u + 100u, 3u);
+        put32(im.bytes + 5u * bs + 384u + 4u,
+              (uint32_t)(logical_block * bs + 3u));
+        put32(im.bytes + 5u * bs + 384u + 108u,
+              (uint32_t)((logical_block * bs + 3u) >> 32));
+    }
     dev.ops = &ops;
     dev.context = &im;
     dev.sector_size = SECTOR_SIZE;
@@ -109,7 +114,7 @@ static int triple_indirect_geometry(uint32_t bs) {
 
     /* inode[14] -> root(10) -> middle(11) -> leaf(12) -> data(14). */
     file.blocks[14] = 10u;
-    file.size = (uint32_t)(logical_block * bs + 3u);
+    file.size = logical_block * bs + 3u;
     put32(im.bytes + (uint64_t)10u * bs + 4u, 11u);
     put32(im.bytes + (uint64_t)11u * bs + 8u, 12u);
     put32(im.bytes + (uint64_t)12u * bs + 12u, 14u);
@@ -117,7 +122,7 @@ static int triple_indirect_geometry(uint32_t bs) {
     im.bytes[(uint64_t)14u * bs + 1u] = 'R';
     im.bytes[(uint64_t)14u * bs + 2u] = 'I';
 
-    offset = (uint32_t)(logical_block * bs);
+    offset = logical_block * bs;
     if (ext2_ro_read_file(&fs, &file, offset, out, sizeof(out),
                           scratch, sizeof(scratch)) != 3 ||
         out[0] != 'T' || out[1] != 'R' || out[2] != 'I')
@@ -239,7 +244,8 @@ static int valid_geometry(uint32_t bs) {
 }
 int main(void) {
     if (triple_indirect_geometry(1024u) ||
-        triple_indirect_geometry(2048u)) {
+        triple_indirect_geometry(2048u) ||
+        triple_indirect_geometry(4096u)) {
         (void)fprintf(stderr, "EXT2 TRIPLE-INDIRECT TEST: FAIL\n");
         return 1;
     }
