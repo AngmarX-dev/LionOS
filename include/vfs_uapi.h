@@ -7,6 +7,9 @@
 #define LIONOS_O_WRITE  2u
 #define LIONOS_O_APPEND 4u
 
+#define LIONOS_STAT_READ_ONLY 1u
+#define LIONOS_STAT_DIRECTORY 2u
+
 #define LIONOS_SYS_OPEN   14u
 #define LIONOS_SYS_CLOSE  15u
 #define LIONOS_SYS_FREAD  16u
