@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "uapi.h"
 
-/* Syscall number 0 is reserved for ABI negotiation; ABI version is 4. */
+/* Syscall number 0 is reserved for ABI negotiation; ABI version is 5. */
 #define SYS_ABI_VERSION 0u
 #define SYS_PUTC        LIONOS_SYS_PUTC
 #define SYS_GETPID      LIONOS_SYS_GETPID
