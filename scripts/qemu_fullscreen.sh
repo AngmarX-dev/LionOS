@@ -5,14 +5,14 @@ BUILD="${BUILD:-build}"
 KERNEL="${KERNEL:-$BUILD/lionos.bin}"
 ISO="${ISO:-$BUILD/lionos-qemu.iso}"
 
-echo "LionOS QEMU display: native framebuffer mode (GRUB auto)"
+echo "LionOS QEMU display: prefer 1920x1080x32 framebuffer"
 
 rm -rf "$BUILD/qemu-iso"
 mkdir -p "$BUILD/qemu-iso/boot/grub"
 cp "$KERNEL" "$BUILD/qemu-iso/boot/lionos.bin"
 
-# Do not rewrite gfxmode to the host resolution. GRUB selects the native
-# framebuffer mode, and LionOS consumes the exact mode reported by Multiboot2.
+# GRUB requests 1080p and falls back to an available mode if the
+# selected QEMU/firmware video adapter cannot provide that exact mode.
 cp boot/grub.cfg "$BUILD/qemu-iso/boot/grub/grub.cfg"
 
 grub-mkrescue -o "$ISO" "$BUILD/qemu-iso" >/dev/null
@@ -33,6 +33,7 @@ exec qemu-system-i386 \
     -drive file="$BUILD/lionos-disk.img",format=raw,if=ide \
     -m 128M \
     -smp 2 \
+    -vga std \
     -netdev user,id=lionnet \
     -device rtl8139,netdev=lionnet \
     -display "$DISPLAY_VALUE" $FULLSCREEN_ARGS
