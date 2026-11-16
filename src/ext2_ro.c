@@ -411,3 +411,73 @@ int ext2_ro_lookup(const struct ext2_ro_fs *fs,
     }
     return -1;
 }
+
+int ext2_ro_readdir(const struct ext2_ro_fs *fs,
+                    const struct ext2_ro_inode *directory,
+                    uint32_t *offset,
+                    struct ext2_ro_dirent *entry,
+                    void *scratch_buffer,
+                    uint32_t scratch_size) {
+    uint8_t *scratch = (uint8_t *)scratch_buffer;
+
+    if (!fs || !directory || !offset || !entry || !scratch ||
+        scratch_size < fs->block_size ||
+        (directory->mode & EXT2_MODE_TYPE) != EXT2_MODE_DIR ||
+        *offset > directory->size || (*offset & 3u) != 0u)
+        return -1;
+
+    while (*offset < directory->size) {
+        uint32_t current = *offset;
+        uint32_t logical = current / fs->block_size;
+        uint32_t block_offset = current % fs->block_size;
+        uint32_t physical;
+        uint32_t inode;
+        uint16_t record_length;
+        uint16_t name_length;
+        uint32_t minimum;
+        uint8_t file_type = 0u;
+
+        if (map_file_block(fs, directory, logical, &physical,
+                           scratch, scratch_size) < 0 ||
+            read_fs_block(fs, physical, scratch, scratch_size) < 0 ||
+            block_offset > fs->block_size - EXT2_DIRENT_HEADER)
+            return -1;
+
+        inode = le32(scratch + block_offset);
+        record_length = le16(scratch + block_offset + 4u);
+        if ((fs->incompat_features & EXT2_FEATURE_INCOMPAT_FILETYPE) != 0u) {
+            name_length = scratch[block_offset + 6u];
+            file_type = scratch[block_offset + 7u];
+        } else {
+            name_length = le16(scratch + block_offset + 6u);
+        }
+
+        minimum = (EXT2_DIRENT_HEADER + (uint32_t)name_length + 3u) & ~3u;
+        if (record_length < EXT2_DIRENT_HEADER ||
+            (record_length & 3u) != 0u ||
+            record_length > fs->block_size - block_offset ||
+            record_length > directory->size - current ||
+            name_length > EXT2_RO_NAME_MAX || minimum > record_length ||
+            (file_type > 7u))
+            return -1;
+
+        if (inode != 0u) {
+            if (inode > fs->inodes_count || name_length == 0u)
+                return -1;
+            for (uint32_t i = 0u; i < name_length; ++i) {
+                uint8_t ch = scratch[block_offset + EXT2_DIRENT_HEADER + i];
+                if (ch == 0u || ch == (uint8_t)'/')
+                    return -1;
+                entry->name[i] = (char)ch;
+            }
+            entry->name[name_length] = '\\0';
+            entry->inode = inode;
+            entry->type = file_type;
+            *offset = current + record_length;
+            return 1;
+        }
+
+        *offset = current + record_length;
+    }
+    return 0;
+}
