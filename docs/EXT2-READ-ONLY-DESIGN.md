@@ -206,3 +206,10 @@ The deterministic QEMU ext2 fixture contains a fast relative link to the root RE
 **Implementation scope:** add a deterministic ext2 fast symlink named `parent-link` with the relative target `subdir/../README.TXT`. The QEMU VFS regression opens and reads through this link, verifies the complete README payload and resolved file size, and checks a dedicated success marker. The path resolver implementation and symlink traversal limit remain unchanged.
 
 **Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-OK`. Existing absolute/relative/slow/cyclic/intermediate/depth-boundary, Ring-3 syscall, ext2, persistence, GUI, and xHCI checks must remain green on the same final commit SHA. This is QEMU regression coverage only.
+
+
+### G10 — Dangling symbolic-link semantics
+
+**Implementation scope:** add a deterministic fast symlink named `dangling-link` targeting the absent `MISSING.TXT`. Verify that `lstat` reports the link itself and its target length, `readlink` returns the exact target bytes, while `stat` and `open` fail because the target does not exist. No resolver, VFS API, or filesystem mutation behavior is changed.
+
+**Acceptance:** both normal QEMU boot logs must contain `LIONOS:EXT2-VFS-SYMLINK-DANGLING-TEST-OK`; all previous symlink, Ring-3 syscall, ext2, persistence, GUI, and xHCI regressions remain required on the same final commit SHA. This is QEMU regression coverage only.
