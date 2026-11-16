@@ -244,6 +244,89 @@ static int valid_geometry(uint32_t bs) {
                     "read double-indirect data at first leaf entry");
     return fails;
 }
+
+static int symlink_tests(void) {
+    static const struct block_device_ops ops = { image_read };
+    struct disk_image im;
+    struct block_device dev;
+    struct ext2_ro_fs fs;
+    struct ext2_ro_inode link, regular;
+    uint8_t scratch[MAX_BLOCK_SIZE];
+    char target[80];
+    const char fast[] = "fast-link-target";
+    int fails = 0;
+
+    make_image(&im, 1024u);
+    dev.ops = &ops; dev.context = &im;
+    dev.sector_size = SECTOR_SIZE; dev.sector_count = im.sector_count;
+
+    /* Inode 5: fast symlink; its 60-byte i_block area stores target bytes. */
+    uint8_t *fast_inode = im.bytes + 5u * 1024u + 4u * 128u;
+    put16(fast_inode, 0xa1ffu);
+    put32(fast_inode + 4u, (uint32_t)(sizeof(fast) - 1u));
+    for (uint32_t i = 0; i < sizeof(fast) - 1u; ++i)
+        fast_inode[40u + i] = (uint8_t)fast[i];
+
+    /* Inode 6: slow symlink stored in one ordinary data block. */
+    uint8_t *slow_inode = fast_inode + 128u;
+    put16(slow_inode, 0xa1ffu);
+    put32(slow_inode + 4u, 70u);
+    put32(slow_inode + 28u, 2u);
+    put32(slow_inode + 40u, 15u);
+    for (uint32_t i = 0; i < 70u; ++i)
+        im.bytes[15u * 1024u + i] = (uint8_t)('a' + (i % 26u));
+
+    fails += expect(ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) == 0,
+                    "mount symlink fixture");
+    if (fails) return fails;
+    fails += expect(ext2_ro_read_inode(&fs, 5u, &link, scratch,
+                                       sizeof(scratch)) == 0,
+                    "parse fast symlink inode");
+    fails += expect(ext2_ro_read_symlink(&fs, &link, target, sizeof(target),
+                                         scratch, sizeof(scratch)) ==
+                    (int)(sizeof(fast) - 1u) &&
+                    target[sizeof(fast) - 1u] == '\0',
+                    "read fast symlink inline target");
+    fails += expect(ext2_ro_read_inode(&fs, 6u, &link, scratch,
+                                       sizeof(scratch)) == 0,
+                    "parse slow symlink inode");
+    fails += expect(ext2_ro_read_symlink(&fs, &link, target, sizeof(target),
+                                         scratch, sizeof(scratch)) == 70 &&
+                    target[0] == 'a' && target[69] == 'r' && target[70] == '\0',
+                    "read slow symlink through data block");
+
+    fails += expect(ext2_ro_read_inode(&fs, 3u, &regular, scratch,
+                                       sizeof(scratch)) == 0 &&
+                    ext2_ro_read_symlink(&fs, &regular, target, sizeof(target),
+                                         scratch, sizeof(scratch)) < 0,
+                    "reject non-symlink inode");
+    fails += expect(ext2_ro_read_symlink(&fs, &link, target, 70u,
+                                         scratch, sizeof(scratch)) < 0,
+                    "require room for target terminator");
+
+    link.blocks[0] = IMAGE_BLOCKS;
+    fails += expect(ext2_ro_read_symlink(&fs, &link, target, sizeof(target),
+                                         scratch, sizeof(scratch)) < 0,
+                    "reject invalid slow-symlink data block");
+
+    put32(fast_inode + 4u, 61u);
+    put32(fast_inode + 28u, 0u);
+    fails += expect(ext2_ro_read_inode(&fs, 5u, &link, scratch,
+                                       sizeof(scratch)) == 0 &&
+                    ext2_ro_read_symlink(&fs, &link, target, sizeof(target),
+                                         scratch, sizeof(scratch)) < 0,
+                    "reject oversized fast symlink");
+    put32(fast_inode + 4u, 4u);
+    fast_inode[40u] = 'a'; fast_inode[41u] = 0u;
+    fast_inode[42u] = 'b'; fast_inode[43u] = 'c';
+    fails += expect(ext2_ro_read_inode(&fs, 5u, &link, scratch,
+                                       sizeof(scratch)) == 0 &&
+                    ext2_ro_read_symlink(&fs, &link, target, sizeof(target),
+                                         scratch, sizeof(scratch)) < 0,
+                    "reject embedded NUL in symlink target");
+    return fails;
+}
+
 int main(void) {
     if (triple_indirect_geometry(1024u) ||
         triple_indirect_geometry(2048u) ||
@@ -264,6 +347,7 @@ int main(void) {
     fails += valid_geometry(1024u);
     fails += valid_geometry(2048u);
     fails += valid_geometry(4096u);
+    fails += symlink_tests();
     make_image(&im, 1024u);
     dev.ops = &ops; dev.context = &im;
     dev.sector_count = im.sector_count; dev.sector_size = SECTOR_SIZE;
