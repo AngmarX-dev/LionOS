@@ -115,8 +115,7 @@ uint32_t process_fork_current(uint32_t *parent_frame){
     slot->time_slice=quantum_for_priority(slot->priority);
     slot->ticks_used=0;
 
-    slot->pipe_read_mask=parent->pipe_read_mask;
-    slot->pipe_write_mask=parent->pipe_write_mask;
+    /* pipe_fork snapshots descriptor masks under pipe_lock after publication is blocked. */
     for(uint32_t fd=0;fd<PROCESS_FD_MAX;++fd){
         slot->fd_used[fd]=parent->fd_used[fd];
         slot->fd_backend[fd]=parent->fd_backend[fd];
