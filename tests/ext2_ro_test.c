@@ -84,8 +84,12 @@ static int valid_geometry(uint32_t bs) {
     struct block_device dev;
     struct ext2_ro_fs fs;
     struct ext2_ro_inode root, file, boundary;
+    struct ext2_ro_dirent dirent;
     uint8_t scratch[EXT2_RO_BLOCK_MAX], out[8] = {0};
     uint32_t found = 0u;
+    uint32_t dir_offset = 0u;
+    int saw_dot = 0, saw_dotdot = 0, saw_hello = 0;
+    int dir_result;
     int fails = 0;
     make_image(&im, bs);
     dev.ops = &ops; dev.context = &im;
@@ -96,6 +100,32 @@ static int valid_geometry(uint32_t bs) {
     fails += expect(fs.block_size == bs, "retain block size");
     fails += expect(ext2_ro_read_inode(&fs, 2u, &root, scratch, sizeof(scratch)) == 0,
                     "read root inode");
+    do {
+        dir_result = ext2_ro_readdir(&fs, &root, &dir_offset, &dirent,
+                                     scratch, sizeof(scratch));
+        if (dir_result > 0) {
+            if (dirent.inode == 2u && dirent.name[0] == '.' &&
+                dirent.name[1] == '\\0')
+                saw_dot = 1;
+            if (dirent.inode == 2u && dirent.name[0] == '.' &&
+                dirent.name[1] == '.' && dirent.name[2] == '\\0')
+                saw_dotdot = 1;
+            if (dirent.inode == 3u && dirent.name[0] == 'h' &&
+                dirent.name[1] == 'e' && dirent.name[2] == 'l' &&
+                dirent.name[3] == 'l' && dirent.name[4] == 'o' &&
+                dirent.name[5] == '\\0')
+                saw_hello = 1;
+        }
+    } while (dir_result > 0);
+    fails += expect(dir_result == 0 && saw_dot && saw_dotdot && saw_hello,
+                    "enumerate validated directory entries through EOF");
+    fails += expect(ext2_ro_readdir(&fs, &root, &dir_offset, &dirent,
+                                    scratch, sizeof(scratch)) == 0,
+                    "directory enumeration remains at EOF");
+    dir_offset = 1u;
+    fails += expect(ext2_ro_readdir(&fs, &root, &dir_offset, &dirent,
+                                    scratch, sizeof(scratch)) < 0,
+                    "reject unaligned directory cursor");
     fails += expect(ext2_ro_lookup(&fs, &root, "hello", &found, scratch,
                                    sizeof(scratch)) == 0 && found == 3u,
                     "lookup directory entry");
