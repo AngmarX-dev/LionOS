@@ -378,6 +378,27 @@ int main(void) {
     fails += expect(ext2_ro_lookup(&fs, &root, "missing", &found, scratch,
                                    sizeof(scratch)) < 0, "reject name length above 255");
 
+    make_image(&im, 1024u);
+    put32(im.bytes + 1100u + 76u, 0u);
+    put32(im.bytes + 1100u + 100u, 3u);
+    fails += expect(ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) < 0,
+                    "reject LARGE_FILE feature on revision zero");
+
+    make_image(&im, 1024u);
+    put32(im.bytes + 5u * 1024u + 384u + 108u, 1u);
+    if (ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) == 0)
+        fails += expect(ext2_ro_read_inode(&fs, 4u, &file, scratch,
+                                           sizeof(scratch)) < 0,
+                        "reject high file-size word without LARGE_FILE");
+
+    make_image(&im, 1024u);
+    put32(im.bytes + 1124u, 3u);
+    put32(im.bytes + 5u * 1024u + 128u + 108u, 1u);
+    if (ext2_ro_mount(&fs, &dev, scratch, sizeof(scratch)) == 0)
+        fails += expect(ext2_ro_read_inode(&fs, 2u, &root, scratch,
+                                           sizeof(scratch)) < 0,
+                        "reject large directory size");
+
     if (fails) {
         (void)fprintf(stderr, "EXT2 READ-ONLY PARSER TEST: %d failure(s)\n", fails);
         return 1;
