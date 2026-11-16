@@ -39,7 +39,7 @@ int ext2_vfs_path(const char *path) {
     if (!path)
         return 0;
     for (uint32_t i = 0u; i < EXT2_VFS_PREFIX_LEN; ++i) {
-        if (path[i] != EXT2_VFS_PREFIX[i])
+        if (path[i] == 0 || path[i] != EXT2_VFS_PREFIX[i])
             return 0;
     }
     return 1;
