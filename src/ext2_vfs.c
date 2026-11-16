@@ -442,7 +442,7 @@ int ext2_vfs_boot_test(void) {
 
     fd = vfs_open("/ext2/abs-link", 1u);
     if (fd < 0) {
-        debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-FAIL\n");
         return -1;
     }
     read_result = vfs_read(fd, contents, (uint32_t)sizeof(contents));
@@ -451,12 +451,12 @@ int ext2_vfs_boot_test(void) {
         close_result < 0 ||
         vfs_stat_path("/ext2/abs-link", &st) < 0 ||
         st.size != sizeof(expected) - 1u) {
-        debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-FAIL\n");
         return -1;
     }
     for (uint32_t i = 0u; i < sizeof(expected) - 1u; ++i) {
         if (contents[i] != expected[i]) {
-            debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-FAIL\\n");
+            debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-FAIL\n");
             return -1;
         }
     }
@@ -464,7 +464,7 @@ int ext2_vfs_boot_test(void) {
     if (vfs_stat_path("/ext2/depth8", &st) < 0 ||
         st.size != sizeof(expected) - 1u ||
         vfs_stat_path("/ext2/depth9", &st) == 0) {
-        debug_write("LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-DEPTH-TEST-FAIL\n");
         return -1;
     }
 
@@ -538,24 +538,6 @@ int ext2_vfs_boot_test(void) {
     }
     for (uint32_t i = 0u; i < sizeof(nested_expected) - 1u; ++i) {
         if (nested_contents[i] != nested_expected[i]) {
-            debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
-            return -1;
-        }
-    }
-
-    fd = vfs_open("/ext2/abs-link", 1u);
-    if (fd < 0) {
-        debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
-        return -1;
-    }
-    read_result = vfs_read(fd, contents, (uint32_t)sizeof(contents));
-    close_result = vfs_close(fd);
-    if (read_result != (int)(sizeof(expected) - 1u) || close_result < 0) {
-        debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
-        return -1;
-    }
-    for (uint32_t i = 0u; i < sizeof(expected) - 1u; ++i) {
-        if (contents[i] != expected[i]) {
             debug_write("LIONOS:EXT2-VFS-SYMLINK-TEST-FAIL\n");
             return -1;
         }
