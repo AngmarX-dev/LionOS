@@ -190,7 +190,7 @@ jobs:
                       }]
                   },
               }
-              sock.sendall((json.dumps(payload) + "\\r\\n").encode())
+              sock.sendall((json.dumps(payload) + "\r\n").encode())
               time.sleep(0.1)
 
           sock.close()
