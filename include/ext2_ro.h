@@ -27,7 +27,9 @@ struct ext2_ro_inode {
     uint16_t mode;
     uint64_t size;
     uint32_t flags;
+    uint32_t sectors_512;
     uint32_t blocks[15];
+    uint8_t inline_data[60];
 };
 
 struct ext2_ro_dirent {
@@ -45,6 +47,12 @@ int ext2_ro_read_inode(const struct ext2_ro_fs *fs,
                        struct ext2_ro_inode *inode,
                        void *scratch,
                        uint32_t scratch_size);
+int ext2_ro_read_symlink(const struct ext2_ro_fs *fs,
+                         const struct ext2_ro_inode *inode,
+                         char *target,
+                         uint32_t target_capacity,
+                         void *scratch,
+                         uint32_t scratch_size);
 int ext2_ro_read_file(const struct ext2_ro_fs *fs,
                       const struct ext2_ro_inode *inode,
                       uint64_t offset,
