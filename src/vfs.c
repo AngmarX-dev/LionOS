@@ -151,6 +151,7 @@ int vfs_open_for_process(struct process *p,const char *path,uint32_t flags){
     if(!p)return VFS_FD_INVALID;
     char clean[VFS_PATH_MAX]; if(path_normalize(clean,path)<0)return VFS_FD_INVALID;
     uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);
+    if(p->fd_closing){spinlock_irqrestore_release(&vfs_lock,irq);return VFS_FD_INVALID;}
     uint32_t backend=backend_for(clean);
     if (backend == VFS_BACKEND_EXT2_RO && (flags & VFS_F_WRITE)) {
         spinlock_irqrestore_release(&vfs_lock,irq); return VFS_FD_INVALID;
@@ -191,6 +192,7 @@ int vfs_close_for_process(struct process *p,int fd){
 int vfs_fork_process(struct process *parent,struct process *child){
     if(!parent||!child||parent==child)return-1;
     uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);
+    if(parent->fd_closing||child->fd_closing){spinlock_irqrestore_release(&vfs_lock,irq);return-1;}
     for(uint32_t i=0;i<PROCESS_FD_MAX;++i){
         if(parent->fd_used[i]){
             uint32_t object=parent->fd_object[i];
@@ -216,6 +218,7 @@ int vfs_fork_process(struct process *parent,struct process *child){
 void vfs_close_all_process(struct process *p){
     if(!p)return;
     uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);
+    p->fd_closing=1u;
     for(uint32_t i=0;i<PROCESS_FD_MAX;++i){
         if(p->fd_used[i]){
             release_process_open_file(p->fd_object[i]);
