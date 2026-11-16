@@ -475,6 +475,24 @@ int ext2_vfs_boot_test(void) {
     }
     debug_write("LIONOS:EXT2-VFS-SYMLINK-INLINE60-TEST-OK\n");
 
+    if (vfs_lstat_path("/ext2/slow61-link", &link_st) < 0 ||
+        (link_st.flags & VFS_STAT_SYMLINK) == 0u ||
+        link_st.size != 61u ||
+        vfs_readlink("/ext2/slow61-link", link_target,
+                     sizeof(link_target)) != 61 ||
+        vfs_stat_path("/ext2/slow61-link", &st) == 0 ||
+        vfs_open("/ext2/slow61-link", 1u) != VFS_FD_INVALID) {
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-SLOW61-TEST-FAIL\n");
+        return -1;
+    }
+    for (uint32_t i = 0u; i < 61u; ++i) {
+        if (link_target[i] != 'X') {
+            debug_write("LIONOS:EXT2-VFS-SYMLINK-SLOW61-TEST-FAIL\n");
+            return -1;
+        }
+    }
+    debug_write("LIONOS:EXT2-VFS-SYMLINK-SLOW61-TEST-OK\n");
+
     fd = vfs_open("/ext2/abs-link", 1u);
     if (fd < 0) {
         debug_write("LIONOS:EXT2-VFS-SYMLINK-ABSOLUTE-TEST-FAIL\n");
