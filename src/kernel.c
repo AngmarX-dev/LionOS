@@ -397,7 +397,7 @@ void lionos_user_integration_step(void){
             integration_pipe_ok=(exit_status_valid&&code==0u);
             debug_write("LIONOS:PIPE-TEST-EXIT-CODE=0x");
             debug_write_u32_hex(code);
-            debug_write(exit_status_valid?"\\n":" INVALID\\n");
+            debug_write(exit_status_valid?"\n":" INVALID\n");
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 integration_pipe_ok=0;
             integration_pid=-1;
