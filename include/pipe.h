@@ -1,6 +1,8 @@
 #ifndef LIONOS_PIPE_H
 #define LIONOS_PIPE_H
 #include <stdint.h>
+
+struct process;
 #define LIONOS_PIPE_MAX 16u
 #define LIONOS_PIPE_BUFFER 1024u
 #define PIPE_BLOCKED (-2)
