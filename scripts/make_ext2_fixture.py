@@ -101,7 +101,7 @@ def main():
     absolute_link = bytearray(128)
     put16(absolute_link, 0, 0xA1FF)
     put32(absolute_link, 4, len(b"/README.TXT"))
-    absolute_link[40:50] = b"/README.TXT"
+    absolute_link[40:51] = b"/README.TXT"
     image[inode_table + 1280:inode_table + 1408] = absolute_link
 
     # Triple-indirect path: root(13) -> middle(14) -> leaf(15) -> data(16).
