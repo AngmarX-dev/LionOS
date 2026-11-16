@@ -128,7 +128,7 @@ uint32_t process_fork_current(uint32_t *parent_frame){
         slot->state=PROCESS_STOPPED;
         spinlock_irqrestore_release(&process_lock,flags);
         uint32_t cleanup_flags;
-        if(vfs_fork_process(parent,slot)!=0){
+        if(vfs_fork_process(process_fd_owner(),slot)!=0){
             cleanup_flags=spinlock_irqsave_acquire(&process_lock);
             if(slot->state==PROCESS_STOPPED)slot->state=PROCESS_ZOMBIE;
             spinlock_irqrestore_release(&process_lock,cleanup_flags);
