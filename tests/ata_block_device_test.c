@@ -9,9 +9,10 @@
 
 static uint8_t mock_disk[TEST_SECTORS][SECTOR_SIZE];
 static int fail_lba = -1;
+static uint32_t mock_sector_count = TEST_SECTORS;
 
 uint32_t ata_sector_count(void) {
-    return TEST_SECTORS;
+    return mock_sector_count;
 }
 
 int ata_read_sector(uint32_t lba, void *buffer) {
@@ -40,6 +41,7 @@ int main(void) {
         for (uint32_t byte = 0u; byte < SECTOR_SIZE; ++byte)
             mock_disk[sector][byte] = (uint8_t)(sector * 17u + byte);
 
+    mock_sector_count = TEST_SECTORS;
     failed += expect(ata_block_device_init(&device) == 0,
                      "provider initializes after ATA identify");
     failed += expect(device.sector_size == SECTOR_SIZE &&
@@ -62,6 +64,12 @@ int main(void) {
     failed += expect(block_device_read(&device, 1u, 2u, output,
                                        sizeof(output)) < 0,
                      "backend I/O failure propagated");
+    failed += expect(block_device_read(&device, 0u, 1u, output,
+                                       SECTOR_SIZE - 1u) < 0,
+                     "undersized destination rejected");
+    mock_sector_count = 0u;
+    failed += expect(ata_block_device_init(&device) < 0,
+                     "unidentified device rejected");
     failed += expect(ata_block_device_init(0) < 0,
                      "null descriptor rejected");
 
