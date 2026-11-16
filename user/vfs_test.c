@@ -94,6 +94,54 @@ static int directory_stream_test(void) {
     return 0;
 }
 
+
+static int ext2_symlink_syscall_test(void) {
+    static const char link_path[] = "/ext2/readme-link";
+    static const char expected_target[] = "README.TXT";
+    static const char loop_path[] = "/ext2/loop-a";
+    static const char intermediate_path[] = "/ext2/subdir-link/nested.txt";
+    static const char direct_path[] = "/ext2/subdir/nested.txt";
+    struct lion_stat link_status;
+    struct lion_stat target_status;
+    struct lion_stat loop_status;
+    struct lion_stat intermediate_status;
+    char target[sizeof(expected_target) - 1u];
+    char short_target[5] = {'?', '?', '?', '?', '!'};
+
+    if (lion_lstat(link_path, &link_status) < 0 ||
+        (link_status.flags & LIONOS_STAT_SYMLINK) == 0u ||
+        link_status.size != sizeof(expected_target) - 1u)
+        return 30;
+    if (lion_stat(link_path, &target_status) < 0 ||
+        (target_status.flags & LIONOS_STAT_SYMLINK) != 0u)
+        return 31;
+    if (lion_readlink(link_path, target, sizeof(target)) !=
+            (int32_t)(sizeof(expected_target) - 1u) ||
+        memcmp(target, expected_target, sizeof(target)) != 0)
+        return 32;
+    if (lion_readlink(link_path, short_target, 4u) != 4 ||
+        memcmp(short_target, expected_target, 4u) != 0 ||
+        short_target[4] != '!')
+        return 33;
+    if (lion_readlink("/ext2/README.TXT", target, sizeof(target)) >= 0)
+        return 34;
+    if (lion_readlink(link_path, target, 0u) >= 0 ||
+        lion_readlink(link_path, 0, 4u) >= 0 ||
+        lion_lstat(0, &link_status) >= 0 ||
+        lion_lstat(link_path, 0) >= 0)
+        return 35;
+    if (lion_lstat(loop_path, &loop_status) < 0 ||
+        (loop_status.flags & LIONOS_STAT_SYMLINK) == 0u ||
+        loop_status.size != 6u || lion_stat(loop_path, &target_status) >= 0)
+        return 36;
+    if (lion_lstat(intermediate_path, &intermediate_status) < 0 ||
+        (intermediate_status.flags & LIONOS_STAT_SYMLINK) != 0u ||
+        lion_stat(direct_path, &target_status) < 0 ||
+        intermediate_status.size != target_status.size)
+        return 37;
+    return 0;
+}
+
 int main(void) {
     if (libc_memory_test() != 0) return 19;
 
@@ -158,5 +206,8 @@ int main(void) {
         return 17;
     if (lion_posix_stat(path, &status) >= 0)
         return 18;
-    return directory_stream_test();
+    int directory_result = directory_stream_test();
+    if (directory_result != 0)
+        return directory_result;
+    return ext2_symlink_syscall_test();
 }
