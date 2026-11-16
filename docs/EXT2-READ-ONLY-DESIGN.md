@@ -71,7 +71,7 @@ The test harness must not require privileged access or modify user disks. Host t
 
 ### F4b-1 — ATA read-only block-device provider
 
-**Implementation progress (2026-11-16):** added `include/ata_block.h` and `src/ata_block.c`. The provider publishes the already-identified ATA primary-master device through the F1 read-only block-device contract (512-byte sectors and IDENTIFY-derived capacity) and adapts bounded multi-sector requests to the existing single-sector ATA read routine. The host test uses a mock ATA sector backend and checks geometry, multi-sector data integrity, range rejection, backend error propagation, and null descriptors. `make test` now includes `ata-block-device-check`.
+**Implementation progress (2026-11-16):** added `include/ata_block.h` and `src/ata_block.c`. The provider publishes the already-identified ATA primary-master device through the F1 read-only block-device contract (512-byte sectors and IDENTIFY-derived capacity) and adapts bounded multi-sector requests to the existing single-sector ATA read routine. The ATA PIO command path now serializes IDENTIFY/read/write command sequences with an SMP spin lock. The host test uses a mock ATA sector backend and checks geometry, multi-sector data integrity, range rejection, backend error propagation, undersized buffers, zero detected capacity, and null descriptors. `make test` now includes `ata-block-device-check`.
 
 **Important limitation:** this provider currently describes the same primary-master disk used by LionFS. It is not mounted as ext2 and must not be used to probe the LionFS image. A separate ATA device selection path and a dedicated ext2 QEMU disk are still required. The adapter has not yet been wired into boot-time VFS or ext2 initialization.
 
