@@ -180,3 +180,9 @@ The deterministic QEMU ext2 fixture contains a fast relative link to the root RE
 **Implementation scope:** extend the existing Ring-3 VFS integration program to exercise `lion_lstat()` and `lion_readlink()` through `int 0x80`, not merely through kernel-side VFS calls. The test validates final-component no-follow metadata, target-following `stat`, exact target bytes, short-buffer truncation without a terminator, rejection of regular files and invalid user arguments, cyclic-link behavior, and an intermediate symlink leading to a regular file. The kernel emits a dedicated success/failure marker from the user process exit status.
 
 **Acceptance:** both normal QEMU boots must emit `LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK`; existing VFS, COW, userland utility, GUI, persistence, and xHCI checks remain required. No syscall numbers, UAPI layouts, filesystem write semantics, or symlink traversal limits change.
+
+### G6 — System-call user-memory and path-boundary hardening
+
+**Implementation scope:** extend the existing Ring-3 symlink syscall regression test without changing syscall numbers, UAPI layouts, VFS semantics, or path limits. Verify that lstat rejects a user path that has no NUL terminator within the fixed VFS path buffer, that readlink rejects a capacity larger than the syscall copy limit, and that both readlink output and lstat metadata pointers are rejected when their requested ranges cross the user/kernel address boundary. Boundary pointers are chosen so validation must reject the range before dereferencing it.
+
+**Acceptance:** the existing LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK marker must still be emitted on both normal QEMU boots; all previous filesystem, persistence, memory, GUI, and xHCI regression checks remain required. The implementation must preserve bounded user-memory validation and must not write to user buffers before all relevant argument checks succeed.
