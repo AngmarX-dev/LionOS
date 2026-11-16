@@ -11,6 +11,9 @@
 #define VFS_BACKEND_NONE 0u
 #define VFS_BACKEND_RAMFS 1u
 #define VFS_BACKEND_DISKFS 2u
+#define VFS_BACKEND_EXT2_RO 3u
+
+#define VFS_STAT_READ_ONLY 1u
 
 struct process;
 
