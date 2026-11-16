@@ -61,6 +61,8 @@ required_write_checks = (
     "if(!user_range_ok_write(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t result=process_waitpid",
     "case LIONOS_SYS_THREAD_JOIN:if(!has_cap(PROCESS_CAP_PROCESS)||!user_range_ok_write(arg1,sizeof(uint32_t)))",
     "case LIONOS_SYS_PIPE_READ:if(!has_cap(PROCESS_CAP_IPC)||arg2==0||arg2>IPC_MESSAGE_MAX||!user_range_ok_write(arg1,arg2))",
+    "case LIONOS_SYS_READDIR:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];",
+    "!user_range_ok_write(arg1,sizeof(uint32_t))||!user_range_ok_write(arg2,sizeof(*user_entry))",
 )
 for fragment in required_write_checks:
     if fragment not in dispatcher:
