@@ -453,7 +453,7 @@ int ext2_vfs_boot_test(void) {
         link_target[10] != 'T' ||
         vfs_stat_path("/ext2/dangling-link", &st) == 0 ||
         vfs_open("/ext2/dangling-link", 1u) != VFS_FD_INVALID) {
-        debug_write("LIONOS:EXT2-VFS-SYMLINK-DANGLING-TEST-FAIL\\n");
+        debug_write("LIONOS:EXT2-VFS-SYMLINK-DANGLING-TEST-FAIL\n");
         return -1;
     }
 
