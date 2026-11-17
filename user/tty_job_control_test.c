@@ -56,17 +56,17 @@ static int test_setpgid_orphan_transition(void){
                 lion_exit_code(51u);
             if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
                !LIONOS_WIFSTOPPED(status))lion_exit_code(54u);
-            if(lion_setpgid(0u,0u)!=0)lion_exit_code(55u);
-            status=-1;
-            if(lion_waitpid(child,&status)!=(int32_t)child||
-               status!=(int32_t)(128u+LIONOS_SIG_HUP))
-                lion_exit_code(56u);
-            lion_exit_code(0u);
+            /* Joining the stopped child's group makes the group orphaned.
+               Both members receive SIGHUP; this caller must therefore exit
+               at the setpgid syscall-return boundary. */
+            if(lion_setpgid(0u,child)!=0)lion_exit_code(55u);
+            lion_exit_code(57u);
         }
         if(group_parent==LIONOS_SYSCALL_ERR)lion_exit_code(58u);
         if(lion_setsid()<0)lion_exit_code(59u);
         status=-1;
-        if(lion_waitpid(group_parent,&status)!=(int32_t)group_parent||status!=0)
+        if(lion_waitpid(group_parent,&status)!=(int32_t)group_parent||
+           status!=(int32_t)(128u+LIONOS_SIG_HUP))
             lion_exit_code(60u);
         lion_exit_code(0u);
     }
