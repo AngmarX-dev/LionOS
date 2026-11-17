@@ -46,7 +46,7 @@ The syscall interface now provides:
 - `lion_tty_getpgrp()`: returns the foreground process group for the caller's session.
 - `lion_tty_setpgrp(pgid)`: changes the foreground group only when a live process group exists in the caller's session.
 
-The Process Manager validates PGID membership under its process-table lock. TTY state is updated only after validation. The process-table lock is released before the TTY lock is acquired.
+The Process Manager validates PGID membership under its process-table lock. TTY state is updated only after validation. The Process Manager holds its process-table lock while validating the live PGID and updating the TTY foreground group; the lock order is process-table then TTY. TTY code never calls back into the Process Manager.
 
 When the final non-thread process in a session exits or is terminated, the Process Manager releases that session's TTY and clears its input/foreground state. The TTY remains exclusive while any live process in the owning session remains.
 
