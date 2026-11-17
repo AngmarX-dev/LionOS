@@ -46,7 +46,7 @@ static void set_current_local(struct process *p) { uint32_t cpu = cpu_current_in
 static struct process *find_free_slot(void) { for (uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) if (processes[i].state==PROCESS_UNUSED) return &processes[i]; return 0; }
 static uint32_t process_index(const struct process *p) { return (uint32_t)(p-processes); }
 static int write_user_u32(const struct process *p,uint32_t ptr,uint32_t value) { uint32_t physical,flags; if(!p||ptr<0x10000000u||ptr>0xBFFFFFFCu||(ptr&3u))return -1;uint32_t page=ptr&~(PAGE_SIZE-1u);if(paging_get_user_page(p->page_directory,page,&physical,&flags)!=0)return -1;if(!(flags&0x2u)){if(!(flags&0x200u)||paging_resolve_cow(p->page_directory,page)!=0)return -1;if(paging_get_user_page(p->page_directory,page,&physical,&flags)!=0||!(flags&0x2u))return -1;}*(uint32_t *)(uintptr_t)(physical+(ptr&(PAGE_SIZE-1u)))=value;return 0;}
-static void clear_process(struct process *p) { p->pid=0;p->state=PROCESS_UNUSED;p->parent_pid=0;p->pgid=0;p->sid=0;p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_channel=0;p->wait_kind=0;p->wait_timeout_active=0;p->wait_timeout_ticks=0;p->wait_deadline=0;p->wait_cpu=0; p->reap_pending=0;p->deferred_kernel_stack=0;p->page_directory=0;p->entry=0;p->user_stack=0; p->kernel_stack_top=0;p->saved_frame=0;p->user_code_page=0;p->user_stack_page=0;p->user_page_count=0;p->pending_signals=0;p->cpu_owner=0;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=0;p->ticks_used=0;p->fpu_valid=0;p->tid=0;p->thread_group_pid=0;p->is_thread=0;p->owns_address_space=0;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->pipe_read_mask=0;p->pipe_write_mask=0;p->fd_closing=0; for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_object[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} for(uint32_t i=0;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} }
+static void clear_process(struct process *p) { p->pid=0;p->state=PROCESS_UNUSED;p->parent_pid=0;p->pgid=0;p->sid=0;p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_channel=0;p->wait_kind=0;p->wait_timeout_active=0;p->wait_timeout_ticks=0;p->wait_deadline=0;p->wait_cpu=0;p->wait_timeout_result=0; p->reap_pending=0;p->deferred_kernel_stack=0;p->page_directory=0;p->entry=0;p->user_stack=0; p->kernel_stack_top=0;p->saved_frame=0;p->user_code_page=0;p->user_stack_page=0;p->user_page_count=0;p->pending_signals=0;p->cpu_owner=0;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=0;p->ticks_used=0;p->fpu_valid=0;p->tid=0;p->thread_group_pid=0;p->is_thread=0;p->owns_address_space=0;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->pipe_read_mask=0;p->pipe_write_mask=0;p->fd_closing=0; for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_object[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} for(uint32_t i=0;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} }
 static void init_interrupt_frame(struct process *p) { uint32_t *f=(uint32_t *)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=USER_DATA_SEL;f[1]=USER_DATA_SEL;f[2]=USER_DATA_SEL;f[3]=USER_DATA_SEL; f[14]=p->entry;f[15]=USER_CODE_SEL;f[16]=0x202u;f[17]=p->user_stack;f[18]=USER_DATA_SEL; p->saved_frame=(uint32_t)(uintptr_t)f; }
 static void init_bootstrap_frame(void) { struct process *b=&processes[0]; void *s=page_alloc(); if(!s){b->kernel_stack_top=0;b->saved_frame=0;return;} b->kernel_stack_top=(uint32_t)(uintptr_t)s+4096u;b->page_directory=paging_kernel_directory(); b->entry=(uint32_t)(uintptr_t)&process_schedule;b->user_stack=b->kernel_stack_top; uint32_t *f=(uint32_t *)(uintptr_t)(b->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=0x10u;f[1]=0x10u;f[2]=0x10u;f[3]=0x10u;f[14]=(uint32_t)(uintptr_t)&lionos_kernel_idle; f[15]=0x08u;f[16]=0x202u;f[17]=b->kernel_stack_top;f[18]=0x10u; b->saved_frame=(uint32_t)(uintptr_t)f; }
 void process_init(void) { fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u; if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");} spinlock_init(&process_lock); uint32_t flags=spinlock_irqsave_acquire(&process_lock); for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) clear_process(&processes[i]); for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i){current_by_cpu[i]=0;scheduler_cpu[i].cursor=0;scheduler_cpu[i].schedule_count=0;scheduler_cpu[i].steal_count=0;scheduler_cpu[i].timer_ticks=0;reschedule_requested[i]=0u;} next_pid=2;next_tid=1;processes[0].pid=1;processes[0].pgid=1;processes[0].sid=1;processes[0].thread_group_pid=1;processes[0].state=PROCESS_RUNNING;init_bootstrap_frame(); set_current_local(&processes[0]); spinlock_irqrestore_release(&process_lock,flags); }
@@ -371,7 +371,8 @@ static int32_t process_sleep_on_kind(uintptr_t channel, struct spinlock *held_lo
     if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
     c->wait_channel=(uint32_t)channel;
     c->wait_kind=kind;
-    c->wait_timeout_active=(kind==1u&&timeout_ticks!=0u)?2u:0u;
+    c->wait_timeout_active=((kind==1u||kind==2u)&&timeout_ticks!=0u)?2u:0u;
+    c->wait_timeout_result=0u;
     c->wait_timeout_ticks=timeout_ticks;
     c->wait_cpu=cpu;
     c->wait_deadline=0u;
@@ -383,6 +384,20 @@ static int32_t process_sleep_on_kind(uintptr_t channel, struct spinlock *held_lo
 
 int32_t process_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t irq_flags){
     return process_sleep_on_kind(channel,held_lock,irq_flags,0u,0u);
+}
+
+int32_t process_sleep_on_timeout(uintptr_t channel, struct spinlock *held_lock,
+                                 uint32_t irq_flags, uint32_t timeout_ticks){
+    return process_sleep_on_kind(channel,held_lock,irq_flags,2u,timeout_ticks);
+}
+
+int32_t process_consume_timeout(void){
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process *current=current_local();
+    int32_t result=current&&current->wait_timeout_result?1:0;
+    if(current)current->wait_timeout_result=0u;
+    spinlock_irqrestore_release(&process_lock,flags);
+    return result;
 }
 
 int32_t process_futex_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t irq_flags){
@@ -408,7 +423,8 @@ void process_futex_tick(uint32_t cpu){
         p->wait_timeout_active=0u;
         p->state=PROCESS_READY;
         uint32_t *frame=(uint32_t *)(uintptr_t)p->saved_frame;
-        if(frame)frame[11]=2u;
+        if(p->wait_kind==2u)p->wait_timeout_result=1u;
+        if(frame&&p->wait_kind==1u)frame[11]=2u;
     }
     spinlock_release(&process_lock);
 }
@@ -421,6 +437,9 @@ void process_wakeup(uintptr_t channel){
         if(p->state==PROCESS_WAITING&&p->wait_kind==0u&&
            p->wait_channel==(uint32_t)channel){
             p->wait_channel=0u;
+            p->wait_timeout_active=0u;
+            p->wait_timeout_result=0u;
+            p->wait_kind=0u;
             p->state=PROCESS_READY;
         }
     }
