@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-TIMEOUT_SECONDS="${LIONOS_TEST_TIMEOUT:-30}"
+# Keep the full boot and expanded userland integration suite observable in CI.
+TIMEOUT_SECONDS="${LIONOS_TEST_TIMEOUT:-60}"
 QEMU_MEMORY="${LIONOS_TEST_MEMORY:-128M}"
 
 GUI_QEMU_PID=0
