@@ -4,7 +4,6 @@
 #define SIGNAL_READY 0x53494752u
 
 static volatile uint32_t signal_seen;
-static volatile uint32_t waitpid_signal_seen;
 
 static void on_sigint(uint32_t signal) {
     if (signal == LIONOS_SIG_INT)
@@ -13,7 +12,7 @@ static void on_sigint(uint32_t signal) {
 
 static void on_waitpid_sigint(uint32_t signal) {
     if (signal == LIONOS_SIG_INT)
-        waitpid_signal_seen = 1u;
+        signal_seen = 1u;
 }
 
 static void reap_failed_child(uint32_t child) {
@@ -22,7 +21,6 @@ static void reap_failed_child(uint32_t child) {
 }
 
 static int32_t run_waitpid_eintr_test(void) {
-    waitpid_signal_seen = 0u;
     if (lion_sigaction(LIONOS_SIG_INT, on_waitpid_sigint) != 0)
         return 20;
     uint32_t waiter = lion_fork();
@@ -40,7 +38,7 @@ static int32_t run_waitpid_eintr_test(void) {
         if (lion_waitpid(grandchild, &status) != LIONOS_EINTR)
             lion_exit_code(23u);
         (void)lion_yield();
-        if (!waitpid_signal_seen)
+        if (!signal_seen)
             lion_exit_code(24u);
         if (lion_kill(grandchild, LIONOS_SIG_TERM) != 0)
             lion_exit_code(25u);
