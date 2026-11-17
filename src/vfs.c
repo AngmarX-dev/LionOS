@@ -6,6 +6,7 @@
 #include "process.h"
 #include "spinlock.h"
 #include "heap.h"
+#include "tty.h"
 
 #define VFS_F_READ 1u
 #define VFS_F_WRITE 2u
@@ -147,6 +148,27 @@ int vfs_init(void){
     return 0;
 }
 
+int vfs_stdio_init_process(struct process *p) {
+    uint32_t objects[3], found = 0u;
+    if (!p) return -1;
+    uint32_t irq = spinlock_irqsave_acquire(&vfs_lock);
+    if (p->fd_closing || p->fd_used[0] || p->fd_used[1] || p->fd_used[2]) {
+        spinlock_irqrestore_release(&vfs_lock, irq); return -1;
+    }
+    for (uint32_t i=0u;i<VFS_PROCESS_OPEN_MAX&&found<3u;++i)
+        if (!process_open_files[i].used) objects[found++]=i;
+    if (found!=3u) { spinlock_irqrestore_release(&vfs_lock,irq); return -1; }
+    for (uint32_t i=0u;i<3u;++i) {
+        struct vfs_fd *file=&process_open_files[objects[i]];
+        file->used=1u; file->refs=1u; file->backend=VFS_BACKEND_TTY;
+        file->flags=i==0u?VFS_F_READ:VFS_F_WRITE;
+        file->offset=0u; file->path[0]=0;
+        p->fd_used[i]=1u; p->fd_object[i]=objects[i];
+    }
+    spinlock_irqrestore_release(&vfs_lock,irq);
+    return 0;
+}
+
 int vfs_open_for_process(struct process *p,const char *path,uint32_t flags){
     if(!p)return VFS_FD_INVALID;
     char clean[VFS_PATH_MAX]; if(path_normalize(clean,path)<0)return VFS_FD_INVALID;
@@ -229,24 +251,42 @@ void vfs_close_all_process(struct process *p){
 }
 
 int vfs_read_for_process(struct process *p,int fd,void *buffer,uint32_t length){
-    if(!p||fd<0||(uint32_t)fd>=PROCESS_FD_MAX)return-1;
+    if(!p||fd<0||(uint32_t)fd>=PROCESS_FD_MAX||!buffer||length>VFS_IO_MAX)return-1;
     uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);
-    if(!p->fd_used[fd]||p->fd_object[fd]>=VFS_PROCESS_OPEN_MAX||
-       !process_open_files[p->fd_object[fd]].used){
+    if(!p->fd_used[fd]||p->fd_object[fd]>=VFS_PROCESS_OPEN_MAX||!process_open_files[p->fd_object[fd]].used){
         spinlock_irqrestore_release(&vfs_lock,irq);return-1;
     }
-    int r=read_slot(&process_open_files[p->fd_object[fd]],buffer,length);
+    struct vfs_fd *file=&process_open_files[p->fd_object[fd]];
+    if(file->backend==VFS_BACKEND_TTY){
+        if(!(file->flags&VFS_F_READ)||file->refs==UINT32_MAX){spinlock_irqrestore_release(&vfs_lock,irq);return-1;}
+        ++file->refs;
+        uint32_t sid=p->sid,object=p->fd_object[fd];
+        spinlock_irqrestore_release(&vfs_lock,irq);
+        int r=tty_read(sid,(uint8_t*)buffer,length);
+        irq=spinlock_irqsave_acquire(&vfs_lock);release_process_open_file(object);
+        spinlock_irqrestore_release(&vfs_lock,irq);return r;
+    }
+    int r=read_slot(file,buffer,length);
     spinlock_irqrestore_release(&vfs_lock,irq);return r;
 }
 
 int vfs_write_for_process(struct process *p,int fd,const void *buffer,uint32_t length){
-    if(!p||fd<0||(uint32_t)fd>=PROCESS_FD_MAX)return-1;
+    if(!p||fd<0||(uint32_t)fd>=PROCESS_FD_MAX||(!buffer&&length)||length>VFS_IO_MAX)return-1;
     uint32_t irq=spinlock_irqsave_acquire(&vfs_lock);
-    if(!p->fd_used[fd]||p->fd_object[fd]>=VFS_PROCESS_OPEN_MAX||
-       !process_open_files[p->fd_object[fd]].used){
+    if(!p->fd_used[fd]||p->fd_object[fd]>=VFS_PROCESS_OPEN_MAX||!process_open_files[p->fd_object[fd]].used){
         spinlock_irqrestore_release(&vfs_lock,irq);return-1;
     }
-    int r=write_slot(&process_open_files[p->fd_object[fd]],buffer,length);
+    struct vfs_fd *file=&process_open_files[p->fd_object[fd]];
+    if(file->backend==VFS_BACKEND_TTY){
+        if(!(file->flags&VFS_F_WRITE)||file->refs==UINT32_MAX){spinlock_irqrestore_release(&vfs_lock,irq);return-1;}
+        ++file->refs;
+        uint32_t sid=p->sid,object=p->fd_object[fd];
+        spinlock_irqrestore_release(&vfs_lock,irq);
+        int r=tty_write(sid,(const uint8_t*)buffer,length);
+        irq=spinlock_irqsave_acquire(&vfs_lock);release_process_open_file(object);
+        spinlock_irqrestore_release(&vfs_lock,irq);return r;
+    }
+    int r=write_slot(file,buffer,length);
     spinlock_irqrestore_release(&vfs_lock,irq);return r;
 }
 
