@@ -104,7 +104,7 @@ Host tests verify ordinary echo, backspace visual editing, Ctrl-C display marker
 
 ## H21.9 — Runtime TTY attributes
 
-The owning session can query or update a bounded attribute bitmask through `lion_tty_getattr()` and `lion_tty_setattr()`. Supported flags are `LIONOS_TTY_ATTR_ECHO`, `LIONOS_TTY_ATTR_ISIG`, and `LIONOS_TTY_ATTR_ICANON`; unknown bits are rejected. All three flags default on. Echo remains deferred to process-context reads. When ISIG is disabled, byte 0x03 is retained as input instead of being routed as SIGINT. With ICANON enabled, input is edited and committed at newline. With ICANON disabled, every byte is queued immediately, including backspace and carriage return, and readers are woken for each accepted byte. The byte-oriented mode does not implement VMIN/VTIME yet. Attribute operations are protected by the TTY input lock and restricted to the owning session.
+The owning session can query or update a bounded attribute bitmask through `lion_tty_getattr()` and `lion_tty_setattr()`. At this milestone, supported flags are `LIONOS_TTY_ATTR_ECHO` and `LIONOS_TTY_ATTR_ISIG`; unknown bits are rejected. Both flags default on. Echo remains deferred to process-context reads. When ISIG is disabled, byte 0x03 is retained as canonical input instead of being routed as SIGINT. Canonical line buffering remains enabled in H21.9. Attribute operations are protected by the TTY input lock and restricted to the owning session.
 
 The new syscalls are 60 (`TTY_GETATTR`) and 61 (`TTY_SETATTR`). This is a small termios foundation, not a complete POSIX termios implementation.
 
