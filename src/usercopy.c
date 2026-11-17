@@ -32,11 +32,11 @@ static int validate_pages(uint32_t address, uint32_t length, int write) {
             return 0;
     }
 
-    if (!write) return 0;
+    if (!write) return 1;
 
     for (uint32_t current = page; current < end; current += PAGE_SIZE) {
         uint32_t flags = 0u;
-        if (paging_get_user_page(pd, current, 0, &flags) != 0) return -1;
+        if (paging_get_user_page(pd, current, 0, &flags) != 0) return 0;
         if (!(flags & PTE_WRITABLE) &&
             (!(flags & PTE_COW) || paging_resolve_cow(pd, current) != 0))
             return 0;
