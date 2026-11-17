@@ -138,7 +138,6 @@ int32_t process_get_sid(uint32_t pid){
 }
 
 int32_t process_create_session(void){
-    debug_write("LIONOS:JOBCTL:SETSID-ENTER\n");
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process *current=current_local();
     if(!current||current==&processes[0]||current->is_thread||
@@ -167,12 +166,10 @@ int32_t process_create_session(void){
     process_notify_child_group_transitions_locked(child_groups,child_group_count);
     spinlock_irqrestore_release(&process_lock,flags);
     tty_wake_readers();
-    debug_write("LIONOS:JOBCTL:SETSID-DONE\n");
     return (int32_t)group_pid;
 }
 
 int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
-    debug_write("LIONOS:JOBCTL:SETPGID-ENTER\n");
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process *current=current_local();
     if(!current||current==&processes[0]||current->is_thread){
@@ -216,7 +213,6 @@ int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
     }
     spinlock_irqrestore_release(&process_lock,flags);
     if(new_pgid!=old_pgid)tty_wake_readers();
-    debug_write("LIONOS:JOBCTL:SETPGID-DONE\n");
     return 0;
 }
 struct process *process_pipe_owner(void){
@@ -792,7 +788,6 @@ static void process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,i
 }
 
 static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
-    debug_write("LIONOS:JOBCTL:ORPHAN-NOTIFY\n");
     const uint32_t hup_bit=1u<<(LIONOS_SIG_HUP-1u);
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];
@@ -894,7 +889,7 @@ void process_exit_current(uint32_t code){
     uint32_t exiting_sid=c->sid;
     c->exit_code=code;
     process_reparent_children_locked(c);
-    debug_write("LIONOS:PROC-EXIT\\n");
+    c->state=PROCESS_ZOMBIE;
     wake_waiting_parent(c);
     spinlock_irqrestore_release(&process_lock,flags);
     process_release_tty_if_session_empty(exiting_sid);
@@ -1137,7 +1132,6 @@ int process_deliver_pending_signal(void){
     }
     current->pending_signals&=~hup_bit;
     spinlock_irqrestore_release(&process_lock,flags);
-    debug_write("LIONOS:JOBCTL:SIGHUP-DELIVER\n");
     process_exit_current(128u+LIONOS_SIG_HUP);
     return 1;
 }
