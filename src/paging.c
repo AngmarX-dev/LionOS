@@ -26,7 +26,9 @@
 #define PTE_WRITABLE 0x2ULL
 #define PTE_USER 0x4ULL
 #define PTE_COW 0x200ULL
-#define PTE_FLAGS_MASK 0x21FULL
+#define PTE_EXECUTABLE 0x400ULL
+#define PTE_FLAGS_MASK 0x61FULL
+#define PTE_NX (1ULL << 63)
 #define PTE_ADDR_MASK 0x000FFFFFFFFFF000ULL
 
 /*
@@ -86,6 +88,13 @@ static void pte_store_atomic(volatile uint64_t *entry,uint64_t value){
         : "+m"(*entry)
         : "r"(entry), "b"(low), "c"(high)
         : "eax","edx","memory","cc");
+}
+
+static uint64_t user_pte_value(uint32_t physical_address,uint32_t flags){
+    uint64_t value=((uint64_t)physical_address&PTE_ADDR_MASK)|
+                   ((uint64_t)flags&PTE_FLAGS_MASK)|PTE_PRESENT|PTE_USER;
+    if(cpu_nx_enabled()&&!(flags&PTE_EXECUTABLE))value|=PTE_NX;
+    return value;
 }
 
 static void zero_words(uint64_t *buffer, uint32_t count) {
@@ -411,9 +420,7 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
             PTE_PRESENT | PTE_WRITABLE | PTE_USER;
     }
 
-    table[pt_index] = ((uint64_t)physical_address & PTE_ADDR_MASK) |
-                      ((uint64_t)flags & PTE_FLAGS_MASK) |
-                      PTE_PRESENT | PTE_USER;
+    pte_store_atomic(&table[pt_index],user_pte_value(physical_address,flags));
 
     if (*current_directory_slot() == pd_physical)
         __asm__ volatile ("invlpg (%0)" : : "r"(virtual_address) : "memory");
@@ -427,7 +434,7 @@ int paging_set_user_page_flags(uint32_t pd_physical,uint32_t virtual_address,uin
     if(!(pde&PTE_PRESENT)||!(pde&PTE_USER))return-1;
     uint64_t*table=pt_ptr(pde);uint64_t pte=table[pt_index];
     if(!(pte&PTE_PRESENT)||!(pte&PTE_USER))return-1;
-    table[pt_index]=(pte&PTE_ADDR_MASK)|((uint64_t)flags&PTE_FLAGS_MASK)|PTE_PRESENT|PTE_USER;
+    pte_store_atomic(&table[pt_index],user_pte_value((uint32_t)(pte&PTE_ADDR_MASK),flags));
     if(pd_physical==paging_current_address_space())__asm__ volatile("invlpg (%0)"::"r"(virtual_address):"memory");
     return 0;
 }
@@ -448,12 +455,12 @@ int paging_resolve_cow(uint32_t pd_physical,uint32_t virtual_address){
     uint32_t old_phys=(uint32_t)(pte&PTE_ADDR_MASK),old_flags=(uint32_t)(pte&PTE_FLAGS_MASK);
     uint32_t refs=page_refcount((void*)(uintptr_t)old_phys);if(!refs)return-1;
     if(refs==1u){
-        table[pt_index]=(pte&PTE_ADDR_MASK)|((uint64_t)((old_flags|0x2u)&~(uint32_t)PTE_COW))|PTE_PRESENT|PTE_USER;
+        pte_store_atomic(&table[pt_index],user_pte_value(old_phys,(old_flags|0x2u)&~(uint32_t)PTE_COW));
     }else{
         void*new_page=page_alloc();if(!new_page)return-1;
         uint8_t*dst=(uint8_t*)new_page;const uint8_t*src=(const uint8_t*)(uintptr_t)old_phys;
         for(uint32_t i=0u;i<PAGE_SIZE;++i)dst[i]=src[i];
-        table[pt_index]=((uint64_t)(uintptr_t)new_page&PTE_ADDR_MASK)|((uint64_t)((old_flags|0x2u)&~(uint32_t)PTE_COW))|PTE_PRESENT|PTE_USER;
+        pte_store_atomic(&table[pt_index],user_pte_value((uint32_t)(uintptr_t)new_page,(old_flags|0x2u)&~(uint32_t)PTE_COW));
         page_free((void*)(uintptr_t)old_phys);
     }
     if(pd_physical==paging_current_address_space())__asm__ volatile("invlpg (%0)"::"r"(virtual_address):"memory");
@@ -480,6 +487,13 @@ int paging_get_user_page(uint32_t pd_physical, uint32_t virtual_address,
     if (physical_address) *physical_address = (uint32_t)(pte & PTE_ADDR_MASK);
     if (flags) *flags = (uint32_t)(pte & PTE_FLAGS_MASK);
     return 0;
+}
+
+int paging_user_page_executable(uint32_t pd_physical,uint32_t virtual_address){
+    uint32_t flags=0u;
+    if(paging_get_user_page(pd_physical,virtual_address&~(PAGE_SIZE-1u),0,&flags)!=0)
+        return 0;
+    return (flags&PTE_EXECUTABLE)!=0u;
 }
 
 void paging_destroy_address_space(uint32_t pd_physical) {
