@@ -124,7 +124,7 @@ $(BUILD)/hello.o: user/hello.c | $(BUILD)
 $(BUILD)/meminfo.o: user/bin/meminfo.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/process_test.o: user/process_test.c | $(BUILD)
-	$(CC) $(USER_CFLAGS) -c $< -o $@
+	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
 $(BUILD)/ipc_test.o: user/ipc_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/pipe_test.o: user/pipe_test.c | $(BUILD)
@@ -175,7 +175,7 @@ $(BUILD)/hello.elf: $(USER_COMMON_OBJS) $(BUILD)/hello.o user/user.ld
 $(BUILD)/meminfo.elf: $(USER_COMMON_OBJS) $(BUILD)/meminfo.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/meminfo.o
 $(BUILD)/process_test.elf: $(USER_COMMON_OBJS) $(BUILD)/process_test.o user/user.ld
-	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/process_test.o
+	$(LD) $(USER_LDFLAGS) -s -o $@ $(USER_COMMON_OBJS) $(BUILD)/process_test.o
 $(BUILD)/ipc_test.elf: $(USER_COMMON_OBJS) $(BUILD)/ipc_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/ipc_test.o
 $(BUILD)/pipe_test.elf: $(USER_COMMON_OBJS) $(BUILD)/pipe_test.o user/user.ld
