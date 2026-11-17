@@ -86,6 +86,7 @@ int32_t process_tty_set_foreground(uint32_t sid,uint32_t pgid){
     }
     int32_t result=found?tty_set_foreground_pgid(sid,pgid):-1;
     spinlock_irqrestore_release(&process_lock,flags);
+    if(result==0)tty_wake_readers();
     return result;
 }
 
