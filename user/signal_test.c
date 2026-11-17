@@ -75,6 +75,11 @@ int main(void) {
         if (lion_tty_claim() != 0 ||
             lion_tty_getpgrp() != (int32_t)child_pid)
             lion_exit_code(45u);
+        uint8_t tty_probe = 0u;
+        static const char tty_message[] = "TTY";
+        if (lion_tty_read(&tty_probe, 1u) != -2 ||
+            lion_tty_write(tty_message, 3u) != 3)
+            lion_exit_code(56u);
         thread_session_start = 1u;
         int32_t thread_status = -1;
         if (lion_thread_join(session_tid, &thread_status) != (int32_t)session_tid ||
