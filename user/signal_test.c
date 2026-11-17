@@ -51,10 +51,12 @@ int main(void) {
     uint32_t term_mask = 1u << (LIONOS_SIG_TERM - 1u);
     if ((lion_sigpending(child) & term_mask) == 0u)
         return fail("SIGNAL TEST: SIGTERM pending bit missing", 14);
+    if (lion_kill(child, LIONOS_SIG_CONT) != -1)
+        return fail("SIGNAL TEST: zombie process accepted a signal", 15);
     int32_t waited = lion_waitpid(child, &status);
     if (waited != (int32_t)child ||
         status != (int32_t)(128u + LIONOS_SIG_TERM))
-        return fail("SIGNAL TEST: SIGTERM wait status mismatch", 15);
+        return fail("SIGNAL TEST: SIGTERM wait status mismatch", 16);
 
     child = lion_fork();
     if (child == 0u) {
