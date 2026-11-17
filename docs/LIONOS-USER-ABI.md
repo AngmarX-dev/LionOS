@@ -137,7 +137,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 57 | LIONOS_SYS_TTY_SETPGRP | PGID | Set foreground process group within caller's session |
 | 58 | LIONOS_SYS_TTY_READ | writable buffer, capacity | Canonical bytes, empty sentinel, or error; nonblocking; max 4096 |
 | 59 | LIONOS_SYS_TTY_WRITE | readable buffer, length | Console bytes for owning TTY session; max 4096 |
-| 60 | LIONOS_SYS_TTY_GETATTR | writable `struct lion_tty_attributes *` | Read supported TTY attribute flags |
+| 60 | LIONOS_SYS_TTY_GETATTR | writable `struct lion_tty_attributes *` | Read supported TTY flags and VMIN threshold |
 | 61 | LIONOS_SYS_TTY_SETATTR | readable `struct lion_tty_attributes *` | Set ECHO/ISIG/ICANON flags and VMIN; unknown values rejected
 
 ### Capability and validation notes
