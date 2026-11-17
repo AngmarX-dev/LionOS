@@ -127,6 +127,7 @@ int main(void) {
         tty_test_output[TTY_EDIT_LINE_CAPACITY - 1u] != '\n')
         return fail("maximum canonical echo length mismatch", 29);
 
+    tty_test_output_length = 0u;
     if (tty_input_byte('p') != TTY_INPUT_NONE ||
         tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG) == 0 ||
         tty_input_byte(0x7Fu) != TTY_INPUT_NONE)
