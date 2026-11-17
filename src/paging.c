@@ -427,6 +427,29 @@ int paging_map_user_page_in(uint32_t pd_physical, uint32_t virtual_address,
     return 0;
 }
 
+
+int paging_unmap_user_page_in(uint32_t pd_physical,uint32_t virtual_address,
+                              uint32_t expected_physical_address){
+    if(!pd_physical||virtual_address>=USER_LIMIT||
+       (virtual_address&(PAGE_SIZE-1u))||
+       (expected_physical_address&(PAGE_SIZE-1u)))return -1;
+    uint32_t pdpt_index=virtual_address>>30;
+    uint32_t pd_index=(virtual_address>>21)&0x1FFu;
+    uint32_t pt_index=(virtual_address>>12)&0x1FFu;
+    uint64_t*directory=pd_ptr(pd_physical,pdpt_index);
+    if(!directory)return -1;
+    uint64_t pde=directory[pd_index];
+    if(!(pde&PTE_PRESENT)||!(pde&PTE_USER))return -1;
+    uint64_t*table=pt_ptr(pde);
+    uint64_t pte=table[pt_index];
+    if(!(pte&PTE_PRESENT)||!(pte&PTE_USER)||
+       (uint32_t)(pte&PTE_ADDR_MASK)!=expected_physical_address)return -1;
+    pte_store_atomic(&table[pt_index],0u);
+    if(pd_physical==paging_current_address_space())
+        __asm__ volatile("invlpg (%0)"::"r"(virtual_address):"memory");
+    return 0;
+}
+
 int paging_set_user_page_flags(uint32_t pd_physical,uint32_t virtual_address,uint32_t flags){
     if(!pd_physical||virtual_address>=USER_LIMIT||(virtual_address&(PAGE_SIZE-1u)))return-1;
     uint32_t pdpt_index=virtual_address>>30,pd_index=(virtual_address>>21)&0x1FFu,pt_index=(virtual_address>>12)&0x1FFu;
