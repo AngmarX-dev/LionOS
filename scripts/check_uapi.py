@@ -73,6 +73,9 @@ for fragment in required_write_checks:
         fail("writable user-buffer validation missing or changed: " + fragment)
 
 # User pointers must be copied through the centralized boundary helpers.
+if re.search(r"\([^)]*\*\)\s*\(uintptr_t\)\s*arg[0-4]", dispatcher):
+    fail("raw syscall argument is cast directly to a pointer")
+
 for forbidden in (
     "(const char*)(uintptr_t)arg0",
     "(const void*)(uintptr_t)arg1",
