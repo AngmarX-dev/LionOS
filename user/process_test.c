@@ -227,6 +227,29 @@ int main(int argc, char **argv) {
     }
     puts("[PASS] thread blocking join, zombie join, invalid TID, and stack reuse");
 
+    /* Exiting a process must retire its unjoined READY threads. Repeating
+       this also detects leaked process slots and stale user-stack mappings. */
+    for (uint32_t i = 0u; i < 15u; ++i) {
+        uint32_t owner_pid = lion_fork();
+        if (owner_pid == 0u) {
+            uint32_t orphan_tid = lion_thread_create(thread_worker_blocking);
+            if (orphan_tid == 0u || orphan_tid == LIONOS_SYSCALL_ERR)
+                lion_exit_code(101u);
+            lion_exit_code(55u);
+        }
+        if (owner_pid == LIONOS_SYSCALL_ERR) {
+            puts("[FAIL] fork failed during thread-owner cleanup stress");
+            return 25;
+        }
+        status = -1;
+        waited = lion_waitpid(owner_pid, &status);
+        if (waited != (int32_t)owner_pid || status != 55) {
+            puts("[FAIL] process exit did not clean up unjoined threads");
+            return 26;
+        }
+    }
+    puts("[PASS] process exit reaps unjoined threads");
+
     print_u32("[parent] PID before exec: ", parent_pid);
     puts("[parent] exec hello.elf; PID must remain unchanged");
 
