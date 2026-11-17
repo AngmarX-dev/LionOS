@@ -180,7 +180,7 @@ int32_t tty_input_byte(uint8_t byte) {
     if (byte == 0x08u || byte == 0x7Fu) {
         if (console_tty.edit_length != 0u) {
             --console_tty.edit_length;
-            static const uint8_t erase_echo[] = {'\\', ' ', '\\'};
+            static const uint8_t erase_echo[] = {'\b', ' ', '\b'};
             tty_queue_echo_locked(erase_echo, sizeof(erase_echo));
         }
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
