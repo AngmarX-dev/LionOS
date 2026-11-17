@@ -372,6 +372,8 @@ int32_t tty_write(uint32_t sid, uint32_t caller_pid,
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
     if (!owns_session)
         return TTY_ERROR;
+    if (length == 0u)
+        return 0;
     if (stop_background_output &&
         process_tty_check_foreground(sid, caller_pid, LIONOS_SIG_TTOU) != 0)
         return TTY_ERROR;
