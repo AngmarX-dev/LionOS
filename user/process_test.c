@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
-    puts("LionOS userspace process test");
+    puts("LionOS userspace process lifecycle test");
 
     int libc_result = libc_self_test();
     if (libc_result != 0) {
@@ -55,45 +55,113 @@ int main(int argc, char **argv) {
 
     uint32_t parent_pid = lion_getpid();
     print_u32("Parent PID: ", parent_pid);
-    uint32_t child_pid = lion_fork();
 
+    /* Exercise the blocking wait path: the child yields before exiting. */
+    uint32_t child_pid = lion_fork();
     if (child_pid == 0u) {
-        puts("[child] fork returned 0");
-        puts("[child] yielding to scheduler");
+        puts("[child] blocking-wait case");
         (void)lion_yield();
         (void)lion_yield();
-        puts("[child] exiting with status 42");
         lion_exit_code(42u);
     }
-
     if (child_pid == LIONOS_SYSCALL_ERR) {
-        puts("[FAIL] fork failed");
+        puts("[FAIL] fork failed in blocking-wait case");
         return 1;
     }
 
-    print_u32("[parent] child PID: ", child_pid);
-    puts("[parent] waiting for child");
-
     int32_t status = -1;
     int32_t waited = lion_waitpid(child_pid, &status);
-    if (waited != (int32_t)child_pid) {
-        puts("[FAIL] waitpid returned wrong PID");
+    if (waited != (int32_t)child_pid || status != 42) {
+        puts("[FAIL] blocking waitpid result/status mismatch");
         return 2;
     }
-    if (status != 42) {
-        puts("[FAIL] child exit status mismatch");
+    puts("[PASS] blocking waitpid + exit status");
+
+    /* A reaped child and a non-child must both be rejected. */
+    if (lion_waitpid(child_pid, &status) != -1) {
+        puts("[FAIL] waitpid accepted an already-reaped child");
         return 3;
     }
+    if (lion_waitpid(parent_pid, &status) != -1) {
+        puts("[FAIL] waitpid accepted the caller as its own child");
+        return 4;
+    }
 
-    puts("[PASS] fork + waitpid + exit status");
+    /* Yield once so this child can become a zombie before waitpid is called. */
+    child_pid = lion_fork();
+    if (child_pid == 0u) lion_exit_code(51u);
+    if (child_pid == LIONOS_SYSCALL_ERR) {
+        puts("[FAIL] fork failed in zombie-before-wait case");
+        return 5;
+    }
+    (void)lion_yield();
+    status = -1;
+    waited = lion_waitpid(child_pid, &status);
+    if (waited != (int32_t)child_pid || status != 51) {
+        puts("[FAIL] waitpid failed for an existing zombie");
+        return 6;
+    }
+    puts("[PASS] waitpid reaps an existing zombie");
+
+    /* Wait-any must return exactly one child and preserve its exit status. */
+    uint32_t child_code = 61u;
+    uint32_t first_pid = lion_fork();
+    if (first_pid == 0u) lion_exit_code(child_code);
+    if (first_pid == LIONOS_SYSCALL_ERR) {
+        puts("[FAIL] first wait-any fork failed");
+        return 7;
+    }
+
+    child_code = 62u;
+    uint32_t second_pid = lion_fork();
+    if (second_pid == 0u) lion_exit_code(child_code);
+    if (second_pid == LIONOS_SYSCALL_ERR) {
+        (void)lion_kill(first_pid, LIONOS_SIG_KILL);
+        puts("[FAIL] second wait-any fork failed");
+        return 8;
+    }
+
+    (void)lion_yield();
+    status = -1;
+    waited = lion_waitpid(0u, &status);
+    if (waited == (int32_t)first_pid) {
+        if (status != 61) {
+            puts("[FAIL] wait-any returned wrong first-child status");
+            return 9;
+        }
+    } else if (waited == (int32_t)second_pid) {
+        if (status != 62) {
+            puts("[FAIL] wait-any returned wrong second-child status");
+            return 10;
+        }
+    } else {
+        puts("[FAIL] wait-any returned an unrelated PID");
+        return 11;
+    }
+
+    uint32_t remaining_pid = (waited == (int32_t)first_pid)
+        ? second_pid : first_pid;
+    int32_t remaining_status = (remaining_pid == first_pid) ? 61 : 62;
+    status = -1;
+    waited = lion_waitpid(remaining_pid, &status);
+    if (waited != (int32_t)remaining_pid || status != remaining_status) {
+        puts("[FAIL] waitpid failed for the remaining child");
+        return 12;
+    }
+    if (lion_waitpid(0u, &status) != -1) {
+        puts("[FAIL] wait-any succeeded after all children were reaped");
+        return 13;
+    }
+
+    puts("[PASS] waitpid blocking, zombie, wait-any, and invalid-child cases");
     print_u32("[parent] PID before exec: ", parent_pid);
     puts("[parent] exec hello.elf; PID must remain unchanged");
 
     uint32_t exec_result = lion_exec("hello.elf");
     if (exec_result != parent_pid) {
         puts("[FAIL] exec PID mismatch");
-        return 4;
+        return 14;
     }
 
-    return 5;
+    return 15;
 }
