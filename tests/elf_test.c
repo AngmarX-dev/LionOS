@@ -86,7 +86,7 @@ int main(void) {
     h->phnum=2u;
     struct elf32_phdr *second=(struct elf32_phdr *)(image+PH_OFFSET+sizeof(*first));
     *second=*first;
-    second->offset=0x200u;
+    second->offset=0x100u;
     second->vaddr=0x10002000u;
     second->flags=6u; /* Read/write data in a distinct page. */
     failures += expect_valid("separate RX and RW pages",1);
@@ -94,6 +94,7 @@ int main(void) {
     second->vaddr=0x10001800u; /* Same 4 KiB page as the executable segment. */
     failures += expect_valid("overlapping RX and RW page rejected",0);
 
+    h->phnum=1u;
     first->flags=7u; /* One segment cannot be writable and executable. */
     failures += expect_valid("single-segment W+X rejected",0);
 
