@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
 
     /* Multiple runnable threads update one shared counter under a mutex. */
     if (lion_mutex_init(&sync_test_mutex) != 0) {
-        puts("[FAIL] mutex initialization");
+        puts("[FAIL] sync test");
         return 33;
     }
     sync_test_counter = 0u;
@@ -116,27 +116,27 @@ int main(int argc, char **argv) {
     for (uint32_t i = 0u; i < 3u; ++i) {
         mutex_tids[i] = lion_thread_create(thread_worker_mutex);
         if (mutex_tids[i] == LIONOS_SYSCALL_ERR) {
-            puts("[FAIL] mutex worker creation");
+            puts("[FAIL] sync test");
             return 34;
         }
     }
     for (uint32_t i = 0u; i < 3u; ++i) {
         if (lion_thread_join(mutex_tids[i], &mutex_status) != (int32_t)mutex_tids[i] ||
             mutex_status != 0) {
-            puts("[FAIL] mutex worker join");
+            puts("[FAIL] sync test");
             return 35;
         }
     }
     if (sync_test_counter != 750u || lion_mutex_trylock(&sync_test_mutex) != 0 ||
         lion_mutex_unlock(&sync_test_mutex) != 0 ||
         lion_mutex_unlock(&sync_test_mutex) == 0) {
-        puts("[FAIL] mutex exclusion/trylock/unlock");
+        puts("[FAIL] sync test");
         return 36;
     }
     puts("[PASS] userspace mutex contention and exclusion");
 
     if (lion_semaphore_init(&sync_test_semaphore, 0u) != 0) {
-        puts("[FAIL] semaphore initialization");
+        puts("[FAIL] sync test");
         return 37;
     }
     uint32_t sem_tid = lion_thread_create(thread_worker_semaphore);
@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
         lion_semaphore_wait(&sync_test_semaphore) != 0 ||
         lion_thread_join(sem_tid, &mutex_status) != (int32_t)sem_tid ||
         mutex_status != 0) {
-        puts("[FAIL] semaphore wait/post");
+        puts("[FAIL] sync test");
         return 38;
     }
     if (lion_semaphore_init(&sync_test_semaphore, UINT32_MAX) != 0 ||
@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
         lion_semaphore_wait(&sync_test_semaphore) != 0 ||
         lion_semaphore_post(&sync_test_semaphore) != 0 ||
         lion_semaphore_wait(&sync_test_semaphore) != 0) {
-        puts("[FAIL] semaphore overflow/count semantics");
+        puts("[FAIL] sync test");
         return 39;
     }
     puts("[PASS] userspace semaphore wait/post and overflow");
