@@ -191,6 +191,18 @@ static int intel_gpu_wait_ack(uint32_t ack_reg, uint32_t mask,
  * deliver the delayed kernel ACK. We use bounded pause loops because this
  * early boot stage does not yet have a calibrated microsecond delay.
  */
+/* Clear a request and verify the matching ACK deasserts before returning. */
+static int intel_gpu_forcewake_clear_and_wait(uint32_t request_reg,
+                                              uint32_t ack_reg,
+                                              uint32_t bit)
+{
+    uint32_t ack = 0u;
+    if (intel_gpu_mmio_write32(
+            request_reg, INTEL_FORCEWAKE_MASKED_CLR(bit)) != 0)
+        return -2;
+    return intel_gpu_wait_ack(ack_reg, bit, 0u, &ack);
+}
+
 static int intel_gpu_forcewake_fallback(uint32_t request_reg,
                                         uint32_t ack_reg,
                                         uint32_t desired_kernel_ack,
@@ -198,6 +210,8 @@ static int intel_gpu_forcewake_fallback(uint32_t request_reg,
 {
     for (uint32_t pass = 1u; pass <= 10u; ++pass) {
         uint32_t ack = 0u;
+        int ack_rc;
+        int cleanup_rc;
 
         if (intel_gpu_wait_ack(ack_reg, INTEL_FORCEWAKE_KERNEL_FALLBACK,
                                0u, &ack) != 0)
@@ -212,31 +226,36 @@ static int intel_gpu_forcewake_fallback(uint32_t request_reg,
         for (uint32_t delay = 0u; delay < pass * 1000u; ++delay)
             __asm__ volatile("pause");
 
-        (void)intel_gpu_wait_ack(ack_reg,
-                                 INTEL_FORCEWAKE_KERNEL_FALLBACK,
-                                 INTEL_FORCEWAKE_KERNEL_FALLBACK, &ack);
+        ack_rc = intel_gpu_wait_ack(ack_reg,
+                                    INTEL_FORCEWAKE_KERNEL_FALLBACK,
+                                    INTEL_FORCEWAKE_KERNEL_FALLBACK, &ack);
 
         if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 ||
             ack == 0xFFFFFFFFu) {
-            (void)intel_gpu_mmio_write32(
-                request_reg,
-                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL_FALLBACK));
+            (void)intel_gpu_forcewake_clear_and_wait(
+                request_reg, ack_reg, INTEL_FORCEWAKE_KERNEL_FALLBACK);
             return -2;
         }
 
+        /*
+         * The fallback ACK wait is diagnostic; i915's workaround checks
+         * delivery of the original kernel ACK after the bounded delay.
+         */
+        (void)ack_rc;
         if ((ack & INTEL_FORCEWAKE_KERNEL) == desired_kernel_ack) {
+            cleanup_rc = intel_gpu_forcewake_clear_and_wait(
+                request_reg, ack_reg, INTEL_FORCEWAKE_KERNEL_FALLBACK);
+            if (cleanup_rc != 0)
+                return cleanup_rc;
             result->fallback_used = 1u;
             result->fallback_passes = pass;
-            (void)intel_gpu_mmio_write32(
-                request_reg,
-                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL_FALLBACK));
             return 0;
         }
 
-        if (intel_gpu_mmio_write32(
-                request_reg,
-                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL_FALLBACK)) != 0)
-            return -2;
+        cleanup_rc = intel_gpu_forcewake_clear_and_wait(
+            request_reg, ack_reg, INTEL_FORCEWAKE_KERNEL_FALLBACK);
+        if (cleanup_rc != 0)
+            return cleanup_rc;
     }
     return -1;
 }
@@ -284,18 +303,18 @@ static int intel_gpu_forcewake_acquire(uint32_t request_reg,
         int frc = intel_gpu_forcewake_fallback(
             request_reg, ack_reg, INTEL_FORCEWAKE_KERNEL, result);
         if (frc != 0) {
-            (void)intel_gpu_mmio_write32(
-                request_reg,
-                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL));
-            return frc;
+            int cleanup_rc = intel_gpu_forcewake_clear_and_wait(
+                request_reg, ack_reg, INTEL_FORCEWAKE_KERNEL);
+            return cleanup_rc != 0 ? cleanup_rc : frc;
         }
-        if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 ||
-            (ack & INTEL_FORCEWAKE_KERNEL) == 0u) {
-            (void)intel_gpu_mmio_write32(
-                request_reg,
-                INTEL_FORCEWAKE_MASKED_CLR(INTEL_FORCEWAKE_KERNEL));
-            return -1;
-        }
+    }
+
+    if (intel_gpu_mmio_read32(ack_reg, &ack) != 0 ||
+        ack == 0xFFFFFFFFu ||
+        (ack & INTEL_FORCEWAKE_KERNEL) == 0u) {
+        int cleanup_rc = intel_gpu_forcewake_clear_and_wait(
+            request_reg, ack_reg, INTEL_FORCEWAKE_KERNEL);
+        return cleanup_rc != 0 ? cleanup_rc : -1;
     }
 
     result->ack_final = ack;
