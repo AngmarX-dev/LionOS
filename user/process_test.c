@@ -250,8 +250,13 @@ int main(int argc, char **argv) {
     }
     puts("[PASS] process exit reaps unjoined threads");
 
+    tid = lion_thread_create(thread_worker_blocking);
+    if (tid == 0u || tid == LIONOS_SYSCALL_ERR) {
+        puts("[FAIL] could not create thread before exec cleanup test");
+        return 28;
+    }
     print_u32("[parent] PID before exec: ", parent_pid);
-    puts("[parent] exec hello.elf; PID must remain unchanged");
+    puts("[parent] exec hello.elf; PID must remain unchanged and sibling threads must be retired");
 
     uint32_t exec_result = lion_exec("hello.elf");
     if (exec_result != parent_pid) {
