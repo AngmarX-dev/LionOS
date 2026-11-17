@@ -199,9 +199,13 @@ struct process *process_create_ex_vas(uint32_t entry,uint32_t stack,uint32_t pd,
     if(!p)return 0;
     if(vfs_stdio_init_process(p)!=0){
         flags=spinlock_irqsave_acquire(&process_lock);
-        if(p->state!=PROCESS_UNUSED)p->state=PROCESS_ZOMBIE;
+        if(p->state==PROCESS_STOPPED){
+            if(p->kernel_stack_top)
+                page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));
+            clear_process(p);
+        }
         spinlock_irqrestore_release(&process_lock,flags);
-        (void)process_reap_pid(p->pid);
+        /* The caller still owns the user pages and address space on failure. */
         return 0;
     }
     flags=spinlock_irqsave_acquire(&process_lock);
