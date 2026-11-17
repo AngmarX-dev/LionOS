@@ -280,7 +280,9 @@ int main(void){
     (void)lion_pipe_close(sync_write);(void)lion_pipe_close(report_write);
     uint32_t orphan_exited=0u;
     for(uint32_t attempt=0u;attempt<10000u;++attempt){
-        if(lion_getstate(orphan_pid)==LIONOS_PROCESS_ZOMBIE){
+        int32_t orphan_state=lion_getstate(orphan_pid);
+        /* PID 1 may auto-reap an adopted zombie before this process observes it. */
+        if(orphan_state==LIONOS_PROCESS_ZOMBIE||orphan_state<0){
             orphan_exited=1u;
             break;
         }
