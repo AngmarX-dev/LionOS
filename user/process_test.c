@@ -106,10 +106,12 @@ int main(int argc, char **argv) {
     puts("[PASS] cooperative yield switches to READY peer");
 
     /* Multiple runnable threads update one shared counter under a mutex. */
+    volatile uint32_t timeout_word = 1u;
     if (lion_mutex_init(&sync_test_mutex) != 0 ||
         lion_futex_wait(&sync_test_mutex.state, 1u) != 1 ||
         lion_futex_wait((volatile uint32_t *)(uintptr_t)0xC0000000u, 0u) != -1 ||
-        lion_futex_wake((volatile uint32_t *)(uintptr_t)0xC0000000u, 1u) != -1) {
+        lion_futex_wake((volatile uint32_t *)(uintptr_t)0xC0000000u, 1u) != -1 ||
+        lion_futex_wait_timeout(&timeout_word, 1u, 4u) != LIONOS_FUTEX_TIMED_OUT) {
         puts("[FAIL] sync test");
         return 33;
     }
@@ -137,6 +139,7 @@ int main(int argc, char **argv) {
         return 36;
     }
     puts("[PASS] userspace mutex contention and exclusion");
+    puts("[PASS] futex timeout and invalid-address handling");
 
     if (lion_semaphore_init(&sync_test_semaphore, 0u) != 0) {
         puts("[FAIL] sync test");
