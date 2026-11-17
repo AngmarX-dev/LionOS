@@ -33,7 +33,8 @@ int main(void) {
             lion_exit_code(4u);
 
         uint32_t ready = SIGNAL_READY;
-        if (lion_ipc_send(parent, &ready, sizeof(ready)) != 0)
+        int32_t sent = lion_ipc_send(parent, &ready, sizeof(ready));
+        if (sent != (int32_t)sizeof(ready))
             lion_exit_code(5u);
 
         for (uint32_t attempt = 0u; attempt < 1000u; ++attempt) {
@@ -46,7 +47,13 @@ int main(void) {
 
     uint32_t ready = 0u;
     uint32_t sender = 0u;
-    int32_t received = lion_ipc_recv_blocking(&ready, sizeof(ready), &sender);
+    int32_t received = (int32_t)LIONOS_IPC_EMPTY;
+    for (uint32_t attempt = 0u; attempt < 1000u; ++attempt) {
+        received = lion_ipc_recv(&ready, sizeof(ready), &sender);
+        if (received != (int32_t)LIONOS_IPC_EMPTY)
+            break;
+        (void)lion_yield();
+    }
     if (received != (int32_t)sizeof(ready) ||
         sender != child || ready != SIGNAL_READY) {
         reap_failed_child(child);
