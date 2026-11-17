@@ -36,6 +36,15 @@ static int process_group_orphaned_locked(uint32_t pgid,uint32_t sid);
 static int process_group_has_stopped_locked(uint32_t pgid,uint32_t sid);
 static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid);
 static void process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,int was_orphaned);
+struct process_group_snapshot {
+    uint32_t pgid;
+    uint32_t sid;
+    uint8_t was_orphaned;
+};
+static uint32_t process_snapshot_child_groups_locked(uint32_t parent_pid,
+    struct process_group_snapshot *groups,uint32_t capacity);
+static void process_notify_child_group_transitions_locked(
+    const struct process_group_snapshot *groups,uint32_t count);
 static uint8_t fpu_initial_state[512] __attribute__((aligned(16)));
 
 static uint32_t quantum_for_priority(uint32_t priority){
@@ -139,6 +148,9 @@ int32_t process_create_session(void){
     uint32_t old_pgid=current->pgid;
     uint32_t old_sid=current->sid;
     int old_orphaned=process_group_orphaned_locked(old_pgid,old_sid);
+    struct process_group_snapshot child_groups[LIONOS_PROCESS_MAX];
+    uint32_t child_group_count=process_snapshot_child_groups_locked(
+        current->pid,child_groups,LIONOS_PROCESS_MAX);
     uint32_t group_pid=current->pid;
     current->sid=group_pid;
     current->pgid=group_pid;
@@ -151,6 +163,7 @@ int32_t process_create_session(void){
         }
     }
     process_notify_orphan_transition_locked(old_pgid,old_sid,old_orphaned);
+    process_notify_child_group_transitions_locked(child_groups,child_group_count);
     spinlock_irqrestore_release(&process_lock,flags);
     tty_wake_readers();
     return (int32_t)group_pid;
@@ -184,6 +197,9 @@ int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
     int old_orphaned=process_group_orphaned_locked(old_pgid,old_sid);
     int new_orphaned=(new_pgid==old_pgid)?old_orphaned:
         process_group_orphaned_locked(new_pgid,new_sid);
+    struct process_group_snapshot child_groups[LIONOS_PROCESS_MAX];
+    uint32_t child_group_count=process_snapshot_child_groups_locked(
+        target->pid,child_groups,LIONOS_PROCESS_MAX);
     uint32_t group=target->thread_group_pid?target->thread_group_pid:target->pid;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];
@@ -193,6 +209,7 @@ int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
     if(new_pgid!=old_pgid){
         process_notify_orphan_transition_locked(old_pgid,old_sid,old_orphaned);
         process_notify_orphan_transition_locked(new_pgid,new_sid,new_orphaned);
+        process_notify_child_group_transitions_locked(child_groups,child_group_count);
     }
     spinlock_irqrestore_release(&process_lock,flags);
     if(new_pgid!=old_pgid)tty_wake_readers();
@@ -733,6 +750,35 @@ static int process_group_has_stopped_locked(uint32_t pgid,uint32_t sid){
            member->pgid==pgid&&member->sid==sid)return 1;
     }
     return 0;
+}
+
+static uint32_t process_snapshot_child_groups_locked(uint32_t parent_pid,
+    struct process_group_snapshot *groups,uint32_t capacity){
+    uint32_t count=0u;
+    if(!parent_pid||!groups||!capacity)return 0u;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        const struct process *child=&processes[i];
+        if(child->state==PROCESS_UNUSED||child->state==PROCESS_ZOMBIE||
+           child->is_thread||child->parent_pid!=parent_pid)continue;
+        uint32_t j=0u;
+        while(j<count&&(groups[j].pgid!=child->pgid||groups[j].sid!=child->sid))++j;
+        if(j<count)continue;
+        if(count>=capacity)break;
+        groups[count].pgid=child->pgid;
+        groups[count].sid=child->sid;
+        groups[count].was_orphaned=(uint8_t)
+            process_group_orphaned_locked(child->pgid,child->sid);
+        ++count;
+    }
+    return count;
+}
+
+static void process_notify_child_group_transitions_locked(
+    const struct process_group_snapshot *groups,uint32_t count){
+    if(!groups)return;
+    for(uint32_t i=0u;i<count;++i)
+        process_notify_orphan_transition_locked(groups[i].pgid,groups[i].sid,
+                                                 groups[i].was_orphaned);
 }
 
 static void process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,int was_orphaned){
