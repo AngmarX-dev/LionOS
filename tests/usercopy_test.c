@@ -76,25 +76,25 @@ int main(void) {
                       usercopy_range_valid(0x10000000u, 0xFFFFFFFFu), 0);
 
     failures += check("mapped readable page",
-                      usercopy_validate_read(0x10000010u, 16u), 0);
+                      usercopy_validate_read(0x10000010u, 16u), 1);
     failures += check("unmapped page",
-                      usercopy_validate_read(0x10004000u, 1u), -1);
+                      usercopy_validate_read(0x10004000u, 1u), 0);
     failures += check("cross-page missing mapping",
-                      usercopy_validate_read(0x10003FF0u, 32u), -1);
+                      usercopy_validate_read(0x10003FF0u, 32u), 0);
     failures += check("writable page",
-                      usercopy_validate_write(0x10000020u, 8u), 0);
+                      usercopy_validate_write(0x10000020u, 8u), 1);
 
     reset_pages();
     pages[0].flags = PTE_COW;
     failures += check("COW page becomes writable",
-                      usercopy_validate_write(0x10000020u, 8u), 0);
+                      usercopy_validate_write(0x10000020u, 8u), 1);
     failures += check("COW flag cleared",
                       (pages[0].flags & PTE_COW) != 0u, 0);
 
     reset_pages();
     pages[0].flags = 0u;
     failures += check("read-only non-COW page rejected",
-                      usercopy_validate_write(0x10000020u, 8u), -1);
+                      usercopy_validate_write(0x10000020u, 8u), 0);
 
     if (failures != 0) return 1;
     puts("Usercopy validation tests: PASS");
