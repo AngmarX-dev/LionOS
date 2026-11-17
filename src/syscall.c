@@ -88,6 +88,22 @@ case LIONOS_SYS_GETPPID:{struct process*p=process_current();return p?p->parent_p
 case LIONOS_SYS_KILL:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;if(!process_exists(arg0)||arg0==process_current_pid()||!process_is_descendant_or_child(arg0,process_current_pid())||arg1==0||arg1>LIONOS_SIG_MAX)return SYSCALL_ERR;return(uint32_t)process_signal(arg0,arg1);
 case LIONOS_SYS_GETSTATE:return(uint32_t)process_get_state(arg0);
 case LIONOS_SYS_SIGPENDING:return process_signal_pending(arg0);
+case LIONOS_SYS_SIGACTION:{
+    if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;
+    if(arg1&&!usercopy_validate_read(arg1,sizeof(struct lion_sigaction)))return SYSCALL_ERR;
+    if(arg2&&!usercopy_validate_write(arg2,sizeof(struct lion_sigaction)))return SYSCALL_ERR;
+    struct lion_sigaction action,old_action;
+    const struct lion_sigaction *requested=0;
+    if(arg1){
+        if(usercopy_copy_from(&action,arg1,sizeof(action))!=0)return SYSCALL_ERR;
+        requested=&action;
+    }
+    if(process_signal_set_action(arg0,requested,&old_action)!=LIONOS_SIGNAL_OK)
+        return SYSCALL_ERR;
+    if(arg2&&syscall_copy_out(arg2,&old_action,sizeof(old_action))!=0)
+        return SYSCALL_ERR;
+    return SYSCALL_OK;
+}
 case LIONOS_SYS_GETPGID:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;return (uint32_t)process_get_pgid(arg0);
 case LIONOS_SYS_SETPGID:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;return (uint32_t)process_set_pgid(arg0,arg1);
 case LIONOS_SYS_KILLPG:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;return (uint32_t)process_signal_group(arg0,arg1,process_current_pid());
