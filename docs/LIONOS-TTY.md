@@ -53,3 +53,14 @@ When the final non-thread process in a session exits or is terminated, the Proce
 The syscall ABI is now version 11 and UAPI version 12.
 
 Still not implemented: keyboard backend feed, terminal read/write syscalls, echo/termios, foreground-group signal delivery, and job-control stop/continue semantics.
+
+
+## H21.3 — Translated keyboard input bridge
+
+The PS/2 scancode translator and USB HID boot-keyboard report translator now share the existing character insertion path. That path forwards each translated byte to `keyboard_tty_forward_byte()`, which feeds the software TTY, and then continues to update the legacy keyboard buffer. This keeps existing `keyboard_getchar()` and blocking keyboard readers intact while making the same translated input available to the claimed TTY session.
+
+The TTY is initialized before `keyboard_init()` so its lock and state are ready before either PS/2 interrupts or later USB HID reports can reach the bridge. The bridge does not acquire the keyboard buffer lock while holding the TTY lock; the two input queues remain independently synchronized.
+
+The TTY only accepts input while a session owns the console. Input sent while no session is claimed is ignored by the TTY bridge and remains available through the legacy keyboard queue. Ctrl-C is still surfaced as `TTY_INPUT_INTERRUPT` and flushes the current edit line; it does not yet deliver SIGINT. Terminal read/write file descriptors, echo, termios, and foreground process-group signal delivery remain future work.
+
+Validation adds `make keyboard-tty-check`, covering character forwarding, backspace, line commit, Ctrl-C event propagation, and rejection when no session owns the TTY.
