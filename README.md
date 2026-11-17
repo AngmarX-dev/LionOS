@@ -127,6 +127,7 @@ The project explores operating-system internals through real low-level code: boo
 | Canonical TTY echo with deferred IRQ-safe output and backspace editing | ✅ |
 | Session-scoped TTY ECHO/ISIG runtime attributes | ✅ |
 | Runtime canonical/noncanonical TTY input mode | ✅ |
+| Noncanonical VMIN byte-threshold reads and live threshold updates | ✅ |
 | PS/2 keyboard | ✅ |
 | PS/2 mouse | ✅ |
 | xHCI HID USB mouse path | ✅ |
