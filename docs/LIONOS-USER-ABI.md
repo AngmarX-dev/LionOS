@@ -2,7 +2,7 @@
 
 **Status:** specification and conformance guards for the native syscall ABI. Stage F6 adds a read-only ext2 directory-stream syscall and user-space wrappers.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
-**UAPI version:** 15 (LIONOS_UAPI_VERSION).
+**UAPI version:** 16 (LIONOS_UAPI_VERSION).
 **System-call ABI:** 14 (LIONOS_SYSCALL_ABI).
 **Version query:** syscall number 0 returns 14.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
@@ -11,7 +11,7 @@
 
 This is LionOS's native user/kernel ABI. It is not the Linux i386 syscall ABI and does not promise binary compatibility with Linux applications, glibc, musl's Linux backend, or Ubuntu packages.
 
-The UAPI version describes published user-facing constants and structures. The syscall ABI version describes the low-level syscall calling contract. These are separate version values.
+`struct lion_tty_attributes` now contains `flags` and `vmin` (0–255); `vmin` applies only to noncanonical blocking reads and defaults to 1. The UAPI version describes published user-facing constants and structures. The syscall ABI version describes the low-level syscall calling contract. These are separate version values.
 
 Existing syscall numbers, meanings, argument order, structure layouts, and sentinel values are compatibility-sensitive. Never reuse a number or silently change an existing meaning. Add calls only at unused numbers and update headers, dispatcher, wrappers, documentation, and tests together. An incompatible change requires an explicit ABI version decision and migration plan.
 
