@@ -156,6 +156,7 @@ int main(int argc, char **argv) {
         return 52;
     }
     if (lion_setpgid(pgid_child, 0xFFFFFFFFu) != -1 ||
+        lion_getpgid(pgid_child) != (int32_t)initial_pgid ||
         lion_kill(pgid_child, LIONOS_SIG_TERM) != 0) {
         puts("[FAIL] process group invalid target or child cleanup");
         return 53;
