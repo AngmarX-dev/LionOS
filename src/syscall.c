@@ -132,9 +132,9 @@ case LIONOS_SYS_TTY_WRITE:{
     if(!usercopy_validate_read(arg0,arg1))return SYSCALL_ERR;
     uint8_t *buffer=(uint8_t*)syscall_copy_in(arg0,arg1);
     if(!buffer)return SYSCALL_ERR;
-    console_write_n((const char*)buffer,arg1);
+    int32_t written=tty_write((uint32_t)sid,buffer,arg1);
     kfree(buffer);
-    return arg1;
+    return written<0?SYSCALL_ERR:(uint32_t)written;
 }
 case LIONOS_SYS_NET_SEND:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;if(arg2==0||arg3==0||arg3>NET_PACKET_MAX||!usercopy_validate_read(arg2,arg3))return SYSCALL_ERR;{void *buffer=syscall_copy_in(arg2,arg3);if(!buffer)return SYSCALL_ERR;int32_t r=net_send(arg0,(uint16_t)(arg1>>16),(uint16_t)arg1,buffer,arg3);kfree(buffer);return(uint32_t)r;}
 case LIONOS_SYS_NET_RECV:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;{if(arg2==0||arg2>NET_PACKET_MAX||!usercopy_validate_write(arg1,arg2)||(arg3&&!usercopy_validate_write(arg3,sizeof(uint32_t)))||(arg4&&!usercopy_validate_write(arg4,sizeof(uint16_t)))||(arg3&&arg1<arg3+sizeof(uint32_t)&&arg3<arg1+arg2)||(arg4&&arg1<arg4+sizeof(uint16_t)&&arg4<arg1+arg2)||(arg3&&arg4&&arg3<arg4+sizeof(uint16_t)&&arg4<arg3+sizeof(uint32_t)))return SYSCALL_ERR;void *buffer=kmalloc(arg2);if(!buffer)return SYSCALL_ERR;uint32_t sip=0;uint16_t sport=0;int32_t n=net_recv((uint16_t)arg0,buffer,arg2,&sip,&sport);if(n>0&&(syscall_copy_out(arg1,buffer,(uint32_t)n)!=0||(arg3&&syscall_copy_out(arg3,&sip,sizeof(sip))!=0)||(arg4&&syscall_copy_out(arg4,&sport,sizeof(sport))!=0)))n=-1;kfree(buffer);if(n==NET_RECV_EMPTY)return LIONOS_NET_EMPTY;return n<0?SYSCALL_ERR:(uint32_t)n;}
