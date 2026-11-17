@@ -127,22 +127,29 @@ int32_t tty_input_byte(uint8_t byte) {
         return TTY_ERROR;
     }
 
+    uint32_t sid = console_tty.owner_sid;
     if (byte == 0x03u) {
-        uint32_t sid = console_tty.owner_sid;
+        static const uint8_t interrupt_echo[] = {'^', 'C', '\n'};
         console_tty.edit_length = 0u;
         uint32_t state_flags = spinlock_irqsave_acquire(&console_tty.lock);
         uint32_t pgid = console_tty.owner_sid == sid
             ? console_tty.foreground_pgid : 0u;
         spinlock_irqrestore_release(&console_tty.lock, state_flags);
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
+        (void)tty_write(sid, interrupt_echo, sizeof(interrupt_echo));
         return process_tty_signal_foreground(sid, pgid, LIONOS_SIG_INT) == 0
             ? TTY_INPUT_INTERRUPT : TTY_ERROR;
     }
 
     if (byte == 0x08u || byte == 0x7Fu) {
-        if (console_tty.edit_length != 0u)
+        int erased = console_tty.edit_length != 0u;
+        if (erased)
             --console_tty.edit_length;
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
+        if (erased) {
+            static const uint8_t erase_echo[] = {'\\', ' ', '\\'};
+            (void)tty_write(sid, erase_echo, sizeof(erase_echo));
+        }
         return TTY_INPUT_NONE;
     }
 
@@ -168,6 +175,7 @@ int32_t tty_input_byte(uint8_t byte) {
         console_tty.input_count += required;
         console_tty.edit_length = 0u;
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
+        (void)tty_write(sid, (const uint8_t *)"\n", 1u);
         process_wakeup((uintptr_t)&tty_read_wait_channel);
         return TTY_INPUT_LINE_READY;
     }
@@ -184,6 +192,7 @@ int32_t tty_input_byte(uint8_t byte) {
 
     console_tty.edit[console_tty.edit_length++] = byte;
     spinlock_irqrestore_release(&console_tty.input_lock, flags);
+    (void)tty_write(sid, &byte, 1u);
     return TTY_INPUT_NONE;
 }
 
