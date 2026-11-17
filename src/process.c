@@ -225,7 +225,7 @@ int process_is_descendant_or_child(uint32_t pid,uint32_t ancestor_pid){uint32_t 
 int32_t process_signal(uint32_t pid,uint32_t signal){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process*p=find_pid(pid);
-    if(!p||p==&processes[0]||signal==0||signal>LIONOS_SIG_MAX){
+    if(!p||p==&processes[0]||p->state==PROCESS_ZOMBIE||signal==0||signal>LIONOS_SIG_MAX){
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_ERR;
     }
