@@ -78,7 +78,9 @@ int main(void) {
         uint8_t tty_probe = 0u;
         static const char tty_message[] = "TTY";
         if (lion_tty_read(&tty_probe, 1u) != (int32_t)LIONOS_TTY_EMPTY ||
-            lion_tty_write(tty_message, 3u) != 3)
+            lion_tty_write(tty_message, 3u) != 3 ||
+            lion_tty_read((void *)(uintptr_t)0xFFFFFFFFu, 1u) != -1 ||
+            lion_tty_write((const void *)(uintptr_t)0xFFFFFFFFu, 1u) != -1)
             lion_exit_code(56u);
         thread_session_start = 1u;
         int32_t thread_status = -1;
