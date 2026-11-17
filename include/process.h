@@ -38,6 +38,9 @@ struct process {
     uint32_t exit_code;
     uint32_t wait_pid;
     uint32_t wait_status_ptr;
+    uint32_t wait_options;
+    uint32_t stop_event_pending;
+    uint32_t stop_signal;
     uint32_t wait_channel;
     uint32_t wait_kind;
     uint32_t wait_timeout_active;
@@ -122,6 +125,7 @@ int process_set_capabilities(struct process *process, uint32_t capabilities);
 void process_exit_current(uint32_t exit_code);
 uint32_t process_fork_current(uint32_t *parent_frame);
 int32_t process_waitpid(uint32_t pid, uint32_t status_ptr);
+int32_t process_waitpid_options(uint32_t pid, uint32_t status_ptr, uint32_t options);
 /* sleep_on is called with held_lock already acquired and interrupts disabled.
  * It atomically publishes PROCESS_WAITING before releasing held_lock. */
 int32_t process_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t irq_flags);

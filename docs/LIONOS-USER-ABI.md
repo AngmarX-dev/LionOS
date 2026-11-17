@@ -2,9 +2,9 @@
 
 **Status:** specification and conformance guards for the native syscall ABI. Stage F6 adds a read-only ext2 directory-stream syscall and user-space wrappers.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
-**UAPI version:** 18 (LIONOS_UAPI_VERSION).
-**System-call ABI:** 14 (LIONOS_SYSCALL_ABI).
-**Version query:** syscall number 0 returns 14.
+**UAPI version:** 19 (LIONOS_UAPI_VERSION).
+**System-call ABI:** 15 (LIONOS_SYSCALL_ABI).
+**Version query:** syscall number 0 returns 15.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
 
 ## 1. Scope and compatibility
@@ -12,6 +12,8 @@
 This is LionOS's native user/kernel ABI. It is not the Linux i386 syscall ABI and does not promise binary compatibility with Linux applications, glibc, musl's Linux backend, or Ubuntu packages.
 
 `struct lion_tty_attributes` contains `flags`, `vmin` (0–255, default 1), and `vtime` (0–255 deciseconds, default 0). `LIONOS_TTY_ATTR_TOSTOP` (0x08) makes background TTY writes queue SIGTTOU and fail; background reads queue SIGTTIN and fail regardless of TOSTOP. VMIN/VTIME affect only noncanonical blocking reads. The UAPI version describes published user-facing constants and structures. The syscall ABI version describes the low-level syscall calling contract. These are separate version values.
+
+`LIONOS_SYS_WAITPID_OPTIONS` (62) adds `LIONOS_WAIT_NOHANG` (0x01) and `LIONOS_WAIT_UNTRACED` (0x02). A stopped child reported by WUNTRACED stores `(signal << 8) | 0x7F`; `LIONOS_WIFSTOPPED` and `LIONOS_WSTOPSIG` decode it. The legacy WAITPID call retains its original blocking-on-exit behavior.
 
 Existing syscall numbers, meanings, argument order, structure layouts, and sentinel values are compatibility-sensitive. Never reuse a number or silently change an existing meaning. Add calls only at unused numbers and update headers, dispatcher, wrappers, documentation, and tests together. An incompatible change requires an explicit ABI version decision and migration plan.
 
@@ -92,7 +94,8 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 10 | LIONOS_SYS_MEMINFO | — | Free physical page count; read-only metadata query used by the native `meminfo.elf` utility |
 | 11 | LIONOS_SYS_EXEC | NUL-terminated program name | Replaces current image; returns PID on success |
 | 12 | LIONOS_SYS_FORK | — | Child PID in parent; child receives 0 |
-| 13 | LIONOS_SYS_WAITPID | PID (0 = any child), writable status pointer | Child PID on completion; may block |
+| 13 | LIONOS_SYS_WAITPID | PID (0 = any child), writable status pointer | Child PID on exit; may block; legacy behavior |
+| 62 | LIONOS_SYS_WAITPID_OPTIONS | PID (0 = any child), optional writable status pointer, options | Child PID on exit/stop, 0 for WNOHANG with no event, or may block |
 | 14 | LIONOS_SYS_OPEN | path, flags | File descriptor or generic error |
 | 15 | LIONOS_SYS_CLOSE | file descriptor | VFS close result |
 | 16 | LIONOS_SYS_FREAD | fd, writable buffer, capacity | Bytes read / signed VFS result |

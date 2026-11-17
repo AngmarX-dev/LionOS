@@ -8,6 +8,11 @@
 #define LIONOS_PROCESS_ZOMBIE 3u
 #define LIONOS_PROCESS_STOPPED 5u
 
+#define LIONOS_WNOHANG LIONOS_WAIT_NOHANG
+#define LIONOS_WUNTRACED LIONOS_WAIT_UNTRACED
+#define LIONOS_WIFSTOPPED(status) (((uint32_t)(status) & 0xFFu) == 0x7Fu)
+#define LIONOS_WSTOPSIG(status) (((uint32_t)(status) >> 8) & 0xFFu)
+
 #define LIONOS_SIG_NONE 0u
 #define LIONOS_SIG_INT 2u
 #define LIONOS_SIG_TERM 15u
@@ -55,6 +60,7 @@ static inline uint32_t lion_meminfo(void){return lion_syscall0(LIONOS_SYS_MEMINF
 static inline uint32_t lion_exec(const char*n){return lion_syscall1(LIONOS_SYS_EXEC,(uint32_t)(uintptr_t)n);}
 static inline uint32_t lion_fork(void){return lion_syscall0(LIONOS_SYS_FORK);}
 static inline int32_t lion_waitpid(uint32_t p,int32_t*s){return(int32_t)lion_syscall2(LIONOS_SYS_WAITPID,p,(uint32_t)(uintptr_t)s);}
+static inline int32_t lion_waitpid_options(uint32_t p,int32_t*s,uint32_t options){return(int32_t)lion_syscall3(LIONOS_SYS_WAITPID_OPTIONS,p,(uint32_t)(uintptr_t)s,options);}
 static inline int32_t lion_open(const char*p,uint32_t f){return(int32_t)lion_syscall2(LIONOS_SYS_OPEN,(uint32_t)(uintptr_t)p,f);}
 static inline int32_t lion_close(int32_t fd){return(int32_t)lion_syscall1(LIONOS_SYS_CLOSE,(uint32_t)fd);}
 static inline int32_t lion_fread(int32_t fd,void*b,uint32_t n){return(int32_t)lion_syscall3(LIONOS_SYS_FREAD,(uint32_t)fd,(uint32_t)(uintptr_t)b,n);}

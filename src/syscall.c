@@ -33,7 +33,7 @@ static int syscall_copy_out(uint32_t address,const void *buffer,uint32_t length)
 static int process_exists(uint32_t pid){if(!pid)return 0;for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i){struct process*p=process_at(i);if(p&&p->state!=PROCESS_UNUSED&&p->pid==pid)return 1;}return 0;}
 static int has_cap(uint32_t cap){return process_has_capability(process_current(),cap);}
 static uint32_t syscall_dispatch(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2,uint32_t arg3,uint32_t arg4){switch(number){
-case SYS_ABI_VERSION:return 14u;
+case SYS_ABI_VERSION:return 15u;
 case SYS_PUTC:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg0>0xFFu)return SYSCALL_ERR;console_putc((char)arg0);return SYSCALL_OK;
 case SYS_GETPID:return process_current_pid();
 case LIONOS_SYS_GETTID:return process_current_tid();
@@ -62,6 +62,7 @@ case SYS_MEMINFO:return memory_free_pages();
 case SYS_EXEC:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;{char name[64];if(usercopy_copy_string(name,sizeof(name),arg0)!=0)return SYSCALL_ERR;int pid=exec_replace_current(name);return pid<0?SYSCALL_ERR:(uint32_t)pid;}
 case SYS_FORK:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;return process_fork_current(0);
 case SYS_WAITPID:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;if(!usercopy_validate_write(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t result=process_waitpid(arg0,arg1);return result==(int32_t)PROCESS_WAIT_BLOCKED?(uint32_t)PROCESS_WAIT_BLOCKED:(uint32_t)result;}
+case LIONOS_SYS_WAITPID_OPTIONS:if(!has_cap(PROCESS_CAP_PROCESS)||(arg1&&!usercopy_validate_write(arg1,sizeof(uint32_t))))return SYSCALL_ERR;{int32_t result=process_waitpid_options(arg0,arg1,arg2);return result==(int32_t)PROCESS_WAIT_BLOCKED?(uint32_t)PROCESS_WAIT_BLOCKED:(uint32_t)result;}
 case LIONOS_SYS_OPEN:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];struct process*p=process_fd_owner();if(usercopy_copy_string(path,sizeof(path),arg0)!=0||!p)return SYSCALL_ERR;return(uint32_t)vfs_open_for_process(p,path,arg1);}
 case LIONOS_SYS_CLOSE:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{struct process*p=process_fd_owner();return(uint32_t)vfs_close_for_process(p,(int)arg0);}
 case LIONOS_SYS_FREAD:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;if(arg2>USER_COPY_MAX||!usercopy_validate_write(arg1,arg2))return SYSCALL_ERR;if(!arg2)return 0u;{void *buffer=kmalloc(arg2);if(!buffer)return SYSCALL_ERR;int r=vfs_read_for_process(process_fd_owner(),(int)arg0,buffer,arg2);if(r==TTY_READ_BLOCKED){kfree(buffer);return PROCESS_WAIT_BLOCKED;}if(r>0&&syscall_copy_out(arg1,buffer,(uint32_t)r)!=0)r=-1;kfree(buffer);return(uint32_t)r;}
