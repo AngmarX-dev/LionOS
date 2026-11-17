@@ -195,15 +195,20 @@ int main(void) {
         tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_timed_sleep_count != 2u || tty_test_last_timeout_ticks != 24u)
         return fail("VMIN/VTIME inter-byte timer failed", 52);
+    if (tty_input_byte('w') != TTY_INPUT_DATA_READY ||
+        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_test_timed_sleep_count != 3u || tty_test_last_timeout_ticks != 24u)
+        return fail("VMIN/VTIME timer did not restart after input", 54);
     tty_test_timeout_result = 1u;
-    if (tty_read_blocking(10u, output, sizeof(output)) != 1 || output[0] != 'v')
+    if (tty_read_blocking(10u, output, sizeof(output)) != 2 ||
+        output[0] != 'v' || output[1] != 'w')
         return fail("VMIN/VTIME expiry did not return partial data", 53);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON, 1u, 0u) != 0)
         return fail("canonical mode restore failed", 42);
 
     if (tty_release_session(20u) == 0 ||
         tty_release_session(10u) != 0 ||
-        tty_test_wakeup_count != 22u ||
+        tty_test_wakeup_count != 23u ||
         tty_session_owner() != 0u ||
         tty_get_foreground_pgid(10u) != TTY_ERROR)
         return fail("session release lifecycle failed", 20);
