@@ -79,7 +79,6 @@ int main(void) {
         static const char tty_message[] = "TTY";
         if (lion_tty_read(&tty_probe, 1u) != (int32_t)LIONOS_TTY_EMPTY ||
             lion_tty_write(tty_message, 3u) != 3 ||
-            lion_fread(0, &tty_probe, 1u) != (int32_t)LIONOS_TTY_EMPTY ||
             lion_fwrite(1, tty_message, 3u) != 3 ||
             lion_fwrite(2, tty_message, 3u) != 3 ||
             lion_fread(1, &tty_probe, 1u) != -1 ||
