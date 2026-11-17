@@ -573,22 +573,22 @@ void lionos_user_integration_step(void){
             int job_control_ok=valid&&code==0u;
             debug_write("LIONOS:TTY-JOB-CONTROL-EXIT-CODE=0x");
             debug_write_u32_hex(code);
-            debug_write("\\n");
+            debug_write("\n");
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 job_control_ok=0;
             integration_pid=-1;
             if(job_control_ok){
-                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-OK\\n");
+                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-OK\n");
                 integration_stage=16;
             }else{
                 integration_done=1;
-                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-FAIL\\n");
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-FAIL\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             }
         }else if(s<0){
             integration_done=1;
-            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-STATE-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
@@ -596,12 +596,12 @@ void lionos_user_integration_step(void){
     if(integration_stage==16){
         integration_pid=exec_run_file("sigint_test.elf");
         if(integration_pid>0){
-            debug_write("LIONOS:SIGINT-DEFAULT-TEST-LAUNCHED\\n");
+            debug_write("LIONOS:SIGINT-DEFAULT-TEST-LAUNCHED\n");
             integration_stage=17;
         }else{
             integration_done=1;
-            debug_write("LIONOS:SIGINT-DEFAULT-TEST-LAUNCH-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:SIGINT-DEFAULT-TEST-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
@@ -617,14 +617,14 @@ void lionos_user_integration_step(void){
             integration_pid=-1;
             integration_done=1;
             debug_write(sigint_ok
-                ? "LIONOS:SIGINT-DEFAULT-TEST-OK\\n"
-                : "LIONOS:SIGINT-DEFAULT-TEST-FAIL\\n");
+                ? "LIONOS:SIGINT-DEFAULT-TEST-OK\n"
+                : "LIONOS:SIGINT-DEFAULT-TEST-FAIL\n");
             if(!sigint_ok)
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }else if(s<0){
             integration_done=1;
-            debug_write("LIONOS:SIGINT-DEFAULT-TEST-STATE-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:SIGINT-DEFAULT-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
