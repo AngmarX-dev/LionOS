@@ -2,8 +2,8 @@
 
 **Status:** specification and conformance guards for the native syscall ABI. Stage F6 adds a read-only ext2 directory-stream syscall and user-space wrappers.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
-**UAPI version:** 14 (LIONOS_UAPI_VERSION).
-**System-call ABI:** 13 (LIONOS_SYSCALL_ABI).
+**UAPI version:** 15 (LIONOS_UAPI_VERSION).
+**System-call ABI:** 14 (LIONOS_SYSCALL_ABI).
 **Version query:** syscall number 0 returns 13.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
 
@@ -79,7 +79,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 
 | Number | Symbol | Arguments (in order) | Result / notes |
 |---:|---|---|---|
-| 0 | SYS_ABI_VERSION | — | Returns LIONOS_SYSCALL_ABI (13) |
+| 0 | SYS_ABI_VERSION | — | Returns LIONOS_SYSCALL_ABI (14) |
 | 1 | LIONOS_SYS_PUTC | character | 0 on success |
 | 2 | LIONOS_SYS_GETPID | — | Current process ID |
 | 3 | LIONOS_SYS_YIELD | — | Requests scheduler yield |
