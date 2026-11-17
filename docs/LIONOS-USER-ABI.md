@@ -148,7 +148,9 @@ This is not a complete System V i386 process-start ABI. Environment vectors, aux
 
 ## 7. POSIX-inspired compatibility subset
 
-The current native process-group support is a deliberately limited foundation: new processes start in a group named by their PID, fork inherits the parent's PGID, and threads share their process leader's PGID. SETPGID can move the caller or a direct child into a new group led by that process, or move a direct child into the caller's current group. Sessions, controlling terminals, and group-wide signal delivery are not implemented.\n\nThe current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
+The current native process-group support is a deliberately limited foundation: new processes start in a group named by their PID, fork inherits the parent's PGID, and threads share their process leader's PGID. SETPGID can move the caller or a direct child into a new group led by that process, or move a direct child into the caller's current group. Sessions, controlling terminals, and group-wide signal delivery are not implemented.
+
+The current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
 
 | Wrapper | Native service | Scope |
 |---|---|---|
