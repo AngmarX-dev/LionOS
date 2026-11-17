@@ -51,21 +51,21 @@ int main(void) {
     if (tty_get_foreground_pgid(10u) != 10)
         return fail("initial foreground PGID mismatch", 5);
     uint32_t attributes = 0u;
-    if (tty_get_attributes(10u, &attributes) != 0 || attributes != (TTY_ATTR_ECHO | TTY_ATTR_ISIG))
+    if (tty_get_attributes(10u, &attributes) != 0 || attributes != (TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON))
         return fail("default TTY attributes mismatch", 30);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | 0x80u) == 0 || tty_set_attributes(20u, 0u) == 0)
         return fail("invalid TTY attributes accepted", 31);
-    if (tty_set_attributes(10u, TTY_ATTR_ISIG) != 0 || tty_input_byte('n') != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
+    if (tty_set_attributes(10u, TTY_ATTR_ISIG | TTY_ATTR_ICANON) != 0 || tty_input_byte('n') != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("echo-disable mode setup failed", 32);
     tty_flush_echo(10u);
     if (tty_test_output_length != 2u || tty_read(10u, output, sizeof(output)) != 2)
         return fail("disabled echo changed canonical input", 33);
-    if (tty_set_attributes(10u, TTY_ATTR_ECHO) != 0 || tty_input_byte(0x03u) != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ICANON) != 0 || tty_input_byte(0x03u) != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("ISIG-disable mode treated Ctrl-C as signal", 34);
     tty_flush_echo(10u);
     if (tty_test_signal_count != 0u || tty_read(10u, output, sizeof(output)) != 2 || output[0] != 0x03u || output[1] != '\n')
         return fail("ISIG-disable mode did not preserve Ctrl-C byte", 35);
-    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG) != 0)
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON) != 0)
         return fail("TTY attributes restore failed", 36);
     if (tty_set_foreground_pgid(10u, 0u) == 0 ||
         tty_set_foreground_pgid(20u, 21u) == 0)
@@ -127,9 +127,30 @@ int main(void) {
         tty_test_output[TTY_EDIT_LINE_CAPACITY - 1u] != '\n')
         return fail("maximum canonical echo length mismatch", 29);
 
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG) != 0)
+        return fail("noncanonical mode setup failed", 37);
+    if (tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_test_sleep_count != 2u)
+        return fail("noncanonical empty read did not block", 38);
+    if (tty_input_byte('r') != TTY_INPUT_DATA_READY ||
+        tty_test_wakeup_count != 7u ||
+        tty_read_blocking(10u, output, sizeof(output)) != 1 || output[0] != 'r')
+        return fail("noncanonical byte did not wake/read immediately", 39);
+    if (tty_input_byte(0x7Fu) != TTY_INPUT_DATA_READY ||
+        tty_input_byte('\r') != TTY_INPUT_DATA_READY ||
+        tty_read(10u, output, sizeof(output)) != 2 ||
+        output[0] != 0x7Fu || output[1] != '\r')
+        return fail("noncanonical mode applied canonical editing", 40);
+    tty_flush_echo(10u);
+    if (tty_test_output_length != 3u || tty_test_output[0] != 'r' ||
+        tty_test_output[1] != 0x7Fu || tty_test_output[2] != '\r')
+        return fail("noncanonical echo mismatch", 41);
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON) != 0)
+        return fail("canonical mode restore failed", 42);
+
     if (tty_release_session(20u) == 0 ||
         tty_release_session(10u) != 0 ||
-        tty_test_wakeup_count != 7u ||
+        tty_test_wakeup_count != 10u ||
         tty_session_owner() != 0u ||
         tty_get_foreground_pgid(10u) != TTY_ERROR)
         return fail("session release lifecycle failed", 20);
