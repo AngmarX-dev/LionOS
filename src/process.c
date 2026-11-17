@@ -85,7 +85,11 @@ int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
     }
     uint32_t new_pgid=pgid?pgid:target->pid;
     if(new_pgid!=target->pid&&new_pgid!=current->pgid){
-        spinlock_irqrestore_release(&process_lock,flags);return -1;
+        struct process *leader=find_pid(new_pgid);
+        if(!leader||leader->is_thread||leader->state==PROCESS_ZOMBIE||
+           leader->pid!=leader->pgid||leader->parent_pid!=current->pid){
+            spinlock_irqrestore_release(&process_lock,flags);return -1;
+        }
     }
     uint32_t group=target->thread_group_pid?target->thread_group_pid:target->pid;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
@@ -398,6 +402,46 @@ void process_exit_current(uint32_t code){
 }
 static struct process*find_pid(uint32_t pid){for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED&&processes[i].pid==pid)return &processes[i];return 0;}
 int process_is_descendant_or_child(uint32_t pid,uint32_t ancestor_pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);if(!p||!ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 0;}if(p->parent_pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}for(uint32_t d=0;d<LIONOS_PROCESS_MAX&&p->parent_pid;++d){p=find_pid(p->parent_pid);if(!p)break;if(p->pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}}spinlock_irqrestore_release(&process_lock,flags);return 0;}
+static int process_is_descendant_locked(const struct process *candidate,uint32_t ancestor_pid){
+    if(!candidate||!ancestor_pid)return 0;
+    uint32_t parent_pid=candidate->parent_pid;
+    for(uint32_t depth=0u;depth<LIONOS_PROCESS_MAX&&parent_pid;++depth){
+        if(parent_pid==ancestor_pid)return 1;
+        struct process *parent=find_pid(parent_pid);
+        if(!parent)break;
+        parent_pid=parent->parent_pid;
+    }
+    return 0;
+}
+
+int32_t process_signal_group(uint32_t pgid,uint32_t signal,uint32_t sender_pid){
+    uint32_t targets[LIONOS_PROCESS_MAX];
+    uint32_t count=0u;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process *sender=find_pid(sender_pid);
+    if(sender&&sender->is_thread)sender=find_pid(sender->thread_group_pid);
+    if(!sender||sender==&processes[0]||!pgid||signal==0u||signal>LIONOS_SIG_MAX){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return LIONOS_SIGNAL_ERR;
+    }
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process *member=&processes[i];
+        if(member->state==PROCESS_UNUSED||member->is_thread||
+           member->state==PROCESS_ZOMBIE||member->pgid!=pgid)continue;
+        if(member==sender||!process_is_descendant_locked(member,sender->pid)){
+            spinlock_irqrestore_release(&process_lock,flags);
+            return LIONOS_SIGNAL_ERR;
+        }
+        if(count<LIONOS_PROCESS_MAX)targets[count++]=member->pid;
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+    if(!count)return LIONOS_SIGNAL_ERR;
+    uint32_t delivered=0u;
+    for(uint32_t i=0u;i<count;++i)
+        if(process_signal(targets[i],signal)==LIONOS_SIGNAL_OK)++delivered;
+    return delivered?LIONOS_SIGNAL_OK:LIONOS_SIGNAL_ERR;
+}
+
 int32_t process_signal(uint32_t pid,uint32_t signal){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process*p=find_pid(pid);
@@ -424,6 +468,14 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         vfs_close_all_process(p);
         flags=spinlock_irqsave_acquire(&process_lock);
         if(p->state==PROCESS_STOPPED){
+            for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+                struct process *thread=&processes[i];
+                if(thread!=p&&thread->state!=PROCESS_UNUSED&&thread->is_thread&&
+                   thread->thread_group_pid==p->pid){
+                    thread->state=PROCESS_ZOMBIE;
+                    reap_process(thread);
+                }
+            }
             p->state=PROCESS_ZOMBIE;
             wake_waiting_parent(p);
         }
