@@ -31,11 +31,11 @@ int main(void) {
         return fail("empty stdin did not sleep", 22);
     if (tty_input_byte('r') != TTY_INPUT_NONE ||
         tty_test_wakeup_count != 0u ||
-        tty_input_byte('\\n') != TTY_INPUT_LINE_READY ||
+        tty_input_byte('\n') != TTY_INPUT_LINE_READY ||
         tty_test_wakeup_count != 1u)
         return fail("completed line did not wake stdin", 23);
     if (tty_read_blocking(10u, output, sizeof(output)) != 2 ||
-        output[0] != 'r' || output[1] != '\\n')
+        output[0] != 'r' || output[1] != '\n')
         return fail("blocking stdin did not consume completed line", 24);
     if (tty_get_foreground_pgid(10u) != 10)
         return fail("initial foreground PGID mismatch", 5);
