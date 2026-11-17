@@ -83,7 +83,7 @@ typedef struct lion_semaphore {
 static inline int lion_futex_wait_timeout(volatile uint32_t *word, uint32_t expected,
                                           uint32_t timeout_ticks) {
     if (!word || ((uintptr_t)word & 3u) || timeout_ticks > 0x7FFFFFFFu) return -1;
-    return (int32_t)lion_syscall3(LIONOS_SYS_FUTEX_WAIT,
+    return (int32_t)lion_syscall3(LIONOS_SYS_FUTEX_WAIT_TIMEOUT,
                                   (uint32_t)(uintptr_t)word, expected, timeout_ticks);
 }
 
