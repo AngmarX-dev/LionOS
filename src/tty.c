@@ -37,6 +37,10 @@ static void tty_queue_echo_locked(const uint8_t *bytes, uint32_t length) {
         console_tty.echo[console_tty.echo_count++] = bytes[i];
 }
 
+void tty_wake_readers(void) {
+    process_wakeup((uintptr_t)&tty_read_wait_channel);
+}
+
 void tty_flush_echo(uint32_t sid) {
     uint8_t pending[TTY_ECHO_QUEUE_CAPACITY];
     uint32_t count = 0u;
