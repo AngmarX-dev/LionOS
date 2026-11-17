@@ -55,6 +55,30 @@ int elf32_validate(const uint8_t *image, uint32_t size, uint32_t *entry) {
     }
 
     if (load_count == 0u || !entry_is_executable) return -1;
+
+    /*
+     * Permissions apply to whole pages. Two individually valid PT_LOAD
+     * segments must not combine into a writable+executable page.
+     */
+    for(uint32_t i=0u;i<h->phnum;++i){
+        const struct elf32_phdr *a=(const struct elf32_phdr *)
+            (image+h->phoff+i*h->phentsize);
+        if(a->type!=PT_LOAD||a->memsz==0u)continue;
+        uint32_t a_first=a->vaddr&~0xFFFu;
+        uint32_t a_last=(a->vaddr+a->memsz-1u)&~0xFFFu;
+        for(uint32_t j=0u;j<i;++j){
+            const struct elf32_phdr *b=(const struct elf32_phdr *)
+                (image+h->phoff+j*h->phentsize);
+            if(b->type!=PT_LOAD||b->memsz==0u)continue;
+            uint32_t b_first=b->vaddr&~0xFFFu;
+            uint32_t b_last=(b->vaddr+b->memsz-1u)&~0xFFFu;
+            if(a_first<=b_last&&b_first<=a_last){
+                uint32_t combined=a->flags|b->flags;
+                if((combined&0x1u)&&(combined&0x2u))return -1;
+            }
+        }
+    }
+
     *entry = h->entry;
     return 0;
 }
