@@ -32,6 +32,5 @@ int main(void) {
         status != (int32_t)(128u + LIONOS_SIG_INT))
         return 4;
 
-    puts("SIGINT DEFAULT ACTION: PASS");
     return 0;
 }
