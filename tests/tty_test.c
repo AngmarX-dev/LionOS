@@ -134,8 +134,12 @@ int main(void) {
         return fail("mode switch discarded pending canonical edit", 37);
     tty_flush_echo(10u);
     tty_test_output_length = 0u;
-    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG) != 0)
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 1u) != 0)
         return fail("noncanonical mode setup failed", 43);
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, TTY_VMIN_MAX + 1u) == 0 ||
+        tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 0u) != 0 ||
+        tty_read_blocking(10u, output, sizeof(output)) != 0)
+        return fail("VMIN zero or range validation failed", 46);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 3u) != 0 ||
         tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 2u)
@@ -164,7 +168,7 @@ int main(void) {
     if (tty_test_output_length != 3u || tty_test_output[0] != 'r' ||
         tty_test_output[1] != 0x7Fu || tty_test_output[2] != '\r')
         return fail("noncanonical echo mismatch", 41);
-    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON) != 0)
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON, 1u) != 0)
         return fail("canonical mode restore failed", 42);
 
     if (tty_release_session(20u) == 0 ||
