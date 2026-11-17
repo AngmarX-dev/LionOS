@@ -91,6 +91,7 @@ const char *process_state_name(uint32_t state);
 uint32_t process_current_pid(void);
 int32_t process_get_pgid(uint32_t pid);
 int32_t process_get_sid(uint32_t pid);
+int32_t process_pgid_in_session(uint32_t pgid, uint32_t sid);
 int32_t process_create_session(void);
 int32_t process_set_pgid(uint32_t pid, uint32_t pgid);
 struct process *process_pipe_owner(void);
