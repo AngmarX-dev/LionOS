@@ -92,7 +92,27 @@ int main(void) {
                       (pages[0].flags & PTE_COW) != 0u, 0);
 
     reset_pages();
+    pages[0].flags = PTE_COW;
+    pages[1].flags = PTE_COW;
+    failures += check("cross-page COW range",
+                      usercopy_validate_write(0x10000FF0u, 32u), 1);
+    failures += check("first COW page writable",
+                      (pages[0].flags & PTE_WRITABLE) != 0u, 1);
+    failures += check("second COW page writable",
+                      (pages[1].flags & PTE_WRITABLE) != 0u, 1);
+
+    reset_pages();
+    pages[0].flags = PTE_COW;
+    pages[1].present = 0;
+    failures += check("missing second page rejects full write range",
+                      usercopy_validate_write(0x10000FF0u, 32u), 0);
+    failures += check("preflight leaves first COW page unchanged",
+                      (pages[0].flags & PTE_COW) != 0u, 1);
+
+    reset_pages();
     pages[0].flags = 0u;
+    failures += check("read-only page remains readable",
+                      usercopy_validate_read(0x10000020u, 8u), 1);
     failures += check("read-only non-COW page rejected",
                       usercopy_validate_write(0x10000020u, 8u), 0);
 
