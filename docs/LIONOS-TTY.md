@@ -18,7 +18,7 @@ This is not yet a complete terminal device or POSIX job-control implementation.
 
 - PS/2 and USB HID translated input reaches the TTY through the common keyboard character path.
 - Ctrl-C queues SIGINT for the owning session's validated foreground process group. It does not yet implement userspace signal handlers or default SIGINT termination.
-- Canonical echo is deferred until a process-context TTY read drains the bounded echo queue; it is not immediate per-keystroke echo. `termios`, dynamic TTY devices, and complete POSIX job control remain unimplemented.
+- Canonical echo is deferred until a process-context TTY read drains the bounded echo queue; it is not immediate per-keystroke echo. The initial runtime attribute API toggles echo and Ctrl-C signal processing; canonical mode remains fixed. Full POSIX `termios`, dynamic TTY devices, and complete job control remain unimplemented.
 - `tty_set_foreground_pgid()` enforces TTY session ownership. The Process Manager validates PGID existence and session membership while holding the process-table lock before updating foreground state.
 - The current core has one console TTY instance, not a dynamic TTY allocator.
 
@@ -100,3 +100,10 @@ Canonical input now queues visual echo bytes for ordinary characters, accepted t
 Echo is drained by a process-context TTY read. The flush takes locks in output → input → TTY-state order, releases the input lock before console output, and serializes the copied bytes under the output lock so concurrent readers cannot reorder echo output. If the bounded echo queue is full, additional visual echo is dropped without rejecting or corrupting canonical input. Session release resets the echo queue with the other TTY buffers.
 
 Host tests verify ordinary echo, backspace visual editing, Ctrl-C display marker, newline, and maximum-length input. Echo is deferred until a reader drains it; immediate per-keystroke display and hardware keyboard testing remain future work.
+
+
+## H21.9 — Runtime TTY attributes
+
+The owning session can query or update a bounded attribute bitmask through `lion_tty_getattr()` and `lion_tty_setattr()`. Supported flags are `LIONOS_TTY_ATTR_ECHO` and `LIONOS_TTY_ATTR_ISIG`; unknown bits are rejected. Both flags default on. Echo remains deferred to process-context reads. When ISIG is disabled, byte 0x03 is retained as canonical input instead of being routed as SIGINT. Canonical line buffering remains enabled and cannot yet be changed. Attribute operations are protected by the TTY input lock and restricted to the owning session.
+
+The new syscalls are 60 (`TTY_GETATTR`) and 61 (`TTY_SETATTR`). This is a small termios foundation, not a complete POSIX termios implementation.
