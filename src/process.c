@@ -418,7 +418,7 @@ int32_t process_signal_group(uint32_t pgid,uint32_t signal,uint32_t sender_pid){
     uint32_t targets[LIONOS_PROCESS_MAX];
     uint32_t count=0u;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
-    struct process *sender=find_pid(sender_pid);
+    struct process *sender=sender_pid?find_pid(sender_pid):current_local();
     if(sender&&sender->is_thread)sender=find_pid(sender->thread_group_pid);
     if(!sender||sender==&processes[0]||!pgid||signal==0u||signal>LIONOS_SIG_MAX){
         spinlock_irqrestore_release(&process_lock,flags);
