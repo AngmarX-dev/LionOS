@@ -39,6 +39,7 @@ static int32_t run_waitpid_eintr_test(void) {
         int32_t status = -1;
         if (lion_waitpid(grandchild, &status) != LIONOS_EINTR)
             lion_exit_code(23u);
+        (void)lion_yield();
         if (!waitpid_signal_seen)
             lion_exit_code(24u);
         if (lion_kill(grandchild, LIONOS_SIG_TERM) != 0)
