@@ -106,7 +106,8 @@ static uint32_t lapic_calibrate_initial(uint32_t target_hz){
 void lapic_timer_init(void){
     if(!initialized)return;
     timer_ticks=0u;
-    uint32_t initial=lapic_calibrate_initial(60u);
+    /* Match the BSP frame/futex clock: one nominal 120 Hz tick source per AP. */
+    uint32_t initial=lapic_calibrate_initial(120u);
     if(!initial) initial=200000u;
     write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);
     write_reg(LAPIC_REG_LVT_TIMER,LAPIC_TIMER_PERIODIC|LIONOS_LAPIC_TIMER_VECTOR);
