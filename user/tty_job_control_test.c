@@ -24,17 +24,12 @@ int main(void){
 
     uint32_t child=lion_fork();
     if(child==0u){
-        uint32_t pid=lion_getpid();
         if(lion_setpgid(0u,0u)!=0)
             lion_exit_code(10u);
         if(lion_fread(0,&byte,1u)!=-1)
             lion_exit_code(11u);
         if(lion_fwrite(1,output,1u)!=-1)
             lion_exit_code(12u);
-        uint32_t pending=lion_sigpending(pid);
-        if((pending&(1u<<(LIONOS_SIG_TTIN-1u)))==0u||
-           (pending&(1u<<(LIONOS_SIG_TTOU-1u)))==0u)
-            lion_exit_code(13u);
         lion_exit_code(0u);
     }
     if(child==LIONOS_SYSCALL_ERR)
@@ -43,6 +38,8 @@ int main(void){
     if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
        !LIONOS_WIFSTOPPED(status)||LIONOS_WSTOPSIG(status)!=LIONOS_SIG_TTIN)
         return cleanup_child(child,4);
+    if((lion_sigpending(child)&(1u<<(LIONOS_SIG_TTIN-1u)))==0u)
+        return cleanup_child(child,13);
     status=-1;
     if(lion_waitpid_options(child,&status,LIONOS_WNOHANG|LIONOS_WCONTINUED)!=0)
         return cleanup_child(child,5);
@@ -59,6 +56,8 @@ int main(void){
     if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
        !LIONOS_WIFSTOPPED(status)||LIONOS_WSTOPSIG(status)!=LIONOS_SIG_TTOU)
         return cleanup_child(child,9);
+    if((lion_sigpending(child)&(1u<<(LIONOS_SIG_TTOU-1u)))==0u)
+        return cleanup_child(child,14);
     if(lion_kill(child,LIONOS_SIG_CONT)!=0)
         return cleanup_child(child,10);
     status=-1;
