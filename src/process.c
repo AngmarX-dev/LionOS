@@ -137,6 +137,15 @@ int32_t process_get_sid(uint32_t pid){
     return result;
 }
 
+static void process_debug_write_hex(uint32_t value){
+    static const char digits[]="0123456789ABCDEF";
+    char out[9];
+    for(uint32_t i=0u;i<8u;++i)
+        out[i]=digits[(value>>(28u-i*4u))&0xFu];
+    out[8]='\0';
+    debug_write(out);
+}
+
 int32_t process_create_session(void){
     debug_write("LIONOS:JOBCTL:SETSID-ENTER\n");
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
@@ -161,6 +170,13 @@ int32_t process_create_session(void){
         spinlock_irqrestore_release(&process_lock,flags);
         return -1;
     }
+    debug_write("LIONOS:JOBCTL:SETSID-IDENTITY PID=0x");
+    process_debug_write_hex(current->pid);
+    debug_write(" PGID=0x");
+    process_debug_write_hex(current->pgid);
+    debug_write(" SID=0x");
+    process_debug_write_hex(current->sid);
+    debug_write("\n");
     uint32_t old_pgid=current->pgid;
     uint32_t old_sid=current->sid;
     int old_orphaned=process_group_orphaned_locked(old_pgid,old_sid);
