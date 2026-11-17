@@ -33,6 +33,7 @@ struct process {
     uint32_t pid;
     uint32_t state;
     uint32_t parent_pid;
+    uint32_t adopted_by_init;
     uint32_t pgid;
     uint32_t sid;
     uint32_t exit_code;
