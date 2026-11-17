@@ -35,7 +35,7 @@ C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/kernel_runtime.c src/gui.
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso usb disk ext2-disk run check test third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check userspace userland process-test ipc-test signal-test net-test
+.PHONY: all clean iso usb disk ext2-disk run check test third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check userspace userland process-test ipc-test signal-test net-test
 all: $(KERNEL)
 userspace userland: $(USER_ELFS)
 process-test: $(BUILD)/process_test.elf
@@ -43,7 +43,7 @@ ipc-test: $(BUILD)/ipc_test.elf
 signal-test: $(BUILD)/signal_test.elf
 net-test: $(BUILD)/net_test.elf
 
-test: third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check
+test: third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check
 	bash scripts/test.sh
 
 block-device-check: | $(BUILD)
@@ -69,6 +69,10 @@ elf-check: | $(BUILD)
 usercopy-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/usercopy.c tests/usercopy_test.c -o $(BUILD)/usercopy_test
 	$(BUILD)/usercopy_test
+
+tty-check: | $(BUILD)
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/tty.c tests/tty_test.c tests/tty_lock_stub.c -o $(BUILD)/tty_test
+	$(BUILD)/tty_test
 
 third-party-check:
 	python3 scripts/check_third_party_manifest.py
