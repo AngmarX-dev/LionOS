@@ -5,6 +5,10 @@
 
 extern uint32_t tty_test_sleep_count;
 extern uint32_t tty_test_wakeup_count;
+extern uint32_t tty_test_signal_count;
+extern uint32_t tty_test_signal_sid;
+extern uint32_t tty_test_signal_pgid;
+extern uint32_t tty_test_signal_number;
 
 static int fail(const char *message, int code) {
     fprintf(stderr, "TTY TEST: FAIL: %s\n", message);
@@ -19,6 +23,7 @@ int main(void) {
         return fail("initial owner must be empty", 1);
     tty_test_sleep_count = 0u;
     tty_test_wakeup_count = 0u;
+    tty_test_signal_count = 0u;
     if (tty_claim_session(0u, 0u) == 0 ||
         tty_claim_session(10u, 11u) == 0)
         return fail("invalid session claim accepted", 2);
@@ -66,6 +71,9 @@ int main(void) {
         tty_input_byte(0x03u) != TTY_INPUT_INTERRUPT ||
         tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("interrupt character handling failed", 13);
+    if (tty_test_signal_count != 1u || tty_test_signal_sid != 10u ||
+        tty_test_signal_pgid != 12u || tty_test_signal_number != 2u)
+        return fail("Ctrl-C was not routed to the foreground process group", 25);
     if (tty_read(10u, output, sizeof(output)) != 1 || output[0] != '\n')
         return fail("interrupt did not flush pending edit", 14);
 
