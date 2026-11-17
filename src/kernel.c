@@ -536,18 +536,18 @@ void lionos_user_integration_step(void){
                 signal_ok=0;
             integration_pid=-1;
             debug_write(signal_ok
-                ? "LIONOS:SIGNAL-CONTROL-TEST-OK\\n"
-                : "LIONOS:SIGNAL-CONTROL-TEST-FAIL\\n");
+                ? "LIONOS:SIGNAL-CONTROL-TEST-OK\n"
+                : "LIONOS:SIGNAL-CONTROL-TEST-FAIL\n");
             if(!signal_ok){
                 integration_done=1;
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             }else{
                 integration_stage=14;
             }
         }else if(s<0){
             integration_done=1;
-            debug_write("LIONOS:USER-SIGNAL-TEST-STATE-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:USER-SIGNAL-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
@@ -555,12 +555,12 @@ void lionos_user_integration_step(void){
     if(integration_stage==14){
         integration_pid=exec_run_file("tty_job_control_test.elf");
         if(integration_pid>0){
-            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-LAUNCHED\\n");
+            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-LAUNCHED\n");
             integration_stage=15;
         }else{
             integration_done=1;
-            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-LAUNCH-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
@@ -576,14 +576,14 @@ void lionos_user_integration_step(void){
             integration_pid=-1;
             integration_done=1;
             debug_write(job_control_ok
-                ? "LIONOS:TTY-JOB-CONTROL-TEST-OK\\n"
-                : "LIONOS:TTY-JOB-CONTROL-TEST-FAIL\\n");
+                ? "LIONOS:TTY-JOB-CONTROL-TEST-OK\n"
+                : "LIONOS:TTY-JOB-CONTROL-TEST-FAIL\n");
             if(!job_control_ok)
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }else if(s<0){
             integration_done=1;
-            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-STATE-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }}
