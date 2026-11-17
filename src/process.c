@@ -1287,7 +1287,10 @@ int process_signal_return(uint32_t *frame){
     struct process *current=current_local();
     if(!current||current==&processes[0]||current->is_thread||
        current->state==PROCESS_UNUSED||current->state==PROCESS_ZOMBIE||
-       !current->signal_active){
+       !current->signal_active||
+       !current->signal_active_restorer||
+       current->signal_active_restorer>0xFFFFFFF8u||
+       frame[14]!=current->signal_active_restorer+7u){
         spinlock_irqrestore_release(&process_lock,flags);
         return 0;
     }
