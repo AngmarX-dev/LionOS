@@ -46,6 +46,8 @@
 #define LIONOS_SYS_PIPE_READ 40u
 #define LIONOS_SYS_PIPE_WRITE 41u
 #define LIONOS_SYS_PIPE_CLOSE 42u
+#define LIONOS_SYS_FUTEX_WAIT 44u
+#define LIONOS_SYS_FUTEX_WAKE 45u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
@@ -55,6 +57,7 @@
 #define LIONOS_READ_BLOCKED ((uint32_t)-2)
 #define LIONOS_THREAD_BLOCKED ((uint32_t)-2)
 #define LIONOS_PIPE_BLOCKED ((uint32_t)-2)
+#define LIONOS_FUTEX_BLOCKED ((uint32_t)-2)
 
 struct lion_mouse_event {
     int32_t dx;
