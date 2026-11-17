@@ -4,7 +4,7 @@
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
 **UAPI version:** 14 (LIONOS_UAPI_VERSION).
 **System-call ABI:** 13 (LIONOS_SYSCALL_ABI).
-**Version query:** syscall number 0 returns 12.
+**Version query:** syscall number 0 returns 13.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
 
 ## 1. Scope and compatibility
