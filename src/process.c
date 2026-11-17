@@ -1162,8 +1162,8 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         process_release_tty_if_session_empty(exiting_sid);
         return LIONOS_SIGNAL_OK;
     }
-    if(signal==LIONOS_SIG_HUP){
-        p->pending_signals|=(1u<<(LIONOS_SIG_HUP-1u));
+    if(signal==LIONOS_SIG_HUP||signal==LIONOS_SIG_INT){
+        p->pending_signals|=(1u<<(signal-1u));
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_OK;
     }
@@ -1182,19 +1182,28 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
 }
 int process_deliver_pending_signal(void){
     const uint32_t hup_bit=1u<<(LIONOS_SIG_HUP-1u);
+    const uint32_t int_bit=1u<<(LIONOS_SIG_INT-1u);
+    uint32_t signal=0u;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process *current=current_local();
     if(!current||current==&processes[0]||current->is_thread||
-       current->state==PROCESS_UNUSED||current->state==PROCESS_ZOMBIE||
-       !(current->pending_signals&hup_bit)){
+       current->state==PROCESS_UNUSED||current->state==PROCESS_ZOMBIE){
         spinlock_irqrestore_release(&process_lock,flags);
         return 0;
     }
-    current->pending_signals&=~hup_bit;
+    if(current->pending_signals&hup_bit)signal=LIONOS_SIG_HUP;
+    else if(current->pending_signals&int_bit)signal=LIONOS_SIG_INT;
+    if(signal==0u){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return 0;
+    }
+    current->pending_signals&=~(1u<<(signal-1u));
     spinlock_irqrestore_release(&process_lock,flags);
-    debug_write("LIONOS:SIGHUP:DELIVER\n");
-    process_exit_current(128u+LIONOS_SIG_HUP);
-    debug_write("LIONOS:SIGHUP:EXIT-RETURNED\n");
+    if(signal==LIONOS_SIG_HUP)debug_write("LIONOS:SIGHUP:DELIVER\n");
+    else debug_write("LIONOS:SIGINT:DELIVER\n");
+    process_exit_current(128u+signal);
+    if(signal==LIONOS_SIG_HUP)debug_write("LIONOS:SIGHUP:EXIT-RETURNED\n");
+    else debug_write("LIONOS:SIGINT:EXIT-RETURNED\n");
     return 1;
 }
 uint32_t process_signal_pending(uint32_t pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);uint32_t r=p?p->pending_signals:0u;spinlock_irqrestore_release(&process_lock,flags);return r;}

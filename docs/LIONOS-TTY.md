@@ -154,3 +154,12 @@ SIGHUP is currently recorded as pending; default termination and user signal dis
 ## H21.17 — Orphan transitions caused by session and process-group changes
 
 The orphaned-process-group transition check is now shared by all topology-changing paths. When `setsid()` moves a process and its threads to a new session, the previous process group is re-evaluated. When `setpgid()` moves a process/thread group, both the old and destination process groups are re-evaluated. Only a non-orphaned-to-orphaned transition that leaves at least one stopped process queues SIGHUP and resumes the group with SIGCONT; already-orphaned groups are not notified repeatedly. TTY readers are woken after a successful session/process-group change so blocked I/O revalidates foreground ownership. QEMU runtime coverage exercises both `setsid()`- and `setpgid()`-induced transitions, including the one-shot WCONTINUED event and pending SIGHUP observation.
+
+
+## H21.18 — Default SIGHUP delivery
+
+A pending SIGHUP now follows its default action: the target process terminates at its next syscall-return boundary with wait status `128 + SIGHUP`. Orphaned process-group transitions continue to queue SIGHUP and SIGCONT; this milestone does not add asynchronous preemption or user-installed signal handlers.
+
+## H21.19 — Default SIGINT delivery
+
+A pending SIGINT now follows its default action and terminates the target process at its next syscall-return boundary with wait status `128 + SIGINT`. This completes the default action for the TTY's Ctrl-C signal path while preserving deferred delivery outside the process-table lock. When both SIGHUP and SIGINT are pending, SIGHUP is delivered first. User-installed signal handlers, masks, and asynchronous delivery remain out of scope.
