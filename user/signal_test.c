@@ -55,6 +55,44 @@ int main(void) {
         return fail("PROCESS GROUP: thread leader lookup", 28);
     puts("PROCESS GROUP: PASS");
 
+    uint32_t group_leader = lion_fork();
+    if (group_leader == 0u) {
+        for (;;) (void)lion_yield();
+    }
+    uint32_t group_member = lion_fork();
+    if (group_member == 0u) {
+        for (;;) (void)lion_yield();
+    }
+    if (group_leader == LIONOS_SYSCALL_ERR ||
+        group_member == LIONOS_SYSCALL_ERR ||
+        lion_setpgid(group_leader, group_leader) != 0 ||
+        lion_setpgid(group_member, group_leader) != 0 ||
+        lion_getpgid(group_member) != (int32_t)group_leader)
+        return fail("PROCESS GROUP: joining sibling-led group", 29);
+    if (lion_killpg(group_leader, LIONOS_SIG_STOP) != 0 ||
+        lion_getstate(group_leader) != LIONOS_PROCESS_STOPPED ||
+        lion_getstate(group_member) != LIONOS_PROCESS_STOPPED)
+        return fail("PROCESS GROUP: group stop", 30);
+    if (lion_killpg(group_leader, LIONOS_SIG_CONT) != 0 ||
+        lion_getstate(group_leader) != LIONOS_PROCESS_READY ||
+        lion_getstate(group_member) != LIONOS_PROCESS_READY)
+        return fail("PROCESS GROUP: group continue", 31);
+    if (lion_killpg(0u, LIONOS_SIG_TERM) != -1 ||
+        lion_killpg(0xFFFFFFFFu, LIONOS_SIG_TERM) != -1 ||
+        lion_killpg(group_leader, LIONOS_SIG_MAX + 1u) != -1)
+        return fail("PROCESS GROUP: invalid group/signal accepted", 32);
+    if (lion_killpg(group_leader, LIONOS_SIG_TERM) != 0 ||
+        lion_getstate(group_leader) != LIONOS_PROCESS_ZOMBIE ||
+        lion_getstate(group_member) != LIONOS_PROCESS_ZOMBIE)
+        return fail("PROCESS GROUP: group termination", 33);
+    int32_t group_leader_status = -1;
+    int32_t group_member_status = -1;
+    if (lion_waitpid(group_leader, &group_leader_status) != (int32_t)group_leader ||
+        lion_waitpid(group_member, &group_member_status) != (int32_t)group_member ||
+        group_leader_status != (int32_t)(128u + LIONOS_SIG_TERM) ||
+        group_member_status != (int32_t)(128u + LIONOS_SIG_TERM))
+        return fail("PROCESS GROUP: group member reap", 34);
+
     if (lion_kill(self, LIONOS_SIG_TERM) != -1)
         return fail("SIGNAL TEST: self-signal must be rejected", 1);
     if (lion_kill(0u, LIONOS_SIG_TERM) != -1)
