@@ -415,16 +415,19 @@ void process_futex_tick(uint32_t cpu){
     uint32_t now=++scheduler_cpu[cpu].timer_ticks;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *p=&processes[i];
-        if(p->state!=PROCESS_WAITING||p->wait_kind!=1u||
+        if(p->state!=PROCESS_WAITING||(p->wait_kind!=1u&&p->wait_kind!=2u)||
            p->wait_timeout_active!=1u||p->wait_cpu!=cpu||
            (int32_t)(now-p->wait_deadline)<0)continue;
+        uint32_t kind=p->wait_kind;
         p->wait_channel=0u;
         p->wait_kind=0u;
         p->wait_timeout_active=0u;
         p->state=PROCESS_READY;
-        uint32_t *frame=(uint32_t *)(uintptr_t)p->saved_frame;
-        if(p->wait_kind==2u)p->wait_timeout_result=1u;
-        if(frame&&p->wait_kind==1u)frame[11]=2u;
+        if(kind==2u)p->wait_timeout_result=1u;
+        if(kind==1u){
+            uint32_t *frame=(uint32_t *)(uintptr_t)p->saved_frame;
+            if(frame)frame[11]=2u;
+        }
     }
     spinlock_release(&process_lock);
 }
@@ -434,7 +437,7 @@ void process_wakeup(uintptr_t channel){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *p=&processes[i];
-        if(p->state==PROCESS_WAITING&&p->wait_kind==0u&&
+        if(p->state==PROCESS_WAITING&&(p->wait_kind==0u||p->wait_kind==2u)&&
            p->wait_channel==(uint32_t)channel){
             p->wait_channel=0u;
             p->wait_timeout_active=0u;
