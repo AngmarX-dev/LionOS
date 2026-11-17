@@ -12,7 +12,7 @@ static int cleanup_child(uint32_t child,int result){
 }
 
 static int32_t waitpid_bounded(uint32_t pid,int32_t *status){
-    for(uint32_t attempt=0u;attempt<20000u;++attempt){
+    for(uint32_t attempt=0u;attempt<512u;++attempt){
         int32_t result=lion_waitpid_options(pid,status,LIONOS_WNOHANG);
         if(result==(int32_t)pid||result<0)return result;
         (void)lion_yield();
@@ -105,7 +105,7 @@ static int test_setpgid_orphan_transition(void){
 
         /* The stopped child was reparented to init when its parent exited. */
         uint32_t child_exited=0u;
-        for(uint32_t attempt=0u;attempt<20000u;++attempt){
+        for(uint32_t attempt=0u;attempt<512u;++attempt){
             /* PID 1 adopts and auto-reaps this child after group_parent exits. */
             if(lion_getstate(pids.child)<0){
                 child_exited=1u;
