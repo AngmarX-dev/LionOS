@@ -15,6 +15,7 @@
 
 void signal_init(void);
 int32_t process_signal(uint32_t pid, uint32_t signal);
+int32_t process_signal_group(uint32_t pgid, uint32_t signal, uint32_t sender_pid);
 uint32_t process_signal_pending(uint32_t pid);
 int32_t process_get_state(uint32_t pid);
 
