@@ -615,15 +615,54 @@ void lionos_user_integration_step(void){
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 sigint_ok=0;
             integration_pid=-1;
-            integration_done=1;
             debug_write(sigint_ok
                 ? "LIONOS:SIGINT-DEFAULT-TEST-OK\n"
                 : "LIONOS:SIGINT-DEFAULT-TEST-FAIL\n");
-            if(!sigint_ok)
+            if(!sigint_ok){
+                integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            }else{
+                integration_stage=18;
+            }
         }else if(s<0){
             integration_done=1;
             debug_write("LIONOS:SIGINT-DEFAULT-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==18){
+        integration_pid=exec_run_file("signal_handler_test.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:SIGNAL-HANDLER-TEST-LAUNCHED\n");
+            integration_stage=19;
+        }else{
+            integration_done=1;
+            debug_write("LIONOS:SIGNAL-HANDLER-TEST-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==19){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            int handler_ok=valid&&code==0u;
+            if(process_reap_pid((uint32_t)integration_pid)!=0)
+                handler_ok=0;
+            integration_pid=-1;
+            integration_done=1;
+            debug_write(handler_ok
+                ? "LIONOS:SIGNAL-HANDLER-TEST-OK\n"
+                : "LIONOS:SIGNAL-HANDLER-TEST-FAIL\n");
+            if(!handler_ok)
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:SIGNAL-HANDLER-TEST-STATE-FAIL\n");
             debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
