@@ -92,6 +92,7 @@ static void cpu_intel_hardware_report(void){
     if(cpu.feature_flags & CPU_FEATURE_SSE42) console_write(" SSE4.2");
     if(cpu.feature_flags & CPU_FEATURE_AVX) console_write(" AVX");
     if(cpu.feature_flags & CPU_FEATURE_APIC) console_write(" APIC");
+    if(cpu.feature_flags & CPU_FEATURE_NX) console_write(" NX");
     console_write("\nCPU feature mask: 0x"); boot_hex32(cpu.feature_flags);
     console_write("\n");
 
