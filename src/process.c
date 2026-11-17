@@ -1249,7 +1249,7 @@ int process_deliver_pending_signal(uint32_t *frame){
     }
     if(handler>LIONOS_SIG_IGN&&frame&&(frame[15]&3u)==3u&&
        frame[17]>=0x10000008u&&frame[17]<=0xC0000000u){
-        stack=(frame[17]-8u)&~0xFu;
+        stack=((frame[17]-8u)&~0xFu)-4u;
         if(stack>=0x10000000u&&stack<=0xBFFFFFF8u){
             current->signal_active=1u;
             current->signal_active_restorer=restorer;
