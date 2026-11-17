@@ -895,7 +895,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     process_init();
     tty_init();
-    console_write("[ OK ] Software TTY core / session ownership / canonical input queue\\n");
+    console_write("[ OK ] Software TTY core / session ownership / canonical input queue\n");
     console_write("[ OK ] Process table / MLFQ scheduler / per-CPU run queues\n");
     console_write(cpu_fpu_sse_init()==0 ? "[ OK ] FPU / SSE context switching enabled\n" : "[ -- ] FPU / SSE unavailable\n");
     kernel_log(KLOG_INFO,"kernel services online");
