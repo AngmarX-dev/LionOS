@@ -63,6 +63,11 @@ struct process {
     uint32_t user_page_vas[LIONOS_PROCESS_MAX_USER_PAGES];
     uint32_t user_page_count;
     uint32_t pending_signals;
+    uint32_t signal_handlers[32];
+    uint32_t signal_restorers[32];
+    uint32_t signal_saved_frame[PROCESS_CONTEXT_WORDS];
+    uint32_t signal_active;
+    uint32_t signal_active_restorer;
     uint32_t capabilities;
     uint32_t cpu_owner;
     uint32_t priority;
