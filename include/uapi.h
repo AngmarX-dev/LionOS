@@ -7,7 +7,7 @@
 #include "pipe.h"
 #include "net.h"
 
-#define LIONOS_UAPI_VERSION 16u
+#define LIONOS_UAPI_VERSION 17u
 #define LIONOS_SYSCALL_ABI 14u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u
@@ -67,6 +67,7 @@
 #define LIONOS_TTY_ATTR_ICANON 0x04u
 #define LIONOS_TTY_ATTR_SUPPORTED (LIONOS_TTY_ATTR_ECHO | LIONOS_TTY_ATTR_ISIG | LIONOS_TTY_ATTR_ICANON)
 #define LIONOS_TTY_VMIN_MAX 255u
+#define LIONOS_TTY_VTIME_MAX 255u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
@@ -84,6 +85,7 @@
 struct lion_tty_attributes {
     uint32_t flags;
     uint32_t vmin;
+    uint32_t vtime;
 };
 
 struct lion_mouse_event {
