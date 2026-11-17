@@ -50,6 +50,23 @@ int main(void) {
         return fail("canonical input echo mismatch", 26);
     if (tty_get_foreground_pgid(10u) != 10)
         return fail("initial foreground PGID mismatch", 5);
+    uint32_t attributes = 0u;
+    if (tty_get_attributes(10u, &attributes) != 0 || attributes != (TTY_ATTR_ECHO | TTY_ATTR_ISIG))
+        return fail("default TTY attributes mismatch", 30);
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | 0x80u) == 0 || tty_set_attributes(20u, 0u) == 0)
+        return fail("invalid TTY attributes accepted", 31);
+    if (tty_set_attributes(10u, TTY_ATTR_ISIG) != 0 || tty_input_byte('n') != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
+        return fail("echo-disable mode setup failed", 32);
+    tty_flush_echo(10u);
+    if (tty_test_output_length != 2u || tty_read(10u, output, sizeof(output)) != 2)
+        return fail("disabled echo changed canonical input", 33);
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO) != 0 || tty_input_byte(0x03u) != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
+        return fail("ISIG-disable mode treated Ctrl-C as signal", 34);
+    tty_flush_echo(10u);
+    if (tty_test_signal_count != 0u || tty_read(10u, output, sizeof(output)) != 2 || output[0] != 0x03u || output[1] != '\n')
+        return fail("ISIG-disable mode did not preserve Ctrl-C byte", 35);
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG) != 0)
+        return fail("TTY attributes restore failed", 36);
     if (tty_set_foreground_pgid(10u, 0u) == 0 ||
         tty_set_foreground_pgid(20u, 21u) == 0)
         return fail("invalid foreground PGID update accepted", 6);
