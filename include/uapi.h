@@ -7,8 +7,8 @@
 #include "pipe.h"
 #include "net.h"
 
-#define LIONOS_UAPI_VERSION 12u
-#define LIONOS_SYSCALL_ABI 11u
+#define LIONOS_UAPI_VERSION 13u
+#define LIONOS_SYSCALL_ABI 12u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u
 #define LIONOS_SYS_YIELD 3u
@@ -57,6 +57,8 @@
 #define LIONOS_SYS_TTY_CLAIM 55u
 #define LIONOS_SYS_TTY_GETPGRP 56u
 #define LIONOS_SYS_TTY_SETPGRP 57u
+#define LIONOS_SYS_TTY_READ 58u
+#define LIONOS_SYS_TTY_WRITE 59u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
@@ -69,6 +71,7 @@
 #define LIONOS_FUTEX_BLOCKED ((uint32_t)-2)
 #define LIONOS_FUTEX_TIMED_OUT 2u
 #define LIONOS_FUTEX_INTERRUPTED 3u
+#define LIONOS_TTY_EMPTY ((uint32_t)-2)
 
 struct lion_mouse_event {
     int32_t dx;
