@@ -10,6 +10,7 @@
 #include "debug.h"
 #include "pipe.h"
 #include "vfs.h"
+#include "tty.h"
 extern void lionos_kernel_idle(void);
 
 #define PROCESS_WAIT_ANY 0u
@@ -69,6 +70,38 @@ int32_t process_get_pgid(uint32_t pid){
     int32_t result=target&&target->state!=PROCESS_ZOMBIE?(int32_t)target->pgid:-1;
     spinlock_irqrestore_release(&process_lock,flags);
     return result;
+}
+
+int32_t process_pgid_in_session(uint32_t pgid,uint32_t sid){
+    if(!pgid||!sid)return 0;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    int found=0;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        const struct process *member=&processes[i];
+        if(member->state!=PROCESS_UNUSED&&member->state!=PROCESS_ZOMBIE&&
+           !member->is_thread&&member->sid==sid&&member->pgid==pgid){
+            found=1;
+            break;
+        }
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+    return found;
+}
+
+static void process_release_tty_if_session_empty(uint32_t sid){
+    if(!sid)return;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    int live=0;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        const struct process *member=&processes[i];
+        if(member->state!=PROCESS_UNUSED&&member->state!=PROCESS_ZOMBIE&&
+           !member->is_thread&&member->sid==sid){
+            live=1;
+            break;
+        }
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+    if(!live)(void)tty_release_session(sid);
 }
 
 int32_t process_get_sid(uint32_t pid){
@@ -436,11 +469,13 @@ void process_exit_current(uint32_t code){
             reap_process(t);
         }
     }
+    uint32_t exiting_sid=c->sid;
     c->exit_code=code;
     c->state=PROCESS_ZOMBIE;
     debug_write("LIONOS:PROC-EXIT\\n");
     wake_waiting_parent(c);
     spinlock_irqrestore_release(&process_lock,flags);
+    process_release_tty_if_session_empty(exiting_sid);
 }
 static struct process*find_pid(uint32_t pid){for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED&&processes[i].pid==pid)return &processes[i];return 0;}
 int process_is_descendant_or_child(uint32_t pid,uint32_t ancestor_pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);if(!p||!ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 0;}if(p->parent_pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}for(uint32_t d=0;d<LIONOS_PROCESS_MAX&&p->parent_pid;++d){p=find_pid(p->parent_pid);if(!p)break;if(p->pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}}spinlock_irqrestore_release(&process_lock,flags);return 0;}
@@ -525,6 +560,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         p->pending_signals|=(1u<<(signal-1u));
         p->exit_code=128u+signal;
         p->state=PROCESS_STOPPED;
+        uint32_t exiting_sid=p->sid;
         spinlock_irqrestore_release(&process_lock,flags);
         pipe_close_all(p);
         vfs_close_all_process(p);
@@ -534,6 +570,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
             wake_waiting_parent(p);
         }
         spinlock_irqrestore_release(&process_lock,flags);
+        process_release_tty_if_session_empty(exiting_sid);
         return LIONOS_SIGNAL_OK;
     }
     if(signal==LIONOS_SIG_STOP){
