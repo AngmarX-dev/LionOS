@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define LIONOS_SIG_NONE 0u
+#define LIONOS_SIG_INT 2u
 #define LIONOS_SIG_TERM 15u
 #define LIONOS_SIG_KILL 9u
 #define LIONOS_SIG_STOP 19u
