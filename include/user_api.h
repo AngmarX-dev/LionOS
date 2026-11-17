@@ -80,10 +80,15 @@ typedef struct lion_semaphore {
     volatile uint32_t count;
 } lion_semaphore_t;
 
+static inline int lion_futex_wait_timeout(volatile uint32_t *word, uint32_t expected,
+                                          uint32_t timeout_ticks) {
+    if (!word || ((uintptr_t)word & 3u) || timeout_ticks > 0x7FFFFFFFu) return -1;
+    return (int32_t)lion_syscall3(LIONOS_SYS_FUTEX_WAIT,
+                                  (uint32_t)(uintptr_t)word, expected, timeout_ticks);
+}
+
 static inline int lion_futex_wait(volatile uint32_t *word, uint32_t expected) {
-    if (!word || ((uintptr_t)word & 3u)) return -1;
-    return (int32_t)lion_syscall2(LIONOS_SYS_FUTEX_WAIT,
-                                  (uint32_t)(uintptr_t)word, expected);
+    return lion_futex_wait_timeout(word, expected, 0u);
 }
 
 static inline int lion_futex_wake(volatile uint32_t *word, uint32_t maximum) {
