@@ -289,7 +289,7 @@ int32_t tty_read(uint32_t sid, uint32_t caller_pid,
 
 int32_t tty_read_blocking(uint32_t sid, uint32_t caller_pid,
                           uint8_t *destination, uint32_t capacity) {
-    if (sid == 0u || !caller_pid || !caller_pgid || !destination || capacity == 0u)
+    if (sid == 0u || !caller_pid || !destination || capacity == 0u)
         return TTY_ERROR;
     if (process_tty_check_foreground(sid, caller_pid, LIONOS_SIG_TTIN) != 0)
         return TTY_ERROR;
