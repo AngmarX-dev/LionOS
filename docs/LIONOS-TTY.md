@@ -117,3 +117,17 @@ The new syscalls are 60 (`TTY_GETATTR`) and 61 (`TTY_SETATTR`). This is a small 
 ## H21.11 — Noncanonical VMIN threshold
 
 The TTY attribute structure now includes `vmin` (0–255), defaulting to 1. In noncanonical mode, standard-descriptor blocking reads wait until at least `min(vmin, requested_capacity)` bytes are queued. Each byte arrival wakes sleepers so they can re-check the threshold under the input lock; bytes remain queued until the threshold is met. A VMIN value of zero makes an empty noncanonical read return immediately. Canonical reads retain line-commit behavior and ignore VMIN. VTIME and POSIX inter-byte timers remain out of scope.
+
+
+## H21.12 — Noncanonical VTIME
+
+The TTY attribute structure now includes `vtime` (0–255 deciseconds), defaulting to zero. In noncanonical mode the four VMIN/VTIME combinations follow the POSIX timing model:
+
+- VMIN=0, VTIME=0: return immediately with available bytes, including zero when the queue is empty.
+- VMIN=0, VTIME>0: start a total read timeout immediately; return as soon as at least one byte arrives, or return zero on expiry.
+- VMIN>0, VTIME=0: wait until `min(VMIN, requested_capacity)` bytes are available.
+- VMIN>0, VTIME>0: wait indefinitely for the first byte, then restart an inter-byte timeout after each wake/input byte; return available partial data when the inter-byte timer expires.
+
+The timer uses the process scheduler's nominal 120 Hz tick source; each decisecond is converted to 12 scheduler ticks, rounded up. Timed waits use per-process timeout state so concurrent readers do not share or consume one another's timeout result. The process manager arms the deadline only after the scheduler has saved the blocked context. Input wakeups cancel the pending timeout before the read is retried; session release and process termination also clear the wait state.
+
+Canonical reads ignore VTIME and retain newline-commit semantics. This implements the VMIN/VTIME read timing subset, not the full POSIX termios API.
