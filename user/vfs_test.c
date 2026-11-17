@@ -96,6 +96,42 @@ static int directory_stream_test(void) {
 }
 
 
+static int tty_background_io_test(void) {
+    struct lion_tty_attributes attributes;
+    uint8_t byte = 0u;
+    static const char output[] = "x";
+
+    if (lion_tty_claim() != 0 || lion_tty_getattr(&attributes) != 0)
+        return 47;
+    attributes.flags |= LIONOS_TTY_ATTR_TOSTOP;
+    if (lion_tty_setattr(&attributes) != 0)
+        return 48;
+
+    uint32_t child = lion_fork();
+    if (child == 0u) {
+        uint32_t pid = lion_getpid();
+        if (lion_setpgid(0u, 0u) != 0 ||
+            lion_fread(0, &byte, 1u) != -1 ||
+            lion_fwrite(1, output, 1u) != -1)
+            lion_exit_code(49u);
+        uint32_t pending = lion_sigpending(pid);
+        if ((pending & (1u << (LIONOS_SIG_TTIN - 1u))) == 0u ||
+            (pending & (1u << (LIONOS_SIG_TTOU - 1u))) == 0u)
+            lion_exit_code(50u);
+        lion_exit_code(0u);
+    }
+    if (child == LIONOS_SYSCALL_ERR)
+        return 51;
+    int32_t status = -1;
+    if (lion_waitpid(child, &status) != (int32_t)child || status != 0)
+        return 52;
+
+    attributes.flags &= ~LIONOS_TTY_ATTR_TOSTOP;
+    if (lion_tty_setattr(&attributes) != 0)
+        return 53;
+    return 0;
+}
+
 static int ext2_symlink_syscall_test(void) {
     static const char link_path[] = "/ext2/readme-link";
     static const char expected_target[] = "README.TXT";
@@ -268,5 +304,8 @@ int main(void) {
     int directory_result = directory_stream_test();
     if (directory_result != 0)
         return directory_result;
-    return ext2_symlink_syscall_test();
+    int symlink_result = ext2_symlink_syscall_test();
+    if (symlink_result != 0)
+        return symlink_result;
+    return tty_background_io_test();
 }
