@@ -131,3 +131,12 @@ The TTY attribute structure now includes `vtime` (0–255 deciseconds), defaulti
 The timer uses the process scheduler's nominal 120 Hz tick source; each decisecond is converted to 12 scheduler ticks, rounded up. Timed waits use per-process timeout state so concurrent readers do not share or consume one another's timeout result. The process manager arms the deadline only after the scheduler has saved the blocked context. Input wakeups cancel the pending timeout before the read is retried; session release and process termination also clear the wait state.
 
 Canonical reads ignore VTIME and retain newline-commit semantics. This implements the VMIN/VTIME read timing subset, not the full POSIX termios API.
+
+
+## H21.13 — Foreground/background terminal I/O policy
+
+The TTY I/O entry points now receive the calling process identity and enforce the session's foreground process group. A background process group attempting to read from the controlling TTY is denied and receives a pending SIGTTIN (21). Background writes remain permitted by default; when the TOSTOP attribute (0x08) is enabled, background writes are denied and the caller's process group receives pending SIGTTOU (22). Foreground reads and writes remain unaffected.
+
+The Process Manager validates the caller, session, process-group membership, and foreground group while holding the process-table lock. It queues the terminal signal for every live process in the caller's background group and its threads. The VFS drops its descriptor-table lock before entering TTY policy, preserving the existing lock hierarchy. Explicit TTY syscalls and standard descriptors share the same policy.
+
+This milestone queues SIGTTIN/SIGTTOU and rejects the disallowed I/O operation; it does not yet implement signal dispositions, default stop actions, or shell wait/continue job-control orchestration. Those remain separate work.
