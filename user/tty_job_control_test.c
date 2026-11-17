@@ -56,7 +56,7 @@ static int test_setpgid_orphan_transition(void){
                 lion_exit_code(51u);
             if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
                !LIONOS_WIFSTOPPED(status))lion_exit_code(54u);
-            if(lion_setpgid(0u,child)!=0)lion_exit_code(55u);
+            if(lion_setpgid(0u,0u)!=0)lion_exit_code(55u);
             status=-1;
             if(lion_waitpid(child,&status)!=(int32_t)child||
                status!=(int32_t)(128u+LIONOS_SIG_HUP))
