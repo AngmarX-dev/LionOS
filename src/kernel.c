@@ -260,6 +260,7 @@ static int integration_vfs_ok;
 static int integration_cow_ok;
 static int integration_utility_ok;
 static int integration_pipe_ok;
+static int integration_nx_ok;
 static void debug_write_u32_hex(uint32_t value){
     static const char digits[]="0123456789ABCDEF";
     char out[9];
@@ -454,13 +455,13 @@ void lionos_user_integration_step(void){
             integration_pid=-1;
             integration_done=1;
             debug_write(integration_nx_ok
-                ? "LIONOS:NX-RUNTIME-TEST-OK\\n"
-                : "LIONOS:NX-RUNTIME-TEST-FAIL\\n");
-            if(!integration_nx_ok)debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+                ? "LIONOS:NX-RUNTIME-TEST-OK\n"
+                : "LIONOS:NX-RUNTIME-TEST-FAIL\n");
+            if(!integration_nx_ok)debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }else if(s<0){
             integration_done=1;
-            debug_write("LIONOS:NX-RUNTIME-TEST-STATE-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:NX-RUNTIME-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
