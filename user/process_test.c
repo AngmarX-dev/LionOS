@@ -1,5 +1,19 @@
 #include <stdint.h>
 #include "user_libc.h"
+#include "user_api.h"
+
+static volatile uint32_t thread_marker;
+
+static void thread_worker_blocking(void) {
+    for (uint32_t i = 0u; i < 4u; ++i) (void)lion_yield();
+    thread_marker = 0x13579BDFu;
+    lion_thread_exit(73u);
+}
+
+static void thread_worker_zombie(void) {
+    thread_marker = 0x2468ACE0u;
+    lion_thread_exit(91u);
+}
 
 static void print_u32(const char *label, uint32_t value) {
     char buf[11];
@@ -154,6 +168,65 @@ int main(int argc, char **argv) {
     }
 
     puts("[PASS] waitpid blocking, zombie, wait-any, and invalid-child cases");
+
+    /* Join a live thread: the caller blocks until the thread exits. */
+    thread_marker = 0u;
+    uint32_t tid = lion_thread_create(thread_worker_blocking);
+    if (tid == LIONOS_SYSCALL_ERR || tid == 0u) {
+        puts("[FAIL] thread creation failed");
+        return 16;
+    }
+    int32_t thread_status = -1;
+    int32_t joined = lion_thread_join(tid, &thread_status);
+    if (joined != (int32_t)tid || thread_status != 73 ||
+        thread_marker != 0x13579BDFu) {
+        puts("[FAIL] blocking thread join result/status mismatch");
+        return 17;
+    }
+    if (lion_thread_join(tid, &thread_status) != -1) {
+        puts("[FAIL] thread join accepted an already-reaped TID");
+        return 18;
+    }
+    if (lion_thread_join(0u, &thread_status) != -1 ||
+        lion_thread_join(lion_gettid(), &thread_status) != -1) {
+        puts("[FAIL] thread join accepted an invalid TID");
+        return 19;
+    }
+
+    /* Let another thread exit before join, exercising the zombie path. */
+    thread_marker = 0u;
+    uint32_t zombie_tid = lion_thread_create(thread_worker_zombie);
+    if (zombie_tid == LIONOS_SYSCALL_ERR || zombie_tid == 0u) {
+        puts("[FAIL] zombie-path thread creation failed");
+        return 20;
+    }
+    for (uint32_t i = 0u; i < 4u && thread_marker == 0u; ++i)
+        (void)lion_yield();
+    thread_status = -1;
+    joined = lion_thread_join(zombie_tid, &thread_status);
+    if (joined != (int32_t)zombie_tid || thread_status != 91 ||
+        thread_marker != 0x2468ACE0u) {
+        puts("[FAIL] join failed for an existing zombie thread");
+        return 21;
+    }
+
+    /* Reuse the released thread slot and its virtual stack mapping. */
+    thread_marker = 0u;
+    tid = lion_thread_create(thread_worker_zombie);
+    if (tid == LIONOS_SYSCALL_ERR || tid == 0u) {
+        puts("[FAIL] thread slot/stack reuse failed");
+        return 22;
+    }
+    for (uint32_t i = 0u; i < 4u && thread_marker == 0u; ++i)
+        (void)lion_yield();
+    thread_status = -1;
+    joined = lion_thread_join(tid, &thread_status);
+    if (joined != (int32_t)tid || thread_status != 91) {
+        puts("[FAIL] reused thread stack could not be joined");
+        return 23;
+    }
+    puts("[PASS] thread blocking join, zombie join, invalid TID, and stack reuse");
+
     print_u32("[parent] PID before exec: ", parent_pid);
     puts("[parent] exec hello.elf; PID must remain unchanged");
 
