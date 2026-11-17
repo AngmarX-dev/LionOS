@@ -39,6 +39,7 @@ struct process {
     uint32_t wait_channel;
     uint32_t wait_kind;
     uint32_t wait_timeout_active;
+    uint32_t wait_timeout_ticks;
     uint32_t wait_deadline;
     uint32_t wait_cpu;
     uint32_t reap_pending;
