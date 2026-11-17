@@ -112,3 +112,8 @@ The new syscalls are 60 (`TTY_GETATTR`) and 61 (`TTY_SETATTR`). This is a small 
 ## H21.10 — Canonical mode control
 
 `LIONOS_TTY_ATTR_ICANON` selects the input discipline. In canonical mode, the existing edit buffer, backspace handling, CR-to-LF normalization, and newline commit behavior remain active. In noncanonical mode, each incoming byte is placed directly into the bounded input ring, echo is queued unchanged when enabled, and blocked readers are woken after each accepted byte. Backspace and carriage return are data in this mode. `TTY_INPUT_DATA_READY` distinguishes immediate byte acceptance from a committed canonical line. The input queue remains bounded; overflow is reported without overwriting unread bytes. A change to ICANON is rejected while an uncommitted canonical edit is pending, preventing silent loss or reinterpretation of that partial line. VMIN/VTIME timing controls and full POSIX termios semantics are not included.
+
+
+## H21.11 — Noncanonical VMIN threshold
+
+The TTY attribute structure now includes `vmin` (0–255), defaulting to 1. In noncanonical mode, standard-descriptor blocking reads wait until at least `min(vmin, requested_capacity)` bytes are queued. Each byte arrival wakes sleepers so they can re-check the threshold under the input lock; bytes remain queued until the threshold is met. A VMIN value of zero makes an empty noncanonical read return immediately. Canonical reads retain line-commit behavior and ignore VMIN. VTIME and POSIX inter-byte timers remain out of scope.
