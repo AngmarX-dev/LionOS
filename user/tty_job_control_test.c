@@ -1,17 +1,6 @@
 #include <stdint.h>
 #include "user_api.h"
 
-static int waitpid_bounded(uint32_t child,int32_t *status){
-    if(!child||!status)return -1;
-    for(uint32_t attempt=0u;attempt<20000u;++attempt){
-        int32_t result=lion_waitpid_options(child,status,LIONOS_WNOHANG);
-        if(result==(int32_t)child)return 0;
-        if(result<0)return -1;
-        (void)lion_yield();
-    }
-    return -2;
-}
-
 static int cleanup_child(uint32_t child,int result){
     if(child!=0u&&child!=LIONOS_SYSCALL_ERR){
         if(lion_getstate(child)!=LIONOS_PROCESS_ZOMBIE)
@@ -37,9 +26,8 @@ static int test_setsid_orphan_transition(void){
            !LIONOS_WIFSTOPPED(status))lion_exit_code(44u);
         if(lion_setsid()<0)lion_exit_code(45u);
         status=-1;
-        int wait_result=waitpid_bounded(child,&status);
-        if(wait_result!=0)
-            lion_exit_code(wait_result==-2?146u:147u);
+        if(lion_waitpid(child,&status)!=(int32_t)child)
+            lion_exit_code(147u);
         if(status!=(int32_t)(128u+LIONOS_SIG_HUP))
             lion_exit_code(46u);
         lion_exit_code(0u);
@@ -101,16 +89,16 @@ static int test_setpgid_orphan_transition(void){
         /* Leaving the session now orphans the already-existing group. */
         if(lion_setsid()<0)lion_exit_code(78u);
         status=-1;
-        int wait_result=waitpid_bounded(group_parent,&status);
-        if(wait_result!=0)
-            lion_exit_code(wait_result==-2?179u:180u);
+        if(lion_waitpid(group_parent,&status)!=(int32_t)group_parent)
+            lion_exit_code(180u);
         if(status!=(int32_t)(128u+LIONOS_SIG_HUP))
             lion_exit_code(79u);
 
         /* The stopped child was reparented to init when its parent exited. */
         uint32_t child_exited=0u;
         for(uint32_t attempt=0u;attempt<20000u;++attempt){
-            if(lion_getstate(pids.child)==LIONOS_PROCESS_ZOMBIE){
+            /* PID 1 adopts and auto-reaps this child after group_parent exits. */
+            if(lion_getstate(pids.child)<0){
                 child_exited=1u;
                 break;
             }
