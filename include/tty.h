@@ -14,6 +14,10 @@
 #define TTY_READ_BLOCKED (-3)
 #define TTY_ERROR (-1)
 
+#define TTY_ATTR_ECHO 0x01u
+#define TTY_ATTR_ISIG 0x02u
+#define TTY_ATTR_SUPPORTED (TTY_ATTR_ECHO | TTY_ATTR_ISIG)
+
 void tty_init(void);
 
 /* A session leader may claim the console TTY once for its session. */
@@ -35,6 +39,8 @@ int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity);
 /* VFS stdin read: sleeps atomically until a line arrives or the session ends. */
 int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity);
 int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length);
+int32_t tty_get_attributes(uint32_t sid, uint32_t *flags);
+int32_t tty_set_attributes(uint32_t sid, uint32_t flags);
 /* Flush queued input echo from process context, never from a keyboard IRQ. */
 void tty_flush_echo(uint32_t sid);
 
