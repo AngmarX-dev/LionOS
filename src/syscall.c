@@ -37,7 +37,8 @@ case SYS_PUTC:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg0>0xFFu)
 case SYS_GETPID:return process_current_pid();
 case LIONOS_SYS_GETTID:return process_current_tid();
 case SYS_YIELD:process_request_reschedule();return SYSCALL_OK;
-case LIONOS_SYS_FUTEX_WAIT:return (uint32_t)futex_wait(arg0,arg1,arg2);
+case LIONOS_SYS_FUTEX_WAIT:return (uint32_t)futex_wait(arg0,arg1,0u);
+case LIONOS_SYS_FUTEX_WAIT_TIMEOUT:return (uint32_t)futex_wait(arg0,arg1,arg2);
 case LIONOS_SYS_FUTEX_WAKE:return (uint32_t)futex_wake(arg0,arg1);
 case SYS_EXIT:process_exit_current(arg0);return SYSCALL_OK;
 case SYS_GETCHAR:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{int c=keyboard_getchar();return c<0?SYSCALL_ERR:(uint32_t)(uint8_t)c;}
