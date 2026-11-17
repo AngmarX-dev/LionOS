@@ -33,7 +33,7 @@ static int syscall_copy_out(uint32_t address,const void *buffer,uint32_t length)
 static int process_exists(uint32_t pid){if(!pid)return 0;for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i){struct process*p=process_at(i);if(p&&p->state!=PROCESS_UNUSED&&p->pid==pid)return 1;}return 0;}
 static int has_cap(uint32_t cap){return process_has_capability(process_current(),cap);}
 static uint32_t syscall_dispatch(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2,uint32_t arg3,uint32_t arg4){switch(number){
-case SYS_ABI_VERSION:return 12u;
+case SYS_ABI_VERSION:return 13u;
 case SYS_PUTC:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg0>0xFFu)return SYSCALL_ERR;console_putc((char)arg0);return SYSCALL_OK;
 case SYS_GETPID:return process_current_pid();
 case LIONOS_SYS_GETTID:return process_current_tid();
@@ -134,7 +134,7 @@ case LIONOS_SYS_TTY_SETATTR:{
     int32_t sid=process_get_sid(0u);
     if(!has_cap(PROCESS_CAP_CONSOLE)||sid<=0||tty_session_owner()!=(uint32_t)sid||!usercopy_validate_read(arg0,sizeof(struct lion_tty_attributes)))return SYSCALL_ERR;
     struct lion_tty_attributes attributes;
-    if(usercopy_copy_from(&attributes,(const void *)(uintptr_t)arg0,sizeof(attributes))!=0)return SYSCALL_ERR;
+    if(usercopy_copy_from(&attributes,arg0,sizeof(attributes))!=0)return SYSCALL_ERR;
     return (uint32_t)tty_set_attributes((uint32_t)sid,attributes.flags);
 }
 case LIONOS_SYS_TTY_WRITE:{
