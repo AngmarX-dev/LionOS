@@ -132,6 +132,11 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 52 | LIONOS_SYS_KILLPG | PGID, signal | Deliver signal to all live descendant process leaders in the group; caller's own group is rejected |
 | 53 | LIONOS_SYS_SETSID | — | Create a new session and process group; fails if caller is already a process-group leader |
 | 54 | LIONOS_SYS_GETSID | PID (0 = caller) | Session ID or error
+| 55 | LIONOS_SYS_TTY_CLAIM | — | Claim the single console TTY; session leader only |
+| 56 | LIONOS_SYS_TTY_GETPGRP | — | Foreground process group for caller's TTY session |
+| 57 | LIONOS_SYS_TTY_SETPGRP | PGID | Set foreground process group within caller's session |
+| 58 | LIONOS_SYS_TTY_READ | writable buffer, capacity | Canonical bytes, empty sentinel, or error; nonblocking; max 4096 |
+| 59 | LIONOS_SYS_TTY_WRITE | readable buffer, length | Console bytes for owning TTY session; max 4096
 
 ### Capability and validation notes
 
