@@ -141,8 +141,23 @@ int32_t process_create_session(void){
     debug_write("LIONOS:JOBCTL:SETSID-ENTER\n");
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process *current=current_local();
-    if(!current||current==&processes[0]||current->is_thread||
-       current->pid==current->pgid){
+    if(!current){
+        debug_write("LIONOS:JOBCTL:SETSID-REJECT-NO-CURRENT\\n");
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
+    if(current==&processes[0]){
+        debug_write("LIONOS:JOBCTL:SETSID-REJECT-INIT\\n");
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
+    if(current->is_thread){
+        debug_write("LIONOS:JOBCTL:SETSID-REJECT-THREAD\\n");
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
+    if(current->pid==current->pgid){
+        debug_write("LIONOS:JOBCTL:SETSID-REJECT-LEADER\\n");
         spinlock_irqrestore_release(&process_lock,flags);
         return -1;
     }
