@@ -165,9 +165,13 @@ int main(void){
     if(child==LIONOS_SYSCALL_ERR)
         return 3;
 
-    if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
-       !LIONOS_WIFSTOPPED(status)||LIONOS_WSTOPSIG(status)!=LIONOS_SIG_TTIN)
+    int32_t stop_wait=lion_waitpid_options(child,&status,LIONOS_WUNTRACED);
+    if(stop_wait!=(int32_t)child)
         return cleanup_child(child,4);
+    if(!LIONOS_WIFSTOPPED(status))
+        return cleanup_child(child,40+(status>=0?(int)(status&0x3Fu):63));
+    if(LIONOS_WSTOPSIG(status)!=LIONOS_SIG_TTIN)
+        return cleanup_child(child,80+(int)LIONOS_WSTOPSIG(status));
     if((lion_sigpending(child)&(1u<<(LIONOS_SIG_TTIN-1u)))==0u)
         return cleanup_child(child,13);
     status=-1;
