@@ -125,6 +125,8 @@ int process_has_capability(const struct process *process, uint32_t capability);
 uint32_t process_capabilities(const struct process *process);
 int process_set_capabilities(struct process *process, uint32_t capabilities);
 void process_exit_current(uint32_t exit_code);
+/* Delivers default-action SIGHUP at a syscall return boundary. */
+int process_deliver_pending_signal(void);
 uint32_t process_fork_current(uint32_t *parent_frame);
 int32_t process_waitpid(uint32_t pid, uint32_t status_ptr);
 int32_t process_waitpid_options(uint32_t pid, uint32_t status_ptr, uint32_t options);

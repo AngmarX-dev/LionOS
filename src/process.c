@@ -1120,6 +1120,21 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
     spinlock_irqrestore_release(&process_lock,flags);
     return LIONOS_SIGNAL_ERR;
 }
+int process_deliver_pending_signal(void){
+    const uint32_t hup_bit=1u<<(LIONOS_SIG_HUP-1u);
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process *current=current_local();
+    if(!current||current==&processes[0]||current->is_thread||
+       current->state==PROCESS_UNUSED||current->state==PROCESS_ZOMBIE||
+       !(current->pending_signals&hup_bit)){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return 0;
+    }
+    current->pending_signals&=~hup_bit;
+    spinlock_irqrestore_release(&process_lock,flags);
+    process_exit_current(128u+LIONOS_SIG_HUP);
+    return 1;
+}
 uint32_t process_signal_pending(uint32_t pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);uint32_t r=p?p->pending_signals:0u;spinlock_irqrestore_release(&process_lock,flags);return r;}
 int32_t process_get_state(uint32_t pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);int32_t r=p?(int32_t)p->state:-1;spinlock_irqrestore_release(&process_lock,flags);return r;}
 int process_has_capability(const struct process *p,uint32_t capability){return p&&(p->capabilities&capability)==capability;}

@@ -348,6 +348,29 @@ int main(void) {
     if (lion_waitpid(0u, &status) != -1)
         return fail("SIGNAL TEST: wait-any found an already reaped child", 21);
 
+    child = lion_fork();
+    if (child == 0u) {
+        for (;;) (void)lion_yield();
+    }
+    if (child == (uint32_t)-1 ||
+        lion_kill(child, LIONOS_SIG_HUP) != 0)
+        return fail("SIGNAL TEST: SIGHUP delivery setup failed", 22);
+    uint32_t hup_exited = 0u;
+    for (uint32_t attempt = 0u; attempt < 1000u; ++attempt) {
+        if (lion_getstate(child) == LIONOS_PROCESS_ZOMBIE) {
+            hup_exited = 1u;
+            break;
+        }
+        (void)lion_yield();
+    }
+    if (!hup_exited)
+        return fail("SIGNAL TEST: default SIGHUP action did not terminate child", 23);
+    status = -1;
+    waited = lion_waitpid(child, &status);
+    if (waited != (int32_t)child ||
+        status != (int32_t)(128u + LIONOS_SIG_HUP))
+        return fail("SIGNAL TEST: SIGHUP wait status mismatch", 24);
+
     puts("SIGNAL TEST: PASS");
     return 0;
 }
