@@ -70,7 +70,7 @@ int32_t tty_release_session(uint32_t sid) {
     console_tty.foreground_pgid = 0u;
     tty_reset_buffers_locked();
     spinlock_irqrestore_release(&console_tty.lock, flags);
-    spinlock_release(&console_tty.output_lock);
+    spinlock_irqrestore_release(&console_tty.output_lock, output_flags);
     return 0;
 }
 
@@ -194,16 +194,16 @@ int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity) {
 int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length) {
     if (sid == 0u || (!source && length != 0u) || length > 4096u)
         return TTY_ERROR;
-    spinlock_acquire(&console_tty.output_lock);
+    uint32_t output_flags = spinlock_irqsave_acquire(&console_tty.output_lock);
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
     int owns_tty = console_tty.owner_sid == sid;
     spinlock_irqrestore_release(&console_tty.lock, flags);
     if (!owns_tty) {
-        spinlock_release(&console_tty.output_lock);
+        spinlock_irqrestore_release(&console_tty.output_lock, output_flags);
         return TTY_ERROR;
     }
     if (length != 0u)
         console_write_n((const char *)source, length);
-    spinlock_release(&console_tty.output_lock);
+    spinlock_irqrestore_release(&console_tty.output_lock, output_flags);
     return (int32_t)length;
 }
