@@ -317,7 +317,7 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
                 return blocked == PROCESS_WAIT_BLOCKED ? TTY_READ_BLOCKED : TTY_ERROR;
             }
         } else if (required != 0u && console_tty.input_count >= required && vtime != 0u) {
-            (void)process_consume_timeout();
+            (void)timed_out;
         } else if (required != 0u && console_tty.input_count < required) {
             if (vtime != 0u && console_tty.input_count != 0u) {
                 if (timed_out) {
