@@ -15,11 +15,11 @@ int usercopy_range_valid(uint32_t address, uint32_t length) {
 }
 
 static int validate_pages(uint32_t address, uint32_t length, int write) {
-    if (!usercopy_range_valid(address, length)) return -1;
-    if (length == 0u) return 0;
+    if (!usercopy_range_valid(address, length)) return 0;
+    if (length == 0u) return 1;
 
     uint32_t pd = paging_current_address_space();
-    if (!pd) return -1;
+    if (!pd) return 0;
 
     uint32_t end = address + length;
     uint32_t page = address & ~(PAGE_SIZE - 1u);
@@ -27,9 +27,9 @@ static int validate_pages(uint32_t address, uint32_t length, int write) {
     /* Preflight every page before resolving COW or allowing a caller to copy. */
     for (uint32_t current = page; current < end; current += PAGE_SIZE) {
         uint32_t flags = 0u;
-        if (paging_get_user_page(pd, current, 0, &flags) != 0) return -1;
+        if (paging_get_user_page(pd, current, 0, &flags) != 0) return 0;
         if (write && !(flags & PTE_WRITABLE) && !(flags & PTE_COW))
-            return -1;
+            return 0;
     }
 
     if (!write) return 0;
@@ -39,16 +39,16 @@ static int validate_pages(uint32_t address, uint32_t length, int write) {
         if (paging_get_user_page(pd, current, 0, &flags) != 0) return -1;
         if (!(flags & PTE_WRITABLE) &&
             (!(flags & PTE_COW) || paging_resolve_cow(pd, current) != 0))
-            return -1;
+            return 0;
     }
 
     for (uint32_t current = page; current < end; current += PAGE_SIZE) {
         uint32_t flags = 0u;
         if (paging_get_user_page(pd, current, 0, &flags) != 0 ||
             !(flags & PTE_WRITABLE))
-            return -1;
+            return 0;
     }
-    return 0;
+    return 1;
 }
 
 int usercopy_validate_read(uint32_t address, uint32_t length) {
@@ -61,7 +61,7 @@ int usercopy_validate_write(uint32_t address, uint32_t length) {
 
 int usercopy_copy_from(void *kernel_dst, uint32_t user_src, uint32_t length) {
     if (length != 0u && !kernel_dst) return -1;
-    if (usercopy_validate_read(user_src, length) != 0) return -1;
+    if (!usercopy_validate_read(user_src, length)) return -1;
 
     uint8_t *dst = (uint8_t *)kernel_dst;
     const volatile uint8_t *src = (const volatile uint8_t *)(uintptr_t)user_src;
@@ -71,7 +71,7 @@ int usercopy_copy_from(void *kernel_dst, uint32_t user_src, uint32_t length) {
 
 int usercopy_copy_to(uint32_t user_dst, const void *kernel_src, uint32_t length) {
     if (length != 0u && !kernel_src) return -1;
-    if (usercopy_validate_write(user_dst, length) != 0) return -1;
+    if (!usercopy_validate_write(user_dst, length)) return -1;
 
     volatile uint8_t *dst = (volatile uint8_t *)(uintptr_t)user_dst;
     const uint8_t *src = (const uint8_t *)kernel_src;
