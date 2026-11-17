@@ -162,4 +162,4 @@ A pending SIGHUP now follows its default action: the target process terminates a
 
 ## H21.19 — Default SIGINT delivery
 
-A pending SIGINT now follows its default action and terminates the target process at its next syscall-return boundary with wait status `128 + SIGINT`. This completes the default action for the TTY's Ctrl-C signal path while preserving deferred delivery outside the process-table lock. When both SIGHUP and SIGINT are pending, SIGHUP is delivered first. User-installed signal handlers, masks, and asynchronous delivery remain out of scope.
+A pending SIGINT now follows its default action and terminates the target process at its next syscall-return boundary with wait status `128 + SIGINT`. The dedicated `sigint_test.elf` keeps this runtime assertion separate from the broader signal-control executable so each ELF remains within the existing 16 KiB validation limit. When both SIGHUP and SIGINT are pending, SIGHUP is delivered first. User-installed signal handlers, masks, and asynchronous delivery remain out of scope.

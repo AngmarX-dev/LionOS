@@ -371,29 +371,6 @@ int main(void) {
         status != (int32_t)(128u + LIONOS_SIG_HUP))
         return fail("SIGNAL TEST: SIGHUP wait status mismatch", 24);
 
-    child = lion_fork();
-    if (child == 0u) {
-        for (;;) (void)lion_yield();
-    }
-    if (child == (uint32_t)-1 ||
-        lion_kill(child, LIONOS_SIG_INT) != 0)
-        return fail("SIGNAL TEST: SIGINT delivery setup failed", 25);
-    uint32_t int_exited = 0u;
-    for (uint32_t attempt = 0u; attempt < 1000u; ++attempt) {
-        if (lion_getstate(child) == LIONOS_PROCESS_ZOMBIE) {
-            int_exited = 1u;
-            break;
-        }
-        (void)lion_yield();
-    }
-    if (!int_exited)
-        return fail("SIGNAL TEST: default SIGINT action did not terminate child", 26);
-    status = -1;
-    waited = lion_waitpid(child, &status);
-    if (waited != (int32_t)child ||
-        status != (int32_t)(128u + LIONOS_SIG_INT))
-        return fail("SIGNAL TEST: SIGINT wait status mismatch", 27);
-
     puts("SIGNAL TEST: PASS");
     return 0;
 }

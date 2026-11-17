@@ -577,19 +577,58 @@ void lionos_user_integration_step(void){
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 job_control_ok=0;
             integration_pid=-1;
-            integration_done=1;
-            debug_write(job_control_ok
-                ? "LIONOS:TTY-JOB-CONTROL-TEST-OK\n"
-                : "LIONOS:TTY-JOB-CONTROL-TEST-FAIL\n");
-            if(!job_control_ok)
+            if(job_control_ok){
+                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-OK\n");
+                integration_stage=16;
+            }else{
+                integration_done=1;
+                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-FAIL\n");
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            }
         }else if(s<0){
             integration_done=1;
             debug_write("LIONOS:TTY-JOB-CONTROL-TEST-STATE-FAIL\n");
             debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
-    }}
+   
+    
+    if(integration_stage==16){
+        integration_pid=exec_run_file("sigint_test.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:SIGINT-DEFAULT-TEST-LAUNCHED\\n");
+            integration_stage=17;
+        }else{
+            integration_done=1;
+            debug_write("LIONOS:SIGINT-DEFAULT-TEST-LAUNCH-FAIL\\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+        }
+        return;
+    }
+
+    if(integration_stage==17){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            int sigint_ok=valid&&code==0u;
+            if(process_reap_pid((uint32_t)integration_pid)!=0)
+                sigint_ok=0;
+            integration_pid=-1;
+            integration_done=1;
+            debug_write(sigint_ok
+                ? "LIONOS:SIGINT-DEFAULT-TEST-OK\\n"
+                : "LIONOS:SIGINT-DEFAULT-TEST-FAIL\\n");
+            if(!sigint_ok)
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:SIGINT-DEFAULT-TEST-STATE-FAIL\\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+        }
+        return;
+    }
+    }}}
 
 
 void kernel_main(uint32_t magic, uint32_t multiboot_info){
