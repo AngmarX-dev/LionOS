@@ -1,5 +1,9 @@
 #include <stdint.h>
 #include "spinlock.h"
+#include "process.h"
+
+uint32_t tty_test_sleep_count;
+uint32_t tty_test_wakeup_count;
 
 void spinlock_init(struct spinlock *lock) { if (lock) lock->value = 0u; }
 void spinlock_acquire(struct spinlock *lock) { if (lock) lock->value = 1u; }
@@ -18,3 +22,10 @@ void spinlock_irqrestore_release(struct spinlock *lock, uint32_t flags) {
     spinlock_release(lock);
 }
 void console_write_n(const char *buffer, uint32_t length) { (void)buffer; (void)length; }
+int32_t process_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t irq_flags) {
+    if (!channel || !held_lock) return -1;
+    ++tty_test_sleep_count;
+    spinlock_irqrestore_release(held_lock, irq_flags);
+    return PROCESS_WAIT_BLOCKED;
+}
+void process_wakeup(uintptr_t channel) { if (channel) ++tty_test_wakeup_count; }
