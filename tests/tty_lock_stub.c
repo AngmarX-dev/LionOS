@@ -3,6 +3,9 @@
 #include "process.h"
 
 uint32_t tty_test_sleep_count;
+uint32_t tty_test_timed_sleep_count;
+uint32_t tty_test_last_timeout_ticks;
+uint32_t tty_test_timeout_result;
 uint32_t tty_test_wakeup_count;
 uint32_t tty_test_signal_count;
 uint32_t tty_test_signal_sid;
@@ -38,6 +41,19 @@ int32_t process_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t
     ++tty_test_sleep_count;
     spinlock_irqrestore_release(held_lock, irq_flags);
     return PROCESS_WAIT_BLOCKED;
+}
+int32_t process_sleep_on_timeout(uintptr_t channel, struct spinlock *held_lock,
+                                 uint32_t irq_flags, uint32_t timeout_ticks) {
+    if (!channel || !held_lock || !timeout_ticks) return -1;
+    ++tty_test_timed_sleep_count;
+    tty_test_last_timeout_ticks = timeout_ticks;
+    spinlock_irqrestore_release(held_lock, irq_flags);
+    return PROCESS_WAIT_BLOCKED;
+}
+int32_t process_consume_timeout(void) {
+    uint32_t result = tty_test_timeout_result;
+    tty_test_timeout_result = 0u;
+    return result ? 1 : 0;
 }
 void process_wakeup(uintptr_t channel) { if (channel) ++tty_test_wakeup_count; }
 int32_t process_tty_signal_foreground(uint32_t sid, uint32_t pgid, uint32_t signal) {
