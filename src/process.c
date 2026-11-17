@@ -808,12 +808,17 @@ static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
                 thread->pending_signals|=hup_bit;
         }
     }
+    debug_write("LIONOS:JOBCTL:ORPHAN-HUP-SET-DONE\\n");
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];
         if(member->state!=PROCESS_UNUSED&&member->state!=PROCESS_ZOMBIE&&
-           !member->is_thread&&member->pgid==pgid&&member->sid==sid)
+           !member->is_thread&&member->pgid==pgid&&member->sid==sid){
+            debug_write("LIONOS:JOBCTL:ORPHAN-CONTINUE-ENTER\\n");
             continue_process_locked(member);
+            debug_write("LIONOS:JOBCTL:ORPHAN-CONTINUE-DONE\\n");
+        }
     }
+    debug_write("LIONOS:JOBCTL:ORPHAN-NOTIFY-DONE\\n");
 }
 
 /* Called with process_lock held. Reparenting is immediate, as required when
