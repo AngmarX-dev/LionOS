@@ -25,8 +25,6 @@
 #define LIONOS_SIG_TTIN 21u
 #define LIONOS_SIG_TTOU 22u
 #define LIONOS_SIG_MAX 31u
-#define LIONOS_SIG_DFL 0u
-#define LIONOS_SIG_IGN 1u
 
 static inline uint32_t lion_syscall0(uint32_t n){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n):"ebx","ecx","edx","esi","edi","memory");return r;}
 static inline uint32_t lion_syscall1(uint32_t n,uint32_t a){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n),"b"(a):"ecx","edx","esi","edi","memory");return r;}
@@ -88,6 +86,8 @@ static inline int32_t lion_kill(uint32_t pid,uint32_t signal){return(int32_t)lio
 static inline int32_t lion_getstate(uint32_t pid){return(int32_t)lion_syscall1(LIONOS_SYS_GETSTATE,pid);}
 static inline uint32_t lion_sigpending(uint32_t pid){return lion_syscall1(LIONOS_SYS_SIGPENDING,pid);}
 typedef void (*lion_signal_handler_t)(uint32_t);
+#define LIONOS_SIG_DFL ((lion_signal_handler_t)0)
+#define LIONOS_SIG_IGN ((lion_signal_handler_t)(uintptr_t)1u)
 extern void lion_signal_trampoline(void);
 static inline int32_t lion_sigaction(uint32_t signal,lion_signal_handler_t handler){struct lion_sigaction action;action.handler=(uint32_t)(uintptr_t)handler;action.restorer=(handler&&(uintptr_t)handler>=(uintptr_t)2u)?(uint32_t)(uintptr_t)lion_signal_trampoline:0u;return(int32_t)lion_syscall2(LIONOS_SYS_SIGACTION,signal,(uint32_t)(uintptr_t)&action);}
 static inline int32_t lion_net_send(uint32_t ip,uint16_t src_port,uint16_t dst_port,const void*data,uint32_t length){return(int32_t)lion_syscall4(LIONOS_SYS_NET_SEND,ip,((uint32_t)src_port<<16)|dst_port,(uint32_t)(uintptr_t)data,length);}
