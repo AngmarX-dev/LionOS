@@ -80,6 +80,10 @@ typedef struct lion_semaphore {
     volatile uint32_t count;
 } lion_semaphore_t;
 
+typedef struct lion_condition {
+    volatile uint32_t sequence;
+} lion_condition_t;
+
 static inline int lion_futex_wait_timeout(volatile uint32_t *word, uint32_t expected,
                                           uint32_t timeout_ticks) {
     if (!word || ((uintptr_t)word & 3u) || timeout_ticks > 0x7FFFFFFFu) return -1;
@@ -157,6 +161,47 @@ static inline int lion_semaphore_post(lion_semaphore_t *sem) {
         observed = previous;
     }
     return lion_futex_wake(&sem->count, 1u) < 0 ? -1 : 0;
+}
+
+static inline int lion_cond_init(lion_condition_t *condition) {
+    if (!condition || ((uintptr_t)condition & 3u)) return -1;
+    __atomic_store_n(&condition->sequence, 0u, __ATOMIC_RELEASE);
+    return 0;
+}
+
+/* The caller must hold mutex. The sequence snapshot plus futex value check
+   prevents a signal between mutex release and entering the wait queue. */
+static inline int lion_cond_wait_timeout(lion_condition_t *condition,
+                                         lion_mutex_t *mutex,
+                                         uint32_t timeout_ticks) {
+    if (!condition || !mutex ||
+        ((uintptr_t)condition & 3u) || ((uintptr_t)mutex & 3u) ||
+        timeout_ticks > 0x7FFFFFFFu) return -1;
+    uint32_t sequence = __atomic_load_n(&condition->sequence, __ATOMIC_ACQUIRE);
+    if (lion_mutex_unlock(mutex) != 0) return -1;
+    int result = lion_futex_wait_timeout(&condition->sequence, sequence, timeout_ticks);
+    if (lion_mutex_lock(mutex) != 0) return -1;
+    if (__atomic_load_n(&condition->sequence, __ATOMIC_ACQUIRE) != sequence)
+        return 0;
+    if (result == LIONOS_FUTEX_TIMED_OUT) return LIONOS_FUTEX_TIMED_OUT;
+    if (result == LIONOS_FUTEX_INTERRUPTED) return LIONOS_FUTEX_INTERRUPTED;
+    return result < 0 ? -1 : 0;
+}
+
+static inline int lion_cond_wait(lion_condition_t *condition, lion_mutex_t *mutex) {
+    return lion_cond_wait_timeout(condition, mutex, 0u);
+}
+
+static inline int lion_cond_signal(lion_condition_t *condition) {
+    if (!condition || ((uintptr_t)condition & 3u)) return -1;
+    (void)__atomic_add_fetch(&condition->sequence, 1u, __ATOMIC_RELEASE);
+    return lion_futex_wake(&condition->sequence, 1u) < 0 ? -1 : 0;
+}
+
+static inline int lion_cond_broadcast(lion_condition_t *condition) {
+    if (!condition || ((uintptr_t)condition & 3u)) return -1;
+    (void)__atomic_add_fetch(&condition->sequence, 1u, __ATOMIC_RELEASE);
+    return lion_futex_wake(&condition->sequence, UINT32_MAX) < 0 ? -1 : 0;
 }
 
 #endif
