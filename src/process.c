@@ -30,6 +30,7 @@ static volatile uint32_t reschedule_requested[LIONOS_MAX_CPUS];
 static uint32_t fpu_enabled;
 
 static void reap_process(struct process *p);
+static struct process *find_pid(uint32_t pid);
 static uint8_t fpu_initial_state[512] __attribute__((aligned(16)));
 
 static uint32_t quantum_for_priority(uint32_t priority){
