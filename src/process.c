@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "paging.h"
 #include "process.h"
+#include "uapi.h"
 #include "signal.h"
 #include "tss.h"
 #include "spinlock.h"
@@ -360,6 +361,9 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         return LIONOS_SIGNAL_ERR;
     }
     if(signal==LIONOS_SIG_KILL||signal==LIONOS_SIG_TERM){
+        p->wait_channel=0u;
+        p->wait_kind=0u;
+        p->wait_timeout_active=0u;
         if(p->is_thread){
             p->pending_signals|=(1u<<(signal-1u));
             p->exit_code=128u+signal;
@@ -380,7 +384,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         }
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_OK;
-    }if(signal==LIONOS_SIG_STOP){p->pending_signals|=(1u<<(signal-1u));p->state=PROCESS_STOPPED;spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_OK;}if(signal==LIONOS_SIG_CONT){p->pending_signals&=~(1u<<(LIONOS_SIG_STOP-1u));if(p->state==PROCESS_STOPPED)p->state=PROCESS_READY;spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_OK;}spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_ERR;}
+    }if(signal==LIONOS_SIG_STOP){p->pending_signals|=(1u<<(signal-1u));if(p->state==PROCESS_WAITING&&p->wait_kind==1u){uint32_t*f=(uint32_t *)(uintptr_t)p->saved_frame;if(f)f[11]=LIONOS_FUTEX_INTERRUPTED;p->wait_channel=0u;p->wait_kind=0u;p->wait_timeout_active=0u;}p->state=PROCESS_STOPPED;spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_OK;}if(signal==LIONOS_SIG_CONT){p->pending_signals&=~(1u<<(LIONOS_SIG_STOP-1u));if(p->state==PROCESS_STOPPED)p->state=PROCESS_READY;spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_OK;}spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_ERR;}
 uint32_t process_signal_pending(uint32_t pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);uint32_t r=p?p->pending_signals:0u;spinlock_irqrestore_release(&process_lock,flags);return r;}
 int32_t process_get_state(uint32_t pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);int32_t r=p?(int32_t)p->state:-1;spinlock_irqrestore_release(&process_lock,flags);return r;}
 int process_has_capability(const struct process *p,uint32_t capability){return p&&(p->capabilities&capability)==capability;}
