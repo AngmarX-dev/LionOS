@@ -584,6 +584,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     pit_init(100);
     console_write("[ OK ] PIT 100 Hz / preemptive scheduler clock\n");
 
+    /* Initialize the TTY lock before any keyboard backend can forward input. */
+    tty_init();
     keyboard_init();
     console_write("[ OK ] PS/2 keyboard / scancode input buffer\n");
     BOOT_STAGE(22u, "INPUT READY");
@@ -894,7 +896,6 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     BOOT_STAGE(62u, "KERNEL SERVICES READY");
 
     process_init();
-    tty_init();
     console_write("[ OK ] Software TTY core / session ownership / canonical input queue\n");
     console_write("[ OK ] Process table / MLFQ scheduler / per-CPU run queues\n");
     console_write(cpu_fpu_sse_init()==0 ? "[ OK ] FPU / SSE context switching enabled\n" : "[ -- ] FPU / SSE unavailable\n");
