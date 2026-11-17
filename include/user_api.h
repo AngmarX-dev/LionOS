@@ -101,10 +101,8 @@ static inline int lion_mutex_lock(lion_mutex_t *mutex) {
 }
 
 static inline int lion_mutex_unlock(lion_mutex_t *mutex) {
-    if (!mutex || __atomic_load_n(&mutex->state, __ATOMIC_RELAXED) == 0u)
-        return -1;
-    __sync_lock_release(&mutex->state);
-    return 0;
+    if (!mutex) return -1;
+    return __sync_val_compare_and_swap(&mutex->state, 1u, 0u) == 1u ? 0 : -1;
 }
 
 static inline int lion_semaphore_init(lion_semaphore_t *sem, uint32_t initial) {
