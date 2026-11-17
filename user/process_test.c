@@ -229,9 +229,13 @@ int main(int argc, char **argv) {
     int broadcast_unlock = lion_mutex_unlock(&sync_test_mutex);
     if (broadcast_result != 0 || broadcast_unlock != 0) return 47;
     for (uint32_t i = 0u; i < 2u; ++i) {
-        if (lion_thread_join(broadcast_tids[i], &mutex_status) !=
-                (int32_t)broadcast_tids[i] || mutex_status != 0)
+        int32_t broadcast_joined = lion_thread_join(broadcast_tids[i], &mutex_status);
+        if (broadcast_joined != (int32_t)broadcast_tids[i] || mutex_status != 0) {
+            print_u32("[FAIL] condition broadcast TID: ", broadcast_tids[i]);
+            print_u32("[FAIL] condition broadcast join result: ", (uint32_t)broadcast_joined);
+            print_u32("[FAIL] condition broadcast exit status: ", (uint32_t)mutex_status);
             return 48;
+        }
     }
     puts("[PASS] condition broadcast wakes all waiters");
 
