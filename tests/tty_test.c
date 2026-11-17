@@ -185,8 +185,10 @@ int main(void) {
         tty_test_timed_sleep_count != 1u || tty_test_last_timeout_ticks != 24u)
         return fail("VMIN=0 VTIME timeout did not arm", 49);
     tty_test_timeout_result = 1u;
-    if (tty_read_blocking(10u, output, sizeof(output)) != 0)
-        return fail("VMIN=0 VTIME expiry did not return zero", 50);
+    if (tty_input_byte('l') != TTY_INPUT_DATA_READY ||
+        tty_read_blocking(10u, output, sizeof(output)) != 0 ||
+        tty_read(10u, output, 1u) != 1 || output[0] != 'l')
+        return fail("VMIN=0 late input crossed expired deadline", 55);
 
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 3u, 2u) != 0 ||
         tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED)
@@ -208,7 +210,7 @@ int main(void) {
 
     if (tty_release_session(20u) == 0 ||
         tty_release_session(10u) != 0 ||
-        tty_test_wakeup_count != 21u ||
+        tty_test_wakeup_count != 22u ||
         tty_session_owner() != 0u ||
         tty_get_foreground_pgid(10u) != TTY_ERROR)
         return fail("session release lifecycle failed", 20);
