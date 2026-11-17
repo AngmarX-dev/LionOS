@@ -432,6 +432,16 @@ int32_t process_signal_group(uint32_t pgid,uint32_t signal,uint32_t sender_pid){
             spinlock_irqrestore_release(&process_lock,flags);
             return LIONOS_SIGNAL_ERR;
         }
+        if(signal==LIONOS_SIG_KILL||signal==LIONOS_SIG_TERM){
+            for(uint32_t j=1u;j<LIONOS_PROCESS_MAX;++j){
+                struct process *thread=&processes[j];
+                if(thread->state!=PROCESS_UNUSED&&thread->is_thread&&
+                   thread->thread_group_pid==member->pid&&thread->state!=PROCESS_ZOMBIE){
+                    spinlock_irqrestore_release(&process_lock,flags);
+                    return LIONOS_SIGNAL_ERR;
+                }
+            }
+        }
         if(count<LIONOS_PROCESS_MAX)targets[count++]=member->pid;
     }
     spinlock_irqrestore_release(&process_lock,flags);
@@ -450,6 +460,16 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         return LIONOS_SIGNAL_ERR;
     }
     if(signal==LIONOS_SIG_KILL||signal==LIONOS_SIG_TERM){
+        if(!p->is_thread){
+            for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+                struct process *thread=&processes[i];
+                if(thread->state!=PROCESS_UNUSED&&thread->is_thread&&
+                   thread->thread_group_pid==p->pid&&thread->state!=PROCESS_ZOMBIE){
+                    spinlock_irqrestore_release(&process_lock,flags);
+                    return LIONOS_SIGNAL_ERR;
+                }
+            }
+        }
         p->wait_channel=0u;
         p->wait_kind=0u;
         p->wait_timeout_active=0u;
@@ -468,20 +488,59 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         vfs_close_all_process(p);
         flags=spinlock_irqsave_acquire(&process_lock);
         if(p->state==PROCESS_STOPPED){
-            for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
-                struct process *thread=&processes[i];
-                if(thread!=p&&thread->state!=PROCESS_UNUSED&&thread->is_thread&&
-                   thread->thread_group_pid==p->pid){
-                    thread->state=PROCESS_ZOMBIE;
-                    reap_process(thread);
-                }
-            }
             p->state=PROCESS_ZOMBIE;
             wake_waiting_parent(p);
         }
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_OK;
-    }if(signal==LIONOS_SIG_STOP){p->pending_signals|=(1u<<(signal-1u));if(p->state==PROCESS_WAITING&&p->wait_kind==1u){uint32_t*f=(uint32_t *)(uintptr_t)p->saved_frame;if(f)f[11]=LIONOS_FUTEX_INTERRUPTED;p->wait_channel=0u;p->wait_kind=0u;p->wait_timeout_active=0u;}p->state=PROCESS_STOPPED;spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_OK;}if(signal==LIONOS_SIG_CONT){p->pending_signals&=~(1u<<(LIONOS_SIG_STOP-1u));if(p->state==PROCESS_STOPPED)p->state=PROCESS_READY;spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_OK;}spinlock_irqrestore_release(&process_lock,flags);return LIONOS_SIGNAL_ERR;}
+    }
+    if(signal==LIONOS_SIG_STOP){
+        p->pending_signals|=(1u<<(signal-1u));
+        if(p->state==PROCESS_WAITING&&p->wait_kind==1u){
+            uint32_t *frame=(uint32_t *)(uintptr_t)p->saved_frame;
+            if(frame)frame[11]=LIONOS_FUTEX_INTERRUPTED;
+            p->wait_channel=0u;p->wait_kind=0u;p->wait_timeout_active=0u;
+        }
+        p->state=PROCESS_STOPPED;
+        if(!p->is_thread){
+            for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+                struct process *thread=&processes[i];
+                if(thread->state==PROCESS_UNUSED||thread->state==PROCESS_ZOMBIE||
+                   !thread->is_thread||thread->thread_group_pid!=p->pid)continue;
+                thread->pending_signals|=(1u<<(signal-1u));
+                if(thread->state==PROCESS_WAITING&&thread->wait_kind==1u){
+                    uint32_t *frame=(uint32_t *)(uintptr_t)thread->saved_frame;
+                    if(frame)frame[11]=LIONOS_FUTEX_INTERRUPTED;
+                    thread->wait_channel=0u;thread->wait_kind=0u;thread->wait_timeout_active=0u;
+                }
+                thread->state=PROCESS_STOPPED;
+                uint32_t cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
+                __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+            }
+        }
+        spinlock_irqrestore_release(&process_lock,flags);
+        return LIONOS_SIGNAL_OK;
+    }
+    if(signal==LIONOS_SIG_CONT){
+        p->pending_signals&=~(1u<<(LIONOS_SIG_STOP-1u));
+        if(p->state==PROCESS_STOPPED)p->state=PROCESS_READY;
+        if(!p->is_thread){
+            for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+                struct process *thread=&processes[i];
+                if(thread->state==PROCESS_UNUSED||thread->state==PROCESS_ZOMBIE||
+                   !thread->is_thread||thread->thread_group_pid!=p->pid)continue;
+                thread->pending_signals&=~(1u<<(LIONOS_SIG_STOP-1u));
+                if(thread->state==PROCESS_STOPPED)thread->state=PROCESS_READY;
+                uint32_t cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
+                __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+            }
+        }
+        spinlock_irqrestore_release(&process_lock,flags);
+        return LIONOS_SIGNAL_OK;
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+    return LIONOS_SIGNAL_ERR;
+}
 uint32_t process_signal_pending(uint32_t pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);uint32_t r=p?p->pending_signals:0u;spinlock_irqrestore_release(&process_lock,flags);return r;}
 int32_t process_get_state(uint32_t pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);int32_t r=p?(int32_t)p->state:-1;spinlock_irqrestore_release(&process_lock,flags);return r;}
 int process_has_capability(const struct process *p,uint32_t capability){return p&&(p->capabilities&capability)==capability;}
