@@ -294,6 +294,7 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
         return TTY_ERROR;
     }
+    int32_t timed_out = process_consume_timeout();
 
     if ((console_tty.attributes & TTY_ATTR_ICANON) == 0u) {
         uint32_t required = console_tty.vmin;
@@ -303,9 +304,9 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
 
         if (required == 0u && vtime != 0u) {
             if (console_tty.input_count != 0u) {
-                (void)process_consume_timeout();
+                (void)timed_out;
             } else {
-                if (process_consume_timeout()) {
+                if (timed_out) {
                     spinlock_irqrestore_release(&console_tty.input_lock, flags);
                     return 0;
                 }
@@ -319,7 +320,7 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
             (void)process_consume_timeout();
         } else if (required != 0u && console_tty.input_count < required) {
             if (vtime != 0u && console_tty.input_count != 0u) {
-                if (process_consume_timeout()) {
+                if (timed_out) {
                     required = 0u;
                 } else {
                     uint32_t ticks = (vtime * 120u + 9u) / 10u;
