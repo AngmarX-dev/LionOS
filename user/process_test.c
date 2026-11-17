@@ -8,7 +8,10 @@ static volatile uint32_t yield_marker;
 
 static lion_mutex_t sync_test_mutex;
 static lion_semaphore_t sync_test_semaphore;
+static lion_condition_t sync_test_condition;
 static volatile uint32_t sync_test_counter;
+static volatile uint32_t sync_condition_ready;
+static volatile uint32_t sync_condition_state;
 
 static void thread_worker_mutex(void) {
     for (uint32_t i = 0u; i < 250u; ++i) {
@@ -18,6 +21,20 @@ static void thread_worker_mutex(void) {
         if (lion_mutex_unlock(&sync_test_mutex) != 0)
             lion_thread_exit(81u);
     }
+    lion_thread_exit(0u);
+}
+
+static void thread_worker_condition(void) {
+    if (lion_mutex_lock(&sync_test_mutex) != 0) lion_thread_exit(83u);
+    sync_condition_ready = 1u;
+    while (!sync_condition_state) {
+        int result = lion_cond_wait_timeout(&sync_test_condition, &sync_test_mutex, 100u);
+        if (result != 0) {
+            (void)lion_mutex_unlock(&sync_test_mutex);
+            lion_thread_exit(84u);
+        }
+    }
+    if (lion_mutex_unlock(&sync_test_mutex) != 0) lion_thread_exit(85u);
     lion_thread_exit(0u);
 }
 
@@ -163,6 +180,38 @@ int main(int argc, char **argv) {
         return 39;
     }
     puts("[PASS] userspace semaphore wait/post and overflow");
+
+    if (lion_cond_init(&sync_test_condition) != 0) {
+        puts("[FAIL] cond init");
+        return 40;
+    }
+    sync_condition_ready = 0u;
+    sync_condition_state = 0u;
+    uint32_t cond_tid = lion_thread_create(thread_worker_condition);
+    if (cond_tid == LIONOS_SYSCALL_ERR || lion_mutex_lock(&sync_test_mutex) != 0) {
+        puts("[FAIL] cond start");
+        return 41;
+    }
+    while (!sync_condition_ready) (void)lion_yield();
+    sync_condition_state = 1u;
+    if (lion_cond_signal(&sync_test_condition) != 0 ||
+        lion_mutex_unlock(&sync_test_mutex) != 0 ||
+        lion_thread_join(cond_tid, &mutex_status) != (int32_t)cond_tid ||
+        mutex_status != 0) {
+        puts("[FAIL] cond signal");
+        return 42;
+    }
+
+    if (lion_mutex_lock(&sync_test_mutex) != 0) return 43;
+    int cond_timeout = lion_cond_wait_timeout(&sync_test_condition, &sync_test_mutex, 4u);
+    int cond_unlock = lion_mutex_unlock(&sync_test_mutex);
+    if (cond_timeout != LIONOS_FUTEX_TIMED_OUT || cond_unlock != 0) {
+        puts("[FAIL] cond timeout");
+        return 44;
+    }
+    puts("[PASS] condition signal, mutex reacquire and timeout");
+
+
 
     int libc_result = libc_self_test();
     if (libc_result != 0) {
