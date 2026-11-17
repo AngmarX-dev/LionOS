@@ -40,12 +40,12 @@ int32_t tty_set_foreground_pgid(uint32_t sid, uint32_t pgid);
 int32_t tty_input_byte(uint8_t byte);
 
 /* Nonblocking read retained for the explicit TTY syscall. */
-int32_t tty_read(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+int32_t tty_read(uint32_t sid, uint32_t caller_pid,
                  uint8_t *destination, uint32_t capacity);
 /* VFS stdin read: sleeps atomically until input arrives or the session ends. */
-int32_t tty_read_blocking(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+int32_t tty_read_blocking(uint32_t sid, uint32_t caller_pid,
                           uint8_t *destination, uint32_t capacity);
-int32_t tty_write(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+int32_t tty_write(uint32_t sid, uint32_t caller_pid,
                   const uint8_t *source, uint32_t length);
 int32_t tty_get_attributes(uint32_t sid, uint32_t *flags, uint32_t *vmin, uint32_t *vtime);
 int32_t tty_set_attributes(uint32_t sid, uint32_t flags, uint32_t vmin, uint32_t vtime);
