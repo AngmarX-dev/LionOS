@@ -96,80 +96,6 @@ static int directory_stream_test(void) {
 }
 
 
-static int tty_job_control_cleanup(uint32_t child,int result) {
-    if(child!=0u&&child!=LIONOS_SYSCALL_ERR){
-        if(lion_getstate(child)!=LIONOS_PROCESS_ZOMBIE)
-            (void)lion_kill(child,LIONOS_SIG_TERM);
-        int32_t ignored_status=0;
-        (void)lion_waitpid(child,&ignored_status);
-    }
-    return result;
-}
-
-static int tty_background_io_test(void) {
-    struct lion_tty_attributes attributes;
-    uint8_t byte=0u;
-    static const char output[]="x";
-    int32_t status=-1;
-    if(lion_tty_claim()!=0||lion_tty_getattr(&attributes)!=0)
-        return 47;
-    attributes.flags|=LIONOS_TTY_ATTR_TOSTOP;
-    if(lion_tty_setattr(&attributes)!=0)
-        return 48;
-
-    uint32_t child=lion_fork();
-    if(child==0u){
-        uint32_t pid=lion_getpid();
-        if(lion_setpgid(0u,0u)!=0)
-            lion_exit_code(49u);
-        if(lion_fread(0,&byte,1u)!=-1)
-            lion_exit_code(50u);
-        if(lion_fwrite(1,output,1u)!=-1)
-            lion_exit_code(51u);
-        uint32_t pending=lion_sigpending(pid);
-        if((pending&(1u<<(LIONOS_SIG_TTIN-1u)))==0u||
-           (pending&(1u<<(LIONOS_SIG_TTOU-1u)))==0u)
-            lion_exit_code(52u);
-        lion_exit_code(0u);
-    }
-    if(child==LIONOS_SYSCALL_ERR)
-        return 53;
-
-    if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
-       !LIONOS_WIFSTOPPED(status)||LIONOS_WSTOPSIG(status)!=LIONOS_SIG_TTIN)
-        return tty_job_control_cleanup(child,54);
-    status=-1;
-    if(lion_waitpid_options(child,&status,LIONOS_WNOHANG|LIONOS_WCONTINUED)!=0)
-        return tty_job_control_cleanup(child,55);
-    if(lion_kill(child,LIONOS_SIG_CONT)!=0)
-        return tty_job_control_cleanup(child,56);
-    status=-1;
-    if(lion_waitpid_options(child,&status,LIONOS_WCONTINUED)!=(int32_t)child||
-       !LIONOS_WIFCONTINUED(status))
-        return tty_job_control_cleanup(child,57);
-    if(lion_waitpid_options(child,&status,LIONOS_WNOHANG|LIONOS_WCONTINUED)!=0)
-        return tty_job_control_cleanup(child,58);
-
-    status=-1;
-    if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
-       !LIONOS_WIFSTOPPED(status)||LIONOS_WSTOPSIG(status)!=LIONOS_SIG_TTOU)
-        return tty_job_control_cleanup(child,59);
-    if(lion_kill(child,LIONOS_SIG_CONT)!=0)
-        return tty_job_control_cleanup(child,60);
-    status=-1;
-    if(lion_waitpid_options(child,&status,LIONOS_WCONTINUED)!=(int32_t)child||
-       !LIONOS_WIFCONTINUED(status))
-        return tty_job_control_cleanup(child,61);
-    status=-1;
-    if(lion_waitpid(child,&status)!=(int32_t)child||status!=0)
-        return tty_job_control_cleanup(child,62);
-
-    attributes.flags&=~LIONOS_TTY_ATTR_TOSTOP;
-    if(lion_tty_setattr(&attributes)!=0)
-        return 63;
-    return 0;
-}
-
 static int ext2_symlink_syscall_test(void) {
     static const char link_path[] = "/ext2/readme-link";
     static const char expected_target[] = "README.TXT";
@@ -391,8 +317,5 @@ int main(void) {
     int symlink_result = ext2_symlink_syscall_test();
     if (symlink_result != 0)
         return symlink_result;
-    int tty_result = tty_background_io_test();
-    if (tty_result != 0)
-        return tty_result;
     return waitpid_options_test();
 }

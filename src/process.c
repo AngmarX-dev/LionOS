@@ -627,7 +627,8 @@ static void wake_pending_waitpid_event(struct process *parent){
 static void stop_process_locked(struct process *process,uint32_t signal){
     if(!process||process->state==PROCESS_UNUSED||process->state==PROCESS_ZOMBIE)return;
     uint32_t bit=1u<<(signal-1u);
-    int was_stopped=process->state==PROCESS_STOPPED;
+    int was_stopped=process->state==PROCESS_STOPPED&&
+        (process->is_thread?(process->pending_signals&bit)!=0u:process->stop_signal!=0u);
     process->pending_signals|=bit;
     if(!process->is_thread&&!was_stopped){
         process->stop_event_pending=1u;

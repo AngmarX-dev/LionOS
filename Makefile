@@ -4,7 +4,7 @@ DISK := $(BUILD)/lionos-disk.img
 KERNEL := $(BUILD)/lionos.bin
 USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o $(BUILD)/posix_compat.o
 
-USER_PROGRAMS := hello meminfo process_test ipc_test pipe_test signal_test net_test vfs_test cow_test nx_test echo cat ls pwd uname rm stat ping env grep find cp mv userland_test
+USER_PROGRAMS := hello meminfo process_test ipc_test pipe_test signal_test tty_job_control_test net_test vfs_test cow_test nx_test echo cat ls pwd uname rm stat ping env grep find cp mv userland_test
 USER_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 
@@ -139,6 +139,8 @@ $(BUILD)/pipe_test.o: user/pipe_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/signal_test.o: user/signal_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
+$(BUILD)/tty_job_control_test.o: user/tty_job_control_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
 $(BUILD)/net_test.o: user/net_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/vfs_test.o: user/vfs_test.c include/posix_compat.h include/user_libc.h | $(BUILD)
@@ -190,6 +192,8 @@ $(BUILD)/pipe_test.elf: $(USER_COMMON_OBJS) $(BUILD)/pipe_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/pipe_test.o
 $(BUILD)/signal_test.elf: $(USER_COMMON_OBJS) $(BUILD)/signal_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -s -o $@ $(USER_COMMON_OBJS) $(BUILD)/signal_test.o
+$(BUILD)/tty_job_control_test.elf: $(USER_COMMON_OBJS) $(BUILD)/tty_job_control_test.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -s -o $@ $(USER_COMMON_OBJS) $(BUILD)/tty_job_control_test.o
 $(BUILD)/net_test.elf: $(USER_COMMON_OBJS) $(BUILD)/net_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/net_test.o
 $(BUILD)/vfs_test.elf: $(USER_COMMON_OBJS) $(BUILD)/vfs_test.o user/user.ld
