@@ -194,6 +194,7 @@ static struct process *process_create_ex_vas_locked(uint32_t entry,uint32_t stac
 struct process *process_create_ex_vas(uint32_t entry,uint32_t stack,uint32_t pd,const uint32_t *pages,const uint32_t *vas,uint32_t count){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process *p=process_create_ex_vas_locked(entry,stack,pd,pages,vas,count);
+    if(p)p->state=PROCESS_STOPPED;
     spinlock_irqrestore_release(&process_lock,flags);
     if(!p)return 0;
     if(vfs_stdio_init_process(p)!=0){
@@ -203,6 +204,9 @@ struct process *process_create_ex_vas(uint32_t entry,uint32_t stack,uint32_t pd,
         (void)process_reap_pid(p->pid);
         return 0;
     }
+    flags=spinlock_irqsave_acquire(&process_lock);
+    if(p->state==PROCESS_STOPPED)p->state=PROCESS_READY;
+    spinlock_irqrestore_release(&process_lock,flags);
     return p;
 }
 struct process *process_create_ex(uint32_t entry,uint32_t stack,uint32_t pd,const uint32_t *pages,uint32_t count){ uint32_t vas[LIONOS_PROCESS_MAX_USER_PAGES];for(uint32_t i=0;i<count&&i<LIONOS_PROCESS_MAX_USER_PAGES;++i)vas[i]=i*4096u;return process_create_ex_vas(entry,stack,pd,pages,vas,count); }
