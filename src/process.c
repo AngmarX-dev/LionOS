@@ -918,7 +918,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         process_release_tty_if_session_empty(exiting_sid);
         return LIONOS_SIGNAL_OK;
     }
-    if(signal==LIONOS_SIG_STOP){
+    if(signal==LIONOS_SIG_STOP||signal==LIONOS_SIG_TTIN||signal==LIONOS_SIG_TTOU){
         stop_process_locked(p,signal);
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_OK;
