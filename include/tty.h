@@ -10,13 +10,15 @@
 #define TTY_INPUT_NONE 0
 #define TTY_INPUT_INTERRUPT 1
 #define TTY_INPUT_LINE_READY 2
+#define TTY_INPUT_DATA_READY 3
 #define TTY_READ_EMPTY (-2)
 #define TTY_READ_BLOCKED (-3)
 #define TTY_ERROR (-1)
 
 #define TTY_ATTR_ECHO 0x01u
 #define TTY_ATTR_ISIG 0x02u
-#define TTY_ATTR_SUPPORTED (TTY_ATTR_ECHO | TTY_ATTR_ISIG)
+#define TTY_ATTR_ICANON 0x04u
+#define TTY_ATTR_SUPPORTED (TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON)
 
 void tty_init(void);
 
@@ -29,14 +31,14 @@ int32_t tty_set_foreground_pgid(uint32_t sid, uint32_t pgid);
 
 /*
  * Feed translated characters from an input backend. This API performs
- * canonical editing, echo, and foreground Ctrl-C signal routing; it does
- * not own PS/2/xHCI devices.
+ * canonical editing or byte-oriented input, echo, and foreground Ctrl-C
+ * signal routing; it does not own PS/2/xHCI devices.
  */
 int32_t tty_input_byte(uint8_t byte);
 
 /* Nonblocking read retained for the explicit TTY syscall. */
 int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity);
-/* VFS stdin read: sleeps atomically until a line arrives or the session ends. */
+/* VFS stdin read: sleeps atomically until input arrives or the session ends. */
 int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity);
 int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length);
 int32_t tty_get_attributes(uint32_t sid, uint32_t *flags);
