@@ -338,7 +338,9 @@ int32_t tty_set_attributes(uint32_t sid, uint32_t flags) {
     if (sid == 0u || (flags & ~TTY_ATTR_SUPPORTED) != 0u)
         return TTY_ERROR;
     uint32_t input_flags = spinlock_irqsave_acquire(&console_tty.input_lock);
-    if (console_tty.owner_sid != sid) {
+    if (console_tty.owner_sid != sid ||
+        (((flags ^ console_tty.attributes) & TTY_ATTR_ICANON) != 0u &&
+         console_tty.edit_length != 0u)) {
         spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
         return TTY_ERROR;
     }
