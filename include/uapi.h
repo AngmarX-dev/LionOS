@@ -7,7 +7,7 @@
 #include "pipe.h"
 #include "net.h"
 
-#define LIONOS_UAPI_VERSION 20u
+#define LIONOS_UAPI_VERSION 21u
 #define LIONOS_SYSCALL_ABI 15u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u

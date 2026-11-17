@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#define LIONOS_SIG_HUP 1u
 #define LIONOS_SIG_NONE 0u
 #define LIONOS_SIG_INT 2u
 #define LIONOS_SIG_TERM 15u

@@ -15,6 +15,7 @@
 #define LIONOS_WSTOPSIG(status) (((uint32_t)(status) >> 8) & 0xFFu)
 #define LIONOS_WIFCONTINUED(status) (((uint32_t)(status) & 0xFFFFu) == LIONOS_WAIT_STATUS_CONTINUED)
 
+#define LIONOS_SIG_HUP 1u
 #define LIONOS_SIG_NONE 0u
 #define LIONOS_SIG_INT 2u
 #define LIONOS_SIG_TERM 15u
