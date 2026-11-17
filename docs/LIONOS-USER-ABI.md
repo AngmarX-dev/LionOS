@@ -2,9 +2,9 @@
 
 **Status:** specification and conformance guards for the native syscall ABI. Stage F6 adds a read-only ext2 directory-stream syscall and user-space wrappers.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
-**UAPI version:** 9 (LIONOS_UAPI_VERSION).
-**System-call ABI:** 8 (LIONOS_SYSCALL_ABI).
-**Version query:** syscall number 0 returns 8.
+**UAPI version:** 10 (LIONOS_UAPI_VERSION).
+**System-call ABI:** 9 (LIONOS_SYSCALL_ABI).
+**Version query:** syscall number 0 returns 9.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
 
 ## 1. Scope and compatibility
@@ -79,7 +79,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 
 | Number | Symbol | Arguments (in order) | Result / notes |
 |---:|---|---|---|
-| 0 | SYS_ABI_VERSION | — | Returns LIONOS_SYSCALL_ABI (4) |
+| 0 | SYS_ABI_VERSION | — | Returns LIONOS_SYSCALL_ABI (9) |
 | 1 | LIONOS_SYS_PUTC | character | 0 on success |
 | 2 | LIONOS_SYS_GETPID | — | Current process ID |
 | 3 | LIONOS_SYS_YIELD | — | Requests scheduler yield |
@@ -124,14 +124,18 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 41 | LIONOS_SYS_PIPE_WRITE | handle, readable data buffer, length | Bytes written or blocked/error; length max 128 |
 | 42 | LIONOS_SYS_PIPE_CLOSE | handle | Pipe close result |
 | 43 | LIONOS_SYS_IPC_RECV_BLOCKING | writable data, capacity, optional sender-PID pointer | Bytes or blocked/error |
+| 47 | LIONOS_SYS_FUTEX_WAIT | aligned word, expected value | Blocks while word matches expected |
+| 48 | LIONOS_SYS_FUTEX_WAKE | aligned word, maximum waiters | Number of woken waiters |
+| 49 | LIONOS_SYS_FUTEX_WAIT_TIMEOUT | aligned word, expected value, timeout ticks | 0 wake, 2 timeout, 3 interrupted, generic error |
 | 50 | LIONOS_SYS_GETPGID | PID (0 = caller) | Process group ID or error |
-| 51 | LIONOS_SYS_SETPGID | PID (0 = caller), PGID (0 = target PID) | Set process group or error; caller may target itself or a direct child and may join only its own group |
+| 51 | LIONOS_SYS_SETPGID | PID (0 = caller), PGID (0 = target PID) | Set process group; may join caller's group or a direct child's group |
+| 52 | LIONOS_SYS_KILLPG | PGID, signal | Deliver signal to all live descendant process leaders in the group; caller's own group is rejected |
 
 ### Capability and validation notes
 
 - Console calls require PROCESS_CAP_CONSOLE.
 - File/VFS calls require PROCESS_CAP_FS.
-- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, SETPGID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS; EXIT and read-only metadata queries are not all gated by that capability.
+- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, KILLPG, SETPGID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS; EXIT and read-only metadata queries are not all gated by that capability.
 - IPC and pipe calls require PROCESS_CAP_IPC.
 - Network calls require PROCESS_CAP_NET.
 - The dispatcher validates user pointers before dereferencing user buffers. Each call also applies capacity, ownership, and state checks.
@@ -148,7 +152,7 @@ This is not a complete System V i386 process-start ABI. Environment vectors, aux
 
 ## 7. POSIX-inspired compatibility subset
 
-The current native process-group support is a deliberately limited foundation: new processes start in a group named by their PID, fork inherits the parent's PGID, and threads share their process leader's PGID. SETPGID can move the caller or a direct child into a new group led by that process, or move a direct child into the caller's current group. Sessions, controlling terminals, and group-wide signal delivery are not implemented.
+The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Sessions and controlling terminals are not implemented.
 
 The current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
 
