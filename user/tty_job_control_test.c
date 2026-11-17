@@ -69,8 +69,33 @@ int main(void){
     if(lion_waitpid(child,&status)!=(int32_t)child||status!=0)
         return cleanup_child(child,12);
 
+    uint32_t signaled_child=lion_fork();
+    if(signaled_child==0u){
+        for(;;)(void)lion_yield();
+    }
+    if(signaled_child==LIONOS_SYSCALL_ERR)
+        return 14;
+    if(lion_kill(signaled_child,LIONOS_SIG_TTIN)!=0)
+        return cleanup_child(signaled_child,15);
+    status=-1;
+    if(lion_waitpid_options(signaled_child,&status,LIONOS_WUNTRACED)!=(int32_t)signaled_child||
+       !LIONOS_WIFSTOPPED(status)||LIONOS_WSTOPSIG(status)!=LIONOS_SIG_TTIN)
+        return cleanup_child(signaled_child,16);
+    if(lion_kill(signaled_child,LIONOS_SIG_CONT)!=0)
+        return cleanup_child(signaled_child,17);
+    status=-1;
+    if(lion_waitpid_options(signaled_child,&status,LIONOS_WCONTINUED)!=(int32_t)signaled_child||
+       !LIONOS_WIFCONTINUED(status))
+        return cleanup_child(signaled_child,18);
+    if(lion_kill(signaled_child,LIONOS_SIG_TERM)!=0)
+        return cleanup_child(signaled_child,19);
+    status=-1;
+    if(lion_waitpid(signaled_child,&status)!=(int32_t)signaled_child||
+       status!=(int32_t)(128u+LIONOS_SIG_TERM))
+        return cleanup_child(signaled_child,20);
+
     attributes.flags&=~LIONOS_TTY_ATTR_TOSTOP;
     if(lion_tty_setattr(&attributes)!=0)
-        return 13;
+        return 21;
     return 0;
 }
