@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "uapi.h"
 
+#define LIONOS_PROCESS_READY 1u
+#define LIONOS_PROCESS_ZOMBIE 3u
+#define LIONOS_PROCESS_STOPPED 5u
+
 #define LIONOS_SIG_NONE 0u
 #define LIONOS_SIG_TERM 15u
 #define LIONOS_SIG_KILL 9u
