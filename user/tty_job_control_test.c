@@ -1,6 +1,17 @@
 #include <stdint.h>
 #include "user_api.h"
 
+static int waitpid_bounded(uint32_t child,int32_t *status){
+    if(!child||!status)return -1;
+    for(uint32_t attempt=0u;attempt<20000u;++attempt){
+        int32_t result=lion_waitpid_options(child,status,LIONOS_WNOHANG);
+        if(result==(int32_t)child)return 0;
+        if(result<0)return -1;
+        (void)lion_yield();
+    }
+    return -2;
+}
+
 static int cleanup_child(uint32_t child,int result){
     if(child!=0u&&child!=LIONOS_SYSCALL_ERR){
         if(lion_getstate(child)!=LIONOS_PROCESS_ZOMBIE)
@@ -26,8 +37,10 @@ static int test_setsid_orphan_transition(void){
            !LIONOS_WIFSTOPPED(status))lion_exit_code(44u);
         if(lion_setsid()<0)lion_exit_code(45u);
         status=-1;
-        if(lion_waitpid(child,&status)!=(int32_t)child||
-           status!=(int32_t)(128u+LIONOS_SIG_HUP))
+        int wait_result=waitpid_bounded(child,&status);
+        if(wait_result!=0)
+            lion_exit_code(wait_result==-2?146u:147u);
+        if(status!=(int32_t)(128u+LIONOS_SIG_HUP))
             lion_exit_code(46u);
         lion_exit_code(0u);
     }
@@ -66,14 +79,17 @@ static int test_setpgid_orphan_transition(void){
         if(group_parent==LIONOS_SYSCALL_ERR)lion_exit_code(58u);
         if(lion_setsid()<0)lion_exit_code(59u);
         status=-1;
-        if(lion_waitpid(group_parent,&status)!=(int32_t)group_parent||
-           status!=(int32_t)(128u+LIONOS_SIG_HUP))
+        int wait_result=waitpid_bounded(group_parent,&status);
+        if(wait_result!=0)
+            lion_exit_code(wait_result==-2?160u:161u);
+        if(status!=(int32_t)(128u+LIONOS_SIG_HUP))
             lion_exit_code(60u);
         lion_exit_code(0u);
     }
     if(session_parent==LIONOS_SYSCALL_ERR)return 61;
-    if(lion_waitpid(session_parent,&status)!=(int32_t)session_parent||status!=0)
-        return 62;
+    int wait_result=waitpid_bounded(session_parent,&status);
+    if(wait_result!=0)return wait_result==-2?162:163;
+    if(status!=0)return 62;
     return 0;
 }
 
