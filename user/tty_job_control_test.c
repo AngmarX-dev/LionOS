@@ -160,7 +160,7 @@ int main(void){
     }
     if(orphan_result!=0u){
         (void)lion_pipe_close(sync_read);(void)lion_pipe_close(report_read);(void)lion_pipe_close(sync_write);(void)lion_pipe_close(report_write);
-        return (int)(30u|(orphan_result&0x1Fu));
+        return (int)(30u+(orphan_result&0x1Fu));
     }
     (void)lion_pipe_close(sync_read);(void)lion_pipe_close(report_read);
     (void)lion_pipe_close(sync_write);(void)lion_pipe_close(report_write);
