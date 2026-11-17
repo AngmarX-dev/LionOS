@@ -68,6 +68,9 @@ int main(void) {
             lion_getsid(0u) != (int32_t)child_pid ||
             lion_getpgid(0u) != (int32_t)child_pid)
             lion_exit_code(42u);
+        if (lion_tty_claim() != 0 ||
+            lion_tty_getpgrp() != (int32_t)child_pid)
+            lion_exit_code(45u);
         thread_session_start = 1u;
         int32_t thread_status = -1;
         if (lion_thread_join(session_tid, &thread_status) != (int32_t)session_tid ||
@@ -75,6 +78,28 @@ int main(void) {
             thread_observed_sid != child_pid ||
             thread_observed_pgid != child_pid)
             lion_exit_code(43u);
+        uint32_t tty_group_child = lion_fork();
+        if (tty_group_child == 0u) {
+            for (;;) (void)lion_yield();
+        }
+        if (tty_group_child == LIONOS_SYSCALL_ERR ||
+            lion_setpgid(tty_group_child, tty_group_child) != 0 ||
+            lion_tty_setpgrp(tty_group_child) != 0 ||
+            lion_tty_getpgrp() != (int32_t)tty_group_child ||
+            lion_tty_setpgrp(initial_pgid) != -1 ||
+            lion_tty_setpgrp(child_pid) != 0) {
+            if (tty_group_child != 0u && tty_group_child != LIONOS_SYSCALL_ERR) {
+                (void)lion_kill(tty_group_child, LIONOS_SIG_TERM);
+                int32_t cleanup_status = -1;
+                (void)lion_waitpid(tty_group_child, &cleanup_status);
+            }
+            lion_exit_code(46u);
+        }
+        if (lion_kill(tty_group_child, LIONOS_SIG_TERM) != 0)
+            lion_exit_code(47u);
+        int32_t tty_group_status = -1;
+        if (lion_waitpid(tty_group_child, &tty_group_status) != (int32_t)tty_group_child)
+            lion_exit_code(48u);
         if (lion_setsid() != -1 || lion_setpgid(0u, child_pid) != -1)
             lion_exit_code(44u);
         for (;;) (void)lion_yield();
@@ -91,6 +116,9 @@ int main(void) {
             break;
         (void)lion_yield();
     }
+    if (lion_tty_claim() != -1 ||
+        lion_tty_getpgrp() != -1)
+        return fail("TTY: exclusive session ownership", 49u);
     if (!session_ready ||
         lion_setpgid(session_child, initial_pgid) != -1 ||
         lion_getsid(session_child) != (int32_t)session_child ||
@@ -107,6 +135,9 @@ int main(void) {
     if (lion_waitpid(session_child, &session_status) != (int32_t)session_child ||
         session_status != (int32_t)(128u + LIONOS_SIG_TERM))
         return fail("SESSION: child reap", 43u);
+    if (lion_tty_claim() != 0 ||
+        lion_tty_getpgrp() != (int32_t)self)
+        return fail("TTY: release after final session process exit", 50u);
     puts("SESSION: PASS");
 
     uint32_t pgid_child = lion_fork();
