@@ -69,6 +69,8 @@ static int test_setpgid_orphan_transition(void){
         if(group_parent==0u){
             uint32_t child=lion_fork();
             if(child==0u){
+                /* Do not keep the synchronization pipe alive on failure. */
+                (void)lion_pipe_close(sync_write);
                 for(;;)(void)lion_yield();
             }
             if(child==LIONOS_SYSCALL_ERR)lion_exit_code(71u);
