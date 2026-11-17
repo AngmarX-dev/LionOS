@@ -38,16 +38,23 @@ void tty_flush_echo(uint32_t sid) {
     uint32_t count = 0u;
     if (!sid)
         return;
-    uint32_t flags = spinlock_irqsave_acquire(&console_tty.input_lock);
+
+    uint32_t output_flags = spinlock_irqsave_acquire(&console_tty.output_lock);
+    uint32_t input_flags = spinlock_irqsave_acquire(&console_tty.input_lock);
     if (console_tty.owner_sid == sid) {
         count = console_tty.echo_count;
         for (uint32_t i = 0u; i < count; ++i)
             pending[i] = console_tty.echo[i];
         console_tty.echo_count = 0u;
     }
-    spinlock_irqrestore_release(&console_tty.input_lock, flags);
-    if (count != 0u)
-        (void)tty_write(sid, pending, count);
+    spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
+
+    uint32_t state_flags = spinlock_irqsave_acquire(&console_tty.lock);
+    int owns_tty = console_tty.owner_sid == sid;
+    spinlock_irqrestore_release(&console_tty.lock, state_flags);
+    if (owns_tty && count != 0u)
+        console_write_n((const char *)pending, count);
+    spinlock_irqrestore_release(&console_tty.output_lock, output_flags);
 }
 
 static void tty_reset_buffers_locked(void) {
