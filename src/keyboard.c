@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include "io.h"
 #include "keyboard.h"
+#include "keyboard_tty.h"
 #include "mouse.h"
 #include "process.h"
 #include "spinlock.h"
@@ -63,6 +64,8 @@ static const char shiftmap[128] = {
 static void push_char(uint8_t c) {
     uint32_t irq;
     if (!keyboard_buffer_lock_ready) return;
+    /* Feed the software TTY independently of the legacy keyboard queue. */
+    (void)keyboard_tty_forward_byte(c);
     irq = spinlock_irqsave_acquire(&keyboard_buffer_lock);
     uint32_t next = (write_index + 1u) % KEYBOARD_BUFFER_SIZE;
     if (next == read_index) {
