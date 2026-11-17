@@ -41,7 +41,7 @@ void smp_ap_main(void){
     tss_init_cpu(index,stack_top);
     paging_switch_address_space(paging_kernel_directory());
     if(cpu_nx_enabled()&&cpu_enable_nx()!=0){
-        debug_write("LIONOS:SMP-AP-NX-ENABLE-FAIL\\n");
+        debug_write("LIONOS:SMP-AP-NX-ENABLE-FAIL\n");
         for(;;)__asm__ volatile("cli; hlt");
     }
     (void)cpu_fpu_sse_init();
