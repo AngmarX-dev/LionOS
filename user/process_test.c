@@ -188,11 +188,12 @@ int main(int argc, char **argv) {
     sync_condition_ready = 0u;
     sync_condition_state = 0u;
     uint32_t cond_tid = lion_thread_create(thread_worker_condition);
-    if (cond_tid == LIONOS_SYSCALL_ERR || lion_mutex_lock(&sync_test_mutex) != 0) {
+    if (cond_tid == LIONOS_SYSCALL_ERR) {
         puts("[FAIL] cond start");
         return 41;
     }
     while (!sync_condition_ready) (void)lion_yield();
+    if (lion_mutex_lock(&sync_test_mutex) != 0) return 41;
     sync_condition_state = 1u;
     if (lion_cond_signal(&sync_test_condition) != 0 ||
         lion_mutex_unlock(&sync_test_mutex) != 0 ||
