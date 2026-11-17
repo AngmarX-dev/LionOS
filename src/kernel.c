@@ -37,6 +37,7 @@
 #include "gpu_submission.h"
 #include "gfx_pci.h"
 #include "ext2_vfs.h"
+#include "tty.h"
 
 void pic_init(void);
 void keyboard_init(void);
@@ -893,6 +894,8 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     BOOT_STAGE(62u, "KERNEL SERVICES READY");
 
     process_init();
+    tty_init();
+    console_write("[ OK ] Software TTY core / session ownership / canonical input queue\\n");
     console_write("[ OK ] Process table / MLFQ scheduler / per-CPU run queues\n");
     console_write(cpu_fpu_sse_init()==0 ? "[ OK ] FPU / SSE context switching enabled\n" : "[ -- ] FPU / SSE unavailable\n");
     kernel_log(KLOG_INFO,"kernel services online");
