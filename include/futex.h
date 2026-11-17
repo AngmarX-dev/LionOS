@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-int32_t futex_wait(uint32_t user_address, uint32_t expected);
+int32_t futex_wait(uint32_t user_address, uint32_t expected, uint32_t timeout_ticks);
 int32_t futex_wake(uint32_t user_address, uint32_t maximum);
 
 #endif
