@@ -22,6 +22,7 @@ struct acpi_madt { struct acpi_sdt h; uint32_t lapic_address,flags; } __attribut
 static struct cpu_info cpus[LIONOS_MAX_CPUS];
 static uint32_t cpu_hint=1u;
 static uint32_t cpu_features;
+static volatile uint32_t nx_enabled;
 static cpu_identification_t cpu_identification;
 
 static void cpuid_count(uint32_t leaf,uint32_t subleaf,
@@ -37,6 +38,7 @@ static void cpuid_count(uint32_t leaf,uint32_t subleaf,
 #define CPU_FEAT_SSE42 (1u<<5)
 #define CPU_FEAT_AVX   (1u<<6)
 #define CPU_FEAT_APIC  (1u<<7)
+#define CPU_FEAT_NX    (1u<<8)
 
 static uint8_t checksum8(const uint8_t*p,uint32_t n){uint8_t s=0;for(uint32_t i=0;i<n;++i)s=(uint8_t)(s+p[i]);return s;}
 static int sig4(const char*p,const char*s){return p[0]==s[0]&&p[1]==s[1]&&p[2]==s[2]&&p[3]==s[3];}
@@ -166,6 +168,7 @@ static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
 }
 void cpu_init(uint32_t multiboot_info){
     reset_cpus();
+    nx_enabled=0u;
     uint32_t a,b,c,d;
     cpuid_count(0u,0u,&a,&b,&c,&d);
     uint32_t max_leaf=a;
@@ -306,7 +309,9 @@ void cpu_init(uint32_t multiboot_info){
     if(cpu_identification.max_extended_leaf>=0x80000001u){
         cpuid_count(0x80000001u,0u,&a,&b,&c,&d);
         cpu_identification.x86_64=(d&(1u<<29))?1u:0u;
+        if(d&(1u<<20))cpu_features|=CPU_FEAT_NX;
     }
+    cpu_identification.feature_flags=cpu_features;
     (void)c;(void)d;
 
     uint32_t acpi_count=acpi_enumerate(multiboot_info,bsp);
@@ -358,4 +363,35 @@ int cpu_fpu_sse_init(void){
         return 0;
     }
     return -1;
+}
+
+
+/* Enable hardware execute-disable on the current logical processor.
+ * PAE must already be active; callers must run this before publishing an AP
+ * online or creating user mappings that carry the NX bit. */
+int cpu_enable_nx(void){
+    uint32_t a,b,c,d;
+    cpuid_count(0x80000000u,0u,&a,&b,&c,&d);
+    if(a<0x80000001u)return -1;
+    cpuid_count(0x80000001u,0u,&a,&b,&c,&d);
+    if(!(d&(1u<<20)))return -1;
+
+    uint32_t cr4;
+    __asm__ volatile("mov %%cr4,%0":"=r"(cr4));
+    if(!(cr4&(1u<<5)))return -1; /* EFER.NXE is only valid with PAE paging. */
+
+    uint32_t lo,hi;
+    __asm__ volatile("rdmsr":"=a"(lo),"=d"(hi):"c"(0xC0000080u));
+    lo|=(1u<<11);
+    __asm__ volatile("wrmsr"::"a"(lo),"d"(hi),"c"(0xC0000080u):"memory");
+    __asm__ volatile("rdmsr":"=a"(lo),"=d"(hi):"c"(0xC0000080u));
+    if(!(lo&(1u<<11)))return -1;
+
+    if(cpu_current_index()==0u)
+        __atomic_store_n(&nx_enabled,1u,__ATOMIC_RELEASE);
+    return 0;
+}
+
+uint32_t cpu_nx_enabled(void){
+    return __atomic_load_n(&nx_enabled,__ATOMIC_ACQUIRE);
 }
