@@ -38,7 +38,8 @@ int elf32_validate(const uint8_t *image, uint32_t size, uint32_t *entry) {
             p->vaddr >= ELF32_USER_LIMIT ||
             p->memsz > ELF32_USER_LIMIT - p->vaddr) return -1;
         if ((p->flags & ~ELF32_PF_MASK) != 0u ||
-            (p->flags & ELF32_PF_MASK) == 0u) return -1;
+            (p->flags & ELF32_PF_MASK) == 0u ||
+            ((p->flags & 0x1u) && (p->flags & 0x2u))) return -1;
 
         if (p->align > 1u) {
             if ((p->align & (p->align - 1u)) != 0u) return -1;
