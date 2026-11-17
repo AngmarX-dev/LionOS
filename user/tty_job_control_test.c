@@ -48,9 +48,7 @@ static int test_setpgid_orphan_transition(void){
                 (void)lion_yield();
             uint32_t child=lion_fork();
             if(child==0u){
-                uint32_t pid=lion_getpid();
-                uint32_t pending=lion_sigpending(pid);
-                lion_exit_code((pending&(1u<<(LIONOS_SIG_HUP-1u)))?0u:52u);
+                for(;;)(void)lion_yield();
             }
             if(child==LIONOS_SYSCALL_ERR)lion_exit_code(53u);
             if(lion_setpgid(child,child)!=0||
