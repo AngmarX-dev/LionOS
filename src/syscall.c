@@ -35,7 +35,7 @@ case SYS_ABI_VERSION:return 5u;
 case SYS_PUTC:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg0>0xFFu)return SYSCALL_ERR;console_putc((char)arg0);return SYSCALL_OK;
 case SYS_GETPID:return process_current_pid();
 case LIONOS_SYS_GETTID:return process_current_tid();
-case SYS_YIELD:__asm__ volatile("pause");return SYSCALL_OK;
+case SYS_YIELD:process_request_reschedule();return SYSCALL_OK;
 case SYS_EXIT:process_exit_current(arg0);return SYSCALL_OK;
 case SYS_GETCHAR:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;{int c=keyboard_getchar();return c<0?SYSCALL_ERR:(uint32_t)(uint8_t)c;}
 case SYS_KBD_AVAIL:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;return keyboard_available();
