@@ -532,6 +532,7 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
     caller->wait_channel=0u;
     caller->wait_kind=3u;
     caller->wait_frame_saved=0u;
+    debug_write("LIONOS:WAITPID-EINTR-BLOCK\n");
     caller->state=PROCESS_WAITING;
     spinlock_irqrestore_release(&process_lock,flags);
     return PROCESS_WAIT_BLOCKED;
@@ -1201,7 +1202,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         p->pending_signals|=(1u<<(signal-1u));
         if(p->state==PROCESS_WAITING&&p->wait_kind==3u&&p->wait_frame_saved&&process_has_interrupting_signal_locked(p)){
             uint32_t *saved=(uint32_t *)(uintptr_t)p->saved_frame;
-            if(saved){saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(p);p->state=PROCESS_READY;uint32_t cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
+            if(saved){debug_write("LIONOS:WAITPID-EINTR-REMOTE-WAKE\n");saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(p);p->state=PROCESS_READY;uint32_t cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
         }
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_OK;
@@ -1277,8 +1278,11 @@ int process_deliver_pending_signal(uint32_t *frame){
     handler=current->signal_handlers[signal-1u];
     restorer=current->signal_restorers[signal-1u];
     if(handler!=LIONOS_SIG_IGN&&current->state==PROCESS_WAITING&&current->wait_kind==3u&&frame){
+        debug_write("LIONOS:WAITPID-EINTR-CURRENT-WAKE\n");
         frame[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(current);current->state=PROCESS_RUNNING;
     }
+    if(current->wait_kind==0u&&handler>LIONOS_SIG_IGN&&signal==LIONOS_SIG_INT)
+        debug_write("LIONOS:SIGINT-HANDLER-PENDING-DELIVERY\n");
     current->pending_signals&=~(1u<<(signal-1u));
     if(handler==LIONOS_SIG_IGN){
         spinlock_irqrestore_release(&process_lock,flags);
