@@ -64,3 +64,12 @@ The TTY is initialized before `keyboard_init()` so its lock and state are ready 
 The TTY only accepts input while a session owns the console. Input sent while no session is claimed is ignored by the TTY bridge and remains available through the legacy keyboard queue. Ctrl-C is still surfaced as `TTY_INPUT_INTERRUPT` and flushes the current edit line; it does not yet deliver SIGINT. Terminal read/write file descriptors, echo, termios, and foreground process-group signal delivery remain future work.
 
 Validation adds `make keyboard-tty-check`, covering character forwarding, backspace, line commit, Ctrl-C event propagation, and rejection when no session owns the TTY.
+
+
+## H21.4 — Session-scoped TTY read/write syscalls
+
+The native syscall ABI now exposes `LIONOS_SYS_TTY_READ` (58) and `LIONOS_SYS_TTY_WRITE` (59), with user wrappers `lion_tty_read()` and `lion_tty_write()`. Both require console capability and require the caller's live session to own the single console TTY. Requests are bounded by the 4096-byte user-copy limit and validate user-buffer access before copying.
+
+TTY reads use the existing canonical queue and are currently nonblocking: they return a positive byte count, `LIONOS_TTY_EMPTY` when no completed line is queued, or the generic error sentinel. The caller can retry or yield; blocking TTY reads and wakeup integration are deferred so this stage does not introduce a new scheduler wait channel. TTY writes copy user data into kernel memory before sending it to the console and return the byte count on success. The legacy `SYS_READ` keyboard path and `SYS_WRITE` console path remain unchanged for compatibility.
+
+The UAPI version is now 13 and the syscall ABI version is 12. The session test exercises an empty TTY read and a successful TTY write after claiming the terminal. Foreground process-group job control, echo, termios, standard descriptors 0/1/2, and VFS-backed terminal file descriptors remain future work.
