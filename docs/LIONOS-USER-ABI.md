@@ -11,7 +11,7 @@
 
 This is LionOS's native user/kernel ABI. It is not the Linux i386 syscall ABI and does not promise binary compatibility with Linux applications, glibc, musl's Linux backend, or Ubuntu packages.
 
-`struct lion_tty_attributes` contains `flags`, `vmin` (0–255, default 1), and `vtime` (0–255 deciseconds, default 0). VMIN/VTIME affect only noncanonical blocking reads. The UAPI version describes published user-facing constants and structures. The syscall ABI version describes the low-level syscall calling contract. These are separate version values.
+`struct lion_tty_attributes` contains `flags`, `vmin` (0–255, default 1), and `vtime` (0–255 deciseconds, default 0). `LIONOS_TTY_ATTR_TOSTOP` (0x08) makes background TTY writes queue SIGTTOU and fail; background reads queue SIGTTIN and fail regardless of TOSTOP. VMIN/VTIME affect only noncanonical blocking reads. The UAPI version describes published user-facing constants and structures. The syscall ABI version describes the low-level syscall calling contract. These are separate version values.
 
 Existing syscall numbers, meanings, argument order, structure layouts, and sentinel values are compatibility-sensitive. Never reuse a number or silently change an existing meaning. Add calls only at unused numbers and update headers, dispatcher, wrappers, documentation, and tests together. An incompatible change requires an explicit ABI version decision and migration plan.
 
@@ -138,7 +138,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 58 | LIONOS_SYS_TTY_READ | writable buffer, capacity | Canonical bytes, empty sentinel, or error; nonblocking; max 4096 |
 | 59 | LIONOS_SYS_TTY_WRITE | readable buffer, length | Console bytes for owning TTY session; max 4096 |
 | 60 | LIONOS_SYS_TTY_GETATTR | writable `struct lion_tty_attributes *` | Read supported TTY flags, VMIN threshold, and VTIME |
-| 61 | LIONOS_SYS_TTY_SETATTR | readable `struct lion_tty_attributes *` | Set ECHO/ISIG/ICANON flags, VMIN, and VTIME; unknown/out-of-range values rejected
+| 61 | LIONOS_SYS_TTY_SETATTR | readable `struct lion_tty_attributes *` | Set ECHO/ISIG/ICANON/TOSTOP flags, VMIN, and VTIME; unknown/out-of-range values rejected
 
 ### Capability and validation notes
 
@@ -161,7 +161,7 @@ This is not a complete System V i386 process-start ABI. Environment vectors, aux
 
 ## 7. POSIX-inspired compatibility subset
 
-The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. SIGSTOP and SIGCONT are propagated to the leader's user threads. Direct SIGTERM/SIGKILL and KILLPG termination fail closed when a target process has any live user thread, because remote thread-stack reclamation is not yet safe. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Each newly created process starts a session whose SID and initial PGID equal its PID; fork inherits SID and PGID, and user threads share both. SETSID creates a new session and process group atomically for the caller and its threads, and fails for process-group leaders. SETPGID rejects cross-session moves and attempts to change a session leader's process group. GETSID reports the SID of a live process. Controlling terminals and foreground/background terminal job control are not implemented.
+The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. SIGSTOP and SIGCONT are propagated to the leader's user threads. Direct SIGTERM/SIGKILL and KILLPG termination fail closed when a target process has any live user thread, because remote thread-stack reclamation is not yet safe. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Each newly created process starts a session whose SID and initial PGID equal its PID; fork inherits SID and PGID, and user threads share both. SETSID creates a new session and process group atomically for the caller and its threads, and fails for process-group leaders. SETPGID rejects cross-session moves and attempts to change a session leader's process group. GETSID reports the SID of a live process. Controlling-terminal ownership and foreground PGID are implemented. Background TTY reads queue SIGTTIN; background writes queue SIGTTOU only when TOSTOP is enabled. These signals are pending-only at this stage; default stop actions and shell job-control orchestration are not yet implemented.
 
 The current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
 
