@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
     if (libc_result != 0) {
         puts("[FAIL] userspace libc self-test");
         print_u32("[FAIL] libc test code: ", (uint32_t)libc_result);
-        return 10;
+        return 10 + libc_result;
     }
     puts("[PASS] expanded userspace libc");
 
