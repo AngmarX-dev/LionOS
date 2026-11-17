@@ -124,12 +124,14 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 41 | LIONOS_SYS_PIPE_WRITE | handle, readable data buffer, length | Bytes written or blocked/error; length max 128 |
 | 42 | LIONOS_SYS_PIPE_CLOSE | handle | Pipe close result |
 | 43 | LIONOS_SYS_IPC_RECV_BLOCKING | writable data, capacity, optional sender-PID pointer | Bytes or blocked/error |
+| 50 | LIONOS_SYS_GETPGID | PID (0 = caller) | Process group ID or error |
+| 51 | LIONOS_SYS_SETPGID | PID (0 = caller), PGID (0 = target PID) | Set process group or error; caller may target itself or a direct child and may join only its own group |
 
 ### Capability and validation notes
 
 - Console calls require PROCESS_CAP_CONSOLE.
 - File/VFS calls require PROCESS_CAP_FS.
-- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS; EXIT and read-only metadata queries are not all gated by that capability.
+- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, SETPGID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS; EXIT and read-only metadata queries are not all gated by that capability.
 - IPC and pipe calls require PROCESS_CAP_IPC.
 - Network calls require PROCESS_CAP_NET.
 - The dispatcher validates user pointers before dereferencing user buffers. Each call also applies capacity, ownership, and state checks.
@@ -146,7 +148,7 @@ This is not a complete System V i386 process-start ABI. Environment vectors, aux
 
 ## 7. POSIX-inspired compatibility subset
 
-The current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
+The current native process-group support is a deliberately limited foundation: new processes start in a group named by their PID, fork inherits the parent's PGID, and threads share their process leader's PGID. SETPGID can move the caller or a direct child into a new group led by that process, or move a direct child into the caller's current group. Sessions, controlling terminals, and group-wide signal delivery are not implemented.\n\nThe current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
 
 | Wrapper | Native service | Scope |
 |---|---|---|
