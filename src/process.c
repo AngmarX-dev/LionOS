@@ -55,8 +55,16 @@ uint32_t process_current_pid(void){struct process*p=current_local();return p?p->
 
 int32_t process_get_pgid(uint32_t pid){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
-    if(pid==0u){struct process *current=current_local();pid=current?current->pid:0u;}
-    struct process *target=find_pid(pid);
+    struct process *target=0;
+    if(pid==0u){
+        struct process *current=current_local();
+        if(current&&current->is_thread)
+            target=find_pid(current->thread_group_pid);
+        else
+            target=current;
+    }else{
+        target=find_pid(pid);
+    }
     int32_t result=target&&target->state!=PROCESS_ZOMBIE?(int32_t)target->pgid:-1;
     spinlock_irqrestore_release(&process_lock,flags);
     return result;
@@ -76,9 +84,6 @@ int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
     }
     uint32_t new_pgid=pgid?pgid:target->pid;
     if(new_pgid!=target->pid&&new_pgid!=current->pgid){
-        spinlock_irqrestore_release(&process_lock,flags);return -1;
-    }
-    if(new_pgid==current->pgid&&target==current&&new_pgid!=current->pid){
         spinlock_irqrestore_release(&process_lock,flags);return -1;
     }
     if(new_pgid!=target->pid&&new_pgid!=current->pgid){
