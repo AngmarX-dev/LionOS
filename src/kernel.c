@@ -411,7 +411,9 @@ void lionos_user_integration_step(void){
             if(integration_pipe_ok){
                 debug_write("LIONOS:PIPE-LIFECYCLE-TEST-OK\n");
                 console_write("[ OK ] Automated Pipe fork/EOF/exit cleanup test\n");
+                integration_stage=8;
             }else{
+                integration_done=1;
                 debug_write("LIONOS:PIPE-LIFECYCLE-TEST-FAIL\n");
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
                 console_write("[ERR] Pipe lifecycle integration test failed\n");
@@ -420,6 +422,45 @@ void lionos_user_integration_step(void){
             integration_done=1;
             debug_write("LIONOS:USER-PIPE-STATE-FAIL\n");
             debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==8){
+        if(!cpu_nx_enabled()){
+            debug_write("LIONOS:NX-RUNTIME-TEST-SKIP\n");
+            integration_done=1;
+            return;
+        }
+        integration_pid=exec_run_file("nx_test.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:NX-RUNTIME-TEST-LAUNCHED\n");
+            integration_stage=9;
+        }else{
+            integration_done=1;
+            debug_write("LIONOS:NX-RUNTIME-TEST-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==9){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            integration_nx_ok=valid&&code==139u;
+            if(process_reap_pid((uint32_t)integration_pid)!=0)integration_nx_ok=0;
+            integration_pid=-1;
+            integration_done=1;
+            debug_write(integration_nx_ok
+                ? "LIONOS:NX-RUNTIME-TEST-OK\\n"
+                : "LIONOS:NX-RUNTIME-TEST-FAIL\\n");
+            if(!integration_nx_ok)debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:NX-RUNTIME-TEST-STATE-FAIL\\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
         }
         return;
     }
