@@ -464,7 +464,8 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 | User threads | ✅ |
 | Thread IDs / thread lifecycle | ✅ |
 | Generic sleep(channel) / wakeup(channel) API expansion | ✅ |
-| Blocking keyboard reads | ⬜ |
+| Blocking keyboard reads (legacy input queue) | ⬜ |
+| Blocking canonical TTY stdin reads | ✅ |
 | Blocking pipe reads/writes | ✅ |
 | Blocking filesystem operations | ⬜ |
 | Process groups (PGID inheritance, setpgid, and group signals) | ✅ |
