@@ -37,3 +37,19 @@ This is not yet a complete terminal device or POSIX job-control implementation.
 ## Validation
 
 `make tty-check` runs a host-side test with a test-only spinlock stub. It covers session ownership, foreground PGID storage, canonical editing, partial reads, Ctrl-C flush behavior, line-size bounds, and release cleanup. This host test does not validate hardware input or kernel interrupt concurrency.
+
+## H21.2 — Session and Process Group integration
+
+The syscall interface now provides:
+
+- `lion_tty_claim()`: only a session leader with console capability can claim the single console TTY.
+- `lion_tty_getpgrp()`: returns the foreground process group for the caller's session.
+- `lion_tty_setpgrp(pgid)`: changes the foreground group only when a live process group exists in the caller's session.
+
+The Process Manager validates PGID membership under its process-table lock. TTY state is updated only after validation. The process-table lock is released before the TTY lock is acquired.
+
+When the final non-thread process in a session exits or is terminated, the Process Manager releases that session's TTY and clears its input/foreground state. The TTY remains exclusive while any live process in the owning session remains.
+
+The syscall ABI is now version 11 and UAPI version 12.
+
+Still not implemented: keyboard backend feed, terminal read/write syscalls, echo/termios, foreground-group signal delivery, and job-control stop/continue semantics.
