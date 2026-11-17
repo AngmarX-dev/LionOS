@@ -41,7 +41,7 @@ int main(void) {
         return fail("valid session claim failed", 3);
     if (tty_claim_session(20u, 20u) == 0)
         return fail("second session stole console TTY", 4);
-    if (tty_read_blocking(10u, 10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+    if (tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 1u)
         return fail("empty stdin did not sleep", 22);
     if (tty_input_byte('r') != TTY_INPUT_NONE ||
@@ -49,7 +49,7 @@ int main(void) {
         tty_input_byte('\n') != TTY_INPUT_LINE_READY ||
         tty_test_wakeup_count != 1u)
         return fail("completed line did not wake stdin", 23);
-    if (tty_read_blocking(10u, output, sizeof(output)) != 2 ||
+    if (tty_read_blocking(10u, 10u, output, sizeof(output)) != 2 ||
         output[0] != 'r' || output[1] != '\n')
         return fail("blocking stdin did not consume completed line", 24);
     if (tty_test_output_length != 2u ||
@@ -70,19 +70,19 @@ int main(void) {
         return fail("background read did not queue SIGTTIN", 56);
     tty_test_background_result = 0u;
     tty_test_output_length = 0u;
-    if (tty_write(10u, 20u, 20u, (const uint8_t *)"bg", 2u) != 2)
+    if (tty_write(10u, 20u, (const uint8_t *)"bg", 2u) != 2)
         return fail("background write blocked without TOSTOP", 57);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG |
                            TTY_ATTR_ICANON | TTY_ATTR_TOSTOP, 1u, 0u) != 0)
         return fail("TOSTOP setup failed", 58);
     tty_test_background_result = 1u;
     tty_test_output_length = 0u;
-    if (tty_write(10u, 20u, 20u, (const uint8_t *)"no", 2u) != TTY_ERROR ||
+    if (tty_write(10u, 20u, (const uint8_t *)"no", 2u) != TTY_ERROR ||
         tty_test_background_signal != 22u || tty_test_background_pid != 20u ||
         tty_test_output_length != 0u)
         return fail("TOSTOP did not block background write with SIGTTOU", 59);
     tty_test_background_result = 0u;
-    if (tty_write(10u, 10u, 10u, (const uint8_t *)"fg", 2u) != 2 ||
+    if (tty_write(10u, 10u, (const uint8_t *)"fg", 2u) != 2 ||
         tty_test_output_length != 2u)
         return fail("TOSTOP incorrectly blocked foreground write", 60);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON,
@@ -91,12 +91,12 @@ int main(void) {
     if (tty_set_attributes(10u, TTY_ATTR_ISIG | TTY_ATTR_ICANON, 1u, 0u) != 0 || tty_input_byte('n') != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("echo-disable mode setup failed", 32);
     tty_flush_echo(10u);
-    if (tty_test_output_length != 2u || tty_read(10u, 10u, 10u, output, sizeof(output)) != 2)
+    if (tty_test_output_length != 2u || tty_read(10u, 10u, output, sizeof(output)) != 2)
         return fail("disabled echo changed canonical input", 33);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ICANON, 1u, 0u) != 0 || tty_input_byte(0x03u) != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("ISIG-disable mode treated Ctrl-C as signal", 34);
     tty_flush_echo(10u);
-    if (tty_test_signal_count != 0u || tty_read(10u, output, sizeof(output)) != 2 || output[0] != 0x03u || output[1] != '\n')
+    if (tty_test_signal_count != 0u || tty_read(10u, 10u, output, sizeof(output)) != 2 || output[0] != 0x03u || output[1] != '\n')
         return fail("ISIG-disable mode did not preserve Ctrl-C byte", 35);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON, 1u, 0u) != 0)
         return fail("TTY attributes restore failed", 36);
@@ -107,7 +107,7 @@ int main(void) {
         tty_get_foreground_pgid(10u) != 12)
         return fail("foreground PGID update failed", 7);
 
-    if (tty_read(10u, output, sizeof(output)) != TTY_READ_EMPTY)
+    if (tty_read(10u, 10u, output, sizeof(output)) != TTY_READ_EMPTY)
         return fail("empty read did not return empty sentinel", 8);
     tty_test_output_length = 0u;
     if (tty_input_byte('a') != TTY_INPUT_NONE ||
@@ -120,12 +120,12 @@ int main(void) {
     if (tty_test_output_length != 7u ||
         memcmp(tty_test_output, "ab\b \bc\n", 7u) != 0)
         return fail("canonical editing echo/backspace mismatch", 27);
-    if (tty_read(20u, 20u, 20u, output, sizeof(output)) != TTY_ERROR)
+    if (tty_read(20u, 20u, output, sizeof(output)) != TTY_ERROR)
         return fail("non-owner read accepted", 10);
-    if (tty_read(10u, output, 2u) != 2 ||
+    if (tty_read(10u, 10u, output, 2u) != 2 ||
         output[0] != 'a' || output[1] != 'c')
         return fail("partial canonical read mismatch", 11);
-    if (tty_read(10u, output, sizeof(output)) != 1 || output[0] != '\n')
+    if (tty_read(10u, 10u, output, sizeof(output)) != 1 || output[0] != '\n')
         return fail("remaining canonical input mismatch", 12);
 
     tty_test_output_length = 0u;
@@ -140,7 +140,7 @@ int main(void) {
     if (tty_test_signal_count != 1u || tty_test_signal_sid != 10u ||
         tty_test_signal_pgid != 12u || tty_test_signal_number != 2u)
         return fail("Ctrl-C was not routed to the foreground process group", 25);
-    if (tty_read(10u, output, sizeof(output)) != 1 || output[0] != '\n')
+    if (tty_read(10u, 10u, output, sizeof(output)) != 1 || output[0] != '\n')
         return fail("interrupt did not flush pending edit", 14);
 
     tty_test_output_length = 0u;
@@ -152,7 +152,7 @@ int main(void) {
         return fail("oversized line accepted", 16);
     if (tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("maximum valid line could not be committed", 17);
-    if (tty_read(10u, output, sizeof(output)) != (int32_t)TTY_EDIT_LINE_CAPACITY)
+    if (tty_read(10u, 10u, output, sizeof(output)) != (int32_t)TTY_EDIT_LINE_CAPACITY)
         return fail("maximum line read length mismatch", 18);
     if (output[TTY_EDIT_LINE_CAPACITY - 1u] != '\n')
         return fail("maximum line missing newline", 19);
@@ -170,35 +170,35 @@ int main(void) {
         return fail("noncanonical mode setup failed", 43);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, TTY_VMIN_MAX + 1u, 0u) == 0 ||
         tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 3u, 0u) != 0 ||
-        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 2u)
         return fail("VMIN range validation or blocking failed", 46);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 0u, 0u) != 0 ||
         tty_test_wakeup_count != 9u ||
-        tty_read_blocking(10u, output, sizeof(output)) != 0)
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != 0)
         return fail("VMIN zero did not release blocked reader", 47);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 3u, 0u) != 0 ||
-        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 3u)
         return fail("VMIN threshold reconfiguration failed", 48);
     if (tty_input_byte('r') != TTY_INPUT_DATA_READY ||
         tty_test_wakeup_count != 11u ||
-        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 4u)
         return fail("VMIN threshold did not retain partial input", 44);
     if (tty_input_byte('s') != TTY_INPUT_DATA_READY ||
         tty_test_wakeup_count != 12u ||
-        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 5u)
         return fail("VMIN threshold woke before minimum", 45);
     if (tty_input_byte('t') != TTY_INPUT_DATA_READY ||
         tty_test_wakeup_count != 13u ||
-        tty_read_blocking(10u, output, sizeof(output)) != 3 ||
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != 3 ||
         output[0] != 'r' || output[1] != 's' || output[2] != 't')
         return fail("noncanonical byte did not wake/read immediately", 39);
     if (tty_input_byte(0x7Fu) != TTY_INPUT_DATA_READY ||
         tty_input_byte('\r') != TTY_INPUT_DATA_READY ||
-        tty_read(10u, output, sizeof(output)) != 2 ||
+        tty_read(10u, 10u, output, sizeof(output)) != 2 ||
         output[0] != 0x7Fu || output[1] != '\r')
         return fail("noncanonical mode applied canonical editing", 40);
     tty_flush_echo(10u);
@@ -209,28 +209,28 @@ int main(void) {
         return fail("noncanonical echo mismatch", 41);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 0u, 2u) != 0 ||
         tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 0u, TTY_VTIME_MAX + 1u) == 0 ||
-        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_timed_sleep_count != 1u || tty_test_last_timeout_ticks != 24u)
         return fail("VMIN=0 VTIME timeout did not arm", 49);
     tty_test_timeout_result = 1u;
     if (tty_input_byte('l') != TTY_INPUT_DATA_READY ||
-        tty_read_blocking(10u, output, sizeof(output)) != 0 ||
-        tty_read(10u, output, 1u) != 1 || output[0] != 'l')
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != 0 ||
+        tty_read(10u, 10u, output, 1u) != 1 || output[0] != 'l')
         return fail("VMIN=0 late input crossed expired deadline", 55);
 
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 3u, 2u) != 0 ||
-        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED)
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED)
         return fail("VMIN/VTIME first-byte wait failed", 51);
     if (tty_input_byte('v') != TTY_INPUT_DATA_READY ||
-        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_timed_sleep_count != 2u || tty_test_last_timeout_ticks != 24u)
         return fail("VMIN/VTIME inter-byte timer failed", 52);
     if (tty_input_byte('w') != TTY_INPUT_DATA_READY ||
-        tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_read_blocking(10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_timed_sleep_count != 3u || tty_test_last_timeout_ticks != 24u)
         return fail("VMIN/VTIME timer did not restart after input", 54);
     tty_test_timeout_result = 1u;
-    if (tty_read_blocking(10u, output, sizeof(output)) != 2 ||
+    if (tty_read_blocking(10u, 10u, output, sizeof(output)) != 2 ||
         output[0] != 'v' || output[1] != 'w')
         return fail("VMIN/VTIME expiry did not return partial data", 53);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON, 1u, 0u) != 0)
