@@ -118,7 +118,7 @@ case LIONOS_SYS_TTY_READ:{
     if(!usercopy_validate_write(arg0,arg1))return SYSCALL_ERR;
     uint8_t *buffer=(uint8_t*)kmalloc(arg1);
     if(!buffer)return SYSCALL_ERR;
-    int32_t n=tty_read((uint32_t)sid,buffer,arg1);
+    int32_t n=tty_read((uint32_t)sid,process_current_pid(),(uint32_t)process_get_pgid(0u),buffer,arg1);
     if(n>0&&syscall_copy_out(arg0,buffer,(uint32_t)n)!=0)n=TTY_ERROR;
     kfree(buffer);
     return (uint32_t)n;
@@ -146,7 +146,7 @@ case LIONOS_SYS_TTY_WRITE:{
     if(!usercopy_validate_read(arg0,arg1))return SYSCALL_ERR;
     uint8_t *buffer=(uint8_t*)syscall_copy_in(arg0,arg1);
     if(!buffer)return SYSCALL_ERR;
-    int32_t written=tty_write((uint32_t)sid,buffer,arg1);
+    int32_t written=tty_write((uint32_t)sid,process_current_pid(),(uint32_t)process_get_pgid(0u),buffer,arg1);
     kfree(buffer);
     return written<0?SYSCALL_ERR:(uint32_t)written;
 }
