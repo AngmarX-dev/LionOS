@@ -32,6 +32,10 @@ static uint32_t fpu_enabled;
 
 static void reap_process(struct process *p);
 static struct process *find_pid(uint32_t pid);
+static int process_group_orphaned_locked(uint32_t pgid,uint32_t sid);
+static int process_group_has_stopped_locked(uint32_t pgid,uint32_t sid);
+static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid);
+static void process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,int was_orphaned);
 static uint8_t fpu_initial_state[512] __attribute__((aligned(16)));
 
 static uint32_t quantum_for_priority(uint32_t priority){
@@ -132,6 +136,9 @@ int32_t process_create_session(void){
         spinlock_irqrestore_release(&process_lock,flags);
         return -1;
     }
+    uint32_t old_pgid=current->pgid;
+    uint32_t old_sid=current->sid;
+    int old_orphaned=process_group_orphaned_locked(old_pgid,old_sid);
     uint32_t group_pid=current->pid;
     current->sid=group_pid;
     current->pgid=group_pid;
@@ -143,7 +150,9 @@ int32_t process_create_session(void){
             member->pgid=group_pid;
         }
     }
+    process_notify_orphan_transition_locked(old_pgid,old_sid,old_orphaned);
     spinlock_irqrestore_release(&process_lock,flags);
+    tty_wake_readers();
     return (int32_t)group_pid;
 }
 
@@ -169,13 +178,24 @@ int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
             spinlock_irqrestore_release(&process_lock,flags);return -1;
         }
     }
+    uint32_t old_pgid=target->pgid;
+    uint32_t old_sid=target->sid;
+    uint32_t new_sid=target->sid;
+    int old_orphaned=process_group_orphaned_locked(old_pgid,old_sid);
+    int new_orphaned=(new_pgid==old_pgid)?old_orphaned:
+        process_group_orphaned_locked(new_pgid,new_sid);
     uint32_t group=target->thread_group_pid?target->thread_group_pid:target->pid;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];
         if(member->state!=PROCESS_UNUSED&&member->thread_group_pid==group)
             member->pgid=new_pgid;
     }
+    if(new_pgid!=old_pgid){
+        process_notify_orphan_transition_locked(old_pgid,old_sid,old_orphaned);
+        process_notify_orphan_transition_locked(new_pgid,new_sid,new_orphaned);
+    }
     spinlock_irqrestore_release(&process_lock,flags);
+    if(new_pgid!=old_pgid)tty_wake_readers();
     return 0;
 }
 struct process *process_pipe_owner(void){
@@ -713,6 +733,12 @@ static int process_group_has_stopped_locked(uint32_t pgid,uint32_t sid){
            member->pgid==pgid&&member->sid==sid)return 1;
     }
     return 0;
+}
+
+static void process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,int was_orphaned){
+    if(!was_orphaned&&process_group_orphaned_locked(pgid,sid)&&
+       process_group_has_stopped_locked(pgid,sid))
+        process_orphan_group_notify_locked(pgid,sid);
 }
 
 static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){

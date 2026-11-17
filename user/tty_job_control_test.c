@@ -11,6 +11,76 @@ static int cleanup_child(uint32_t child,int result){
     return result;
 }
 
+static int test_setsid_orphan_transition(void){
+    int32_t status=-1;
+    uint32_t parent=lion_fork();
+    if(parent==0u){
+        uint32_t child=lion_fork();
+        if(child==0u){
+            uint32_t pid=lion_getpid();
+            if(lion_setpgid(0u,0u)!=0||lion_kill(pid,LIONOS_SIG_STOP)!=0)
+                lion_exit_code(41u);
+            uint32_t pending=lion_sigpending(pid);
+            lion_exit_code((pending&(1u<<(LIONOS_SIG_HUP-1u)))?0u:42u);
+        }
+        if(child==LIONOS_SYSCALL_ERR)lion_exit_code(43u);
+        if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
+           !LIONOS_WIFSTOPPED(status))lion_exit_code(44u);
+        if(lion_setsid()<0)lion_exit_code(45u);
+        status=-1;
+        if(lion_waitpid_options(child,&status,LIONOS_WCONTINUED)!=(int32_t)child||
+           !LIONOS_WIFCONTINUED(status))lion_exit_code(46u);
+        status=-1;
+        if(lion_waitpid(child,&status)!=(int32_t)child||status!=0)
+            lion_exit_code(47u);
+        lion_exit_code(0u);
+    }
+    if(parent==LIONOS_SYSCALL_ERR)return 48;
+    if(lion_waitpid(parent,&status)!=(int32_t)parent||status!=0)return 49;
+    return 0;
+}
+
+static int test_setpgid_orphan_transition(void){
+    int32_t status=-1;
+    uint32_t session_parent=lion_fork();
+    if(session_parent==0u){
+        uint32_t group_parent=lion_fork();
+        if(group_parent==0u){
+            while(lion_getsid(lion_getppid())==lion_getsid(0u))
+                (void)lion_yield();
+            uint32_t child=lion_fork();
+            if(child==0u){
+                uint32_t pid=lion_getpid();
+                if(lion_setpgid(0u,0u)!=0||lion_kill(pid,LIONOS_SIG_STOP)!=0)
+                    lion_exit_code(51u);
+                uint32_t pending=lion_sigpending(pid);
+                lion_exit_code((pending&(1u<<(LIONOS_SIG_HUP-1u)))?0u:52u);
+            }
+            if(child==LIONOS_SYSCALL_ERR)lion_exit_code(53u);
+            if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
+               !LIONOS_WIFSTOPPED(status))lion_exit_code(54u);
+            if(lion_setpgid(0u,child)!=0)lion_exit_code(55u);
+            status=-1;
+            if(lion_waitpid_options(child,&status,LIONOS_WCONTINUED)!=(int32_t)child||
+               !LIONOS_WIFCONTINUED(status))lion_exit_code(56u);
+            status=-1;
+            if(lion_waitpid(child,&status)!=(int32_t)child||status!=0)
+                lion_exit_code(57u);
+            lion_exit_code(0u);
+        }
+        if(group_parent==LIONOS_SYSCALL_ERR)lion_exit_code(58u);
+        if(lion_setsid()<0)lion_exit_code(59u);
+        status=-1;
+        if(lion_waitpid(group_parent,&status)!=(int32_t)group_parent||status!=0)
+            lion_exit_code(60u);
+        lion_exit_code(0u);
+    }
+    if(session_parent==LIONOS_SYSCALL_ERR)return 61;
+    if(lion_waitpid(session_parent,&status)!=(int32_t)session_parent||status!=0)
+        return 62;
+    return 0;
+}
+
 int main(void){
     struct lion_tty_attributes attributes;
     uint8_t byte=0u;
@@ -163,6 +233,11 @@ int main(void){
     }
     (void)lion_pipe_close(sync_read);(void)lion_pipe_close(report_read);
     (void)lion_pipe_close(sync_write);(void)lion_pipe_close(report_write);
+
+    int transition_result=test_setsid_orphan_transition();
+    if(transition_result)return 63+transition_result;
+    transition_result=test_setpgid_orphan_transition();
+    if(transition_result)return 126+transition_result;
 
     attributes.flags&=~LIONOS_TTY_ATTR_TOSTOP;
     if(lion_tty_setattr(&attributes)!=0)

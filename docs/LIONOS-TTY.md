@@ -149,3 +149,8 @@ This milestone queues SIGTTIN/SIGTTOU and rejects the disallowed I/O operation; 
 When a process exits, its children are reparented to PID 1. If that transition makes a process group orphaned while it contains stopped members, LionOS queues SIGHUP for every process/thread in the group and resumes the group with SIGCONT. Background TTY reads and TOSTOP writes from an already-orphaned group fail without generating SIGTTIN/SIGTTOU. Adopted zombies are deferred for reaping until no CPU owns their execution context.
 
 SIGHUP is currently recorded as pending; default termination and user signal dispositions are not implemented. Process-group topology changes through SETPGID are not yet included in orphan-transition notification. Shell orchestration remains future work.
+
+
+## H21.17 — Orphan transitions caused by session and process-group changes
+
+The orphaned-process-group transition check is now shared by all topology-changing paths. When `setsid()` moves a process and its threads to a new session, the previous process group is re-evaluated. When `setpgid()` moves a process/thread group, both the old and destination process groups are re-evaluated. Only a non-orphaned-to-orphaned transition that leaves at least one stopped process queues SIGHUP and resumes the group with SIGCONT; already-orphaned groups are not notified repeatedly. TTY readers are woken after a successful session/process-group change so blocked I/O revalidates foreground ownership. QEMU runtime coverage exercises both `setsid()`- and `setpgid()`-induced transitions, including the one-shot WCONTINUED event and pending SIGHUP observation.
