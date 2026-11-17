@@ -138,7 +138,7 @@ $(BUILD)/ipc_test.o: user/ipc_test.c | $(BUILD)
 $(BUILD)/pipe_test.o: user/pipe_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/signal_test.o: user/signal_test.c | $(BUILD)
-	$(CC) $(USER_CFLAGS) -c $< -o $@
+	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
 $(BUILD)/net_test.o: user/net_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/vfs_test.o: user/vfs_test.c include/posix_compat.h include/user_libc.h | $(BUILD)
@@ -189,7 +189,7 @@ $(BUILD)/ipc_test.elf: $(USER_COMMON_OBJS) $(BUILD)/ipc_test.o user/user.ld
 $(BUILD)/pipe_test.elf: $(USER_COMMON_OBJS) $(BUILD)/pipe_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/pipe_test.o
 $(BUILD)/signal_test.elf: $(USER_COMMON_OBJS) $(BUILD)/signal_test.o user/user.ld
-	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/signal_test.o
+	$(LD) $(USER_LDFLAGS) -s -o $@ $(USER_COMMON_OBJS) $(BUILD)/signal_test.o
 $(BUILD)/net_test.elf: $(USER_COMMON_OBJS) $(BUILD)/net_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/net_test.o
 $(BUILD)/vfs_test.elf: $(USER_COMMON_OBJS) $(BUILD)/vfs_test.o user/user.ld
