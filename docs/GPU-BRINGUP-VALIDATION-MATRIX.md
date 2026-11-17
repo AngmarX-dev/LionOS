@@ -7,7 +7,7 @@ Status: software-only validation plan; no hardware acceleration is enabled by th
 - The firmware-provided framebuffer remains the display output path.
 - The CPU compositor remains the only operational graphics backend.
 - PCI vendor/class matching may report a device as DETECTED; it does not prove initialization or operational rendering.
-- Intel BAR0 MMIO access is limited to the validated mapped aperture and read-only diagnostics.
+- Intel BAR0 MMIO access is confined to the validated mapped aperture. Register snapshots are read-only, except for the narrowly scoped, documented GT/render forcewake request and release writes required to power the diagnostic register domains. These writes do not program an engine, ring, GGTT entry, or display mode.
 - GGTT entries are observed read-only. An empty PTE is not proof of ownership.
 - `intel_gpu_memory_alloc()` allocates CPU-accessible system RAM. It does not make that memory GPU-addressable.
 - `intel_gpu_memory_get_mapping_candidate()` must fail without changing caller outputs while GGTT ownership is unverified.
