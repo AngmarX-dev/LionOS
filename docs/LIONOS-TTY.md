@@ -163,3 +163,13 @@ A pending SIGHUP now follows its default action: the target process terminates a
 ## H21.19 — Default SIGINT delivery
 
 A pending SIGINT now follows its default action and terminates the target process at its next syscall-return boundary with wait status `128 + SIGINT`. The dedicated `sigint_test.elf` keeps this runtime assertion separate from the broader signal-control executable so each ELF remains within the existing 16 KiB validation limit. When both SIGHUP and SIGINT are pending, SIGHUP is delivered first. User-installed signal handlers, masks, and asynchronous delivery remain out of scope.
+
+## H21.20 — User signal dispositions and safe handler return
+
+Processes can register a userspace handler or SIG_IGN disposition for SIGINT and SIGHUP through LIONOS_SYS_SIGACTION. Handler and restorer addresses are accepted only when both resolve to executable user pages in the caller's address space. Dispositions are stored per process, inherited by fork(), and caught dispositions are reset by exec(); ignored dispositions remain ignored across exec().
+
+At a syscall-return boundary, a pending handled signal is delivered by saving the complete 19-word interrupt context in kernel-owned process state and constructing a bounded two-word call frame on the validated user stack. The handler receives the signal number using the i386 cdecl convention. The userspace CRT provides a return trampoline that invokes LIONOS_SYS_SIGRETURN; the kernel restores the saved interrupt context and only then resumes the interrupted instruction stream. A process cannot invoke sigreturn unless it currently has an active signal frame. Nested handlers are deferred until the active handler returns.
+
+The default actions for unhandled SIGINT and SIGHUP remain termination with status 128 + signal; ignored dispositions consume the pending signal without terminating. SIGKILL and SIGSTOP cannot be registered through this interface. This milestone does not implement signal masks, nested delivery, alternate signal stacks, or handlers for other signal numbers.
+
+The QEMU integration test registers a SIGINT handler before fork, verifies disposition inheritance, synchronizes with the child through IPC, delivers SIGINT, and checks that the handler returns through sigreturn and the child exits normally. Host CI does not replace physical keyboard or SMP stress validation.
