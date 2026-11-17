@@ -80,6 +80,23 @@ int main(void) {
     ((struct elf32_phdr *)(image + PH_OFFSET))->type = 0u;
     failures += expect_valid("no loadable segment", 0);
 
+    make_valid_image();
+    struct elf32_header *h=(struct elf32_header *)image;
+    struct elf32_phdr *first=(struct elf32_phdr *)(image+PH_OFFSET);
+    h->phnum=2u;
+    struct elf32_phdr *second=(struct elf32_phdr *)(image+PH_OFFSET+sizeof(*first));
+    *second=*first;
+    second->offset=0x200u;
+    second->vaddr=0x10002000u;
+    second->flags=6u; /* Read/write data in a distinct page. */
+    failures += expect_valid("separate RX and RW pages",1);
+
+    second->vaddr=0x10001800u; /* Same 4 KiB page as the executable segment. */
+    failures += expect_valid("overlapping RX and RW page rejected",0);
+
+    first->flags=7u; /* One segment cannot be writable and executable. */
+    failures += expect_valid("single-segment W+X rejected",0);
+
     if (failures) return 1;
     puts("ELF validation tests: PASS");
     return 0;
