@@ -216,6 +216,7 @@ grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PIPE-LIFECYCLE-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PROCESS-WAITPID-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:SIGNAL-CONTROL-TEST-OK' build/qemu-first.log
+grep -q 'LIONOS:SIGINT-DEFAULT-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:TTY-JOB-CONTROL-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-DIRECTORY-TEST-OK' build/qemu-first.log
@@ -255,6 +256,7 @@ grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:PIPE-LIFECYCLE-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:PROCESS-WAITPID-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:SIGNAL-CONTROL-TEST-OK' build/qemu-second.log
+grep -q 'LIONOS:SIGINT-DEFAULT-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:TTY-JOB-CONTROL-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-DIRECTORY-TEST-OK' build/qemu-second.log

@@ -7,20 +7,30 @@ int main(void) {
     if (child == 0u) {
         for (;;) (void)lion_yield();
     }
-    if (child == LIONOS_SYSCALL_ERR ||
-        lion_kill(child, LIONOS_SIG_INT) != 0)
+    if (child == LIONOS_SYSCALL_ERR)
         return 1;
+    if (lion_kill(child, LIONOS_SIG_INT) != 0) {
+        (void)lion_kill(child, LIONOS_SIG_TERM);
+        (void)lion_waitpid(child, &status);
+        return 2;
+    }
 
+    uint32_t exited = 0u;
     for (uint32_t attempt = 0u; attempt < 1000u; ++attempt) {
-        if (lion_getstate(child) == LIONOS_PROCESS_ZOMBIE)
+        if (lion_getstate(child) == LIONOS_PROCESS_ZOMBIE) {
+            exited = 1u;
             break;
+        }
         (void)lion_yield();
     }
-    if (lion_getstate(child) != LIONOS_PROCESS_ZOMBIE)
-        return 2;
+    if (!exited) {
+        (void)lion_kill(child, LIONOS_SIG_TERM);
+        (void)lion_waitpid(child, &status);
+        return 3;
+    }
     if (lion_waitpid(child, &status) != (int32_t)child ||
         status != (int32_t)(128u + LIONOS_SIG_INT))
-        return 3;
+        return 4;
 
     puts("SIGINT DEFAULT ACTION: PASS");
     return 0;
