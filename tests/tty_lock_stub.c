@@ -11,6 +11,10 @@ uint32_t tty_test_signal_count;
 uint32_t tty_test_signal_sid;
 uint32_t tty_test_signal_pgid;
 uint32_t tty_test_signal_number;
+uint32_t tty_test_background_result;
+uint32_t tty_test_background_count;
+uint32_t tty_test_background_pid;
+uint32_t tty_test_background_signal;
 char tty_test_output[2048];
 uint32_t tty_test_output_length;
 
@@ -63,4 +67,12 @@ int32_t process_tty_signal_foreground(uint32_t sid, uint32_t pgid, uint32_t sign
     tty_test_signal_pgid = pgid;
     tty_test_signal_number = signal;
     return 0;
+}
+
+int32_t process_tty_check_foreground(uint32_t sid, uint32_t caller_pid, uint32_t signal) {
+    if (!sid || !caller_pid || !signal) return -1;
+    ++tty_test_background_count;
+    tty_test_background_pid = caller_pid;
+    tty_test_background_signal = signal;
+    return (int32_t)tty_test_background_result;
 }
