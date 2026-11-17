@@ -151,6 +151,7 @@ int main(int argc, char **argv) {
         lion_semaphore_post(&sync_test_semaphore) == 0 ||
         lion_semaphore_init(&sync_test_semaphore, 1u) != 0 ||
         lion_semaphore_wait(&sync_test_semaphore) != 0 ||
+        lion_semaphore_post(&sync_test_semaphore) != 0 ||
         lion_semaphore_wait(&sync_test_semaphore) != 0) {
         puts("[FAIL] semaphore overflow/count semantics");
         return 39;
