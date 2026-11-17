@@ -104,6 +104,11 @@ Host tests verify ordinary echo, backspace visual editing, Ctrl-C display marker
 
 ## H21.9 — Runtime TTY attributes
 
-The owning session can query or update a bounded attribute bitmask through `lion_tty_getattr()` and `lion_tty_setattr()`. Supported flags are `LIONOS_TTY_ATTR_ECHO` and `LIONOS_TTY_ATTR_ISIG`; unknown bits are rejected. Both flags default on. Echo remains deferred to process-context reads. When ISIG is disabled, byte 0x03 is retained as canonical input instead of being routed as SIGINT. Canonical line buffering remains enabled and cannot yet be changed. Attribute operations are protected by the TTY input lock and restricted to the owning session.
+The owning session can query or update a bounded attribute bitmask through `lion_tty_getattr()` and `lion_tty_setattr()`. Supported flags are `LIONOS_TTY_ATTR_ECHO`, `LIONOS_TTY_ATTR_ISIG`, and `LIONOS_TTY_ATTR_ICANON`; unknown bits are rejected. All three flags default on. Echo remains deferred to process-context reads. When ISIG is disabled, byte 0x03 is retained as input instead of being routed as SIGINT. With ICANON enabled, input is edited and committed at newline. With ICANON disabled, every byte is queued immediately, including backspace and carriage return, and readers are woken for each accepted byte. The byte-oriented mode does not implement VMIN/VTIME yet. Attribute operations are protected by the TTY input lock and restricted to the owning session.
 
 The new syscalls are 60 (`TTY_GETATTR`) and 61 (`TTY_SETATTR`). This is a small termios foundation, not a complete POSIX termios implementation.
+
+
+## H21.10 — Canonical mode control
+
+`LIONOS_TTY_ATTR_ICANON` selects the input discipline. In canonical mode, the existing edit buffer, backspace handling, CR-to-LF normalization, and newline commit behavior remain active. In noncanonical mode, each incoming byte is placed directly into the bounded input ring, echo is queued unchanged when enabled, and blocked readers are woken after each accepted byte. Backspace and carriage return are data in this mode. `TTY_INPUT_DATA_READY` distinguishes immediate byte acceptance from a committed canonical line. The input queue remains bounded; overflow is reported without overwriting unread bytes. VMIN/VTIME timing controls and full POSIX termios semantics are not included.
