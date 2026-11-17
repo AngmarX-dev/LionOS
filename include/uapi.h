@@ -7,8 +7,8 @@
 #include "pipe.h"
 #include "net.h"
 
-#define LIONOS_UAPI_VERSION 21u
-#define LIONOS_SYSCALL_ABI 15u
+#define LIONOS_UAPI_VERSION 22u
+#define LIONOS_SYSCALL_ABI 16u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u
 #define LIONOS_SYS_YIELD 3u
@@ -62,6 +62,8 @@
 #define LIONOS_SYS_TTY_GETATTR 60u
 #define LIONOS_SYS_TTY_SETATTR 61u
 #define LIONOS_SYS_WAITPID_OPTIONS 62u
+#define LIONOS_SYS_SIGACTION 63u
+#define LIONOS_SYS_SIGRETURN 64u
 
 #define LIONOS_WAIT_NOHANG 0x01u
 #define LIONOS_WAIT_UNTRACED 0x02u
@@ -91,6 +93,11 @@
 #define LIONOS_FUTEX_TIMED_OUT 2u
 #define LIONOS_FUTEX_INTERRUPTED 3u
 #define LIONOS_TTY_EMPTY ((uint32_t)-2)
+
+struct lion_sigaction {
+    uint32_t handler;
+    uint32_t restorer;
+};
 
 struct lion_tty_attributes {
     uint32_t flags;
