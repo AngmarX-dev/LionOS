@@ -75,7 +75,7 @@ void tty_init(void) {
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
     console_tty.owner_sid = 0u;
     console_tty.foreground_pgid = 0u;
-    console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG;
+    console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON;
     tty_reset_buffers_locked();
     spinlock_irqrestore_release(&console_tty.lock, flags);
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
@@ -96,7 +96,7 @@ int32_t tty_claim_session(uint32_t sid, uint32_t leader_pid) {
     if (console_tty.owner_sid == 0u) {
         console_tty.owner_sid = sid;
         console_tty.foreground_pgid = sid;
-        console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG;
+        console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON;
         tty_reset_buffers_locked();
     }
     spinlock_irqrestore_release(&console_tty.lock, flags);
@@ -120,7 +120,7 @@ int32_t tty_release_session(uint32_t sid) {
 
     console_tty.owner_sid = 0u;
     console_tty.foreground_pgid = 0u;
-    console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG;
+    console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON;
     tty_reset_buffers_locked();
     spinlock_irqrestore_release(&console_tty.lock, flags);
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
@@ -180,6 +180,21 @@ int32_t tty_input_byte(uint8_t byte) {
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
         return process_tty_signal_foreground(sid, pgid, LIONOS_SIG_INT) == 0
             ? TTY_INPUT_INTERRUPT : TTY_ERROR;
+    }
+
+    if ((console_tty.attributes & TTY_ATTR_ICANON) == 0u) {
+        if (console_tty.input_count >= TTY_INPUT_QUEUE_CAPACITY) {
+            spinlock_irqrestore_release(&console_tty.input_lock, flags);
+            return TTY_ERROR;
+        }
+        console_tty.input[console_tty.input_tail] = byte;
+        console_tty.input_tail =
+            (console_tty.input_tail + 1u) % TTY_INPUT_QUEUE_CAPACITY;
+        ++console_tty.input_count;
+        tty_queue_echo_locked(&byte, 1u);
+        spinlock_irqrestore_release(&console_tty.input_lock, flags);
+        process_wakeup((uintptr_t)&tty_read_wait_channel);
+        return TTY_INPUT_DATA_READY;
     }
 
     if (byte == 0x08u || byte == 0x7Fu) {
