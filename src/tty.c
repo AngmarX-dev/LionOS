@@ -303,13 +303,11 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
             required = capacity;
 
         if (required == 0u && vtime != 0u) {
-            if (console_tty.input_count != 0u) {
-                (void)timed_out;
-            } else {
-                if (timed_out) {
-                    spinlock_irqrestore_release(&console_tty.input_lock, flags);
-                    return 0;
-                }
+            if (timed_out) {
+                spinlock_irqrestore_release(&console_tty.input_lock, flags);
+                return 0;
+            }
+            if (console_tty.input_count == 0u) {
                 uint32_t ticks = (vtime * 120u + 9u) / 10u;
                 int32_t blocked = process_sleep_on_timeout(
                     (uintptr_t)&tty_read_wait_channel, &console_tty.input_lock,
