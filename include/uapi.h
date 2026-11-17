@@ -66,6 +66,7 @@
 #define LIONOS_TTY_ATTR_ISIG 0x02u
 #define LIONOS_TTY_ATTR_ICANON 0x04u
 #define LIONOS_TTY_ATTR_SUPPORTED (LIONOS_TTY_ATTR_ECHO | LIONOS_TTY_ATTR_ISIG | LIONOS_TTY_ATTR_ICANON)
+#define LIONOS_TTY_VMIN_MAX 255u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
@@ -82,6 +83,7 @@
 
 struct lion_tty_attributes {
     uint32_t flags;
+    uint32_t vmin;
 };
 
 struct lion_mouse_event {
