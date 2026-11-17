@@ -77,7 +77,7 @@ int main(void) {
             lion_exit_code(45u);
         uint8_t tty_probe = 0u;
         static const char tty_message[] = "TTY";
-        if (lion_tty_read(&tty_probe, 1u) != -2 ||
+        if (lion_tty_read(&tty_probe, 1u) != (int32_t)LIONOS_TTY_EMPTY ||
             lion_tty_write(tty_message, 3u) != 3)
             lion_exit_code(56u);
         thread_session_start = 1u;
@@ -127,6 +127,11 @@ int main(void) {
     uint32_t tty_ready = 0u;
     int32_t tty_ready_bytes = lion_pipe_read(tty_ready_pipe[0], &tty_ready, sizeof(tty_ready));
     (void)lion_pipe_close(tty_ready_pipe[0]);
+    uint8_t denied_tty_probe = 0u;
+    static const char denied_tty_message[] = "X";
+    if (lion_tty_read(&denied_tty_probe, 1u) != -1 ||
+        lion_tty_write(denied_tty_message, 1u) != -1)
+        return fail("TTY: cross-session access accepted", 57u);
     if (tty_ready_bytes != (int32_t)sizeof(tty_ready) ||
         tty_ready != 0x54545931u) {
         if (lion_getstate(session_child) != LIONOS_PROCESS_ZOMBIE)
