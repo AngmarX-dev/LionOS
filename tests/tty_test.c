@@ -84,6 +84,7 @@ int main(void) {
 
     if (tty_release_session(20u) == 0 ||
         tty_release_session(10u) != 0 ||
+        tty_test_wakeup_count != 2u ||
         tty_session_owner() != 0u ||
         tty_get_foreground_pgid(10u) != TTY_ERROR)
         return fail("session release lifecycle failed", 20);
