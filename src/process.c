@@ -407,7 +407,7 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
     caller->wait_status_ptr=status_ptr;
     caller->wait_options=options;
     caller->wait_channel=0u;
-    caller->wait_kind=0u;
+    caller->wait_kind=3u;
     caller->state=PROCESS_WAITING;
     spinlock_irqrestore_release(&process_lock,flags);
     return PROCESS_WAIT_BLOCKED;
@@ -533,7 +533,7 @@ uint32_t process_futex_wakeup(uintptr_t channel,uint32_t maximum){
     return woken;
 }
 
-static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process*p=&processes[i];if(p->state!=PROCESS_WAITING||p->pid!=child->parent_pid)continue;if(p->wait_pid!=PROCESS_WAIT_ANY&&p->wait_pid!=child->pid)continue;uint32_t*f=(uint32_t *)(uintptr_t)p->saved_frame;if(f)f[11]=child->pid;if(p->wait_status_ptr)write_user_u32(p,p->wait_status_ptr,child->exit_code);p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->wait_channel=0;p->state=PROCESS_READY;child->reap_pending=1;return;}}static void wake_waiting_parent_stop(struct process *child){
+static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process*p=&processes[i];if(p->state!=PROCESS_WAITING||p->pid!=child->parent_pid)continue;if(p->wait_pid!=PROCESS_WAIT_ANY&&p->wait_pid!=child->pid)continue;uint32_t*f=(uint32_t *)(uintptr_t)p->saved_frame;if(f)f[11]=child->pid;if(p->wait_status_ptr)write_user_u32(p,p->wait_status_ptr,child->exit_code);p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->wait_channel=0;p->wait_kind=0;p->state=PROCESS_READY;child->reap_pending=1;return;}}static void wake_waiting_parent_stop(struct process *child){
     if(!child||!child->stop_event_pending)return;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *parent=&processes[i];
@@ -551,11 +551,32 @@ static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_
         parent->wait_status_ptr=0u;
         parent->wait_options=0u;
         parent->wait_channel=0u;
+        parent->wait_kind=0u;
         parent->state=PROCESS_READY;
         return;
     }
 }
 
+
+static void wake_pending_waitpid_event(struct process *parent){
+    if(!parent||parent->state!=PROCESS_WAITING||parent->wait_kind!=3u)
+        return;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process *child=&processes[i];
+        if(child->state==PROCESS_UNUSED||child->parent_pid!=parent->pid||
+           (parent->wait_pid!=PROCESS_WAIT_ANY&&parent->wait_pid!=child->pid))
+            continue;
+        if(child->state==PROCESS_ZOMBIE){
+            wake_waiting_parent(child);
+            return;
+        }
+        if((parent->wait_options&LIONOS_WAIT_UNTRACED)&&
+           child->state==PROCESS_STOPPED&&child->stop_event_pending){
+            wake_waiting_parent_stop(child);
+            return;
+        }
+    }
+}
 
 void process_exit_current(uint32_t code){
     struct process*c=current_local();
@@ -852,7 +873,8 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
     if(signal==LIONOS_SIG_CONT){
         p->pending_signals&=~(1u<<(LIONOS_SIG_STOP-1u));
         if(!p->is_thread){p->stop_event_pending=0u;p->stop_signal=0u;}
-        if(p->state==PROCESS_STOPPED)p->state=PROCESS_READY;
+        uint32_t resume_waitpid=(p->state==PROCESS_STOPPED&&p->wait_kind==3u);
+        if(p->state==PROCESS_STOPPED)p->state=resume_waitpid?PROCESS_WAITING:PROCESS_READY;
         if(!p->is_thread){
             for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
                 struct process *thread=&processes[i];
@@ -864,6 +886,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
                 __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
             }
         }
+        if(resume_waitpid)wake_pending_waitpid_event(p);
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_OK;
     }

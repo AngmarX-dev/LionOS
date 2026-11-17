@@ -319,6 +319,10 @@ int main(void) {
         return fail("SIGNAL TEST: SIGCONT did not resume child", 10);
     if ((lion_sigpending(child) & stop_mask) != 0u)
         return fail("SIGNAL TEST: SIGCONT did not clear STOP bit", 11);
+    if (lion_kill(child, LIONOS_SIG_STOP) != 0 ||
+        lion_kill(child, LIONOS_SIG_CONT) != 0 ||
+        lion_waitpid_options(child, &status, LIONOS_WNOHANG | LIONOS_WUNTRACED) != 0)
+        return fail("WAITPID OPTIONS: SIGCONT stale stop-event cleanup", 37);
 
     if (lion_kill(child, LIONOS_SIG_TERM) != 0)
         return fail("SIGNAL TEST: SIGTERM failed", 12);
