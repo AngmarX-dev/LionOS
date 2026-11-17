@@ -36,7 +36,9 @@ static int test_setsid_orphan_transition(void){
         lion_exit_code(0u);
     }
     if(parent==LIONOS_SYSCALL_ERR)return 48;
-    if(lion_waitpid(parent,&status)!=(int32_t)parent||status!=0)return 49;
+    int32_t waited=lion_waitpid(parent,&status);
+    if(waited!=(int32_t)parent)return 50;
+    if(status!=0)return 51+(int)(status&0x3Fu);
     return 0;
 }
 
