@@ -4,6 +4,13 @@
 
 static volatile uint32_t thread_marker;
 
+static volatile uint32_t yield_marker;
+
+static void thread_worker_yield(void) {
+    yield_marker = 0x5949454Cu;
+    lion_thread_exit(17u);
+}
+
 static void thread_worker_blocking(void) {
     for (uint32_t i = 0u; i < 4u; ++i) (void)lion_yield();
     thread_marker = 0x13579BDFu;
@@ -58,6 +65,26 @@ int main(int argc, char **argv) {
     (void)argv;
 
     puts("LionOS userspace process lifecycle test");
+
+    /* SYS_YIELD must switch to a READY peer immediately, not wait for a
+       later timer tick. Join afterwards to verify normal thread retirement. */
+    uint32_t yield_tid = lion_thread_create(thread_worker_yield);
+    int32_t yield_status = -1;
+    if (yield_tid == LIONOS_SYSCALL_ERR) {
+        puts("[FAIL] create cooperative-yield worker");
+        return 30;
+    }
+    if (lion_yield() != LIONOS_SYSCALL_OK ||
+        yield_marker != 0x5949454Cu) {
+        puts("[FAIL] cooperative yield did not run peer thread");
+        return 31;
+    }
+    if (lion_thread_join(yield_tid, &yield_status) != (int32_t)yield_tid ||
+        yield_status != 17) {
+        puts("[FAIL] cooperative-yield worker join");
+        return 32;
+    }
+    puts("[PASS] cooperative yield switches to READY peer");
 
     int libc_result = libc_self_test();
     if (libc_result != 0) {
