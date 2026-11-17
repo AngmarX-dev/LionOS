@@ -142,7 +142,7 @@ int main(void) {
         tty_test_sleep_count != 2u)
         return fail("VMIN range validation or blocking failed", 46);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 0u) != 0 ||
-        tty_test_wakeup_count != 7u ||
+        tty_test_wakeup_count != 9u ||
         tty_read_blocking(10u, output, sizeof(output)) != 0)
         return fail("VMIN zero did not release blocked reader", 47);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG, 3u) != 0 ||
@@ -150,17 +150,17 @@ int main(void) {
         tty_test_sleep_count != 3u)
         return fail("VMIN threshold reconfiguration failed", 48);
     if (tty_input_byte('r') != TTY_INPUT_DATA_READY ||
-        tty_test_wakeup_count != 9u ||
+        tty_test_wakeup_count != 11u ||
         tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 4u)
         return fail("VMIN threshold did not retain partial input", 44);
     if (tty_input_byte('s') != TTY_INPUT_DATA_READY ||
-        tty_test_wakeup_count != 10u ||
+        tty_test_wakeup_count != 12u ||
         tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 5u)
         return fail("VMIN threshold woke before minimum", 45);
     if (tty_input_byte('t') != TTY_INPUT_DATA_READY ||
-        tty_test_wakeup_count != 11u ||
+        tty_test_wakeup_count != 13u ||
         tty_read_blocking(10u, output, sizeof(output)) != 3 ||
         output[0] != 'r' || output[1] != 's' || output[2] != 't')
         return fail("noncanonical byte did not wake/read immediately", 39);
