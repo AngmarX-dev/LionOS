@@ -163,7 +163,27 @@ fail:
 static int is_child_of(const struct process*c,uint32_t parent_pid,uint32_t pid){return c->state!=PROCESS_UNUSED&&c->parent_pid==parent_pid&&(pid==PROCESS_WAIT_ANY||c->pid==pid);}
 static struct process*find_zombie_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i)if(is_child_of(&processes[i],parent_pid,pid)&&processes[i].state==PROCESS_ZOMBIE)return &processes[i];return 0;}
 static int has_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i)if(is_child_of(&processes[i],parent_pid,pid))return 1;return 0;}
-static void reap_process(struct process*p){if(!p||p->state!=PROCESS_ZOMBIE)return;if(p->is_thread){if(p->thread_stack_page)page_free((void *)(uintptr_t)p->thread_stack_page);if(p->kernel_stack_top)page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));clear_process(p);return;}for(uint32_t i=0;i<p->user_page_count;++i)if(p->user_pages[i])page_free((void *)(uintptr_t)p->user_pages[i]);if(p->page_directory&&p->page_directory!=paging_kernel_directory())paging_destroy_address_space(p->page_directory);if(p->kernel_stack_top)page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));clear_process(p);}
+static void reap_process(struct process*p){
+    if(!p||p->state!=PROCESS_ZOMBIE)return;
+    if(p->is_thread){
+        if(p->thread_stack_page){
+            if(paging_unmap_user_page_in(p->page_directory,p->thread_stack_va,
+                                         p->thread_stack_page)!=0)return;
+            page_free((void *)(uintptr_t)p->thread_stack_page);
+        }
+        if(p->kernel_stack_top)
+            page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));
+        clear_process(p);
+        return;
+    }
+    for(uint32_t i=0;i<p->user_page_count;++i)
+        if(p->user_pages[i])page_free((void *)(uintptr_t)p->user_pages[i]);
+    if(p->page_directory&&p->page_directory!=paging_kernel_directory())
+        paging_destroy_address_space(p->page_directory);
+    if(p->kernel_stack_top)
+        page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));
+    clear_process(p);
+}
 int process_get_exit_code(uint32_t pid,uint32_t*code){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process*p=0;
