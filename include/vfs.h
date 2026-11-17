@@ -12,6 +12,7 @@
 #define VFS_BACKEND_RAMFS 1u
 #define VFS_BACKEND_DISKFS 2u
 #define VFS_BACKEND_EXT2_RO 3u
+#define VFS_BACKEND_TTY 4u
 
 #define VFS_STAT_READ_ONLY 1u
 #define VFS_STAT_DIRECTORY 2u
@@ -35,6 +36,7 @@ struct vfs_stat {
 int vfs_init(void);
 int vfs_open(const char *path, uint32_t flags);
 int vfs_open_for_process(struct process *process, const char *path, uint32_t flags);
+int vfs_stdio_init_process(struct process *process);
 int vfs_close_for_process(struct process *process, int fd);
 int vfs_fork_process(struct process *parent, struct process *child);
 void vfs_close_all_process(struct process *process);
