@@ -124,6 +124,7 @@ The project explores operating-system internals through real low-level code: boo
 | Native framebuffer sizing | ✅ |
 | Software TTY (PS/2 + USB HID bridge; session-scoped standard FDs; blocking stdin) | 🟡 |
 | Ctrl-C routing to the session foreground process group (SIGINT pending) | ✅ |
+| Canonical TTY echo with deferred IRQ-safe output and backspace editing | ✅ |
 | PS/2 keyboard | ✅ |
 | PS/2 mouse | ✅ |
 | xHCI HID USB mouse path | ✅ |
