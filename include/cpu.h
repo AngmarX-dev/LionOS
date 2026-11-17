@@ -13,6 +13,7 @@
 #define CPU_FEATURE_SSE42 (1u<<5)
 #define CPU_FEATURE_AVX   (1u<<6)
 #define CPU_FEATURE_APIC  (1u<<7)
+#define CPU_FEATURE_NX    (1u<<8)
 
 typedef struct cpu_identification {
     char vendor[13];
@@ -52,5 +53,7 @@ void cpu_mark_online(uint32_t index, uint32_t apic_id);
 uint32_t cpu_feature_flags(void);
 void cpu_get_identification(cpu_identification_t *out);
 int cpu_fpu_sse_init(void);
+int cpu_enable_nx(void);
+uint32_t cpu_nx_enabled(void);
 
 #endif
