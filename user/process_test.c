@@ -6,6 +6,25 @@ static volatile uint32_t thread_marker;
 
 static volatile uint32_t yield_marker;
 
+static lion_mutex_t sync_test_mutex;
+static lion_semaphore_t sync_test_semaphore;
+static volatile uint32_t sync_test_counter;
+
+static void thread_worker_mutex(void) {
+    for (uint32_t i = 0u; i < 250u; ++i) {
+        if (lion_mutex_lock(&sync_test_mutex) != 0)
+            lion_thread_exit(80u);
+        ++sync_test_counter;
+        if (lion_mutex_unlock(&sync_test_mutex) != 0)
+            lion_thread_exit(81u);
+    }
+    lion_thread_exit(0u);
+}
+
+static void thread_worker_semaphore(void) {
+    lion_thread_exit(lion_semaphore_post(&sync_test_semaphore) == 0 ? 0u : 82u);
+}
+
 static void thread_worker_yield(void) {
     yield_marker = 0x5949454Cu;
     lion_thread_exit(17u);
@@ -85,6 +104,58 @@ int main(int argc, char **argv) {
         return 32;
     }
     puts("[PASS] cooperative yield switches to READY peer");
+
+    /* Multiple runnable threads update one shared counter under a mutex. */
+    if (lion_mutex_init(&sync_test_mutex) != 0) {
+        puts("[FAIL] mutex initialization");
+        return 33;
+    }
+    sync_test_counter = 0u;
+    uint32_t mutex_tids[3];
+    int32_t mutex_status = -1;
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        mutex_tids[i] = lion_thread_create(thread_worker_mutex);
+        if (mutex_tids[i] == LIONOS_SYSCALL_ERR) {
+            puts("[FAIL] mutex worker creation");
+            return 34;
+        }
+    }
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        if (lion_thread_join(mutex_tids[i], &mutex_status) != (int32_t)mutex_tids[i] ||
+            mutex_status != 0) {
+            puts("[FAIL] mutex worker join");
+            return 35;
+        }
+    }
+    if (sync_test_counter != 750u || lion_mutex_trylock(&sync_test_mutex) != 0 ||
+        lion_mutex_unlock(&sync_test_mutex) != 0 ||
+        lion_mutex_unlock(&sync_test_mutex) == 0) {
+        puts("[FAIL] mutex exclusion/trylock/unlock");
+        return 36;
+    }
+    puts("[PASS] userspace mutex contention and exclusion");
+
+    if (lion_semaphore_init(&sync_test_semaphore, 0u) != 0) {
+        puts("[FAIL] semaphore initialization");
+        return 37;
+    }
+    uint32_t sem_tid = lion_thread_create(thread_worker_semaphore);
+    if (sem_tid == LIONOS_SYSCALL_ERR ||
+        lion_semaphore_wait(&sync_test_semaphore) != 0 ||
+        lion_thread_join(sem_tid, &mutex_status) != (int32_t)sem_tid ||
+        mutex_status != 0) {
+        puts("[FAIL] semaphore wait/post");
+        return 38;
+    }
+    if (lion_semaphore_init(&sync_test_semaphore, UINT32_MAX) != 0 ||
+        lion_semaphore_post(&sync_test_semaphore) == 0 ||
+        lion_semaphore_init(&sync_test_semaphore, 1u) != 0 ||
+        lion_semaphore_wait(&sync_test_semaphore) != 0 ||
+        lion_semaphore_wait(&sync_test_semaphore) != 0) {
+        puts("[FAIL] semaphore overflow/count semantics");
+        return 39;
+    }
+    puts("[PASS] userspace semaphore wait/post and overflow");
 
     int libc_result = libc_self_test();
     if (libc_result != 0) {
