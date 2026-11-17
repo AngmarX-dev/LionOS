@@ -72,8 +72,8 @@ int32_t process_get_pgid(uint32_t pid){
     return result;
 }
 
-int32_t process_pgid_in_session(uint32_t pgid,uint32_t sid){
-    if(!pgid||!sid)return 0;
+int32_t process_tty_set_foreground(uint32_t sid,uint32_t pgid){
+    if(!sid||!pgid)return -1;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     int found=0;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
@@ -84,8 +84,9 @@ int32_t process_pgid_in_session(uint32_t pgid,uint32_t sid){
             break;
         }
     }
+    int32_t result=found?tty_set_foreground_pgid(sid,pgid):-1;
     spinlock_irqrestore_release(&process_lock,flags);
-    return found;
+    return result;
 }
 
 static void process_release_tty_if_session_empty(uint32_t sid){
