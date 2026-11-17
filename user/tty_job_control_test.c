@@ -18,12 +18,12 @@ static int test_setsid_orphan_transition(void){
         uint32_t child=lion_fork();
         if(child==0u){
             uint32_t pid=lion_getpid();
-            if(lion_setpgid(0u,0u)!=0||lion_kill(pid,LIONOS_SIG_STOP)!=0)
-                lion_exit_code(41u);
             uint32_t pending=lion_sigpending(pid);
             lion_exit_code((pending&(1u<<(LIONOS_SIG_HUP-1u)))?0u:42u);
         }
         if(child==LIONOS_SYSCALL_ERR)lion_exit_code(43u);
+        if(lion_setpgid(child,child)!=0||lion_kill(child,LIONOS_SIG_STOP)!=0)
+            lion_exit_code(41u);
         if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
            !LIONOS_WIFSTOPPED(status))lion_exit_code(44u);
         if(lion_setsid()<0)lion_exit_code(45u);
