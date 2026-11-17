@@ -140,3 +140,8 @@ The TTY I/O entry points now receive the calling process identity and enforce th
 The Process Manager validates the caller, session, process-group membership, and foreground group while holding the process-table lock. It queues the terminal signal for every live process in the caller's background group and its threads. The VFS drops its descriptor-table lock before entering TTY policy, preserving the existing lock hierarchy. Explicit TTY syscalls and standard descriptors share the same policy.
 
 This milestone queues SIGTTIN/SIGTTOU and rejects the disallowed I/O operation; it does not yet implement signal dispositions, default stop actions, or shell wait/continue job-control orchestration. Those remain separate work.
+
+
+## H21.14 — waitpid stop notifications and nonblocking queries
+
+`LIONOS_SYS_WAITPID_OPTIONS` (62) adds `LIONOS_WAIT_NOHANG` and `LIONOS_WAIT_UNTRACED` without changing legacy `WAITPID`. WNOHANG returns zero when no requested event is ready. WUNTRACED reports a stopped child once using `(signal << 8) | 0x7F`; `LIONOS_WIFSTOPPED` and `LIONOS_WSTOPSIG` decode the status. A blocked options-aware parent is awakened on a child stop. Wait state is preserved if the waiting parent itself is stopped and continued; pending child exit/stop events are rechecked on resume. SIGCONT clears an unreported stale stop event. WCONTINUED and default SIGTTIN/SIGTTOU stop actions remain future work.
