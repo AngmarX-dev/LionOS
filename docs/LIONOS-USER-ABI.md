@@ -1,10 +1,10 @@
 # LionOS User ABI and System Call Contract
 
-**Status:** specification and conformance guards for the native syscall ABI. Stage F6 adds a read-only ext2 directory-stream syscall and user-space wrappers.
+**Status:** specification and conformance guards for the native syscall ABI. H21.20 adds per-process SIGINT/SIGHUP dispositions and a validated signal-return trampoline.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
-**UAPI version:** 21 (LIONOS_UAPI_VERSION).
-**System-call ABI:** 15 (LIONOS_SYSCALL_ABI).
-**Version query:** syscall number 0 returns 15.
+**UAPI version:** 22 (LIONOS_UAPI_VERSION).
+**System-call ABI:** 16 (LIONOS_SYSCALL_ABI).
+**Version query:** syscall number 0 returns 16.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
 
 ## 1. Scope and compatibility
@@ -55,6 +55,7 @@ The inline wrappers in include/user_api.h are the preferred interface for native
 | struct lion_stat | 12 bytes | size at 0, backend at 4, flags at 8; uint32_t fields |
 | struct lion_mouse_event | 12 bytes | dx at 0, dy at 4, buttons at 8, source at 9, reserved bytes at 10 |
 | struct lion_dirent | 264 bytes | inode at 0, type at 4, name at 5; 256-byte name array and 4-byte structure alignment |
+| struct lion_sigaction | 8 bytes | handler at 0, restorer at 4; two uint32_t user virtual addresses |
 
 The two reserved bytes in lion_mouse_event are currently written as zero and must be ignored by callers. tests/uapi_layout.c protects these sizes and offsets at compile time.
 
@@ -81,7 +82,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 
 | Number | Symbol | Arguments (in order) | Result / notes |
 |---:|---|---|---|
-| 0 | SYS_ABI_VERSION | — | Returns LIONOS_SYSCALL_ABI (14) |
+| 0 | SYS_ABI_VERSION | — | Returns LIONOS_SYSCALL_ABI (16) |
 | 1 | LIONOS_SYS_PUTC | character | 0 on success |
 | 2 | LIONOS_SYS_GETPID | — | Current process ID |
 | 3 | LIONOS_SYS_YIELD | — | Requests scheduler yield |
@@ -96,6 +97,8 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 12 | LIONOS_SYS_FORK | — | Child PID in parent; child receives 0 |
 | 13 | LIONOS_SYS_WAITPID | PID (0 = any child), writable status pointer | Child PID on exit; may block; legacy behavior |
 | 62 | LIONOS_SYS_WAITPID_OPTIONS | PID (0 = any child), optional writable status pointer, options | Child PID on exit/stop, 0 for WNOHANG with no event, or may block |
+| 63 | LIONOS_SYS_SIGACTION | signal, optional readable lion_sigaction pointer, optional writable old-action pointer | 0 on success; currently accepts SIGINT and SIGHUP only; handler 0 = default, 1 = ignore; custom handler requires executable handler and restorer addresses |
+| 64 | LIONOS_SYS_SIGRETURN | — | CRT return trampoline only; restores the kernel-saved interrupt context; rejected without a matching active signal frame |
 | 14 | LIONOS_SYS_OPEN | path, flags | File descriptor or generic error |
 | 15 | LIONOS_SYS_CLOSE | file descriptor | VFS close result |
 | 16 | LIONOS_SYS_FREAD | fd, writable buffer, capacity | Bytes read / signed VFS result |
@@ -147,7 +150,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 
 - Console calls require PROCESS_CAP_CONSOLE.
 - File/VFS calls require PROCESS_CAP_FS.
-- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, KILLPG, SETPGID, SETSID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS. GETSID is also capability-gated; EXIT and other read-only metadata queries are not all gated by that capability.
+- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, KILLPG, SIGACTION, SETPGID, SETSID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS. GETSID is also capability-gated; EXIT and other read-only metadata queries are not all gated by that capability.
 - IPC and pipe calls require PROCESS_CAP_IPC.
 - Network calls require PROCESS_CAP_NET.
 - The dispatcher validates user pointers before dereferencing user buffers. Each call also applies capacity, ownership, and state checks.
@@ -164,7 +167,7 @@ This is not a complete System V i386 process-start ABI. Environment vectors, aux
 
 ## 7. POSIX-inspired compatibility subset
 
-The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. SIGSTOP and SIGCONT are propagated to the leader's user threads. Direct SIGTERM/SIGKILL and KILLPG termination fail closed when a target process has any live user thread, because remote thread-stack reclamation is not yet safe. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Each newly created process starts a session whose SID and initial PGID equal its PID; fork inherits SID and PGID, and user threads share both. SETSID creates a new session and process group atomically for the caller and its threads, and fails for process-group leaders. SETPGID rejects cross-session moves and attempts to change a session leader's process group. GETSID reports the SID of a live process. Controlling-terminal ownership and foreground PGID are implemented. Background TTY reads deliver SIGTTIN and stop the entire background process group by default; background writes do the same with SIGTTOU when TOSTOP is enabled. The parent can collect stop and continue transitions through WUNTRACED and WCONTINUED. H21.16 reparents children to PID 1 when a parent exits. A process group that becomes orphaned during this transition and contains stopped members receives pending SIGHUP (1) followed by SIGCONT; the latter resumes stopped members and publishes the normal one-shot WCONTINUED event. Background TTY reads and TOSTOP writes from an orphaned process group fail without generating SIGTTIN/SIGTTOU. Adopted zombies are deferred for reaping until no CPU owns their execution context. SIGHUP is currently pending-only because default signal dispositions and user handlers are not implemented. Process-group topology changes through SETPGID are not yet included in orphan-transition notification. Shell job-control orchestration remains future work.
+The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. SIGSTOP and SIGCONT are propagated to the leader's user threads. Direct SIGTERM/SIGKILL and KILLPG termination fail closed when a target process has any live user thread, because remote thread-stack reclamation is not yet safe. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Each newly created process starts a session whose SID and initial PGID equal its PID; fork inherits SID and PGID, and user threads share both. SETSID creates a new session and process group atomically for the caller and its threads, and fails for process-group leaders. SETPGID rejects cross-session moves and attempts to change a session leader's process group. GETSID reports the SID of a live process. Controlling-terminal ownership and foreground PGID are implemented. Background TTY reads deliver SIGTTIN and stop the entire background process group by default; background writes do the same with SIGTTOU when TOSTOP is enabled. The parent can collect stop and continue transitions through WUNTRACED and WCONTINUED. H21.16 reparents children to PID 1 when a parent exits. A process group that becomes orphaned during this transition and contains stopped members receives pending SIGHUP (1) followed by SIGCONT; the latter resumes stopped members and publishes the normal one-shot WCONTINUED event. Background TTY reads and TOSTOP writes from an orphaned process group fail without generating SIGTTIN/SIGTTOU. Adopted zombies are deferred for reaping until no CPU owns their execution context. SIGINT and SIGHUP support default, ignored, and userspace-handler dispositions for process leaders. Dispositions are inherited by fork(); caught handlers reset on exec(), while ignored dispositions remain ignored. A handled signal saves the complete interrupt context in kernel-owned process state, builds a cdecl call frame on the validated user stack, and returns through the CRT sigreturn trampoline. Only SIGINT and SIGHUP can currently be registered; other signals, including SIGKILL and SIGSTOP, are not catchable. Delivery occurs at syscall-return boundaries and does not yet wake a process blocked in a wait. Signal masks and alternate signal stacks are not implemented, and a second signal is deferred until the active handler returns. Process-group topology changes through SETPGID are not yet included in orphan-transition notification. Shell job-control orchestration remains future work.
 
 The current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
 

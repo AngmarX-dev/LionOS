@@ -35,3 +35,13 @@ typedef char lion_tty_attributes_size_must_be_12[
 typedef char lion_tty_attributes_vtime_offset_must_be_8[
     __builtin_offsetof(struct lion_tty_attributes, vtime) == 8u ? 1 : -1
 ];
+
+typedef char lion_sigaction_size_must_be_8[
+    sizeof(struct lion_sigaction) == 8u ? 1 : -1
+];
+typedef char lion_sigaction_handler_offset_must_be_0[
+    __builtin_offsetof(struct lion_sigaction, handler) == 0u ? 1 : -1
+];
+typedef char lion_sigaction_restorer_offset_must_be_4[
+    __builtin_offsetof(struct lion_sigaction, restorer) == 4u ? 1 : -1
+];
