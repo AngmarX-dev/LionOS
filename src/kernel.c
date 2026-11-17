@@ -261,6 +261,7 @@ static int integration_cow_ok;
 static int integration_utility_ok;
 static int integration_pipe_ok;
 static int integration_nx_ok;
+static int integration_process_ok;
 static void debug_write_u32_hex(uint32_t value){
     static const char digits[]="0123456789ABCDEF";
     char out[9];
@@ -429,7 +430,7 @@ void lionos_user_integration_step(void){
     if(integration_stage==8){
         if(!cpu_nx_enabled()){
             debug_write("LIONOS:NX-RUNTIME-TEST-SKIP\n");
-            integration_done=1;
+            integration_stage=10;
             return;
         }
         integration_pid=exec_run_file("nx_test.elf");
@@ -452,14 +453,54 @@ void lionos_user_integration_step(void){
             integration_nx_ok=valid&&code==139u;
             if(process_reap_pid((uint32_t)integration_pid)!=0)integration_nx_ok=0;
             integration_pid=-1;
-            integration_done=1;
             debug_write(integration_nx_ok
                 ? "LIONOS:NX-RUNTIME-TEST-OK\n"
                 : "LIONOS:NX-RUNTIME-TEST-FAIL\n");
-            if(!integration_nx_ok)debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            if(!integration_nx_ok){
+                integration_done=1;
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            }else{
+                integration_stage=10;
+            }
         }else if(s<0){
             integration_done=1;
             debug_write("LIONOS:NX-RUNTIME-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==10){
+        integration_pid=exec_run_file("process_test.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:USER-PROCESS-LIFECYCLE-LAUNCHED\n");
+            integration_stage=11;
+        }else{
+            integration_done=1;
+            debug_write("LIONOS:USER-PROCESS-LIFECYCLE-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==11){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            integration_process_ok=valid&&code==0u;
+            if(process_reap_pid((uint32_t)integration_pid)!=0)
+                integration_process_ok=0;
+            integration_pid=-1;
+            integration_done=1;
+            debug_write(integration_process_ok
+                ? "LIONOS:PROCESS-WAITPID-TEST-OK\n"
+                : "LIONOS:PROCESS-WAITPID-TEST-FAIL\n");
+            if(!integration_process_ok)
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:USER-PROCESS-LIFECYCLE-STATE-FAIL\n");
             debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
