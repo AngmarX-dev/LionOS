@@ -51,5 +51,7 @@ int32_t tty_get_attributes(uint32_t sid, uint32_t *flags, uint32_t *vmin, uint32
 int32_t tty_set_attributes(uint32_t sid, uint32_t flags, uint32_t vmin, uint32_t vtime);
 /* Flush queued input echo from process context, never from a keyboard IRQ. */
 void tty_flush_echo(uint32_t sid);
+/* Re-check blocked readers after the foreground process group changes. */
+void tty_wake_readers(void);
 
 #endif
