@@ -127,7 +127,7 @@ case LIONOS_SYS_TTY_GETATTR:{
     int32_t sid=process_get_sid(0u);
     if(!has_cap(PROCESS_CAP_CONSOLE)||sid<=0||tty_session_owner()!=(uint32_t)sid||!usercopy_validate_write(arg0,sizeof(struct lion_tty_attributes)))return SYSCALL_ERR;
     struct lion_tty_attributes attributes;
-    if(tty_get_attributes((uint32_t)sid,&attributes.flags,&attributes.vmin)!=0)return SYSCALL_ERR;
+    if(tty_get_attributes((uint32_t)sid,&attributes.flags,&attributes.vmin,&attributes.vtime)!=0)return SYSCALL_ERR;
     return syscall_copy_out(arg0,&attributes,sizeof(attributes))==0?0u:SYSCALL_ERR;
 }
 case LIONOS_SYS_TTY_SETATTR:{
@@ -135,7 +135,7 @@ case LIONOS_SYS_TTY_SETATTR:{
     if(!has_cap(PROCESS_CAP_CONSOLE)||sid<=0||tty_session_owner()!=(uint32_t)sid||!usercopy_validate_read(arg0,sizeof(struct lion_tty_attributes)))return SYSCALL_ERR;
     struct lion_tty_attributes attributes;
     if(usercopy_copy_from(&attributes,arg0,sizeof(attributes))!=0)return SYSCALL_ERR;
-    return (uint32_t)tty_set_attributes((uint32_t)sid,attributes.flags,attributes.vmin);
+    return (uint32_t)tty_set_attributes((uint32_t)sid,attributes.flags,attributes.vmin,attributes.vtime);
 }
 case LIONOS_SYS_TTY_WRITE:{
     int32_t sid=process_get_sid(0u);
