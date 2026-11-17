@@ -3,6 +3,9 @@
 #include <string.h>
 #include "tty.h"
 
+extern uint32_t tty_test_sleep_count;
+extern uint32_t tty_test_wakeup_count;
+
 static int fail(const char *message, int code) {
     fprintf(stderr, "TTY TEST: FAIL: %s\n", message);
     return code;
@@ -14,6 +17,8 @@ int main(void) {
     tty_init();
     if (tty_session_owner() != 0u)
         return fail("initial owner must be empty", 1);
+    tty_test_sleep_count = 0u;
+    tty_test_wakeup_count = 0u;
     if (tty_claim_session(0u, 0u) == 0 ||
         tty_claim_session(10u, 11u) == 0)
         return fail("invalid session claim accepted", 2);
@@ -21,6 +26,17 @@ int main(void) {
         return fail("valid session claim failed", 3);
     if (tty_claim_session(20u, 20u) == 0)
         return fail("second session stole console TTY", 4);
+    if (tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+        tty_test_sleep_count != 1u)
+        return fail("empty stdin did not sleep", 22);
+    if (tty_input_byte('r') != TTY_INPUT_NONE ||
+        tty_test_wakeup_count != 0u ||
+        tty_input_byte('\\n') != TTY_INPUT_LINE_READY ||
+        tty_test_wakeup_count != 1u)
+        return fail("completed line did not wake stdin", 23);
+    if (tty_read_blocking(10u, output, sizeof(output)) != 2 ||
+        output[0] != 'r' || output[1] != '\\n')
+        return fail("blocking stdin did not consume completed line", 24);
     if (tty_get_foreground_pgid(10u) != 10)
         return fail("initial foreground PGID mismatch", 5);
     if (tty_set_foreground_pgid(10u, 0u) == 0 ||
