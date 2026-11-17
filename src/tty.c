@@ -23,6 +23,7 @@ struct tty_console_state {
     uint32_t echo_count;
     uint32_t attributes;
     uint32_t vmin;
+    uint32_t vtime;
 };
 
 static struct tty_console_state console_tty;
@@ -78,6 +79,7 @@ void tty_init(void) {
     console_tty.foreground_pgid = 0u;
     console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON;
     console_tty.vmin = 1u;
+    console_tty.vtime = 0u;
     tty_reset_buffers_locked();
     spinlock_irqrestore_release(&console_tty.lock, flags);
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
@@ -291,13 +293,42 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
         return TTY_ERROR;
     }
 
-    uint32_t required = 1u;
     if ((console_tty.attributes & TTY_ATTR_ICANON) == 0u) {
-        required = console_tty.vmin;
+        uint32_t required = console_tty.vmin;
+        uint32_t vtime = console_tty.vtime;
         if (required > capacity)
             required = capacity;
-    }
-    if (console_tty.input_count < required) {
+
+        if (required == 0u && vtime != 0u) {
+            if (console_tty.input_count == 0u) {
+                if (process_consume_timeout()) {
+                    spinlock_irqrestore_release(&console_tty.input_lock, flags);
+                    return 0;
+                }
+                uint32_t ticks = (vtime * 120u + 9u) / 10u;
+                int32_t blocked = process_sleep_on_timeout(
+                    (uintptr_t)&tty_read_wait_channel, &console_tty.input_lock,
+                    flags, ticks);
+                return blocked == PROCESS_WAIT_BLOCKED ? TTY_READ_BLOCKED : TTY_ERROR;
+            }
+        } else if (required != 0u && console_tty.input_count < required) {
+            if (vtime != 0u && console_tty.input_count != 0u) {
+                if (process_consume_timeout()) {
+                    required = 0u;
+                } else {
+                    uint32_t ticks = (vtime * 120u + 9u) / 10u;
+                    int32_t blocked = process_sleep_on_timeout(
+                        (uintptr_t)&tty_read_wait_channel, &console_tty.input_lock,
+                        flags, ticks);
+                    return blocked == PROCESS_WAIT_BLOCKED ? TTY_READ_BLOCKED : TTY_ERROR;
+                }
+            } else {
+                int32_t blocked = process_sleep_on(
+                    (uintptr_t)&tty_read_wait_channel, &console_tty.input_lock, flags);
+                return blocked == PROCESS_WAIT_BLOCKED ? TTY_READ_BLOCKED : TTY_ERROR;
+            }
+        }
+    } else if (console_tty.input_count == 0u) {
         int32_t blocked = process_sleep_on(
             (uintptr_t)&tty_read_wait_channel, &console_tty.input_lock, flags);
         return blocked == PROCESS_WAIT_BLOCKED ? TTY_READ_BLOCKED : TTY_ERROR;
@@ -331,8 +362,8 @@ int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length) {
     return (int32_t)length;
 }
 
-int32_t tty_get_attributes(uint32_t sid, uint32_t *flags, uint32_t *vmin) {
-    if (sid == 0u || !flags || !vmin)
+int32_t tty_get_attributes(uint32_t sid, uint32_t *flags, uint32_t *vmin, uint32_t *vtime) {
+    if (sid == 0u || !flags || !vmin || !vtime)
         return TTY_ERROR;
     uint32_t input_flags = spinlock_irqsave_acquire(&console_tty.input_lock);
     if (console_tty.owner_sid != sid) {
@@ -341,12 +372,14 @@ int32_t tty_get_attributes(uint32_t sid, uint32_t *flags, uint32_t *vmin) {
     }
     *flags = console_tty.attributes;
     *vmin = console_tty.vmin;
+    *vtime = console_tty.vtime;
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
     return 0;
 }
 
-int32_t tty_set_attributes(uint32_t sid, uint32_t flags, uint32_t vmin) {
-    if (sid == 0u || (flags & ~TTY_ATTR_SUPPORTED) != 0u || vmin > TTY_VMIN_MAX)
+int32_t tty_set_attributes(uint32_t sid, uint32_t flags, uint32_t vmin, uint32_t vtime) {
+    if (sid == 0u || (flags & ~TTY_ATTR_SUPPORTED) != 0u ||
+        vmin > TTY_VMIN_MAX || vtime > TTY_VTIME_MAX)
         return TTY_ERROR;
     uint32_t input_flags = spinlock_irqsave_acquire(&console_tty.input_lock);
     if (console_tty.owner_sid != sid ||
@@ -357,9 +390,11 @@ int32_t tty_set_attributes(uint32_t sid, uint32_t flags, uint32_t vmin) {
     }
     uint32_t wake_readers =
         (console_tty.vmin != vmin) ||
+        (console_tty.vtime != vtime) ||
         (((flags ^ console_tty.attributes) & TTY_ATTR_ICANON) != 0u);
     console_tty.attributes = flags;
     console_tty.vmin = vmin;
+    console_tty.vtime = vtime;
     if ((flags & TTY_ATTR_ECHO) == 0u)
         console_tty.echo_count = 0u;
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
