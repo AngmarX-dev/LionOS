@@ -278,7 +278,10 @@ struct process *process_create_kernel_thread(uint32_t entry,uint32_t arg){
 uint32_t process_create_user_thread(uint32_t entry){
     if(!entry)return PROCESS_SYSCALL_ERR;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*parent=current_local();
-    if(!parent||parent==&processes[0]){spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
+    if(!parent||parent==&processes[0]||
+       !paging_user_page_executable(parent->page_directory,entry)){
+        spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;
+    }
     struct process*p=find_free_slot();if(!p){spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
     void*kp=page_alloc();void*ks=page_alloc();if(!kp||!ks){if(kp)page_free(kp);if(ks)page_free(ks);spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
     uint32_t slot=process_index(p),va=thread_stack_va_for_slot(slot);
