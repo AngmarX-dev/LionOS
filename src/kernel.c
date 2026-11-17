@@ -319,7 +319,12 @@ void lionos_user_integration_step(void){
         int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
-            integration_cow_ok=(process_get_exit_code((uint32_t)integration_pid,&code)==0&&code==0u);
+            int cow_status_valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            integration_cow_ok=(cow_status_valid&&code==0u);
+            debug_write("LIONOS:COW-TEST-EXIT-CODE=0x");
+            debug_write_u32_hex(code);
+            debug_write(cow_status_valid?" VALID\n":" INVALID\n");
+            debug_write(integration_vfs_ok?"LIONOS:VFS-INTEGRATION-STATE-OK\n":"LIONOS:VFS-INTEGRATION-STATE-FAIL\n");
             process_reap_pid((uint32_t)integration_pid);
             if(!integration_vfs_ok||!integration_cow_ok){
                 integration_done=1;
