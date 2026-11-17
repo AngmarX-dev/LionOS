@@ -51,46 +51,84 @@ static int test_setsid_orphan_transition(void){
     return 0;
 }
 
+struct orphan_transition_pids {
+    uint32_t group_parent;
+    uint32_t child;
+};
+
 static int test_setpgid_orphan_transition(void){
+    uint32_t sync_read=0u,sync_write=0u;
     int32_t status=-1;
+    struct orphan_transition_pids pids={0u,0u};
+    if(lion_pipe_create(&sync_read,&sync_write)!=0)return 70;
+
     uint32_t session_parent=lion_fork();
     if(session_parent==0u){
+        (void)lion_pipe_close(sync_read);
         uint32_t group_parent=lion_fork();
         if(group_parent==0u){
-            while(lion_getsid(lion_getppid())==lion_getsid(0u))
-                (void)lion_yield();
             uint32_t child=lion_fork();
             if(child==0u){
                 for(;;)(void)lion_yield();
             }
-            if(child==LIONOS_SYSCALL_ERR)lion_exit_code(53u);
+            if(child==LIONOS_SYSCALL_ERR)lion_exit_code(71u);
             if(lion_setpgid(child,child)!=0||
                lion_kill(child,LIONOS_SIG_STOP)!=0)
-                lion_exit_code(51u);
+                lion_exit_code(72u);
             if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
-               !LIONOS_WIFSTOPPED(status))lion_exit_code(54u);
-            /* Join the stopped child's process group. session_parent has
-               already left the session, so this transition orphans the group
-               and must deliver SIGHUP + SIGCONT to both members. */
-            if(lion_setpgid(0u,child)!=0)lion_exit_code(55u);
-            /* SIGHUP is delivered at the syscall-return boundary. */
-            lion_exit_code(57u);
+               !LIONOS_WIFSTOPPED(status))
+                lion_exit_code(73u);
+
+            /* Put both processes in the child's group while the session
+               parent is still in this session: the group is not orphaned yet. */
+            if(lion_setpgid(0u,child)!=0)lion_exit_code(74u);
+            pids.group_parent=lion_getpid();
+            pids.child=child;
+            if(lion_pipe_write(sync_write,&pids,sizeof(pids))!=(int32_t)sizeof(pids))
+                lion_exit_code(75u);
+            (void)lion_pipe_close(sync_write);
+            for(;;)(void)lion_yield();
         }
-        if(group_parent==LIONOS_SYSCALL_ERR)lion_exit_code(58u);
-        if(lion_setsid()<0)lion_exit_code(59u);
+        if(group_parent==LIONOS_SYSCALL_ERR)lion_exit_code(76u);
+        (void)lion_pipe_close(sync_write);
+        if(lion_pipe_read(sync_read,&pids,sizeof(pids))!=(int32_t)sizeof(pids)||
+           pids.group_parent!=group_parent||pids.child==0u)
+            lion_exit_code(77u);
+        (void)lion_pipe_close(sync_read);
+
+        /* Leaving the session now orphans the already-existing group. */
+        if(lion_setsid()<0)lion_exit_code(78u);
         status=-1;
         int wait_result=waitpid_bounded(group_parent,&status);
         if(wait_result!=0)
-            lion_exit_code(wait_result==-2?160u:161u);
+            lion_exit_code(wait_result==-2?179u:180u);
         if(status!=(int32_t)(128u+LIONOS_SIG_HUP))
-            lion_exit_code(60u);
+            lion_exit_code(79u);
+
+        /* The stopped child was reparented to init when its parent exited. */
+        uint32_t child_exited=0u;
+        for(uint32_t attempt=0u;attempt<20000u;++attempt){
+            if(lion_getstate(pids.child)==LIONOS_PROCESS_ZOMBIE){
+                child_exited=1u;
+                break;
+            }
+            (void)lion_yield();
+        }
+        if(!child_exited)lion_exit_code(181u);
         lion_exit_code(0u);
     }
-    if(session_parent==LIONOS_SYSCALL_ERR)return 61;
+
+    if(session_parent==LIONOS_SYSCALL_ERR){
+        (void)lion_pipe_close(sync_read);
+        (void)lion_pipe_close(sync_write);
+        return 80;
+    }
+    (void)lion_pipe_close(sync_read);
+    (void)lion_pipe_close(sync_write);
+    status=-1;
     int wait_result=waitpid_bounded(session_parent,&status);
-    if(wait_result!=0)return wait_result==-2?162:163;
-    if(status!=0)return 62;
-    return 0;
+    if(wait_result!=0)return wait_result==-2?182:183;
+    return status==0?0:184;
 }
 
 int main(void){
