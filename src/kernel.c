@@ -578,21 +578,21 @@ void lionos_user_integration_step(void){
                 job_control_ok=0;
             integration_pid=-1;
             if(job_control_ok){
-                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-OK\n");
+                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-OK\\n");
                 integration_stage=16;
             }else{
                 integration_done=1;
-                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-FAIL\n");
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+                debug_write("LIONOS:TTY-JOB-CONTROL-TEST-FAIL\\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
             }
         }else if(s<0){
             integration_done=1;
-            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-STATE-FAIL\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            debug_write("LIONOS:TTY-JOB-CONTROL-TEST-STATE-FAIL\\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
         }
         return;
-   
-    
+    }
+
     if(integration_stage==16){
         integration_pid=exec_run_file("sigint_test.elf");
         if(integration_pid>0){
@@ -628,7 +628,7 @@ void lionos_user_integration_step(void){
         }
         return;
     }
-    }}}
+}
 
 
 void kernel_main(uint32_t magic, uint32_t multiboot_info){
