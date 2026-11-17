@@ -592,7 +592,7 @@ int32_t process_tty_check_foreground(uint32_t sid,uint32_t caller_pid,uint32_t s
     struct process *caller=find_pid(caller_pid);
     if(caller&&caller->is_thread)
         caller=find_pid(caller->thread_group_pid);
-    if(!caller||caller->state==PROCESS_ZOMBIE||caller->sid!=sid||
+    if(!caller||caller==&processes[0]||caller->state==PROCESS_ZOMBIE||caller->sid!=sid||
        !caller->pgid){
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_ERR;
