@@ -54,8 +54,12 @@ int main(void) {
         lion_setpgid(0xFFFFFFFFu, 0u) != -1)
         return fail("PROCESS GROUP: self/invalid PID handling", 22);
 
+    uint32_t tty_ready_pipe[2] = {0u, 0u};
+    if (lion_pipe_create(&tty_ready_pipe[0], &tty_ready_pipe[1]) != 0)
+        return fail("TTY: readiness pipe creation", 51u);
     uint32_t session_child = lion_fork();
     if (session_child == 0u) {
+        (void)lion_pipe_close(tty_ready_pipe[0]);
         const uint32_t child_pid = lion_getpid();
         if (lion_getsid(0u) != (int32_t)initial_sid ||
             lion_getpgid(0u) != (int32_t)initial_pgid)
@@ -71,6 +75,11 @@ int main(void) {
         if (lion_tty_claim() != 0 ||
             lion_tty_getpgrp() != (int32_t)child_pid)
             lion_exit_code(45u);
+        const uint32_t tty_ready = 0x54545931u;
+        if (lion_pipe_write(tty_ready_pipe[1], &tty_ready, sizeof(tty_ready)) !=
+            (int32_t)sizeof(tty_ready))
+            lion_exit_code(52u);
+        (void)lion_pipe_close(tty_ready_pipe[1]);
         thread_session_start = 1u;
         int32_t thread_status = -1;
         if (lion_thread_join(session_tid, &thread_status) != (int32_t)session_tid ||
@@ -106,6 +115,18 @@ int main(void) {
     }
     if (session_child == LIONOS_SYSCALL_ERR)
         return fail("SESSION: fork", 40u);
+    (void)lion_pipe_close(tty_ready_pipe[1]);
+    uint32_t tty_ready = 0u;
+    int32_t tty_ready_bytes = lion_pipe_read(tty_ready_pipe[0], &tty_ready, sizeof(tty_ready));
+    (void)lion_pipe_close(tty_ready_pipe[0]);
+    if (tty_ready_bytes != (int32_t)sizeof(tty_ready) ||
+        tty_ready != 0x54545931u) {
+        if (lion_getstate(session_child) != LIONOS_PROCESS_ZOMBIE)
+            (void)lion_kill(session_child, LIONOS_SIG_TERM);
+        int32_t failed_status = -1;
+        (void)lion_waitpid(session_child, &failed_status);
+        return fail("TTY: session claim synchronization", 53u);
+    }
     uint32_t session_ready = 0u;
     for (uint32_t attempt = 0u; attempt < 10000u; ++attempt) {
         if (lion_getsid(session_child) == (int32_t)session_child) {
