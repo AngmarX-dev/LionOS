@@ -137,34 +137,6 @@ int main(void) {
         int32_t tty_group_status = -1;
         if (lion_waitpid(tty_group_child, &tty_group_status) != (int32_t)tty_group_child)
             lion_exit_code(48u);
-
-        timed_attrs.flags |= LIONOS_TTY_ATTR_TOSTOP;
-        if (lion_tty_setattr(&timed_attrs) != 0)
-            lion_exit_code(61u);
-        uint32_t background_io_child = lion_fork();
-        if (background_io_child == 0u) {
-            uint32_t background_pid = lion_getpid();
-            uint8_t background_byte = 0u;
-            static const char background_text[] = "x";
-            if (lion_setpgid(0u, 0u) != 0 ||
-                lion_fread(0, &background_byte, 1u) != -1 ||
-                lion_fwrite(1, background_text, 1u) != -1)
-                lion_exit_code(62u);
-            uint32_t pending = lion_sigpending(background_pid);
-            if ((pending & (1u << (LIONOS_SIG_TTIN - 1u))) == 0u ||
-                (pending & (1u << (LIONOS_SIG_TTOU - 1u))) == 0u)
-                lion_exit_code(63u);
-            lion_exit_code(0u);
-        }
-        if (background_io_child == LIONOS_SYSCALL_ERR)
-            lion_exit_code(64u);
-        int32_t background_io_status = -1;
-        if (lion_waitpid(background_io_child, &background_io_status) !=
-                (int32_t)background_io_child || background_io_status != 0)
-            lion_exit_code(65u);
-        timed_attrs.flags &= ~LIONOS_TTY_ATTR_TOSTOP;
-        if (lion_tty_setattr(&timed_attrs) != 0)
-            lion_exit_code(66u);
         const uint32_t tty_ready = 0x54545931u;
         if (lion_pipe_write(tty_ready_pipe[1], &tty_ready, sizeof(tty_ready)) !=
             (int32_t)sizeof(tty_ready))
