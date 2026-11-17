@@ -164,10 +164,15 @@ int32_t process_create_session(void){
         }
     }
     process_notify_orphan_transition_locked(old_pgid,old_sid,old_orphaned);
+    debug_write("LIONOS:JOBCTL:SETSID-OLD-GROUP-DONE\n");
+    debug_write("LIONOS:JOBCTL:SETSID-CHILD-GROUPS-ENTER\n");
     process_notify_child_group_transitions_locked(child_groups,child_group_count);
+    debug_write("LIONOS:JOBCTL:SETSID-CHILD-GROUPS-DONE\n");
     debug_write("LIONOS:JOBCTL:SETSID-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
+    debug_write("LIONOS:JOBCTL:SETSID-UNLOCKED\n");
     tty_wake_readers();
+    debug_write("LIONOS:JOBCTL:SETSID-TTY-WAKE-DONE\n");
     return (int32_t)group_pid;
 }
 
