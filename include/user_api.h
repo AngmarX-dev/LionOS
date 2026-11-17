@@ -14,6 +14,8 @@
 #define LIONOS_SIG_KILL 9u
 #define LIONOS_SIG_STOP 19u
 #define LIONOS_SIG_CONT 18u
+#define LIONOS_SIG_TTIN 21u
+#define LIONOS_SIG_TTOU 22u
 #define LIONOS_SIG_MAX 31u
 
 static inline uint32_t lion_syscall0(uint32_t n){uint32_t r;__asm__ volatile("int $0x80":"=a"(r):"a"(n):"ebx","ecx","edx","esi","edi","memory");return r;}
