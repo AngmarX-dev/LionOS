@@ -3,6 +3,7 @@
 #include "spinlock.h"
 #include "console.h"
 #include "process.h"
+#include "signal.h"
 
 struct tty_console_state {
     struct spinlock lock;
@@ -127,9 +128,15 @@ int32_t tty_input_byte(uint8_t byte) {
     }
 
     if (byte == 0x03u) {
+        uint32_t sid = console_tty.owner_sid;
         console_tty.edit_length = 0u;
+        uint32_t state_flags = spinlock_irqsave_acquire(&console_tty.lock);
+        uint32_t pgid = console_tty.owner_sid == sid
+            ? console_tty.foreground_pgid : 0u;
+        spinlock_irqrestore_release(&console_tty.lock, state_flags);
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
-        return TTY_INPUT_INTERRUPT;
+        return process_tty_signal_foreground(sid, pgid, LIONOS_SIG_INT) == 0
+            ? TTY_INPUT_INTERRUPT : TTY_ERROR;
     }
 
     if (byte == 0x08u || byte == 0x7Fu) {
