@@ -262,7 +262,7 @@ int vfs_read_for_process(struct process *p,int fd,void *buffer,uint32_t length){
         ++file->refs;
         uint32_t sid=p->sid,object=p->fd_object[fd];
         spinlock_irqrestore_release(&vfs_lock,irq);
-        int r=tty_read(sid,(uint8_t*)buffer,length);
+        int r=tty_read_blocking(sid,(uint8_t*)buffer,length);
         irq=spinlock_irqsave_acquire(&vfs_lock);release_process_open_file(object);
         spinlock_irqrestore_release(&vfs_lock,irq);return r;
     }
