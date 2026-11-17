@@ -12,6 +12,10 @@ extern uint32_t tty_test_signal_count;
 extern uint32_t tty_test_signal_sid;
 extern uint32_t tty_test_signal_pgid;
 extern uint32_t tty_test_signal_number;
+extern uint32_t tty_test_background_result;
+extern uint32_t tty_test_background_count;
+extern uint32_t tty_test_background_pid;
+extern uint32_t tty_test_background_signal;
 extern char tty_test_output[2048];
 extern uint32_t tty_test_output_length;
 
@@ -37,7 +41,7 @@ int main(void) {
         return fail("valid session claim failed", 3);
     if (tty_claim_session(20u, 20u) == 0)
         return fail("second session stole console TTY", 4);
-    if (tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
+    if (tty_read_blocking(10u, 10u, 10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 1u)
         return fail("empty stdin did not sleep", 22);
     if (tty_input_byte('r') != TTY_INPUT_NONE ||
@@ -60,10 +64,34 @@ int main(void) {
         return fail("default TTY attributes mismatch", 30);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | 0x80u, 1u, 0u) == 0 || tty_set_attributes(20u, 0u, 1u, 0u) == 0)
         return fail("invalid TTY attributes accepted", 31);
+    tty_test_background_result = 1u;
+    if (tty_read_blocking(10u, 20u, 20u, output, sizeof(output)) != TTY_ERROR ||
+        tty_test_background_signal != 21u || tty_test_background_pid != 20u)
+        return fail("background read did not queue SIGTTIN", 56);
+    tty_test_background_result = 0u;
+    tty_test_output_length = 0u;
+    if (tty_write(10u, 20u, 20u, (const uint8_t *)"bg", 2u) != 2)
+        return fail("background write blocked without TOSTOP", 57);
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG |
+                           TTY_ATTR_ICANON | TTY_ATTR_TOSTOP, 1u, 0u) != 0)
+        return fail("TOSTOP setup failed", 58);
+    tty_test_background_result = 1u;
+    tty_test_output_length = 0u;
+    if (tty_write(10u, 20u, 20u, (const uint8_t *)"no", 2u) != TTY_ERROR ||
+        tty_test_background_signal != 22u || tty_test_background_pid != 20u ||
+        tty_test_output_length != 0u)
+        return fail("TOSTOP did not block background write with SIGTTOU", 59);
+    tty_test_background_result = 0u;
+    if (tty_write(10u, 10u, 10u, (const uint8_t *)"fg", 2u) != 2 ||
+        tty_test_output_length != 2u)
+        return fail("TOSTOP incorrectly blocked foreground write", 60);
+    if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON,
+                           1u, 0u) != 0)
+        return fail("TOSTOP restore failed", 61);
     if (tty_set_attributes(10u, TTY_ATTR_ISIG | TTY_ATTR_ICANON, 1u, 0u) != 0 || tty_input_byte('n') != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("echo-disable mode setup failed", 32);
     tty_flush_echo(10u);
-    if (tty_test_output_length != 2u || tty_read(10u, output, sizeof(output)) != 2)
+    if (tty_test_output_length != 2u || tty_read(10u, 10u, 10u, output, sizeof(output)) != 2)
         return fail("disabled echo changed canonical input", 33);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ICANON, 1u, 0u) != 0 || tty_input_byte(0x03u) != TTY_INPUT_NONE || tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("ISIG-disable mode treated Ctrl-C as signal", 34);
@@ -92,7 +120,7 @@ int main(void) {
     if (tty_test_output_length != 7u ||
         memcmp(tty_test_output, "ab\b \bc\n", 7u) != 0)
         return fail("canonical editing echo/backspace mismatch", 27);
-    if (tty_read(20u, output, sizeof(output)) != TTY_ERROR)
+    if (tty_read(20u, 20u, 20u, output, sizeof(output)) != TTY_ERROR)
         return fail("non-owner read accepted", 10);
     if (tty_read(10u, output, 2u) != 2 ||
         output[0] != 'a' || output[1] != 'c')
