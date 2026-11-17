@@ -23,3 +23,12 @@ _start:
     jmp 1b
 
 .size _start, .-_start
+
+.global lion_signal_trampoline
+.type lion_signal_trampoline, @function
+lion_signal_trampoline:
+    mov $64, %eax
+    int $0x80
+    ud2
+.size lion_signal_trampoline, .-lion_signal_trampoline
+
