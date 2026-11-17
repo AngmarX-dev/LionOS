@@ -256,7 +256,7 @@ void process_futex_tick(uint32_t cpu){
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *p=&processes[i];
         if(p->state!=PROCESS_WAITING||p->wait_kind!=1u||
-           !p->wait_timeout_active||p->wait_cpu!=cpu||
+           p->wait_timeout_active!=1u||p->wait_cpu!=cpu||
            (int32_t)(now-p->wait_deadline)<0)continue;
         p->wait_channel=0u;
         p->wait_kind=0u;
