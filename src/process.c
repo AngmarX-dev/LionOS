@@ -138,6 +138,7 @@ int32_t process_get_sid(uint32_t pid){
 }
 
 int32_t process_create_session(void){
+    debug_write("LIONOS:JOBCTL:SETSID-ENTER\n");
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process *current=current_local();
     if(!current||current==&processes[0]||current->is_thread||
@@ -164,6 +165,7 @@ int32_t process_create_session(void){
     }
     process_notify_orphan_transition_locked(old_pgid,old_sid,old_orphaned);
     process_notify_child_group_transitions_locked(child_groups,child_group_count);
+    debug_write("LIONOS:JOBCTL:SETSID-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
     tty_wake_readers();
     return (int32_t)group_pid;
@@ -462,6 +464,8 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
         spinlock_irqrestore_release(&process_lock,flags);
         return 0;
     }
+    if(options&LIONOS_WAIT_UNTRACED)
+        debug_write("LIONOS:JOBCTL:WAITPID-STOP-BLOCK\n");
     caller->wait_pid=pid;
     caller->wait_status_ptr=status_ptr;
     caller->wait_options=options;
@@ -600,6 +604,7 @@ static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_
            !(parent->wait_options&LIONOS_WAIT_UNTRACED)||
            (parent->wait_pid!=PROCESS_WAIT_ANY&&parent->wait_pid!=child->pid))
             continue;
+        debug_write("LIONOS:JOBCTL:WAITPID-STOP-WAKE\n");
         uint32_t status=LIONOS_WAIT_STATUS_STOPPED(child->stop_signal);
         int status_ok=!parent->wait_status_ptr||
             write_user_u32(parent,parent->wait_status_ptr,status)==0;
@@ -612,6 +617,7 @@ static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_
         parent->wait_channel=0u;
         parent->wait_kind=0u;
         parent->state=PROCESS_READY;
+        debug_write("LIONOS:JOBCTL:WAITPID-STOP-READY\n");
         return;
     }
 }
@@ -788,6 +794,7 @@ static void process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,i
 }
 
 static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
+    debug_write("LIONOS:JOBCTL:ORPHAN-NOTIFY\n");
     const uint32_t hup_bit=1u<<(LIONOS_SIG_HUP-1u);
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];
@@ -978,6 +985,7 @@ int32_t process_tty_check_foreground(uint32_t sid,uint32_t caller_pid,uint32_t s
         spinlock_irqrestore_release(&process_lock,flags);
         return 0;
     }
+    debug_write("LIONOS:JOBCTL:BACKGROUND-CHECK\n");
     /* POSIX job-control signals are not generated for an orphaned group. */
     if(process_group_orphaned_locked(caller->pgid,sid)){
         spinlock_irqrestore_release(&process_lock,flags);
@@ -1009,12 +1017,14 @@ int32_t process_tty_check_foreground(uint32_t sid,uint32_t caller_pid,uint32_t s
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_ERR;
     }
+    debug_write("LIONOS:JOBCTL:BACKGROUND-STOP-REQUEST\n");
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];
         if(member->state==PROCESS_UNUSED||member->state==PROCESS_ZOMBIE||
            member->is_thread||member->pgid!=caller->pgid)continue;
         stop_process_locked(member,signal);
     }
+    debug_write("LIONOS:JOBCTL:BACKGROUND-STOP-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
     return 1;
 }
