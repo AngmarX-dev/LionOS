@@ -49,7 +49,7 @@ int main(void) {
     const uint32_t initial_sid = (uint32_t)lion_getsid(0u);
     if (initial_pgid != self || initial_sid != self ||
         lion_getpgid(0xFFFFFFFFu) != -1 ||
-        lion_getsid(0xFFFFFFFFu) != -1 ||
+        lion_getsid(0xFFFFFFFFu) != -1 || lion_setsid() != -1 ||
         lion_setpgid(0u, initial_pgid) != -1 ||
         lion_setpgid(0xFFFFFFFFu, 0u) != -1)
         return fail("PROCESS GROUP: self/invalid PID handling", 22);
