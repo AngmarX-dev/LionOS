@@ -21,7 +21,7 @@ int main(void) {
         keyboard_tty_forward_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("translated character forwarding failed", 2);
 
-    int32_t count = tty_read(42u, output, sizeof(output));
+    int32_t count = tty_read(42u, 42u, output, sizeof(output));
     if (count != 3 || output[0] != 'h' || output[1] != '!' || output[2] != '\n')
         return fail("canonical input did not preserve forwarded bytes", 3);
 
@@ -29,7 +29,7 @@ int main(void) {
         keyboard_tty_forward_byte(0x03u) != TTY_INPUT_INTERRUPT ||
         keyboard_tty_forward_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("Ctrl-C event forwarding failed", 4);
-    count = tty_read(42u, output, sizeof(output));
+    count = tty_read(42u, 42u, output, sizeof(output));
     if (count != 1 || output[0] != '\n')
         return fail("interrupt event did not flush the edit line", 5);
 
