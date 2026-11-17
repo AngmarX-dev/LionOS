@@ -33,7 +33,8 @@ static int futex_key(uint32_t address, uint32_t *channel, uint32_t *bucket_index
     return 0;
 }
 
-int32_t futex_wait(uint32_t user_address, uint32_t expected) {
+int32_t futex_wait(uint32_t user_address, uint32_t expected, uint32_t timeout_ticks) {
+    if (timeout_ticks > 0x7FFFFFFFu) return -1;
     uint32_t channel, index;
     if (futex_key(user_address, &channel, &index) != 0)
         return -1;
@@ -50,7 +51,9 @@ int32_t futex_wait(uint32_t user_address, uint32_t expected) {
         return 1;
     }
 
-    return process_futex_sleep_on(channel, &bucket->lock, flags);
+    return timeout_ticks
+        ? process_futex_sleep_on_timeout(channel, &bucket->lock, flags, timeout_ticks)
+        : process_futex_sleep_on(channel, &bucket->lock, flags);
 }
 
 int32_t futex_wake(uint32_t user_address, uint32_t maximum) {
