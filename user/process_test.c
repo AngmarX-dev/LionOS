@@ -31,7 +31,7 @@ static int libc_self_test(void) {
     if (strrchr(buffer, 'e') != &buffer[4]) return 6;
     if (atoi("  -1234x") != -1234) return 7;
 
-    memmove(buffer + 1, buffer, 4u);
+    memmove(buffer + 1, buffer, 5u);
     if (memcmp(buffer, expected, 6u) != 0) return 8;
 
     memset(buffer, 'x', 3u);
