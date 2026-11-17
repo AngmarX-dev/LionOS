@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+/* Semantic user mapping flag; paging translates it to hardware NX when available. */
+#define PAGING_USER_EXECUTABLE 0x400u
+
 void paging_init(void);
 uint32_t paging_kernel_directory(void);
 uint32_t paging_create_address_space(void);
@@ -20,6 +23,7 @@ int paging_mark_cow(uint32_t page_directory, uint32_t virtual_address);
 int paging_resolve_cow(uint32_t page_directory, uint32_t virtual_address);
 int paging_get_user_page(uint32_t page_directory, uint32_t virtual_address,
                          uint32_t *physical_address, uint32_t *flags);
+int paging_user_page_executable(uint32_t page_directory, uint32_t virtual_address);
 void paging_destroy_address_space(uint32_t page_directory);
 void paging_switch_address_space(uint32_t page_directory);
 uint32_t paging_current_address_space(void);
