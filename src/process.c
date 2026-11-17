@@ -666,9 +666,9 @@ static void stop_process_locked(struct process *process,uint32_t signal){
 static void continue_process_locked(struct process *process){
     if(!process||process->state==PROCESS_UNUSED||process->state==PROCESS_ZOMBIE)return;
     int was_stopped=process->state==PROCESS_STOPPED;
-    uint32_t stop_signal=process->stop_signal?process->stop_signal:LIONOS_SIG_STOP;
-    uint32_t stop_bit=1u<<(stop_signal-1u);
-    process->pending_signals&=~stop_bit;
+    const uint32_t stop_mask=(1u<<(LIONOS_SIG_STOP-1u))|
+        (1u<<(LIONOS_SIG_TTIN-1u))|(1u<<(LIONOS_SIG_TTOU-1u));
+    process->pending_signals&=~stop_mask;
     if(!process->is_thread){
         process->stop_event_pending=0u;
         process->stop_signal=0u;
@@ -681,7 +681,7 @@ static void continue_process_locked(struct process *process){
             struct process *thread=&processes[i];
             if(thread->state==PROCESS_UNUSED||thread->state==PROCESS_ZOMBIE||
                !thread->is_thread||thread->thread_group_pid!=process->pid)continue;
-            thread->pending_signals&=~stop_bit;
+            thread->pending_signals&=~stop_mask;
             if(thread->state==PROCESS_STOPPED)thread->state=PROCESS_READY;
             uint32_t cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
             __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
