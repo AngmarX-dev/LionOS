@@ -258,8 +258,11 @@ int32_t tty_input_byte(uint8_t byte) {
     return TTY_INPUT_NONE;
 }
 
-int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity) {
-    if (sid == 0u || !destination || capacity == 0u)
+int32_t tty_read(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+                 uint8_t *destination, uint32_t capacity) {
+    if (sid == 0u || !caller_pid || !caller_pgid || !destination || capacity == 0u)
+        return TTY_ERROR;
+    if (process_tty_check_foreground(sid, caller_pid, LIONOS_SIG_TTIN) != 0)
         return TTY_ERROR;
 
     tty_flush_echo(sid);
@@ -284,8 +287,11 @@ int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity) {
     return (int32_t)copied;
 }
 
-int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity) {
-    if (sid == 0u || !destination || capacity == 0u)
+int32_t tty_read_blocking(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+                          uint8_t *destination, uint32_t capacity) {
+    if (sid == 0u || !caller_pid || !caller_pgid || !destination || capacity == 0u)
+        return TTY_ERROR;
+    if (process_tty_check_foreground(sid, caller_pid, LIONOS_SIG_TTIN) != 0)
         return TTY_ERROR;
 
     tty_flush_echo(sid);
@@ -350,8 +356,20 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
     return (int32_t)copied;
 }
 
-int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length) {
-    if (sid == 0u || (!source && length != 0u) || length > 4096u)
+int32_t tty_write(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+                  const uint8_t *source, uint32_t length) {
+    if (sid == 0u || !caller_pid || !caller_pgid ||
+        (!source && length != 0u) || length > 4096u)
+        return TTY_ERROR;
+    uint32_t input_flags = spinlock_irqsave_acquire(&console_tty.input_lock);
+    int owns_session = console_tty.owner_sid == sid;
+    int stop_background_output =
+        (console_tty.attributes & TTY_ATTR_TOSTOP) != 0u;
+    spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
+    if (!owns_session)
+        return TTY_ERROR;
+    if (stop_background_output &&
+        process_tty_check_foreground(sid, caller_pid, LIONOS_SIG_TTOU) != 0)
         return TTY_ERROR;
     uint32_t output_flags = spinlock_irqsave_acquire(&console_tty.output_lock);
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
