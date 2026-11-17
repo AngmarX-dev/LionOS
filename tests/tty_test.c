@@ -127,8 +127,12 @@ int main(void) {
         tty_test_output[TTY_EDIT_LINE_CAPACITY - 1u] != '\n')
         return fail("maximum canonical echo length mismatch", 29);
 
+    if (tty_input_byte('p') != TTY_INPUT_NONE ||
+        tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG) == 0 ||
+        tty_input_byte(0x7Fu) != TTY_INPUT_NONE)
+        return fail("mode switch discarded pending canonical edit", 37);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG) != 0)
-        return fail("noncanonical mode setup failed", 37);
+        return fail("noncanonical mode setup failed", 43);
     if (tty_read_blocking(10u, output, sizeof(output)) != TTY_READ_BLOCKED ||
         tty_test_sleep_count != 2u)
         return fail("noncanonical empty read did not block", 38);
