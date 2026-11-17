@@ -33,6 +33,8 @@ static inline uint32_t lion_getppid(void){return lion_syscall0(LIONOS_SYS_GETPPI
 static inline int32_t lion_getpgid(uint32_t pid){return (int32_t)lion_syscall1(LIONOS_SYS_GETPGID,pid);}
 static inline int32_t lion_setpgid(uint32_t pid,uint32_t pgid){return (int32_t)lion_syscall2(LIONOS_SYS_SETPGID,pid,pgid);}
 static inline int32_t lion_killpg(uint32_t pgid,uint32_t signal){return (int32_t)lion_syscall2(LIONOS_SYS_KILLPG,pgid,signal);}
+static inline int32_t lion_setsid(void){return (int32_t)lion_syscall0(LIONOS_SYS_SETSID);}
+static inline int32_t lion_getsid(uint32_t pid){return (int32_t)lion_syscall1(LIONOS_SYS_GETSID,pid);}
 static inline uint32_t lion_yield(void){return lion_syscall0(LIONOS_SYS_YIELD);}
 static inline void lion_exit_code(uint32_t c){(void)lion_syscall1(LIONOS_SYS_EXIT,c);for(;;)__asm__ volatile("hlt");}
 static inline void lion_exit(void){lion_exit_code(0);}
