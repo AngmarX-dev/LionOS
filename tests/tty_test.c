@@ -66,8 +66,9 @@ int main(void) {
         tty_input_byte('c') != TTY_INPUT_NONE ||
         tty_input_byte('\r') != TTY_INPUT_LINE_READY)
         return fail("canonical editing/newline failed", 9);
+    tty_flush_echo(10u);
     if (tty_test_output_length != 7u ||
-        memcmp(tty_test_output, "ab\\b \\bc\n", 7u) != 0)
+        memcmp(tty_test_output, "ab\b \bc\n", 7u) != 0)
         return fail("canonical editing echo/backspace mismatch", 27);
     if (tty_read(20u, output, sizeof(output)) != TTY_ERROR)
         return fail("non-owner read accepted", 10);
@@ -82,6 +83,7 @@ int main(void) {
         tty_input_byte(0x03u) != TTY_INPUT_INTERRUPT ||
         tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("interrupt character handling failed", 13);
+    tty_flush_echo(10u);
     if (tty_test_output_length != 5u ||
         memcmp(tty_test_output, "x^C\n\n", 5u) != 0)
         return fail("Ctrl-C visual echo mismatch", 28);
