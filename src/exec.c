@@ -125,6 +125,9 @@ static int load_image(const char *name, uint32_t *entry, uint32_t *stack,
                     ((uint8_t *)(uintptr_t)pages[idx])[b] = 0;
             }
             if (p->flags & 2u) flags[idx] |= 2u;
+            if (p->flags & 1u) flags[idx] |= PAGING_USER_EXECUTABLE;
+            if ((flags[idx] & (2u|PAGING_USER_EXECUTABLE)) ==
+                (2u|PAGING_USER_EXECUTABLE)) goto fail;
         }
     }
 
