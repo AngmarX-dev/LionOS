@@ -20,6 +20,15 @@ static int32_t waitpid_bounded(uint32_t pid,int32_t *status){
     return -2;
 }
 
+static int32_t waitpid_event_bounded(uint32_t pid,int32_t *status,uint32_t options){
+    for(uint32_t attempt=0u;attempt<512u;++attempt){
+        int32_t result=lion_waitpid_options(pid,status,options|LIONOS_WNOHANG);
+        if(result==(int32_t)pid||result<0)return result;
+        (void)lion_yield();
+    }
+    return -2;
+}
+
 static int test_setsid_orphan_transition(void){
     int32_t status=-1;
     uint32_t parent=lion_fork();
@@ -31,8 +40,9 @@ static int test_setsid_orphan_transition(void){
         if(child==LIONOS_SYSCALL_ERR)lion_exit_code(43u);
         if(lion_setpgid(child,child)!=0||lion_kill(child,LIONOS_SIG_STOP)!=0)
             lion_exit_code(41u);
-        if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
-           !LIONOS_WIFSTOPPED(status))lion_exit_code(44u);
+        if(waitpid_event_bounded(child,&status,LIONOS_WUNTRACED)!=(int32_t)child)
+            lion_exit_code(148u);
+        if(!LIONOS_WIFSTOPPED(status))lion_exit_code(44u);
         if(lion_setsid()<0)lion_exit_code(45u);
         status=-1;
         if(waitpid_bounded(child,&status)!=(int32_t)child)
@@ -74,8 +84,9 @@ static int test_setpgid_orphan_transition(void){
             if(lion_setpgid(child,child)!=0||
                lion_kill(child,LIONOS_SIG_STOP)!=0)
                 lion_exit_code(72u);
-            if(lion_waitpid_options(child,&status,LIONOS_WUNTRACED)!=(int32_t)child||
-               !LIONOS_WIFSTOPPED(status))
+            if(waitpid_event_bounded(child,&status,LIONOS_WUNTRACED)!=(int32_t)child)
+                lion_exit_code(182u);
+            if(!LIONOS_WIFSTOPPED(status))
                 lion_exit_code(73u);
 
             /* Put both processes in the child's group while the session
