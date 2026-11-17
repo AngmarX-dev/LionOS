@@ -129,6 +129,7 @@ The project explores operating-system internals through real low-level code: boo
 | Runtime canonical/noncanonical TTY input mode | ✅ |
 | Noncanonical VMIN byte-threshold reads and live threshold updates | ✅ |
 | Noncanonical VTIME total/inter-byte read timeouts | ✅ |
+| Foreground/background TTY I/O checks with SIGTTIN/SIGTTOU and TOSTOP | 🟡 |
 | PS/2 keyboard | ✅ |
 | PS/2 mouse | ✅ |
 | xHCI HID USB mouse path | ✅ |
