@@ -106,9 +106,8 @@ case LIONOS_SYS_TTY_GETPGRP:{
 }
 case LIONOS_SYS_TTY_SETPGRP:{
     int32_t sid=process_get_sid(0u);
-    if(!has_cap(PROCESS_CAP_CONSOLE)||sid<=0||!arg0||
-       !process_pgid_in_session(arg0,(uint32_t)sid))return SYSCALL_ERR;
-    return (uint32_t)tty_set_foreground_pgid((uint32_t)sid,arg0);
+    if(!has_cap(PROCESS_CAP_CONSOLE)||sid<=0||!arg0)return SYSCALL_ERR;
+    return (uint32_t)process_tty_set_foreground((uint32_t)sid,arg0);
 }
 case LIONOS_SYS_NET_SEND:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;if(arg2==0||arg3==0||arg3>NET_PACKET_MAX||!usercopy_validate_read(arg2,arg3))return SYSCALL_ERR;{void *buffer=syscall_copy_in(arg2,arg3);if(!buffer)return SYSCALL_ERR;int32_t r=net_send(arg0,(uint16_t)(arg1>>16),(uint16_t)arg1,buffer,arg3);kfree(buffer);return(uint32_t)r;}
 case LIONOS_SYS_NET_RECV:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;{if(arg2==0||arg2>NET_PACKET_MAX||!usercopy_validate_write(arg1,arg2)||(arg3&&!usercopy_validate_write(arg3,sizeof(uint32_t)))||(arg4&&!usercopy_validate_write(arg4,sizeof(uint16_t)))||(arg3&&arg1<arg3+sizeof(uint32_t)&&arg3<arg1+arg2)||(arg4&&arg1<arg4+sizeof(uint16_t)&&arg4<arg1+arg2)||(arg3&&arg4&&arg3<arg4+sizeof(uint16_t)&&arg4<arg3+sizeof(uint32_t)))return SYSCALL_ERR;void *buffer=kmalloc(arg2);if(!buffer)return SYSCALL_ERR;uint32_t sip=0;uint16_t sport=0;int32_t n=net_recv((uint16_t)arg0,buffer,arg2,&sip,&sport);if(n>0&&(syscall_copy_out(arg1,buffer,(uint32_t)n)!=0||(arg3&&syscall_copy_out(arg3,&sip,sizeof(sip))!=0)||(arg4&&syscall_copy_out(arg4,&sport,sizeof(sport))!=0)))n=-1;kfree(buffer);if(n==NET_RECV_EMPTY)return LIONOS_NET_EMPTY;return n<0?SYSCALL_ERR:(uint32_t)n;}
