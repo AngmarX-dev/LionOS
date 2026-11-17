@@ -683,7 +683,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
                 if(thread->state==PROCESS_WAITING&&(thread->wait_kind==1u||thread->wait_kind==2u)){
                     uint32_t *frame=(uint32_t *)(uintptr_t)thread->saved_frame;
                     if(frame)frame[11]=LIONOS_FUTEX_INTERRUPTED;
-                    thread->wait_channel=0u;thread->wait_kind=0u;thread->wait_timeout_active=0u;thread->wait_timeout_result=0u;thread->wait_timeout_result=0u;
+                    thread->wait_channel=0u;thread->wait_kind=0u;thread->wait_timeout_active=0u;thread->wait_timeout_result=0u;
                 }
                 thread->state=PROCESS_STOPPED;
                 uint32_t cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
