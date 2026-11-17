@@ -58,15 +58,34 @@ if int(version.group(1)) != int(query.group(1)):
 
 # Guard the user-pointer access direction for syscalls that write into user memory.
 required_write_checks = (
-    "if(!usercopy_validate_write(arg1,sizeof(uint32_t)))return SYSCALL_ERR;{int32_t result=process_waitpid",
-    "case LIONOS_SYS_THREAD_JOIN:if(!has_cap(PROCESS_CAP_PROCESS)||!usercopy_validate_write(arg1,sizeof(uint32_t)))",
-    "case LIONOS_SYS_PIPE_READ:if(!has_cap(PROCESS_CAP_IPC)||arg2==0||arg2>IPC_MESSAGE_MAX||!usercopy_validate_write(arg1,arg2))",
-    "case LIONOS_SYS_READDIR:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];",
-    "!usercopy_validate_write(arg1,sizeof(uint32_t))||!usercopy_validate_write(arg2,sizeof(*user_entry))",
+    "case SYS_READ:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;",
+    "case LIONOS_SYS_FREAD:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;",
+    "case LIONOS_SYS_FWRITE:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;",
+    "case LIONOS_SYS_IPC_RECV_BLOCKING:if(!has_cap(PROCESS_CAP_IPC))return SYSCALL_ERR;",
+    "case LIONOS_SYS_PIPE_READ:if(!has_cap(PROCESS_CAP_IPC)",
+    "case LIONOS_SYS_NET_RECV:if(!has_cap(PROCESS_CAP_NET))return SYSCALL_ERR;",
+    "case LIONOS_SYS_READDIR:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;",
+    "case LIONOS_SYS_THREAD_CREATE:if(!has_cap(PROCESS_CAP_PROCESS)||!usercopy_validate_read(arg0,1u))",
 )
+
 for fragment in required_write_checks:
     if fragment not in dispatcher:
         fail("writable user-buffer validation missing or changed: " + fragment)
+
+# User pointers must be copied through the centralized boundary helpers.
+for forbidden in (
+    "(const char*)(uintptr_t)arg0",
+    "(const void*)(uintptr_t)arg1",
+    "(void*)(uintptr_t)arg1",
+    "(uint32_t*)(uintptr_t)arg0",
+    "(uint32_t*)(uintptr_t)arg1",
+):
+    if forbidden in dispatcher:
+        fail("direct user-pointer dereference remains: " + forbidden)
+
+for required in ("usercopy_copy_from(", "usercopy_copy_to(", "syscall_copy_in(", "syscall_copy_out("):
+    if required not in dispatcher:
+        fail("centralized usercopy operation missing: " + required)
 
 print("UAPI check: PASS (" + str(len(definitions)) +
       " unique syscall numbers; ABI " + version.group(1) +
