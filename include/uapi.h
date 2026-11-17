@@ -60,6 +60,7 @@
 #define LIONOS_PIPE_BLOCKED ((uint32_t)-2)
 #define LIONOS_FUTEX_BLOCKED ((uint32_t)-2)
 #define LIONOS_FUTEX_TIMED_OUT 2u
+#define LIONOS_FUTEX_INTERRUPTED 3u
 
 struct lion_mouse_event {
     int32_t dx;
