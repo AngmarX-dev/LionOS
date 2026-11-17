@@ -355,10 +355,15 @@ int32_t tty_set_attributes(uint32_t sid, uint32_t flags, uint32_t vmin) {
         spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
         return TTY_ERROR;
     }
+    uint32_t wake_readers =
+        (console_tty.vmin != vmin) ||
+        (((flags ^ console_tty.attributes) & TTY_ATTR_ICANON) != 0u);
     console_tty.attributes = flags;
     console_tty.vmin = vmin;
     if ((flags & TTY_ATTR_ECHO) == 0u)
         console_tty.echo_count = 0u;
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
+    if (wake_readers)
+        process_wakeup((uintptr_t)&tty_read_wait_channel);
     return 0;
 }
