@@ -19,6 +19,7 @@
 #define TTY_ATTR_ISIG 0x02u
 #define TTY_ATTR_ICANON 0x04u
 #define TTY_ATTR_SUPPORTED (TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON)
+#define TTY_VMIN_MAX 255u
 
 void tty_init(void);
 
@@ -41,8 +42,8 @@ int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity);
 /* VFS stdin read: sleeps atomically until input arrives or the session ends. */
 int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity);
 int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length);
-int32_t tty_get_attributes(uint32_t sid, uint32_t *flags);
-int32_t tty_set_attributes(uint32_t sid, uint32_t flags);
+int32_t tty_get_attributes(uint32_t sid, uint32_t *flags, uint32_t *vmin);
+int32_t tty_set_attributes(uint32_t sid, uint32_t flags, uint32_t vmin);
 /* Flush queued input echo from process context, never from a keyboard IRQ. */
 void tty_flush_echo(uint32_t sid);
 
