@@ -704,9 +704,9 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     /* ---- CPU topology / APIC ---- */
     cpu_init(multiboot_info);
     if(cpu_enable_nx()==0){
-        debug_write("LIONOS:NX-ENABLED\\n");
+        debug_write("LIONOS:NX-ENABLED\n");
     }else{
-        debug_write("LIONOS:NX-UNAVAILABLE\\n");
+        debug_write("LIONOS:NX-UNAVAILABLE\n");
     }
 
     /*
