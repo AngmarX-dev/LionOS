@@ -21,7 +21,7 @@ static void make_valid_image(void) {
 
     struct elf32_phdr *p = (struct elf32_phdr *)(image + PH_OFFSET);
     p->type = PT_LOAD; p->offset = 0x100u; p->vaddr = 0x10001000u;
-    p->filesz = 16u; p->memsz = 32u; p->flags = 5u; p->align = 0x1000u;
+    p->filesz = 16u; p->memsz = 32u; p->flags = 5u; p->align = 0x100u;
 }
 
 static int expect_valid(const char *name, int expected) {
