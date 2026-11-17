@@ -137,7 +137,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 
 - Console calls require PROCESS_CAP_CONSOLE.
 - File/VFS calls require PROCESS_CAP_FS.
-- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, KILLPG, SETPGID, SETSID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS; EXIT and read-only metadata queries are not all gated by that capability.
+- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, KILLPG, SETPGID, SETSID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS. GETSID is also capability-gated; EXIT and other read-only metadata queries are not all gated by that capability.
 - IPC and pipe calls require PROCESS_CAP_IPC.
 - Network calls require PROCESS_CAP_NET.
 - The dispatcher validates user pointers before dereferencing user buffers. Each call also applies capacity, ownership, and state checks.
