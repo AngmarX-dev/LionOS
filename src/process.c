@@ -86,9 +86,6 @@ int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
     if(new_pgid!=target->pid&&new_pgid!=current->pgid){
         spinlock_irqrestore_release(&process_lock,flags);return -1;
     }
-    if(new_pgid!=target->pid&&new_pgid!=current->pgid){
-        spinlock_irqrestore_release(&process_lock,flags);return -1;
-    }
     uint32_t group=target->thread_group_pid?target->thread_group_pid:target->pid;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];
