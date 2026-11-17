@@ -211,7 +211,7 @@ struct process *process_create_ex_vas(uint32_t entry,uint32_t stack,uint32_t pd,
         return 0;
     }
     flags=spinlock_irqsave_acquire(&process_lock);
-    if(p->state==PROCESS_STOPPED)p->state=PROCESS_READY;
+    if(p->state==PROCESS_STOPPED&&!p->stop_event_pending)p->state=PROCESS_READY;
     spinlock_irqrestore_release(&process_lock,flags);
     return p;
 }
@@ -297,7 +297,7 @@ uint32_t process_fork_current(uint32_t *parent_frame){
             return PROCESS_SYSCALL_ERR;
         }
         cleanup_flags=spinlock_irqsave_acquire(&process_lock);
-        if(slot->state==PROCESS_STOPPED)slot->state=PROCESS_READY;
+        if(slot->state==PROCESS_STOPPED&&!slot->stop_event_pending)slot->state=PROCESS_READY;
         spinlock_irqrestore_release(&process_lock,cleanup_flags);
         return result;
     }
