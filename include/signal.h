@@ -2,6 +2,7 @@
 #define LIONOS_SIGNAL_H
 
 #include <stdint.h>
+#include "uapi.h"
 
 #define LIONOS_SIG_HUP 1u
 #define LIONOS_SIG_NONE 0u
@@ -13,6 +14,8 @@
 #define LIONOS_SIG_TTIN 21u
 #define LIONOS_SIG_TTOU 22u
 #define LIONOS_SIG_MAX 31u
+#define LIONOS_SIG_DFL 0u
+#define LIONOS_SIG_IGN 1u
 
 #define LIONOS_SIGNAL_OK 0
 #define LIONOS_SIGNAL_ERR (-1)
@@ -22,5 +25,9 @@ int32_t process_signal(uint32_t pid, uint32_t signal);
 int32_t process_signal_group(uint32_t pgid, uint32_t signal, uint32_t sender_pid);
 uint32_t process_signal_pending(uint32_t pid);
 int32_t process_get_state(uint32_t pid);
+int32_t process_signal_set_action(uint32_t signal, const struct lion_sigaction *action,
+                                  struct lion_sigaction *old_action);
+int process_deliver_pending_signal(uint32_t *frame);
+int process_signal_return(uint32_t *frame);
 
 #endif
