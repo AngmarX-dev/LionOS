@@ -3,7 +3,7 @@
 #include <string.h>
 #include "elf.h"
 
-#define IMAGE_SIZE 256u
+#define IMAGE_SIZE 512u
 #define PH_OFFSET ((uint32_t)sizeof(struct elf32_header))
 
 static uint8_t image[IMAGE_SIZE];
