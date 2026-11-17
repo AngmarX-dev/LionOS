@@ -2,6 +2,7 @@
 #include "tty.h"
 #include "spinlock.h"
 #include "console.h"
+#include "process.h"
 
 struct tty_console_state {
     struct spinlock lock;
@@ -17,6 +18,7 @@ struct tty_console_state {
 };
 
 static struct tty_console_state console_tty;
+static uint8_t tty_read_wait_channel;
 
 static void tty_reset_buffers_locked(void) {
     console_tty.input_head = 0u;
@@ -71,6 +73,7 @@ int32_t tty_release_session(uint32_t sid) {
     tty_reset_buffers_locked();
     spinlock_irqrestore_release(&console_tty.lock, flags);
     spinlock_irqrestore_release(&console_tty.output_lock, output_flags);
+    process_wakeup((uintptr_t)&tty_read_wait_channel);
     return 0;
 }
 
@@ -148,6 +151,7 @@ int32_t tty_input_byte(uint8_t byte) {
         console_tty.input_count += required;
         console_tty.edit_length = 0u;
         spinlock_irqrestore_release(&console_tty.lock, flags);
+        process_wakeup((uintptr_t)&tty_read_wait_channel);
         return TTY_INPUT_LINE_READY;
     }
 
@@ -178,6 +182,33 @@ int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity) {
     if (console_tty.input_count == 0u) {
         spinlock_irqrestore_release(&console_tty.lock, flags);
         return TTY_READ_EMPTY;
+    }
+
+    uint32_t copied = 0u;
+    while (copied < capacity && console_tty.input_count != 0u) {
+        destination[copied++] = console_tty.input[console_tty.input_head];
+        console_tty.input_head =
+            (console_tty.input_head + 1u) % TTY_INPUT_QUEUE_CAPACITY;
+        --console_tty.input_count;
+    }
+    spinlock_irqrestore_release(&console_tty.lock, flags);
+    return (int32_t)copied;
+}
+
+int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity) {
+    if (sid == 0u || !destination || capacity == 0u)
+        return TTY_ERROR;
+
+    uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
+    if (console_tty.owner_sid != sid) {
+        spinlock_irqrestore_release(&console_tty.lock, flags);
+        return TTY_ERROR;
+    }
+
+    if (console_tty.input_count == 0u) {
+        int32_t blocked = process_sleep_on(
+            (uintptr_t)&tty_read_wait_channel, &console_tty.lock, flags);
+        return blocked == PROCESS_WAIT_BLOCKED ? TTY_READ_BLOCKED : TTY_ERROR;
     }
 
     uint32_t copied = 0u;
