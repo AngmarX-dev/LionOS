@@ -7,8 +7,8 @@
 #include "pipe.h"
 #include "net.h"
 
-#define LIONOS_UAPI_VERSION 10u
-#define LIONOS_SYSCALL_ABI 9u
+#define LIONOS_UAPI_VERSION 11u
+#define LIONOS_SYSCALL_ABI 10u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u
 #define LIONOS_SYS_YIELD 3u
@@ -52,6 +52,8 @@
 #define LIONOS_SYS_GETPGID 50u
 #define LIONOS_SYS_SETPGID 51u
 #define LIONOS_SYS_KILLPG 52u
+#define LIONOS_SYS_SETSID 53u
+#define LIONOS_SYS_GETSID 54u
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
