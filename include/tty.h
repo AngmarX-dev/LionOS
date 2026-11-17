@@ -11,6 +11,7 @@
 #define TTY_INPUT_INTERRUPT 1
 #define TTY_INPUT_LINE_READY 2
 #define TTY_READ_EMPTY (-2)
+#define TTY_READ_BLOCKED (-3)
 #define TTY_ERROR (-1)
 
 void tty_init(void);
@@ -29,8 +30,10 @@ int32_t tty_set_foreground_pgid(uint32_t sid, uint32_t pgid);
  */
 int32_t tty_input_byte(uint8_t byte);
 
-/* Reads completed canonical input into a kernel buffer; never blocks. */
+/* Nonblocking read retained for the explicit TTY syscall. */
 int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity);
+/* VFS stdin read: sleeps atomically until a line arrives or the session ends. */
+int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity);
 int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length);
 
 #endif
