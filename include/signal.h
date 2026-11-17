@@ -9,6 +9,8 @@
 #define LIONOS_SIG_KILL 9u
 #define LIONOS_SIG_STOP 19u
 #define LIONOS_SIG_CONT 18u
+#define LIONOS_SIG_TTIN 21u
+#define LIONOS_SIG_TTOU 22u
 #define LIONOS_SIG_MAX 31u
 
 #define LIONOS_SIGNAL_OK 0
