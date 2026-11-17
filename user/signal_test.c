@@ -3,9 +3,20 @@
 #include "user_libc.h"
 
 static volatile uint32_t thread_observed_pgid;
+static volatile uint32_t thread_observed_sid;
+static volatile uint32_t thread_session_start;
 
 static void thread_worker_pgid(void) {
     thread_observed_pgid = (uint32_t)lion_getpgid(0u);
+    thread_observed_sid = (uint32_t)lion_getsid(0u);
+    lion_thread_exit(0u);
+}
+
+static void thread_worker_session(void) {
+    while (thread_session_start == 0u)
+        (void)lion_yield();
+    thread_observed_pgid = (uint32_t)lion_getpgid(0u);
+    thread_observed_sid = (uint32_t)lion_getsid(0u);
     lion_thread_exit(0u);
 }
 
@@ -46,14 +57,26 @@ int main(void) {
     uint32_t session_child = lion_fork();
     if (session_child == 0u) {
         const uint32_t child_pid = lion_getpid();
-        if (lion_getsid(0u) != (int32_t)initial_sid)
+        if (lion_getsid(0u) != (int32_t)initial_sid ||
+            lion_getpgid(0u) != (int32_t)initial_pgid)
             lion_exit_code(40u);
+        uint32_t session_tid = lion_thread_create(thread_worker_session);
+        if (session_tid == LIONOS_SYSCALL_ERR)
+            lion_exit_code(41u);
+        thread_session_start = 0u;
         if (lion_setsid() != (int32_t)child_pid ||
             lion_getsid(0u) != (int32_t)child_pid ||
             lion_getpgid(0u) != (int32_t)child_pid)
-            lion_exit_code(41u);
-        if (lion_setsid() != -1 || lion_setpgid(0u, child_pid) != -1)
             lion_exit_code(42u);
+        thread_session_start = 1u;
+        int32_t thread_status = -1;
+        if (lion_thread_join(session_tid, &thread_status) != (int32_t)session_tid ||
+            thread_status != 0 ||
+            thread_observed_sid != child_pid ||
+            thread_observed_pgid != child_pid)
+            lion_exit_code(43u);
+        if (lion_setsid() != -1 || lion_setpgid(0u, child_pid) != -1)
+            lion_exit_code(44u);
         for (;;) (void)lion_yield();
     }
     if (session_child == LIONOS_SYSCALL_ERR)
@@ -111,9 +134,11 @@ int main(void) {
     uint32_t pgid_tid = lion_thread_create(thread_worker_pgid);
     int32_t pgid_thread_status = -1;
     thread_observed_pgid = 0u;
+    thread_observed_sid = 0u;
     if (pgid_tid == LIONOS_SYSCALL_ERR ||
         lion_thread_join(pgid_tid, &pgid_thread_status) != (int32_t)pgid_tid ||
-        pgid_thread_status != 0 || thread_observed_pgid != initial_pgid)
+        pgid_thread_status != 0 || thread_observed_pgid != initial_pgid ||
+        thread_observed_sid != initial_sid)
         return fail("PROCESS GROUP: thread leader lookup", 28);
     puts("PROCESS GROUP: PASS");
 
