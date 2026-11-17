@@ -94,6 +94,8 @@ int32_t process_get_pgid(uint32_t pid);
 int32_t process_get_sid(uint32_t pid);
 int32_t process_tty_set_foreground(uint32_t sid, uint32_t pgid);
 int32_t process_tty_signal_foreground(uint32_t sid, uint32_t pgid, uint32_t signal);
+/* Returns 0 for foreground, 1 after queuing SIGTTIN/SIGTTOU, or -1 on invalid state. */
+int32_t process_tty_check_foreground(uint32_t sid, uint32_t caller_pid, uint32_t signal);
 int32_t process_create_session(void);
 int32_t process_set_pgid(uint32_t pid, uint32_t pgid);
 struct process *process_pipe_owner(void);
