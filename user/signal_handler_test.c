@@ -29,16 +29,19 @@ int main(void) {
         return 3;
 
     if (child == 0u) {
+        if (lion_sigaction(LIONOS_SIG_HUP, LIONOS_SIG_IGN) != 0)
+            lion_exit_code(4u);
+
         uint32_t ready = SIGNAL_READY;
         if (lion_ipc_send(parent, &ready, sizeof(ready)) != 0)
-            lion_exit_code(4u);
+            lion_exit_code(5u);
 
         for (uint32_t attempt = 0u; attempt < 1000u; ++attempt) {
             if (signal_seen)
                 lion_exit_code(0u);
             (void)lion_yield();
         }
-        lion_exit_code(5u);
+        lion_exit_code(6u);
     }
 
     uint32_t ready = 0u;
@@ -50,16 +53,21 @@ int main(void) {
         return 6;
     }
 
-    if (lion_kill(child, LIONOS_SIG_INT) != 0) {
+    if (lion_kill(child, LIONOS_SIG_HUP) != 0) {
         reap_failed_child(child);
         return 7;
     }
 
+    if (lion_kill(child, LIONOS_SIG_INT) != 0) {
+        reap_failed_child(child);
+        return 8;
+    }
+
     int32_t status = -1;
     if (lion_waitpid(child, &status) != (int32_t)child)
-        return 8;
-    if (status != 0)
         return 9;
+    if (status != 0)
+        return 10;
 
     return 0;
 }
