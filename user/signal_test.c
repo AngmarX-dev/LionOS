@@ -2,6 +2,13 @@
 #include "user_api.h"
 #include "user_libc.h"
 
+static volatile uint32_t thread_observed_pgid;
+
+static void thread_worker_pgid(void) {
+    thread_observed_pgid = (uint32_t)lion_getpgid(0u);
+    lion_thread_exit(0u);
+}
+
 static int fail(const char *message, uint32_t code) {
     puts(message);
     return (int)code;
@@ -10,6 +17,43 @@ static int fail(const char *message, uint32_t code) {
 int main(void) {
     const uint32_t self = lion_getpid();
     int32_t status = -1;
+
+    const uint32_t initial_pgid = (uint32_t)lion_getpgid(0u);
+    if (initial_pgid != self || lion_getpgid(0xFFFFFFFFu) != -1 ||
+        lion_setpgid(0u, initial_pgid) != 0 ||
+        lion_setpgid(0xFFFFFFFFu, 0u) != -1)
+        return fail("PROCESS GROUP: self/invalid PID handling", 22);
+
+    uint32_t pgid_child = lion_fork();
+    if (pgid_child == 0u) {
+        for (;;) (void)lion_yield();
+    }
+    if (pgid_child == LIONOS_SYSCALL_ERR ||
+        lion_getpgid(pgid_child) != (int32_t)initial_pgid)
+        return fail("PROCESS GROUP: fork inheritance", 23);
+    if (lion_setpgid(pgid_child, pgid_child) != 0 ||
+        lion_getpgid(pgid_child) != (int32_t)pgid_child)
+        return fail("PROCESS GROUP: child group creation", 24);
+    if (lion_setpgid(pgid_child, initial_pgid) != 0 ||
+        lion_getpgid(pgid_child) != (int32_t)initial_pgid)
+        return fail("PROCESS GROUP: child rejoin", 25);
+    if (lion_setpgid(pgid_child, 0xFFFFFFFFu) != -1 ||
+        lion_getpgid(pgid_child) != (int32_t)initial_pgid ||
+        lion_kill(pgid_child, LIONOS_SIG_TERM) != 0)
+        return fail("PROCESS GROUP: rejected update/child cleanup", 26);
+    int32_t pgid_status = -1;
+    if (lion_waitpid(pgid_child, &pgid_status) != (int32_t)pgid_child ||
+        pgid_status != (int32_t)(128u + LIONOS_SIG_TERM))
+        return fail("PROCESS GROUP: child reap", 27);
+
+    uint32_t pgid_tid = lion_thread_create(thread_worker_pgid);
+    int32_t pgid_thread_status = -1;
+    thread_observed_pgid = 0u;
+    if (pgid_tid == LIONOS_SYSCALL_ERR ||
+        lion_thread_join(pgid_tid, &pgid_thread_status) != (int32_t)pgid_tid ||
+        pgid_thread_status != 0 || thread_observed_pgid != initial_pgid)
+        return fail("PROCESS GROUP: thread leader lookup", 28);
+    puts("PROCESS GROUP: PASS");
 
     if (lion_kill(self, LIONOS_SIG_TERM) != -1)
         return fail("SIGNAL TEST: self-signal must be rejected", 1);
