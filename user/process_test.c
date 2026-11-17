@@ -116,7 +116,7 @@ int main(int argc, char **argv) {
     uint32_t second_pid = lion_fork();
     if (second_pid == 0u) lion_exit_code(child_code);
     if (second_pid == LIONOS_SYSCALL_ERR) {
-        (void)lion_kill(first_pid, LIONOS_SIG_KILL);
+        (void)lion_waitpid(first_pid, &status);
         puts("[FAIL] second wait-any fork failed");
         return 8;
     }
