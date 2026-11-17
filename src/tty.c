@@ -102,6 +102,7 @@ int32_t tty_claim_session(uint32_t sid, uint32_t leader_pid) {
         console_tty.foreground_pgid = sid;
         console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON;
         console_tty.vmin = 1u;
+        console_tty.vtime = 0u;
         tty_reset_buffers_locked();
     }
     spinlock_irqrestore_release(&console_tty.lock, flags);
@@ -127,6 +128,7 @@ int32_t tty_release_session(uint32_t sid) {
     console_tty.foreground_pgid = 0u;
     console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON;
     console_tty.vmin = 1u;
+    console_tty.vtime = 0u;
     tty_reset_buffers_locked();
     spinlock_irqrestore_release(&console_tty.lock, flags);
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
@@ -300,7 +302,9 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
             required = capacity;
 
         if (required == 0u && vtime != 0u) {
-            if (console_tty.input_count == 0u) {
+            if (console_tty.input_count != 0u) {
+                (void)process_consume_timeout();
+            } else {
                 if (process_consume_timeout()) {
                     spinlock_irqrestore_release(&console_tty.input_lock, flags);
                     return 0;
@@ -311,6 +315,8 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
                     flags, ticks);
                 return blocked == PROCESS_WAIT_BLOCKED ? TTY_READ_BLOCKED : TTY_ERROR;
             }
+        } else if (required != 0u && console_tty.input_count >= required && vtime != 0u) {
+            (void)process_consume_timeout();
         } else if (required != 0u && console_tty.input_count < required) {
             if (vtime != 0u && console_tty.input_count != 0u) {
                 if (process_consume_timeout()) {
