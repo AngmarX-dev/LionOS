@@ -14,6 +14,22 @@ static int fail(const char *message, uint32_t code) {
     return (int)code;
 }
 
+static int fail_group(const char *message, uint32_t code,
+                      uint32_t first, uint32_t second) {
+    int32_t status = -1;
+    if (first != 0u && first != LIONOS_SYSCALL_ERR) {
+        if (lion_getstate(first) != LIONOS_PROCESS_ZOMBIE)
+            (void)lion_kill(first, LIONOS_SIG_TERM);
+        (void)lion_waitpid(first, &status);
+    }
+    if (second != 0u && second != LIONOS_SYSCALL_ERR) {
+        if (lion_getstate(second) != LIONOS_PROCESS_ZOMBIE)
+            (void)lion_kill(second, LIONOS_SIG_TERM);
+        (void)lion_waitpid(second, &status);
+    }
+    return fail(message, code);
+}
+
 int main(void) {
     const uint32_t self = lion_getpid();
     int32_t status = -1;
@@ -59,32 +75,41 @@ int main(void) {
     if (group_leader == 0u) {
         for (;;) (void)lion_yield();
     }
+    if (group_leader == LIONOS_SYSCALL_ERR)
+        return fail("PROCESS GROUP: group leader fork", 29);
     uint32_t group_member = lion_fork();
     if (group_member == 0u) {
         for (;;) (void)lion_yield();
     }
-    if (group_leader == LIONOS_SYSCALL_ERR ||
-        group_member == LIONOS_SYSCALL_ERR ||
-        lion_setpgid(group_leader, group_leader) != 0 ||
+    if (group_member == LIONOS_SYSCALL_ERR)
+        return fail_group("PROCESS GROUP: group member fork", 29,
+                          group_leader, 0u);
+    if (lion_setpgid(group_leader, group_leader) != 0 ||
         lion_setpgid(group_member, group_leader) != 0 ||
         lion_getpgid(group_member) != (int32_t)group_leader)
-        return fail("PROCESS GROUP: joining sibling-led group", 29);
+        return fail_group("PROCESS GROUP: joining sibling-led group", 29,
+                          group_leader, group_member);
     if (lion_killpg(group_leader, LIONOS_SIG_STOP) != 0 ||
         lion_getstate(group_leader) != LIONOS_PROCESS_STOPPED ||
         lion_getstate(group_member) != LIONOS_PROCESS_STOPPED)
-        return fail("PROCESS GROUP: group stop", 30);
+        return fail_group("PROCESS GROUP: group stop", 30,
+                          group_leader, group_member);
     if (lion_killpg(group_leader, LIONOS_SIG_CONT) != 0 ||
         lion_getstate(group_leader) != LIONOS_PROCESS_READY ||
         lion_getstate(group_member) != LIONOS_PROCESS_READY)
-        return fail("PROCESS GROUP: group continue", 31);
+        return fail_group("PROCESS GROUP: group continue", 31,
+                          group_leader, group_member);
     if (lion_killpg(0u, LIONOS_SIG_TERM) != -1 ||
         lion_killpg(0xFFFFFFFFu, LIONOS_SIG_TERM) != -1 ||
+        lion_killpg(initial_pgid, LIONOS_SIG_TERM) != -1 ||
         lion_killpg(group_leader, LIONOS_SIG_MAX + 1u) != -1)
-        return fail("PROCESS GROUP: invalid group/signal accepted", 32);
+        return fail_group("PROCESS GROUP: invalid group/signal accepted", 32,
+                          group_leader, group_member);
     if (lion_killpg(group_leader, LIONOS_SIG_TERM) != 0 ||
         lion_getstate(group_leader) != LIONOS_PROCESS_ZOMBIE ||
         lion_getstate(group_member) != LIONOS_PROCESS_ZOMBIE)
-        return fail("PROCESS GROUP: group termination", 33);
+        return fail_group("PROCESS GROUP: group termination", 33,
+                          group_leader, group_member);
     int32_t group_leader_status = -1;
     int32_t group_member_status = -1;
     if (lion_waitpid(group_leader, &group_leader_status) != (int32_t)group_leader ||
