@@ -5,6 +5,8 @@
 #include "process.h"
 #include "signal.h"
 
+#define TTY_ECHO_QUEUE_CAPACITY 512u
+
 struct tty_console_state {
     struct spinlock lock;
     struct spinlock input_lock;
@@ -17,16 +19,43 @@ struct tty_console_state {
     uint32_t input_count;
     uint8_t edit[TTY_EDIT_LINE_CAPACITY];
     uint32_t edit_length;
+    uint8_t echo[TTY_ECHO_QUEUE_CAPACITY];
+    uint32_t echo_count;
 };
 
 static struct tty_console_state console_tty;
 static uint8_t tty_read_wait_channel;
+
+static void tty_queue_echo_locked(const uint8_t *bytes, uint32_t length) {
+    if (!bytes || length > TTY_ECHO_QUEUE_CAPACITY - console_tty.echo_count)
+        return;
+    for (uint32_t i = 0u; i < length; ++i)
+        console_tty.echo[console_tty.echo_count++] = bytes[i];
+}
+
+void tty_flush_echo(uint32_t sid) {
+    uint8_t pending[TTY_ECHO_QUEUE_CAPACITY];
+    uint32_t count = 0u;
+    if (!sid)
+        return;
+    uint32_t flags = spinlock_irqsave_acquire(&console_tty.input_lock);
+    if (console_tty.owner_sid == sid) {
+        count = console_tty.echo_count;
+        for (uint32_t i = 0u; i < count; ++i)
+            pending[i] = console_tty.echo[i];
+        console_tty.echo_count = 0u;
+    }
+    spinlock_irqrestore_release(&console_tty.input_lock, flags);
+    if (count != 0u)
+        (void)tty_write(sid, pending, count);
+}
 
 static void tty_reset_buffers_locked(void) {
     console_tty.input_head = 0u;
     console_tty.input_tail = 0u;
     console_tty.input_count = 0u;
     console_tty.edit_length = 0u;
+    console_tty.echo_count = 0u;
 }
 
 void tty_init(void) {
@@ -131,25 +160,23 @@ int32_t tty_input_byte(uint8_t byte) {
     if (byte == 0x03u) {
         static const uint8_t interrupt_echo[] = {'^', 'C', '\n'};
         console_tty.edit_length = 0u;
+        tty_queue_echo_locked(interrupt_echo, sizeof(interrupt_echo));
         uint32_t state_flags = spinlock_irqsave_acquire(&console_tty.lock);
         uint32_t pgid = console_tty.owner_sid == sid
             ? console_tty.foreground_pgid : 0u;
         spinlock_irqrestore_release(&console_tty.lock, state_flags);
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
-        (void)tty_write(sid, interrupt_echo, sizeof(interrupt_echo));
         return process_tty_signal_foreground(sid, pgid, LIONOS_SIG_INT) == 0
             ? TTY_INPUT_INTERRUPT : TTY_ERROR;
     }
 
     if (byte == 0x08u || byte == 0x7Fu) {
-        int erased = console_tty.edit_length != 0u;
-        if (erased)
+        if (console_tty.edit_length != 0u) {
             --console_tty.edit_length;
-        spinlock_irqrestore_release(&console_tty.input_lock, flags);
-        if (erased) {
             static const uint8_t erase_echo[] = {'\\', ' ', '\\'};
-            (void)tty_write(sid, erase_echo, sizeof(erase_echo));
+            tty_queue_echo_locked(erase_echo, sizeof(erase_echo));
         }
+        spinlock_irqrestore_release(&console_tty.input_lock, flags);
         return TTY_INPUT_NONE;
     }
 
@@ -174,8 +201,8 @@ int32_t tty_input_byte(uint8_t byte) {
             (console_tty.input_tail + 1u) % TTY_INPUT_QUEUE_CAPACITY;
         console_tty.input_count += required;
         console_tty.edit_length = 0u;
+        tty_queue_echo_locked((const uint8_t *)"\n", 1u);
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
-        (void)tty_write(sid, (const uint8_t *)"\n", 1u);
         process_wakeup((uintptr_t)&tty_read_wait_channel);
         return TTY_INPUT_LINE_READY;
     }
@@ -191,8 +218,8 @@ int32_t tty_input_byte(uint8_t byte) {
     }
 
     console_tty.edit[console_tty.edit_length++] = byte;
+    tty_queue_echo_locked(&byte, 1u);
     spinlock_irqrestore_release(&console_tty.input_lock, flags);
-    (void)tty_write(sid, &byte, 1u);
     return TTY_INPUT_NONE;
 }
 
@@ -200,6 +227,7 @@ int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity) {
     if (sid == 0u || !destination || capacity == 0u)
         return TTY_ERROR;
 
+    tty_flush_echo(sid);
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.input_lock);
     if (console_tty.owner_sid != sid) {
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
@@ -225,6 +253,7 @@ int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity)
     if (sid == 0u || !destination || capacity == 0u)
         return TTY_ERROR;
 
+    tty_flush_echo(sid);
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.input_lock);
     if (console_tty.owner_sid != sid) {
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
