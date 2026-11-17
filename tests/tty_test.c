@@ -9,6 +9,8 @@ extern uint32_t tty_test_signal_count;
 extern uint32_t tty_test_signal_sid;
 extern uint32_t tty_test_signal_pgid;
 extern uint32_t tty_test_signal_number;
+extern char tty_test_output[2048];
+extern uint32_t tty_test_output_length;
 
 static int fail(const char *message, int code) {
     fprintf(stderr, "TTY TEST: FAIL: %s\n", message);
@@ -24,6 +26,7 @@ int main(void) {
     tty_test_sleep_count = 0u;
     tty_test_wakeup_count = 0u;
     tty_test_signal_count = 0u;
+    tty_test_output_length = 0u;
     if (tty_claim_session(0u, 0u) == 0 ||
         tty_claim_session(10u, 11u) == 0)
         return fail("invalid session claim accepted", 2);
@@ -42,6 +45,9 @@ int main(void) {
     if (tty_read_blocking(10u, output, sizeof(output)) != 2 ||
         output[0] != 'r' || output[1] != '\n')
         return fail("blocking stdin did not consume completed line", 24);
+    if (tty_test_output_length != 2u ||
+        tty_test_output[0] != 'r' || tty_test_output[1] != '\n')
+        return fail("canonical input echo mismatch", 26);
     if (tty_get_foreground_pgid(10u) != 10)
         return fail("initial foreground PGID mismatch", 5);
     if (tty_set_foreground_pgid(10u, 0u) == 0 ||
@@ -53,12 +59,16 @@ int main(void) {
 
     if (tty_read(10u, output, sizeof(output)) != TTY_READ_EMPTY)
         return fail("empty read did not return empty sentinel", 8);
+    tty_test_output_length = 0u;
     if (tty_input_byte('a') != TTY_INPUT_NONE ||
         tty_input_byte('b') != TTY_INPUT_NONE ||
         tty_input_byte(0x7Fu) != TTY_INPUT_NONE ||
         tty_input_byte('c') != TTY_INPUT_NONE ||
         tty_input_byte('\r') != TTY_INPUT_LINE_READY)
         return fail("canonical editing/newline failed", 9);
+    if (tty_test_output_length != 7u ||
+        memcmp(tty_test_output, "ab\\b \\bc\n", 7u) != 0)
+        return fail("canonical editing echo/backspace mismatch", 27);
     if (tty_read(20u, output, sizeof(output)) != TTY_ERROR)
         return fail("non-owner read accepted", 10);
     if (tty_read(10u, output, 2u) != 2 ||
@@ -67,16 +77,21 @@ int main(void) {
     if (tty_read(10u, output, sizeof(output)) != 1 || output[0] != '\n')
         return fail("remaining canonical input mismatch", 12);
 
+    tty_test_output_length = 0u;
     if (tty_input_byte('x') != TTY_INPUT_NONE ||
         tty_input_byte(0x03u) != TTY_INPUT_INTERRUPT ||
         tty_input_byte('\n') != TTY_INPUT_LINE_READY)
         return fail("interrupt character handling failed", 13);
+    if (tty_test_output_length != 5u ||
+        memcmp(tty_test_output, "x^C\n\n", 5u) != 0)
+        return fail("Ctrl-C visual echo mismatch", 28);
     if (tty_test_signal_count != 1u || tty_test_signal_sid != 10u ||
         tty_test_signal_pgid != 12u || tty_test_signal_number != 2u)
         return fail("Ctrl-C was not routed to the foreground process group", 25);
     if (tty_read(10u, output, sizeof(output)) != 1 || output[0] != '\n')
         return fail("interrupt did not flush pending edit", 14);
 
+    tty_test_output_length = 0u;
     for (uint32_t i = 0u; i < TTY_EDIT_LINE_CAPACITY - 1u; ++i) {
         if (tty_input_byte('z') != TTY_INPUT_NONE)
             return fail("maximum line fill failed", 15);
@@ -89,6 +104,9 @@ int main(void) {
         return fail("maximum line read length mismatch", 18);
     if (output[TTY_EDIT_LINE_CAPACITY - 1u] != '\n')
         return fail("maximum line missing newline", 19);
+    if (tty_test_output_length != TTY_EDIT_LINE_CAPACITY ||
+        tty_test_output[TTY_EDIT_LINE_CAPACITY - 1u] != '\n')
+        return fail("maximum canonical echo length mismatch", 29);
 
     if (tty_release_session(20u) == 0 ||
         tty_release_session(10u) != 0 ||
