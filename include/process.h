@@ -34,6 +34,7 @@ struct process {
     uint32_t state;
     uint32_t parent_pid;
     uint32_t pgid;
+    uint32_t sid;
     uint32_t exit_code;
     uint32_t wait_pid;
     uint32_t wait_status_ptr;
@@ -89,6 +90,8 @@ struct process *process_at(uint32_t index);
 const char *process_state_name(uint32_t state);
 uint32_t process_current_pid(void);
 int32_t process_get_pgid(uint32_t pid);
+int32_t process_get_sid(uint32_t pid);
+int32_t process_create_session(void);
 int32_t process_set_pgid(uint32_t pid, uint32_t pgid);
 struct process *process_pipe_owner(void);
 struct process *process_fd_owner(void);
