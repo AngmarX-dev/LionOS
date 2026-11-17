@@ -35,10 +35,56 @@ int main(void) {
     int32_t status = -1;
 
     const uint32_t initial_pgid = (uint32_t)lion_getpgid(0u);
-    if (initial_pgid != self || lion_getpgid(0xFFFFFFFFu) != -1 ||
-        lion_setpgid(0u, initial_pgid) != 0 ||
+    const uint32_t initial_sid = (uint32_t)lion_getsid(0u);
+    if (initial_pgid != self || initial_sid != self ||
+        lion_getpgid(0xFFFFFFFFu) != -1 ||
+        lion_getsid(0xFFFFFFFFu) != -1 ||
+        lion_setpgid(0u, initial_pgid) != -1 ||
         lion_setpgid(0xFFFFFFFFu, 0u) != -1)
         return fail("PROCESS GROUP: self/invalid PID handling", 22);
+
+    uint32_t session_child = lion_fork();
+    if (session_child == 0u) {
+        const uint32_t child_pid = lion_getpid();
+        if (lion_getsid(0u) != (int32_t)initial_sid)
+            lion_exit_code(40u);
+        if (lion_setsid() != (int32_t)child_pid ||
+            lion_getsid(0u) != (int32_t)child_pid ||
+            lion_getpgid(0u) != (int32_t)child_pid)
+            lion_exit_code(41u);
+        if (lion_setsid() != -1 || lion_setpgid(0u, child_pid) != -1)
+            lion_exit_code(42u);
+        for (;;) (void)lion_yield();
+    }
+    if (session_child == LIONOS_SYSCALL_ERR)
+        return fail("SESSION: fork", 40u);
+    uint32_t session_ready = 0u;
+    for (uint32_t attempt = 0u; attempt < 10000u; ++attempt) {
+        if (lion_getsid(session_child) == (int32_t)session_child) {
+            session_ready = 1u;
+            break;
+        }
+        if (lion_getstate(session_child) == LIONOS_PROCESS_ZOMBIE)
+            break;
+        (void)lion_yield();
+    }
+    if (!session_ready ||
+        lion_setpgid(session_child, initial_pgid) != -1 ||
+        lion_getsid(session_child) != (int32_t)session_child ||
+        lion_getpgid(session_child) != (int32_t)session_child) {
+        if (lion_getstate(session_child) != LIONOS_PROCESS_ZOMBIE)
+            (void)lion_kill(session_child, LIONOS_SIG_TERM);
+        int32_t session_status = -1;
+        (void)lion_waitpid(session_child, &session_status);
+        return fail("SESSION: SID creation/isolation", 41u);
+    }
+    if (lion_kill(session_child, LIONOS_SIG_TERM) != 0)
+        return fail("SESSION: child termination", 42u);
+    int32_t session_status = -1;
+    if (lion_waitpid(session_child, &session_status) != (int32_t)session_child ||
+        session_status != (int32_t)(128u + LIONOS_SIG_TERM))
+        return fail("SESSION: child reap", 43u);
+    puts("SESSION: PASS");
 
     uint32_t pgid_child = lion_fork();
     if (pgid_child == 0u) {
