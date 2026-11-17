@@ -35,5 +35,7 @@ int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity);
 /* VFS stdin read: sleeps atomically until a line arrives or the session ends. */
 int32_t tty_read_blocking(uint32_t sid, uint8_t *destination, uint32_t capacity);
 int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length);
+/* Flush queued input echo from process context, never from a keyboard IRQ. */
+void tty_flush_echo(uint32_t sid);
 
 #endif
