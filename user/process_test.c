@@ -5,6 +5,7 @@
 static volatile uint32_t thread_marker;
 
 static volatile uint32_t yield_marker;
+static volatile uint32_t thread_observed_pgid;
 
 static lion_mutex_t sync_test_mutex;
 static lion_semaphore_t sync_test_semaphore;
@@ -40,6 +41,11 @@ static void thread_worker_condition(void) {
 
 static void thread_worker_semaphore(void) {
     lion_thread_exit(lion_semaphore_post(&sync_test_semaphore) == 0 ? 0u : 82u);
+}
+
+static void thread_worker_pgid(void) {
+    thread_observed_pgid = (uint32_t)lion_getpgid(0u);
+    lion_thread_exit(0u);
 }
 
 static void thread_worker_yield(void) {
@@ -125,6 +131,7 @@ int main(int argc, char **argv) {
     /* Process groups: creation, fork inheritance, child regrouping and errors. */
     uint32_t initial_pgid = lion_getpgid(0u);
     if (initial_pgid != lion_getpid() || lion_getpgid(0xFFFFFFFFu) != -1 ||
+        lion_setpgid(0u, initial_pgid) != 0 ||
         lion_setpgid(0xFFFFFFFFu, 0u) != -1) {
         puts("[FAIL] process group self/invalid PID handling");
         return 49;
@@ -158,6 +165,15 @@ int main(int argc, char **argv) {
         pgid_status != (int32_t)(128u + LIONOS_SIG_TERM)) {
         puts("[FAIL] process group test child reap");
         return 54;
+    }
+    uint32_t pgid_tid = lion_thread_create(thread_worker_pgid);
+    int32_t pgid_thread_status = -1;
+    thread_observed_pgid = 0u;
+    if (pgid_tid == LIONOS_SYSCALL_ERR ||
+        lion_thread_join(pgid_tid, &pgid_thread_status) != (int32_t)pgid_tid ||
+        pgid_thread_status != 0 || thread_observed_pgid != initial_pgid) {
+        puts("[FAIL] thread did not resolve its leader process group");
+        return 55;
     }
     puts("[PASS] process group identity, inheritance and setpgid validation");
 
