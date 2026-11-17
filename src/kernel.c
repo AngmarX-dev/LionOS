@@ -408,7 +408,6 @@ void lionos_user_integration_step(void){
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 integration_pipe_ok=0;
             integration_pid=-1;
-            integration_done=1;
             if(integration_pipe_ok){
                 debug_write("LIONOS:PIPE-LIFECYCLE-TEST-OK\n");
                 console_write("[ OK ] Automated Pipe fork/EOF/exit cleanup test\n");
