@@ -18,7 +18,7 @@ int elf32_validate(const uint8_t *image, uint32_t size, uint32_t *entry) {
         h->ident[2] != 'L' || h->ident[3] != 'F') return -1;
     if (h->ident[4] != ELFCLASS32 || h->ident[5] != ELFDATA2LSB) return -1;
     if (h->type != 2u || h->machine != EM_386 || h->version != 1u) return -1;
-    if (h->ehsize < sizeof(struct elf32_header) ||
+    if (h->ehsize < sizeof(struct elf32_header) || h->ehsize > size ||
         h->phentsize < sizeof(struct elf32_phdr) || h->phnum == 0u) return -1;
 
     if (h->phoff > size || h->phentsize > size - h->phoff ||
@@ -30,10 +30,10 @@ int elf32_validate(const uint8_t *image, uint32_t size, uint32_t *entry) {
     for (uint32_t i = 0u; i < h->phnum; ++i) {
         const uint8_t *raw = image + h->phoff + i * h->phentsize;
         const struct elf32_phdr *p = (const struct elf32_phdr *)raw;
-        if (p->type != PT_LOAD || p->memsz == 0u) continue;
-
+        if (p->type != PT_LOAD) continue;
         if (p->memsz < p->filesz ||
             !range_ok(p->offset, p->filesz, size)) return -1;
+        if (p->memsz == 0u) continue;
         if (p->vaddr < ELF32_USER_BASE ||
             p->vaddr >= ELF32_USER_LIMIT ||
             p->memsz > ELF32_USER_LIMIT - p->vaddr) return -1;
