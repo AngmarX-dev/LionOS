@@ -92,3 +92,11 @@ The Process Manager revalidates that the TTY still belongs to the same session, 
 This milestone queues SIGINT (signal number 2) and makes it visible through the existing pending-signal query. It does **not** implement userspace signal handlers, default SIGINT termination, terminal echo, or complete POSIX job-control semantics. A Ctrl-C request is rejected if the foreground group is stale or no longer belongs to the owning session.
 
 The host TTY test verifies that Ctrl-C clears the edit buffer and dispatches the expected session/foreground-PGID request through a test stub; it does not execute the Process Manager's group/session validation. The kernel CI suite verifies compilation and existing regression paths, but a dedicated runtime test for this new Process Manager helper and physical keyboard testing are still outstanding.
+ 
+## H21.8 — Canonical input echo
+
+Canonical input now queues visual echo bytes for ordinary characters, accepted tabs, newline, backspace editing, and the Ctrl-C marker. The keyboard input path only appends to a bounded echo queue while holding the input lock; it never writes to the console from keyboard interrupt context.
+
+Echo is drained by a process-context TTY read. The flush takes locks in output → input → TTY-state order, releases the input lock before console output, and serializes the copied bytes under the output lock so concurrent readers cannot reorder echo output. If the bounded echo queue is full, additional visual echo is dropped without rejecting or corrupting canonical input. Session release resets the echo queue with the other TTY buffers.
+
+Host tests verify ordinary echo, backspace visual editing, Ctrl-C display marker, newline, and maximum-length input. Echo is deferred until a reader drains it; immediate per-keystroke display and hardware keyboard testing remain future work.
