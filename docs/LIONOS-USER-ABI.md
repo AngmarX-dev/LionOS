@@ -2,7 +2,7 @@
 
 **Status:** specification and conformance guards for the native syscall ABI. Stage F6 adds a read-only ext2 directory-stream syscall and user-space wrappers.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
-**UAPI version:** 17 (LIONOS_UAPI_VERSION).
+**UAPI version:** 18 (LIONOS_UAPI_VERSION).
 **System-call ABI:** 14 (LIONOS_SYSCALL_ABI).
 **Version query:** syscall number 0 returns 14.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
