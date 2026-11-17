@@ -173,3 +173,8 @@ At a syscall-return boundary, a pending handled signal is delivered by saving th
 The default actions for unhandled SIGINT and SIGHUP remain termination with status 128 + signal; ignored dispositions consume the pending signal without terminating. Only SIGINT and SIGHUP are accepted by this API; other signal numbers, including SIGKILL and SIGSTOP, cannot be registered. Signal actions are process-leader scoped. Signal masks and alternate signal stacks are not implemented. Delivery occurs at syscall-return boundaries and does not yet wake a process blocked in a wait. Nested delivery is deferred until the active handler returns.
 
 The QEMU integration test registers a SIGINT handler before fork, verifies disposition inheritance, synchronizes with the child through IPC, delivers SIGINT, and checks that the handler returns through sigreturn and the child exits normally. Host CI does not replace physical keyboard or SMP stress validation.
+
+
+## H21.21 — Interruptible waitpid
+
+Blocking `waitpid()` and `waitpid_options()` now return `LIONOS_EINTR` (-4) when a pending, non-ignored SIGINT or SIGHUP arrives before a child event becomes available. Child exit/stop/continue events take precedence when already ready, WNOHANG retains its zero result, and ignored dispositions leave the wait blocked. A caught handler is entered before the interrupted process returns to ordinary userspace execution. The scheduler publishes the blocked syscall frame before another CPU may wake it, preventing writes to a stale frame. Pipe, IPC, TTY and futex waits remain outside this milestone.

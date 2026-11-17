@@ -7,7 +7,7 @@
 #include "pipe.h"
 #include "net.h"
 
-#define LIONOS_UAPI_VERSION 22u
+#define LIONOS_UAPI_VERSION 23u
 #define LIONOS_SYSCALL_ABI 16u
 #define LIONOS_SYS_PUTC 1u
 #define LIONOS_SYS_GETPID 2u
@@ -83,6 +83,8 @@
 
 #define LIONOS_SYSCALL_OK 0u
 #define LIONOS_SYSCALL_ERR ((uint32_t)-1)
+#define LIONOS_EINTR (-4)
+#define LIONOS_PROCESS_STATE_WAITING 4u
 #define LIONOS_IPC_EMPTY ((uint32_t)-2)
 #define LIONOS_NET_EMPTY ((uint32_t)-2)
 #define LIONOS_MOUSE_BLOCKED ((uint32_t)-2)

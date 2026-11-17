@@ -1,8 +1,8 @@
 # LionOS User ABI and System Call Contract
 
-**Status:** specification and conformance guards for the native syscall ABI. H21.20 adds per-process SIGINT/SIGHUP dispositions and a validated signal-return trampoline.
+**Status:** specification and conformance guards for the native syscall ABI. H21.21 adds EINTR interruption for blocking waitpid calls.
 **Target:** 32-bit x86, ELF32 / EM_386, Ring 3.
-**UAPI version:** 22 (LIONOS_UAPI_VERSION).
+**UAPI version:** 23 (LIONOS_UAPI_VERSION).
 **System-call ABI:** 16 (LIONOS_SYSCALL_ABI).
 **Version query:** syscall number 0 returns 16.
 **Canonical headers:** include/uapi.h, include/vfs_uapi.h, include/syscall.h, include/user_api.h.
@@ -96,7 +96,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 11 | LIONOS_SYS_EXEC | NUL-terminated program name | Replaces current image; returns PID on success |
 | 12 | LIONOS_SYS_FORK | — | Child PID in parent; child receives 0 |
 | 13 | LIONOS_SYS_WAITPID | PID (0 = any child), writable status pointer | Child PID on exit; may block; legacy behavior |
-| 62 | LIONOS_SYS_WAITPID_OPTIONS | PID (0 = any child), optional writable status pointer, options | Child PID on exit/stop, 0 for WNOHANG with no event, or may block |
+| 62 | LIONOS_SYS_WAITPID_OPTIONS | PID (0 = any child), optional writable status pointer, options | Child PID on event, 0 for WNOHANG, or `LIONOS_EINTR` when interrupted by a non-ignored SIGINT/SIGHUP |
 | 63 | LIONOS_SYS_SIGACTION | signal, optional readable lion_sigaction pointer, optional writable old-action pointer | 0 on success; currently accepts SIGINT and SIGHUP only; handler 0 = default, 1 = ignore; custom handler requires executable handler and restorer addresses |
 | 64 | LIONOS_SYS_SIGRETURN | — | CRT return trampoline only; restores the kernel-saved interrupt context; rejected without a matching active signal frame |
 | 14 | LIONOS_SYS_OPEN | path, flags | File descriptor or generic error |
@@ -204,3 +204,8 @@ The ABI check:
 These checks detect registry drift and layout changes. They do not prove runtime correctness, security, scheduler behavior, or complete user-pointer safety. New or changed syscall behavior still requires focused runtime tests for invalid pointers, boundary lengths, permission failures, blocked paths, and userland regressions.
 
 Before changing the ABI, update canonical headers, dispatcher, wrapper, this document, layout guards, and runtime tests in one reviewed change. Preserve old behavior unless an explicitly versioned transition is approved.
+
+
+## H21.21 — Interruptible waitpid
+
+Blocking WAITPID and WAITPID_OPTIONS return `LIONOS_EINTR` (-4) when a pending, non-ignored SIGINT or SIGHUP interrupts the wait before a child exit/stop/continue event is consumed. A ready child event retains priority over a pending signal; WNOHANG still returns zero when no event is ready. Ignored signals do not interrupt the wait. When a caught signal interrupts a blocked wait, the syscall returns EINTR and the registered handler is delivered before the interrupted process resumes in userspace. The wait state and saved-frame publication are serialized with the process lock to avoid stale-frame writes and lost wakeups. Other blocking syscall families are not yet EINTR-aware in this milestone.
