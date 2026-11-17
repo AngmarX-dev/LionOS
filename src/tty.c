@@ -5,6 +5,7 @@
 
 struct tty_console_state {
     struct spinlock lock;
+    struct spinlock output_lock;
     uint32_t owner_sid;
     uint32_t foreground_pgid;
     uint8_t input[TTY_INPUT_QUEUE_CAPACITY];
@@ -26,6 +27,7 @@ static void tty_reset_buffers_locked(void) {
 
 void tty_init(void) {
     spinlock_init(&console_tty.lock);
+    spinlock_init(&console_tty.output_lock);
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
     console_tty.owner_sid = 0u;
     console_tty.foreground_pgid = 0u;
@@ -56,9 +58,11 @@ int32_t tty_release_session(uint32_t sid) {
     if (sid == 0u)
         return TTY_ERROR;
 
+    spinlock_acquire(&console_tty.output_lock);
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
     if (console_tty.owner_sid != sid) {
         spinlock_irqrestore_release(&console_tty.lock, flags);
+        spinlock_release(&console_tty.output_lock);
         return TTY_ERROR;
     }
 
@@ -66,6 +70,7 @@ int32_t tty_release_session(uint32_t sid) {
     console_tty.foreground_pgid = 0u;
     tty_reset_buffers_locked();
     spinlock_irqrestore_release(&console_tty.lock, flags);
+    spinlock_release(&console_tty.output_lock);
     return 0;
 }
 
@@ -189,13 +194,16 @@ int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity) {
 int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length) {
     if (sid == 0u || (!source && length != 0u) || length > 4096u)
         return TTY_ERROR;
+    spinlock_acquire(&console_tty.output_lock);
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
-    if (console_tty.owner_sid != sid) {
-        spinlock_irqrestore_release(&console_tty.lock, flags);
+    int owns_tty = console_tty.owner_sid == sid;
+    spinlock_irqrestore_release(&console_tty.lock, flags);
+    if (!owns_tty) {
+        spinlock_release(&console_tty.output_lock);
         return TTY_ERROR;
     }
     if (length != 0u)
         console_write_n((const char *)source, length);
-    spinlock_irqrestore_release(&console_tty.lock, flags);
+    spinlock_release(&console_tty.output_lock);
     return (int32_t)length;
 }
