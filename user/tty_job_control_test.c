@@ -71,9 +71,9 @@ static int test_setpgid_orphan_transition(void){
 
     uint32_t session_parent=lion_fork();
     if(session_parent==0u){
-        (void)lion_pipe_close(sync_read);
         uint32_t group_parent=lion_fork();
         if(group_parent==0u){
+            (void)lion_pipe_close(sync_read);
             uint32_t child=lion_fork();
             if(child==0u){
                 /* Do not keep the synchronization pipe alive on failure. */
