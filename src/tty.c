@@ -258,9 +258,9 @@ int32_t tty_input_byte(uint8_t byte) {
     return TTY_INPUT_NONE;
 }
 
-int32_t tty_read(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+int32_t tty_read(uint32_t sid, uint32_t caller_pid,
                  uint8_t *destination, uint32_t capacity) {
-    if (sid == 0u || !caller_pid || !caller_pgid || !destination || capacity == 0u)
+    if (sid == 0u || !caller_pid || !destination || capacity == 0u)
         return TTY_ERROR;
     if (process_tty_check_foreground(sid, caller_pid, LIONOS_SIG_TTIN) != 0)
         return TTY_ERROR;
@@ -287,7 +287,7 @@ int32_t tty_read(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
     return (int32_t)copied;
 }
 
-int32_t tty_read_blocking(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+int32_t tty_read_blocking(uint32_t sid, uint32_t caller_pid,
                           uint8_t *destination, uint32_t capacity) {
     if (sid == 0u || !caller_pid || !caller_pgid || !destination || capacity == 0u)
         return TTY_ERROR;
@@ -356,9 +356,9 @@ int32_t tty_read_blocking(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgi
     return (int32_t)copied;
 }
 
-int32_t tty_write(uint32_t sid, uint32_t caller_pid, uint32_t caller_pgid,
+int32_t tty_write(uint32_t sid, uint32_t caller_pid,
                   const uint8_t *source, uint32_t length) {
-    if (sid == 0u || !caller_pid || !caller_pgid ||
+    if (sid == 0u || !caller_pid ||
         (!source && length != 0u) || length > 4096u)
         return TTY_ERROR;
     uint32_t input_flags = spinlock_irqsave_acquire(&console_tty.input_lock);
