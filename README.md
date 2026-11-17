@@ -126,6 +126,7 @@ The project explores operating-system internals through real low-level code: boo
 | Ctrl-C routing to the session foreground process group (SIGINT pending) | ✅ |
 | Canonical TTY echo with deferred IRQ-safe output and backspace editing | ✅ |
 | Session-scoped TTY ECHO/ISIG runtime attributes | ✅ |
+| Runtime canonical/noncanonical TTY input mode | ✅ |
 | PS/2 keyboard | ✅ |
 | PS/2 mouse | ✅ |
 | xHCI HID USB mouse path | ✅ |
