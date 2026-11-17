@@ -11,6 +11,15 @@ static int cleanup_child(uint32_t child,int result){
     return result;
 }
 
+static int32_t waitpid_bounded(uint32_t pid,int32_t *status){
+    for(uint32_t attempt=0u;attempt<20000u;++attempt){
+        int32_t result=lion_waitpid_options(pid,status,LIONOS_WNOHANG);
+        if(result==(int32_t)pid||result<0)return result;
+        (void)lion_yield();
+    }
+    return -2;
+}
+
 static int test_setsid_orphan_transition(void){
     int32_t status=-1;
     uint32_t parent=lion_fork();
@@ -26,14 +35,14 @@ static int test_setsid_orphan_transition(void){
            !LIONOS_WIFSTOPPED(status))lion_exit_code(44u);
         if(lion_setsid()<0)lion_exit_code(45u);
         status=-1;
-        if(lion_waitpid(child,&status)!=(int32_t)child)
+        if(waitpid_bounded(child,&status)!=(int32_t)child)
             lion_exit_code(147u);
         if(status!=(int32_t)(128u+LIONOS_SIG_HUP))
             lion_exit_code(46u);
         lion_exit_code(0u);
     }
     if(parent==LIONOS_SYSCALL_ERR)return 48;
-    int32_t waited=lion_waitpid(parent,&status);
+    int32_t waited=waitpid_bounded(parent,&status);
     if(waited!=(int32_t)parent)return 50;
     if(status!=0)return 51+(int)(status&0x3Fu);
     return 0;
@@ -89,7 +98,7 @@ static int test_setpgid_orphan_transition(void){
         /* Leaving the session now orphans the already-existing group. */
         if(lion_setsid()<0)lion_exit_code(78u);
         status=-1;
-        if(lion_waitpid(group_parent,&status)!=(int32_t)group_parent)
+        if(waitpid_bounded(group_parent,&status)!=(int32_t)group_parent)
             lion_exit_code(180u);
         if(status!=(int32_t)(128u+LIONOS_SIG_HUP))
             lion_exit_code(79u);
@@ -116,7 +125,7 @@ static int test_setpgid_orphan_transition(void){
     (void)lion_pipe_close(sync_read);
     (void)lion_pipe_close(sync_write);
     status=-1;
-    if(lion_waitpid(session_parent,&status)!=(int32_t)session_parent)
+    if(waitpid_bounded(session_parent,&status)!=(int32_t)session_parent)
         return 183;
     return status==0?0:184;
 }
