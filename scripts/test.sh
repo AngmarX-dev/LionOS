@@ -163,11 +163,27 @@ make ext2-disk
 
 echo "[2/6] Validating every userspace ELF"
 for elf in build/*.elf; do
-    test -s "$elf"
-    test "$(stat -c%s "$elf")" -le 16384
-    readelf -h "$elf" | grep -q 'Class:[[:space:]]*ELF32'
-    readelf -h "$elf" | grep -q 'Machine:[[:space:]]*Intel 80386'
-    readelf -l "$elf" | grep -q 'LOAD'
+    size=$(stat -c%s "$elf")
+    if [ ! -s "$elf" ]; then
+        echo "ELF validation failed: empty file: $elf" >&2
+        exit 1
+    fi
+    if [ "$size" -gt 16384 ]; then
+        echo "ELF validation failed: $elf is $size bytes (limit: 16384)" >&2
+        exit 1
+    fi
+    if ! readelf -h "$elf" | grep -q 'Class:[[:space:]]*ELF32'; then
+        echo "ELF validation failed: wrong ELF class: $elf" >&2
+        exit 1
+    fi
+    if ! readelf -h "$elf" | grep -q 'Machine:[[:space:]]*Intel 80386'; then
+        echo "ELF validation failed: wrong machine: $elf" >&2
+        exit 1
+    fi
+    if ! readelf -l "$elf" | grep -q 'LOAD'; then
+        echo "ELF validation failed: no LOAD segment: $elf" >&2
+        exit 1
+    fi
 done
 
 echo "[3/6] First SMP boot / filesystem initialization"
