@@ -170,8 +170,10 @@ int main(void) {
         output[0] != 0x7Fu || output[1] != '\r')
         return fail("noncanonical mode applied canonical editing", 40);
     tty_flush_echo(10u);
-    if (tty_test_output_length != 3u || tty_test_output[0] != 'r' ||
-        tty_test_output[1] != 0x7Fu || tty_test_output[2] != '\r')
+    if (tty_test_output_length != 5u ||
+        tty_test_output[0] != 'r' || tty_test_output[1] != 's' ||
+        tty_test_output[2] != 't' || tty_test_output[3] != 0x7Fu ||
+        tty_test_output[4] != '\r')
         return fail("noncanonical echo mismatch", 41);
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | TTY_ATTR_ISIG | TTY_ATTR_ICANON, 1u) != 0)
         return fail("canonical mode restore failed", 42);
