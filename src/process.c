@@ -533,11 +533,11 @@ uint32_t process_futex_wakeup(uintptr_t channel,uint32_t maximum){
     return woken;
 }
 
-static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process*p=&processes[i];if(p->state!=PROCESS_WAITING||p->pid!=child->parent_pid)continue;if(p->wait_pid!=PROCESS_WAIT_ANY&&p->wait_pid!=child->pid)continue;uint32_t*f=(uint32_t *)(uintptr_t)p->saved_frame;if(f)f[11]=child->pid;if(p->wait_status_ptr)write_user_u32(p,p->wait_status_ptr,child->exit_code);p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->wait_channel=0;p->wait_kind=0;p->state=PROCESS_READY;child->reap_pending=1;return;}}static void wake_waiting_parent_stop(struct process *child){
+static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process*p=&processes[i];if(p->state!=PROCESS_WAITING||p->wait_kind!=3u||p->pid!=child->parent_pid)continue;if(p->wait_pid!=PROCESS_WAIT_ANY&&p->wait_pid!=child->pid)continue;uint32_t*f=(uint32_t *)(uintptr_t)p->saved_frame;if(f)f[11]=child->pid;if(p->wait_status_ptr)write_user_u32(p,p->wait_status_ptr,child->exit_code);p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->wait_channel=0;p->wait_kind=0;p->state=PROCESS_READY;child->reap_pending=1;return;}}static void wake_waiting_parent_stop(struct process *child){
     if(!child||!child->stop_event_pending)return;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *parent=&processes[i];
-        if(parent->state!=PROCESS_WAITING||parent->pid!=child->parent_pid||
+        if(parent->state!=PROCESS_WAITING||parent->wait_kind!=3u||parent->pid!=child->parent_pid||
            !(parent->wait_options&LIONOS_WAIT_UNTRACED)||
            (parent->wait_pid!=PROCESS_WAIT_ANY&&parent->wait_pid!=child->pid))
             continue;

@@ -233,6 +233,52 @@ static int fork_file_description_test(const char *path) {
     return 0;
 }
 
+static int waitpid_options_cleanup(uint32_t child, int result) {
+    if (child != 0u && child != LIONOS_SYSCALL_ERR) {
+        if (lion_getstate(child) != LIONOS_PROCESS_ZOMBIE)
+            (void)lion_kill(child, LIONOS_SIG_TERM);
+        int32_t ignored_status = 0;
+        (void)lion_waitpid(child, &ignored_status);
+    }
+    return result;
+}
+
+static int waitpid_options_test(void) {
+    int32_t status = -1;
+    uint32_t child = lion_fork();
+    if (child == 0u) {
+        for (;;) (void)lion_yield();
+    }
+    if (child == LIONOS_SYSCALL_ERR)
+        return 70;
+    if (lion_waitpid_options(child, &status, LIONOS_WNOHANG) != 0 ||
+        lion_waitpid_options(child, &status, 0x80000000u) != -1)
+        return waitpid_options_cleanup(child, 71);
+    if (lion_kill(child, LIONOS_SIG_STOP) != 0 ||
+        lion_getstate(child) != LIONOS_PROCESS_STOPPED)
+        return waitpid_options_cleanup(child, 72);
+    if (lion_waitpid_options(child, &status, LIONOS_WNOHANG) != 0 ||
+        lion_waitpid_options(child, &status, LIONOS_WUNTRACED) != (int32_t)child ||
+        !LIONOS_WIFSTOPPED(status) ||
+        LIONOS_WSTOPSIG(status) != LIONOS_SIG_STOP)
+        return waitpid_options_cleanup(child, 73);
+    if (lion_kill(child, LIONOS_SIG_CONT) != 0 ||
+        lion_getstate(child) != LIONOS_PROCESS_READY)
+        return waitpid_options_cleanup(child, 74);
+    if (lion_kill(child, LIONOS_SIG_STOP) != 0 ||
+        lion_kill(child, LIONOS_SIG_CONT) != 0 ||
+        lion_waitpid_options(child, &status,
+                             LIONOS_WNOHANG | LIONOS_WUNTRACED) != 0)
+        return waitpid_options_cleanup(child, 75);
+    if (lion_kill(child, LIONOS_SIG_TERM) != 0)
+        return waitpid_options_cleanup(child, 76);
+    status = -1;
+    if (lion_waitpid(child, &status) != (int32_t)child ||
+        status != (int32_t)(128u + LIONOS_SIG_TERM))
+        return waitpid_options_cleanup(child, 77);
+    return 0;
+}
+
 int main(void) {
     if (libc_memory_test() != 0) return 19;
 
@@ -307,5 +353,8 @@ int main(void) {
     int symlink_result = ext2_symlink_syscall_test();
     if (symlink_result != 0)
         return symlink_result;
-    return tty_background_io_test();
+    int tty_result = tty_background_io_test();
+    if (tty_result != 0)
+        return tty_result;
+    return waitpid_options_test();
 }

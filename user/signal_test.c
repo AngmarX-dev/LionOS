@@ -297,18 +297,10 @@ int main(void) {
         lion_kill(child, LIONOS_SIG_MAX + 1u) != -1)
         return fail("SIGNAL TEST: invalid signal accepted", 5);
 
-    status = -1;
-    if (lion_waitpid_options(child, &status, LIONOS_WNOHANG) != 0 ||
-        lion_waitpid_options(child, &status, 0x80000000u) != -1)
-        return fail("WAITPID OPTIONS: WNOHANG/invalid flags", 35);
     if (lion_kill(child, LIONOS_SIG_STOP) != 0)
         return fail("SIGNAL TEST: SIGSTOP failed", 6);
     if (lion_getstate(child) != LIONOS_PROCESS_STOPPED)
         return fail("SIGNAL TEST: SIGSTOP state mismatch", 7);
-    if (lion_waitpid_options(child, &status, LIONOS_WNOHANG) != 0 ||
-        lion_waitpid_options(child, &status, LIONOS_WUNTRACED) != (int32_t)child ||
-        !LIONOS_WIFSTOPPED(status) || LIONOS_WSTOPSIG(status) != LIONOS_SIG_STOP)
-        return fail("WAITPID OPTIONS: WUNTRACED stop status", 36);
     uint32_t stop_mask = 1u << (LIONOS_SIG_STOP - 1u);
     if ((lion_sigpending(child) & stop_mask) == 0u)
         return fail("SIGNAL TEST: SIGSTOP pending bit missing", 8);
@@ -319,10 +311,6 @@ int main(void) {
         return fail("SIGNAL TEST: SIGCONT did not resume child", 10);
     if ((lion_sigpending(child) & stop_mask) != 0u)
         return fail("SIGNAL TEST: SIGCONT did not clear STOP bit", 11);
-    if (lion_kill(child, LIONOS_SIG_STOP) != 0 ||
-        lion_kill(child, LIONOS_SIG_CONT) != 0 ||
-        lion_waitpid_options(child, &status, LIONOS_WNOHANG | LIONOS_WUNTRACED) != 0)
-        return fail("WAITPID OPTIONS: SIGCONT stale stop-event cleanup", 37);
 
     if (lion_kill(child, LIONOS_SIG_TERM) != 0)
         return fail("SIGNAL TEST: SIGTERM failed", 12);
