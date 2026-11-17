@@ -82,3 +82,13 @@ New userspace processes receive VFS-backed descriptors 0, 1, and 2 for standard 
 ## H21.6 — Blocking canonical stdin
 
 `lion_fread(0, ...)` now sleeps when no completed canonical line is available. The TTY input lock and generic `process_sleep_on()` protocol close the check-to-sleep race. Newline commit wakes all readers on the TTY channel; the syscall restarts and revalidates the descriptor and session before consuming queued bytes. Session release also wakes readers. The direct `lion_tty_read()` syscall deliberately remains nonblocking for compatibility. Host tests cover the empty-queue sleep path, newline wakeup, line consumption, and session-release wakeup. Hardware-level keyboard/QEMU injection has not been separately validated by this host test.
+
+## H21.7 — Ctrl-C foreground signal routing
+
+The canonical TTY now treats byte 0x03 as a foreground interrupt request. It discards the current uncommitted edit line, snapshots the owning session and foreground PGID, releases the input/state locks, and asks the Process Manager to queue SIGINT for every live process in that process group and its live threads.
+
+The Process Manager revalidates that the TTY still belongs to the same session, that the foreground PGID has not changed, and that every target belongs to that session before changing any pending-signal bit. The process-table-to-TTY lock order matches the existing foreground-PGID update path. No process-table lock is acquired while the keyboard/TTY input lock is held.
+
+This milestone queues SIGINT (signal number 2) and makes it visible through the existing pending-signal query. It does **not** implement userspace signal handlers, default SIGINT termination, terminal echo, or complete POSIX job-control semantics. A Ctrl-C request is rejected if the foreground group is stale or no longer belongs to the owning session.
+
+The host TTY test verifies that Ctrl-C clears the edit buffer and routes the request to the currently configured foreground PGID. The Process Manager's group/session validation remains covered by code review and the kernel CI suite; physical keyboard testing is still required.
