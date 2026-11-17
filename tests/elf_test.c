@@ -72,6 +72,11 @@ int main(void) {
     failures += expect_valid("truncated program header table", 0);
 
     make_valid_image();
+    ((struct elf32_phdr *)(image + PH_OFFSET))->memsz = 0u;
+    ((struct elf32_phdr *)(image + PH_OFFSET))->filesz = 1u;
+    failures += expect_valid("nonempty file in empty memory segment", 0);
+
+    make_valid_image();
     ((struct elf32_phdr *)(image + PH_OFFSET))->type = 0u;
     failures += expect_valid("no loadable segment", 0);
 
