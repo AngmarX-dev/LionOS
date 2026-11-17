@@ -152,7 +152,7 @@ This is not a complete System V i386 process-start ABI. Environment vectors, aux
 
 ## 7. POSIX-inspired compatibility subset
 
-The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Sessions and controlling terminals are not implemented.
+The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. SIGSTOP and SIGCONT are propagated to the leader's user threads. SIGTERM and SIGKILL fail closed for a group containing any live user thread, because remote thread-stack reclamation is not yet safe. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Sessions and controlling terminals are not implemented.
 
 The current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
 
