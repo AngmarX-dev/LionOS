@@ -37,6 +37,8 @@ static inline int32_t lion_tty_getpgrp(void){return (int32_t)lion_syscall0(LIONO
 static inline int32_t lion_tty_setpgrp(uint32_t pgid){return (int32_t)lion_syscall1(LIONOS_SYS_TTY_SETPGRP,pgid);}
 static inline int32_t lion_tty_read(void *buffer,uint32_t capacity){return (int32_t)lion_syscall2(LIONOS_SYS_TTY_READ,(uint32_t)(uintptr_t)buffer,capacity);}
 static inline int32_t lion_tty_write(const void *buffer,uint32_t length){return (int32_t)lion_syscall2(LIONOS_SYS_TTY_WRITE,(uint32_t)(uintptr_t)buffer,length);}
+static inline int32_t lion_tty_getattr(struct lion_tty_attributes *attributes){return (int32_t)lion_syscall1(LIONOS_SYS_TTY_GETATTR,(uint32_t)(uintptr_t)attributes);}
+static inline int32_t lion_tty_setattr(const struct lion_tty_attributes *attributes){return (int32_t)lion_syscall1(LIONOS_SYS_TTY_SETATTR,(uint32_t)(uintptr_t)attributes);}
 static inline int32_t lion_setpgid(uint32_t pid,uint32_t pgid){return (int32_t)lion_syscall2(LIONOS_SYS_SETPGID,pid,pgid);}
 static inline int32_t lion_killpg(uint32_t pgid,uint32_t signal){return (int32_t)lion_syscall2(LIONOS_SYS_KILLPG,pgid,signal);}
 static inline int32_t lion_setsid(void){return (int32_t)lion_syscall0(LIONOS_SYS_SETSID);}
