@@ -272,6 +272,17 @@ void process_exit_current(uint32_t code){
         spinlock_irqrestore_release(&process_lock,flags);
         return;
     }
+    /* A process owns its user threads. Retire all non-current siblings before
+       the address space can be reaped by waitpid. Threads share cpu_owner, so
+       none of these siblings can be executing concurrently on another CPU. */
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process*t=&processes[i];
+        if(t!=c&&t->state!=PROCESS_UNUSED&&t->is_thread&&
+           t->thread_group_pid==c->thread_group_pid){
+            t->state=PROCESS_ZOMBIE;
+            reap_process(t);
+        }
+    }
     c->exit_code=code;
     c->state=PROCESS_ZOMBIE;
     debug_write("LIONOS:PROC-EXIT\\n");
