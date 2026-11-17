@@ -18,6 +18,8 @@ int paging_map_high_page(uint64_t physical_address, uint32_t flags, uint32_t *vi
 int paging_unmap_high_page(uint32_t virtual_address);
 int paging_map_user_page_in(uint32_t page_directory, uint32_t virtual_address,
                             uint32_t physical_address, uint32_t flags);
+int paging_unmap_user_page_in(uint32_t page_directory, uint32_t virtual_address,
+                              uint32_t expected_physical_address);
 int paging_set_user_page_flags(uint32_t page_directory, uint32_t virtual_address, uint32_t flags);
 int paging_mark_cow(uint32_t page_directory, uint32_t virtual_address);
 int paging_resolve_cow(uint32_t page_directory, uint32_t virtual_address);
