@@ -75,11 +75,6 @@ int main(void) {
         if (lion_tty_claim() != 0 ||
             lion_tty_getpgrp() != (int32_t)child_pid)
             lion_exit_code(45u);
-        const uint32_t tty_ready = 0x54545931u;
-        if (lion_pipe_write(tty_ready_pipe[1], &tty_ready, sizeof(tty_ready)) !=
-            (int32_t)sizeof(tty_ready))
-            lion_exit_code(52u);
-        (void)lion_pipe_close(tty_ready_pipe[1]);
         thread_session_start = 1u;
         int32_t thread_status = -1;
         if (lion_thread_join(session_tid, &thread_status) != (int32_t)session_tid ||
@@ -112,6 +107,11 @@ int main(void) {
         int32_t tty_group_status = -1;
         if (lion_waitpid(tty_group_child, &tty_group_status) != (int32_t)tty_group_child)
             lion_exit_code(48u);
+        const uint32_t tty_ready = 0x54545931u;
+        if (lion_pipe_write(tty_ready_pipe[1], &tty_ready, sizeof(tty_ready)) !=
+            (int32_t)sizeof(tty_ready))
+            lion_exit_code(52u);
+        (void)lion_pipe_close(tty_ready_pipe[1]);
         if (lion_setsid() != -1 || lion_setpgid(0u, child_pid) != -1)
             lion_exit_code(44u);
         for (;;) (void)lion_yield();
