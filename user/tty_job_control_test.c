@@ -116,8 +116,8 @@ static int test_setpgid_orphan_transition(void){
     (void)lion_pipe_close(sync_read);
     (void)lion_pipe_close(sync_write);
     status=-1;
-    int wait_result=waitpid_bounded(session_parent,&status);
-    if(wait_result!=0)return wait_result==-2?182:183;
+    if(lion_waitpid(session_parent,&status)!=(int32_t)session_parent)
+        return 183;
     return status==0?0:184;
 }
 
