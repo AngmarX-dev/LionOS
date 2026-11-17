@@ -28,6 +28,7 @@ static uint32_t *schedule_tick(uint32_t *frame){
     for(uint32_t attempt=0u;attempt<LIONOS_PROCESS_MAX&&next;++attempt){
         struct process *cur=process_current();
         if(!cur||cur->state!=PROCESS_RUNNING)break;
+        if((next[15]&3u)!=3u)break;
         if(!process_deliver_pending_signal(next))break;
         cur=process_current();
         if(cur&&cur->state==PROCESS_RUNNING)break;

@@ -650,6 +650,9 @@ void lionos_user_integration_step(void){
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
             int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            debug_write("LIONOS:SIGNAL-HANDLER-EXIT-CODE=0x");
+            debug_write_u32_hex(code);
+            debug_write(valid?" VALID\n":" INVALID\n");
             int handler_ok=valid&&code==0u;
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 handler_ok=0;

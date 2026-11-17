@@ -95,7 +95,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 10 | LIONOS_SYS_MEMINFO | — | Free physical page count; read-only metadata query used by the native `meminfo.elf` utility |
 | 11 | LIONOS_SYS_EXEC | NUL-terminated program name | Replaces current image; returns PID on success |
 | 12 | LIONOS_SYS_FORK | — | Child PID in parent; child receives 0 |
-| 13 | LIONOS_SYS_WAITPID | PID (0 = any child), writable status pointer | Child PID on exit; may block; legacy behavior |
+| 13 | LIONOS_SYS_WAITPID | PID (0 = any child), writable status pointer | Child PID on exit, or `LIONOS_EINTR` when interrupted by non-ignored SIGINT/SIGHUP |
 | 62 | LIONOS_SYS_WAITPID_OPTIONS | PID (0 = any child), optional writable status pointer, options | Child PID on event, 0 for WNOHANG, or `LIONOS_EINTR` when interrupted by a non-ignored SIGINT/SIGHUP |
 | 63 | LIONOS_SYS_SIGACTION | signal, optional readable lion_sigaction pointer, optional writable old-action pointer | 0 on success; currently accepts SIGINT and SIGHUP only; handler 0 = default, 1 = ignore; custom handler requires executable handler and restorer addresses |
 | 64 | LIONOS_SYS_SIGRETURN | — | CRT return trampoline only; restores the kernel-saved interrupt context; rejected without a matching active signal frame |
