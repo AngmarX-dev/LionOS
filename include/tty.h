@@ -31,5 +31,6 @@ int32_t tty_input_byte(uint8_t byte);
 
 /* Reads completed canonical input into a kernel buffer; never blocks. */
 int32_t tty_read(uint32_t sid, uint8_t *destination, uint32_t capacity);
+int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length);
 
 #endif
