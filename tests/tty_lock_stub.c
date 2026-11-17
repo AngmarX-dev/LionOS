@@ -8,6 +8,8 @@ uint32_t tty_test_signal_count;
 uint32_t tty_test_signal_sid;
 uint32_t tty_test_signal_pgid;
 uint32_t tty_test_signal_number;
+char tty_test_output[2048];
+uint32_t tty_test_output_length;
 
 void spinlock_init(struct spinlock *lock) { if (lock) lock->value = 0u; }
 void spinlock_acquire(struct spinlock *lock) { if (lock) lock->value = 1u; }
@@ -25,7 +27,12 @@ void spinlock_irqrestore_release(struct spinlock *lock, uint32_t flags) {
     (void)flags;
     spinlock_release(lock);
 }
-void console_write_n(const char *buffer, uint32_t length) { (void)buffer; (void)length; }
+void console_write_n(const char *buffer, uint32_t length) {
+    if (!buffer || length > sizeof(tty_test_output) - tty_test_output_length)
+        return;
+    for (uint32_t i = 0u; i < length; ++i)
+        tty_test_output[tty_test_output_length++] = buffer[i];
+}
 int32_t process_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t irq_flags) {
     if (!channel || !held_lock) return -1;
     ++tty_test_sleep_count;
