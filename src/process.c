@@ -714,7 +714,6 @@ int32_t process_tty_check_foreground(uint32_t sid,uint32_t caller_pid,uint32_t s
         spinlock_irqrestore_release(&process_lock,flags);
         return 0;
     }
-    uint32_t bit=1u<<(signal-1u);
     uint32_t members=0u;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];

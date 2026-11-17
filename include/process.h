@@ -41,6 +41,7 @@ struct process {
     uint32_t wait_options;
     uint32_t stop_event_pending;
     uint32_t stop_signal;
+    uint32_t continued_event_pending;
     uint32_t wait_channel;
     uint32_t wait_kind;
     uint32_t wait_timeout_active;

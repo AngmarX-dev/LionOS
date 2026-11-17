@@ -130,7 +130,7 @@ The project explores operating-system internals through real low-level code: boo
 | Noncanonical VMIN byte-threshold reads and live threshold updates | ✅ |
 | Noncanonical VTIME total/inter-byte read timeouts | ✅ |
 | Foreground/background TTY I/O checks with SIGTTIN/SIGTTOU and TOSTOP | 🟡 |
-| waitpid WNOHANG queries and WUNTRACED child-stop notifications | ✅ |
+| waitpid WNOHANG, WUNTRACED and WCONTINUED job-control notifications | ✅ |
 | PS/2 keyboard | ✅ |
 | PS/2 mouse | ✅ |
 | xHCI HID USB mouse path | ✅ |
@@ -477,7 +477,7 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 | Blocking pipe reads/writes | ✅ |
 | Blocking filesystem operations | ⬜ |
 | Process groups (PGID inheritance, setpgid, and group signals) | ✅ |
-| waitpid WNOHANG / WUNTRACED stop-event reporting | ✅ |
+| waitpid WNOHANG / WUNTRACED / WCONTINUED job-control event reporting | ✅ |
 | Sessions (SID inheritance, setsid, getsid) | ✅ |
 | Controlling terminal / foreground-background jobs | 🟡 |
 | Foreground/background jobs | ⬜ |

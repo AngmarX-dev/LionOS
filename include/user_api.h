@@ -10,8 +10,10 @@
 
 #define LIONOS_WNOHANG LIONOS_WAIT_NOHANG
 #define LIONOS_WUNTRACED LIONOS_WAIT_UNTRACED
+#define LIONOS_WCONTINUED LIONOS_WAIT_CONTINUED
 #define LIONOS_WIFSTOPPED(status) (((uint32_t)(status) & 0xFFu) == 0x7Fu)
 #define LIONOS_WSTOPSIG(status) (((uint32_t)(status) >> 8) & 0xFFu)
+#define LIONOS_WIFCONTINUED(status) (((uint32_t)(status) & 0xFFFFu) == LIONOS_WAIT_STATUS_CONTINUED)
 
 #define LIONOS_SIG_NONE 0u
 #define LIONOS_SIG_INT 2u
