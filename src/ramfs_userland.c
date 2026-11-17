@@ -1,6 +1,6 @@
 #include <stdint.h>
 #include "ramfs.h"
-#define RAMFS_MAX_FILES 33u
+#define RAMFS_MAX_FILES 34u
 #define RAMFS_NAME_MAX 64u
 #define RAMFS_DATA_MAX 256u
 #define RAMFS_PROGRAM_COUNT 24u
