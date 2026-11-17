@@ -33,7 +33,7 @@ static int syscall_copy_out(uint32_t address,const void *buffer,uint32_t length)
 static int process_exists(uint32_t pid){if(!pid)return 0;for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i){struct process*p=process_at(i);if(p&&p->state!=PROCESS_UNUSED&&p->pid==pid)return 1;}return 0;}
 static int has_cap(uint32_t cap){return process_has_capability(process_current(),cap);}
 static uint32_t syscall_dispatch(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2,uint32_t arg3,uint32_t arg4){switch(number){
-case SYS_ABI_VERSION:return 15u;
+case SYS_ABI_VERSION:return LIONOS_SYSCALL_ABI;
 case SYS_PUTC:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg0>0xFFu)return SYSCALL_ERR;console_putc((char)arg0);return SYSCALL_OK;
 case SYS_GETPID:return process_current_pid();
 case LIONOS_SYS_GETTID:return process_current_tid();
@@ -88,6 +88,7 @@ case LIONOS_SYS_GETPPID:{struct process*p=process_current();return p?p->parent_p
 case LIONOS_SYS_KILL:if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;if(!process_exists(arg0)||arg0==process_current_pid()||!process_is_descendant_or_child(arg0,process_current_pid())||arg1==0||arg1>LIONOS_SIG_MAX)return SYSCALL_ERR;return(uint32_t)process_signal(arg0,arg1);
 case LIONOS_SYS_GETSTATE:return(uint32_t)process_get_state(arg0);
 case LIONOS_SYS_SIGPENDING:return process_signal_pending(arg0);
+case LIONOS_SYS_SIGRETURN:return SYSCALL_ERR; /* Handled only by the interrupt return path. */
 case LIONOS_SYS_SIGACTION:{
     if(!has_cap(PROCESS_CAP_PROCESS))return SYSCALL_ERR;
     if(arg1&&!usercopy_validate_read(arg1,sizeof(struct lion_sigaction)))return SYSCALL_ERR;
