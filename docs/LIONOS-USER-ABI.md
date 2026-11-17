@@ -79,7 +79,7 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 
 | Number | Symbol | Arguments (in order) | Result / notes |
 |---:|---|---|---|
-| 0 | SYS_ABI_VERSION | — | Returns LIONOS_SYSCALL_ABI (9) |
+| 0 | SYS_ABI_VERSION | — | Returns LIONOS_SYSCALL_ABI (10) |
 | 1 | LIONOS_SYS_PUTC | character | 0 on success |
 | 2 | LIONOS_SYS_GETPID | — | Current process ID |
 | 3 | LIONOS_SYS_YIELD | — | Requests scheduler yield |
@@ -130,12 +130,14 @@ The numeric registry is defined in include/uapi.h and include/vfs_uapi.h. The di
 | 50 | LIONOS_SYS_GETPGID | PID (0 = caller) | Process group ID or error |
 | 51 | LIONOS_SYS_SETPGID | PID (0 = caller), PGID (0 = target PID) | Set process group; may join caller's group or a direct child's group |
 | 52 | LIONOS_SYS_KILLPG | PGID, signal | Deliver signal to all live descendant process leaders in the group; caller's own group is rejected |
+| 53 | LIONOS_SYS_SETSID | — | Create a new session and process group; fails if caller is already a process-group leader |
+| 54 | LIONOS_SYS_GETSID | PID (0 = caller) | Session ID or error
 
 ### Capability and validation notes
 
 - Console calls require PROCESS_CAP_CONSOLE.
 - File/VFS calls require PROCESS_CAP_FS.
-- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, KILLPG, SETPGID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS; EXIT and read-only metadata queries are not all gated by that capability.
+- Mutating process/thread operations such as EXEC, FORK, WAITPID, KILL, KILLPG, SETPGID, SETSID, THREAD_CREATE, and THREAD_JOIN require PROCESS_CAP_PROCESS; EXIT and read-only metadata queries are not all gated by that capability.
 - IPC and pipe calls require PROCESS_CAP_IPC.
 - Network calls require PROCESS_CAP_NET.
 - The dispatcher validates user pointers before dereferencing user buffers. Each call also applies capacity, ownership, and state checks.
@@ -152,7 +154,7 @@ This is not a complete System V i386 process-start ABI. Environment vectors, aux
 
 ## 7. POSIX-inspired compatibility subset
 
-The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. SIGSTOP and SIGCONT are propagated to the leader's user threads. Direct SIGTERM/SIGKILL and KILLPG termination fail closed when a target process has any live user thread, because remote thread-stack reclamation is not yet safe. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Sessions and controlling terminals are not implemented.
+The native process-group layer assigns each new process a group named by its PID, inherits PGID across fork, and shares PGID across threads. SETPGID can create a group led by the caller or a direct child, join the caller's group, or join a group led by another direct child. KILLPG snapshots live non-thread process leaders in the requested group and signals them only when every member is a descendant of the caller; signaling the caller's own group is rejected. SIGSTOP and SIGCONT are propagated to the leader's user threads. Direct SIGTERM/SIGKILL and KILLPG termination fail closed when a target process has any live user thread, because remote thread-stack reclamation is not yet safe. Group membership is evaluated at syscall dispatch, so later membership changes do not alter the captured target set. Each newly created process starts a session whose SID and initial PGID equal its PID; fork inherits SID and PGID, and user threads share both. SETSID creates a new session and process group atomically for the caller and its threads, and fails for process-group leaders. SETPGID rejects cross-session moves and attempts to change a session leader's process group. GETSID reports the SID of a live process. Controlling terminals and foreground/background terminal job control are not implemented.
 
 The current first compatibility slice is a user-space wrapper layer in include/posix_compat.h and user/posix_compat.c. It maps these native LionOS services:
 
