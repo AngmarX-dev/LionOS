@@ -10,15 +10,15 @@ The current implementation provides:
 - Foreground process-group storage scoped to the owning session.
 - Canonical line editing with backspace and carriage-return normalization.
 - A bounded completed-line queue and nonblocking reads.
-- Ctrl-C recognition as an input event that flushes the current edit line.
+- Ctrl-C recognition, foreground-process-group SIGINT queuing, and bounded deferred visual echo.
 
 ## Important limitations
 
 This is not yet a complete terminal device or POSIX job-control implementation.
 
 - PS/2 and USB HID translated input reaches the TTY through the common keyboard character path.
-- Ctrl-C is reported as `TTY_INPUT_INTERRUPT`; it does not deliver SIGINT.
-- This is not a full VFS device node or POSIX terminal: echo, termios, and complete foreground job control are not implemented.
+- Ctrl-C queues SIGINT for the owning session's validated foreground process group. It does not yet implement userspace signal handlers or default SIGINT termination.
+- Canonical echo is deferred until a process-context TTY read drains the bounded echo queue; it is not immediate per-keystroke echo. `termios`, dynamic TTY devices, and complete POSIX job control remain unimplemented.
 - `tty_set_foreground_pgid()` enforces TTY session ownership. The Process Manager validates PGID existence and session membership while holding the process-table lock before updating foreground state.
 - The current core has one console TTY instance, not a dynamic TTY allocator.
 
@@ -30,13 +30,13 @@ This is not yet a complete terminal device or POSIX job-control implementation.
 
 `tty_set_foreground_pgid(sid, pgid)` accepts only the current owner SID and a nonzero PGID. It does not independently inspect process tables.
 
-`tty_input_byte(byte)` is intended for a future translated-input bridge. It buffers printable bytes until newline, handles backspace, and reports Ctrl-C without performing signal delivery.
+`tty_input_byte(byte)` is called by the translated keyboard bridge. It buffers printable bytes until newline, handles backspace, queues deferred echo, and routes Ctrl-C to the validated foreground process group.
 
-`tty_read(sid, destination, capacity)` copies only completed canonical input into a kernel buffer. It is nonblocking and returns `TTY_READ_EMPTY` when no completed bytes are queued. Syscall integration must validate user pointers and perform usercopy separately.
+`tty_read(sid, destination, capacity)` copies only completed canonical input into a kernel buffer. It is nonblocking and returns `TTY_READ_EMPTY` when no completed bytes are queued; before reading, it drains queued echo from process context. Syscall integration must validate user pointers and perform usercopy separately.
 
 ## Validation
 
-`make tty-check` runs a host-side test with a test-only spinlock stub. It covers session ownership, foreground PGID storage, canonical editing, partial reads, Ctrl-C flush behavior, line-size bounds, and release cleanup. This host test does not validate hardware input or kernel interrupt concurrency.
+`make tty-check` runs a host-side test with a test-only spinlock stub. It covers session ownership, foreground PGID storage, canonical editing and echo, backspace visual output, partial reads, Ctrl-C signal routing and marker, line-size bounds, and release cleanup. This host test does not validate hardware input or kernel interrupt concurrency.
 
 ## H21.2 — Session and Process Group integration
 
