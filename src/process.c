@@ -642,6 +642,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         p->wait_channel=0u;
         p->wait_kind=0u;
         p->wait_timeout_active=0u;
+        p->wait_timeout_result=0u;
         if(p->is_thread){
             p->pending_signals|=(1u<<(signal-1u));
             p->exit_code=128u+signal;
@@ -667,10 +668,10 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
     }
     if(signal==LIONOS_SIG_STOP){
         p->pending_signals|=(1u<<(signal-1u));
-        if(p->state==PROCESS_WAITING&&p->wait_kind==1u){
+        if(p->state==PROCESS_WAITING&&(p->wait_kind==1u||p->wait_kind==2u)){
             uint32_t *frame=(uint32_t *)(uintptr_t)p->saved_frame;
             if(frame)frame[11]=LIONOS_FUTEX_INTERRUPTED;
-            p->wait_channel=0u;p->wait_kind=0u;p->wait_timeout_active=0u;
+            p->wait_channel=0u;p->wait_kind=0u;p->wait_timeout_active=0u;p->wait_timeout_result=0u;
         }
         p->state=PROCESS_STOPPED;
         if(!p->is_thread){
@@ -682,7 +683,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
                 if(thread->state==PROCESS_WAITING&&thread->wait_kind==1u){
                     uint32_t *frame=(uint32_t *)(uintptr_t)thread->saved_frame;
                     if(frame)frame[11]=LIONOS_FUTEX_INTERRUPTED;
-                    thread->wait_channel=0u;thread->wait_kind=0u;thread->wait_timeout_active=0u;
+                    thread->wait_channel=0u;thread->wait_kind=0u;thread->wait_timeout_active=0u;thread->wait_timeout_result=0u;
                 }
                 thread->state=PROCESS_STOPPED;
                 uint32_t cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
@@ -794,7 +795,7 @@ uint32_t *process_schedule(uint32_t *frame){
     struct process*prev=current_local();
     if(prev){
         prev->saved_frame=(uint32_t)(uintptr_t)frame;
-        if(prev->state==PROCESS_WAITING&&prev->wait_kind==1u&&
+        if(prev->state==PROCESS_WAITING&&(prev->wait_kind==1u||prev->wait_kind==2u)&&
            prev->wait_timeout_active==2u&&prev->wait_cpu==cpu){
             prev->wait_deadline=sc->timer_ticks+prev->wait_timeout_ticks;
             prev->wait_timeout_active=1u;
