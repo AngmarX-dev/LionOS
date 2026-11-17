@@ -67,4 +67,72 @@ static inline uint32_t lion_net_pending(uint16_t port){return lion_syscall1(LION
 static inline uint32_t lion_net_getip(void){return lion_syscall0(LIONOS_SYS_NET_GETIP);}
 static inline int32_t lion_net_ping(uint32_t ip){return (int32_t)lion_syscall1(LIONOS_SYS_NET_PING,ip);}
 
+
+/*
+ * Cooperative userspace synchronization primitives.
+ * These objects are intended for threads sharing one address space.
+ * Atomic builtins provide inter-CPU ordering; contended waits yield the CPU.
+ */
+typedef struct lion_mutex {
+    volatile uint32_t state;
+} lion_mutex_t;
+
+typedef struct lion_semaphore {
+    volatile uint32_t count;
+} lion_semaphore_t;
+
+static inline int lion_mutex_init(lion_mutex_t *mutex) {
+    if (!mutex) return -1;
+    __atomic_store_n(&mutex->state, 0u, __ATOMIC_RELEASE);
+    return 0;
+}
+
+static inline int lion_mutex_trylock(lion_mutex_t *mutex) {
+    if (!mutex) return -1;
+    return __sync_lock_test_and_set(&mutex->state, 1u) == 0u ? 0 : 1;
+}
+
+static inline int lion_mutex_lock(lion_mutex_t *mutex) {
+    if (!mutex) return -1;
+    while (__sync_lock_test_and_set(&mutex->state, 1u) != 0u)
+        (void)lion_yield();
+    __sync_synchronize();
+    return 0;
+}
+
+static inline int lion_mutex_unlock(lion_mutex_t *mutex) {
+    if (!mutex || __atomic_load_n(&mutex->state, __ATOMIC_RELAXED) == 0u)
+        return -1;
+    __sync_lock_release(&mutex->state);
+    return 0;
+}
+
+static inline int lion_semaphore_init(lion_semaphore_t *sem, uint32_t initial) {
+    if (!sem) return -1;
+    __atomic_store_n(&sem->count, initial, __ATOMIC_RELEASE);
+    return 0;
+}
+
+static inline int lion_semaphore_wait(lion_semaphore_t *sem) {
+    if (!sem) return -1;
+    for (;;) {
+        uint32_t observed = __atomic_load_n(&sem->count, __ATOMIC_ACQUIRE);
+        if (observed != 0u &&
+            __sync_val_compare_and_swap(&sem->count, observed, observed - 1u) == observed)
+            return 0;
+        (void)lion_yield();
+    }
+}
+
+static inline int lion_semaphore_post(lion_semaphore_t *sem) {
+    if (!sem) return -1;
+    uint32_t observed = __atomic_load_n(&sem->count, __ATOMIC_RELAXED);
+    for (;;) {
+        if (observed == UINT32_MAX) return -1;
+        uint32_t previous = __sync_val_compare_and_swap(&sem->count, observed, observed + 1u);
+        if (previous == observed) return 0;
+        observed = previous;
+    }
+}
+
 #endif
