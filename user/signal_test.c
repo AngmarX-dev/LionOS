@@ -89,6 +89,9 @@ int main(void) {
             lion_exit_code(43u);
         uint32_t tty_group_child = lion_fork();
         if (tty_group_child == 0u) {
+            if (lion_tty_claim() != -1 ||
+                lion_tty_getpgrp() != (int32_t)child_pid)
+                lion_exit_code(55u);
             for (;;) (void)lion_yield();
         }
         if (tty_group_child == LIONOS_SYSCALL_ERR ||
