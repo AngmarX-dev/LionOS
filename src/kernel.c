@@ -571,6 +571,9 @@ void lionos_user_integration_step(void){
             uint32_t code=0xFFFFFFFFu;
             int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
             int job_control_ok=valid&&code==0u;
+            debug_write("LIONOS:TTY-JOB-CONTROL-EXIT-CODE=0x");
+            debug_write_u32_hex(code);
+            debug_write("\\n");
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 job_control_ok=0;
             integration_pid=-1;

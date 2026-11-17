@@ -113,10 +113,12 @@ int main(void){
             while(lion_getppid()!=1u)(void)lion_yield();
             int32_t tty_result=lion_tty_read(&byte,1u);
             uint32_t pending=lion_sigpending(pid);
-            uint32_t result=(lion_getppid()==1u&&tty_result==-1&&
-                (pending&(1u<<(LIONOS_SIG_HUP-1u)))!=0u&&
-                (pending&(1u<<(LIONOS_SIG_TTIN-1u)))==0u&&
-                lion_getstate(pid)!=LIONOS_PROCESS_STOPPED)?0u:31u;
+            uint32_t result=0u;
+            if(lion_getppid()!=1u)result|=1u;
+            if(tty_result!=-1)result|=2u;
+            if((pending&(1u<<(LIONOS_SIG_HUP-1u)))==0u)result|=4u;
+            if((pending&(1u<<(LIONOS_SIG_TTIN-1u)))!=0u)result|=8u;
+            if(lion_getstate(pid)==LIONOS_PROCESS_STOPPED)result|=16u;
             (void)lion_pipe_write(report_write,&result,sizeof(result));
             lion_exit_code(result);
         }
@@ -152,10 +154,13 @@ int main(void){
     if(lion_waitpid(orphan_parent,&status)!=(int32_t)orphan_parent||status!=0)
         return cleanup_child(orphan_parent,25);
     uint32_t orphan_result=0xFFFFFFFFu;
-    if(lion_pipe_read(report_read,&orphan_result,sizeof(orphan_result))!=(int32_t)sizeof(orphan_result)||
-       orphan_result!=0u){
+    if(lion_pipe_read(report_read,&orphan_result,sizeof(orphan_result))!=(int32_t)sizeof(orphan_result)){
         (void)lion_pipe_close(sync_read);(void)lion_pipe_close(report_read);(void)lion_pipe_close(sync_write);(void)lion_pipe_close(report_write);
         return 26;
+    }
+    if(orphan_result!=0u){
+        (void)lion_pipe_close(sync_read);(void)lion_pipe_close(report_read);(void)lion_pipe_close(sync_write);(void)lion_pipe_close(report_write);
+        return (int)(30u|(orphan_result&0x1Fu));
     }
     (void)lion_pipe_close(sync_read);(void)lion_pipe_close(report_read);
     (void)lion_pipe_close(sync_write);(void)lion_pipe_close(report_write);
