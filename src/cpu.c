@@ -376,6 +376,10 @@ int cpu_enable_nx(void){
     cpuid_count(0x80000001u,0u,&a,&b,&c,&d);
     if(!(d&(1u<<20)))return -1;
 
+    /* RDMSR/WRMSR are only defined when CPUID.1:EDX[5] advertises MSR. */
+    cpuid_count(1u,0u,&a,&b,&c,&d);
+    if(!(d&(1u<<5)))return -1;
+
     uint32_t cr4;
     __asm__ volatile("mov %%cr4,%0":"=r"(cr4));
     if(!(cr4&(1u<<5)))return -1; /* EFER.NXE is only valid with PAE paging. */
