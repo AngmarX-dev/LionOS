@@ -198,7 +198,7 @@ grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PIPE-LIFECYCLE-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PROCESS-WAITPID-TEST-OK' build/qemu-first.log
-grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-first.log
+grep -q 'LIONOS:SIGNAL-CONTROL-TEST-OK' grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-DIRECTORY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-TEST-OK' build/qemu-first.log
@@ -235,7 +235,7 @@ grep -q 'LIONOS:COW-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:PIPE-LIFECYCLE-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:PROCESS-WAITPID-TEST-OK' build/qemu-second.log
-grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-second.log
+grep -q 'LIONOS:SIGNAL-CONTROL-TEST-OK' grep -q 'LIONOS:EXT2-VFS-READ-ONLY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-DIRECTORY-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-TRIPLE-INDIRECT-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-TEST-OK' build/qemu-second.log
