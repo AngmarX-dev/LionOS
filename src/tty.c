@@ -21,13 +21,15 @@ struct tty_console_state {
     uint32_t edit_length;
     uint8_t echo[TTY_ECHO_QUEUE_CAPACITY];
     uint32_t echo_count;
+    uint32_t attributes;
 };
 
 static struct tty_console_state console_tty;
 static uint8_t tty_read_wait_channel;
 
 static void tty_queue_echo_locked(const uint8_t *bytes, uint32_t length) {
-    if (!bytes || length > TTY_ECHO_QUEUE_CAPACITY - console_tty.echo_count)
+    if ((console_tty.attributes & TTY_ATTR_ECHO) == 0u || !bytes ||
+        length > TTY_ECHO_QUEUE_CAPACITY - console_tty.echo_count)
         return;
     for (uint32_t i = 0u; i < length; ++i)
         console_tty.echo[console_tty.echo_count++] = bytes[i];
@@ -73,6 +75,7 @@ void tty_init(void) {
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
     console_tty.owner_sid = 0u;
     console_tty.foreground_pgid = 0u;
+    console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG;
     tty_reset_buffers_locked();
     spinlock_irqrestore_release(&console_tty.lock, flags);
     spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
@@ -93,6 +96,7 @@ int32_t tty_claim_session(uint32_t sid, uint32_t leader_pid) {
     if (console_tty.owner_sid == 0u) {
         console_tty.owner_sid = sid;
         console_tty.foreground_pgid = sid;
+        console_tty.attributes = TTY_ATTR_ECHO | TTY_ATTR_ISIG;
         tty_reset_buffers_locked();
     }
     spinlock_irqrestore_release(&console_tty.lock, flags);
@@ -164,7 +168,7 @@ int32_t tty_input_byte(uint8_t byte) {
     }
 
     uint32_t sid = console_tty.owner_sid;
-    if (byte == 0x03u) {
+    if (byte == 0x03u && (console_tty.attributes & TTY_ATTR_ISIG) != 0u) {
         static const uint8_t interrupt_echo[] = {'^', 'C', '\n'};
         console_tty.edit_length = 0u;
         tty_queue_echo_locked(interrupt_echo, sizeof(interrupt_echo));
@@ -214,7 +218,7 @@ int32_t tty_input_byte(uint8_t byte) {
         return TTY_INPUT_LINE_READY;
     }
 
-    if (byte < 0x20u && byte != '\t') {
+    if (byte < 0x20u && byte != '\t' && byte != 0x03u) {
         spinlock_irqrestore_release(&console_tty.input_lock, flags);
         return TTY_INPUT_NONE;
     }
@@ -299,4 +303,32 @@ int32_t tty_write(uint32_t sid, const uint8_t *source, uint32_t length) {
         console_write_n((const char *)source, length);
     spinlock_irqrestore_release(&console_tty.output_lock, output_flags);
     return (int32_t)length;
+}
+
+int32_t tty_get_attributes(uint32_t sid, uint32_t *flags) {
+    if (sid == 0u || !flags)
+        return TTY_ERROR;
+    uint32_t input_flags = spinlock_irqsave_acquire(&console_tty.input_lock);
+    if (console_tty.owner_sid != sid) {
+        spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
+        return TTY_ERROR;
+    }
+    *flags = console_tty.attributes;
+    spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
+    return 0;
+}
+
+int32_t tty_set_attributes(uint32_t sid, uint32_t flags) {
+    if (sid == 0u || (flags & ~TTY_ATTR_SUPPORTED) != 0u)
+        return TTY_ERROR;
+    uint32_t input_flags = spinlock_irqsave_acquire(&console_tty.input_lock);
+    if (console_tty.owner_sid != sid) {
+        spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
+        return TTY_ERROR;
+    }
+    console_tty.attributes = flags;
+    if ((flags & TTY_ATTR_ECHO) == 0u)
+        console_tty.echo_count = 0u;
+    spinlock_irqrestore_release(&console_tty.input_lock, input_flags);
+    return 0;
 }
