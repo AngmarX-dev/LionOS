@@ -44,6 +44,7 @@ struct process {
     uint32_t wait_timeout_ticks;
     uint32_t wait_deadline;
     uint32_t wait_cpu;
+    uint32_t wait_timeout_result;
     uint32_t reap_pending;
     uint32_t deferred_kernel_stack;
     uint32_t page_directory;
@@ -122,6 +123,9 @@ int32_t process_waitpid(uint32_t pid, uint32_t status_ptr);
 /* sleep_on is called with held_lock already acquired and interrupts disabled.
  * It atomically publishes PROCESS_WAITING before releasing held_lock. */
 int32_t process_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t irq_flags);
+int32_t process_sleep_on_timeout(uintptr_t channel, struct spinlock *held_lock,
+                                 uint32_t irq_flags, uint32_t timeout_ticks);
+int32_t process_consume_timeout(void);
 int32_t process_futex_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t irq_flags);
 int32_t process_futex_sleep_on_timeout(uintptr_t channel, struct spinlock *held_lock,
                                        uint32_t irq_flags, uint32_t timeout_ticks);
