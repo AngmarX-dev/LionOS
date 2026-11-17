@@ -31,6 +31,9 @@ static inline int32_t lion_thread_join(uint32_t tid,int32_t*status){return(int32
 static inline void lion_thread_exit(uint32_t code){(void)lion_syscall1(LIONOS_SYS_THREAD_EXIT,code);for(;;)__asm__ volatile("cli; hlt");}
 static inline uint32_t lion_getppid(void){return lion_syscall0(LIONOS_SYS_GETPPID);}
 static inline int32_t lion_getpgid(uint32_t pid){return (int32_t)lion_syscall1(LIONOS_SYS_GETPGID,pid);}
+static inline int32_t lion_tty_claim(void){return (int32_t)lion_syscall0(LIONOS_SYS_TTY_CLAIM);}
+static inline int32_t lion_tty_getpgrp(void){return (int32_t)lion_syscall0(LIONOS_SYS_TTY_GETPGRP);}
+static inline int32_t lion_tty_setpgrp(uint32_t pgid){return (int32_t)lion_syscall1(LIONOS_SYS_TTY_SETPGRP,pgid);}
 static inline int32_t lion_setpgid(uint32_t pid,uint32_t pgid){return (int32_t)lion_syscall2(LIONOS_SYS_SETPGID,pid,pgid);}
 static inline int32_t lion_killpg(uint32_t pgid,uint32_t signal){return (int32_t)lion_syscall2(LIONOS_SYS_KILLPG,pgid,signal);}
 static inline int32_t lion_setsid(void){return (int32_t)lion_syscall0(LIONOS_SYS_SETSID);}
