@@ -58,11 +58,11 @@ int32_t tty_release_session(uint32_t sid) {
     if (sid == 0u)
         return TTY_ERROR;
 
-    spinlock_acquire(&console_tty.output_lock);
+    uint32_t output_flags = spinlock_irqsave_acquire(&console_tty.output_lock);
     uint32_t flags = spinlock_irqsave_acquire(&console_tty.lock);
     if (console_tty.owner_sid != sid) {
         spinlock_irqrestore_release(&console_tty.lock, flags);
-        spinlock_release(&console_tty.output_lock);
+        spinlock_irqrestore_release(&console_tty.output_lock, output_flags);
         return TTY_ERROR;
     }
 
