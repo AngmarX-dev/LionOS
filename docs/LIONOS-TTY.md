@@ -91,4 +91,4 @@ The Process Manager revalidates that the TTY still belongs to the same session, 
 
 This milestone queues SIGINT (signal number 2) and makes it visible through the existing pending-signal query. It does **not** implement userspace signal handlers, default SIGINT termination, terminal echo, or complete POSIX job-control semantics. A Ctrl-C request is rejected if the foreground group is stale or no longer belongs to the owning session.
 
-The host TTY test verifies that Ctrl-C clears the edit buffer and routes the request to the currently configured foreground PGID. The Process Manager's group/session validation remains covered by code review and the kernel CI suite; physical keyboard testing is still required.
+The host TTY test verifies that Ctrl-C clears the edit buffer and dispatches the expected session/foreground-PGID request through a test stub; it does not execute the Process Manager's group/session validation. The kernel CI suite verifies compilation and existing regression paths, but a dedicated runtime test for this new Process Manager helper and physical keyboard testing are still outstanding.
