@@ -466,7 +466,7 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 | Blocking keyboard reads | ⬜ |
 | Blocking pipe reads/writes | ✅ |
 | Blocking filesystem operations | ⬜ |
-| Process groups | ⬜ |
+| Process groups (PID/PGID inheritance and setpgid foundation) | 🟨 |
 | Sessions / controlling terminal | ⬜ |
 | Foreground/background jobs | ⬜ |
 | Full signal delivery and handling | ⬜ |
