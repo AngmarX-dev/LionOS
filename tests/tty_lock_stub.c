@@ -4,6 +4,10 @@
 
 uint32_t tty_test_sleep_count;
 uint32_t tty_test_wakeup_count;
+uint32_t tty_test_signal_count;
+uint32_t tty_test_signal_sid;
+uint32_t tty_test_signal_pgid;
+uint32_t tty_test_signal_number;
 
 void spinlock_init(struct spinlock *lock) { if (lock) lock->value = 0u; }
 void spinlock_acquire(struct spinlock *lock) { if (lock) lock->value = 1u; }
@@ -29,3 +33,11 @@ int32_t process_sleep_on(uintptr_t channel, struct spinlock *held_lock, uint32_t
     return PROCESS_WAIT_BLOCKED;
 }
 void process_wakeup(uintptr_t channel) { if (channel) ++tty_test_wakeup_count; }
+int32_t process_tty_signal_foreground(uint32_t sid, uint32_t pgid, uint32_t signal) {
+    if (!sid || !pgid || !signal) return -1;
+    ++tty_test_signal_count;
+    tty_test_signal_sid = sid;
+    tty_test_signal_pgid = pgid;
+    tty_test_signal_number = signal;
+    return 0;
+}
