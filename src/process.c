@@ -857,15 +857,15 @@ static void process_reparent_children_locked(struct process *exiting){
 void process_exit_current(uint32_t code){
     struct process*c=current_local();
     int is_hup_exit=(code==(128u+LIONOS_SIG_HUP));
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:EXIT-ENTER\\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:EXIT-ENTER\n");
     if(c&&!c->is_thread&&c!=&processes[0]){
         pipe_close_all(c);
         vfs_close_all_process(c);
     }
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:FD-CLOSE-DONE\\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:FD-CLOSE-DONE\n");
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     c=current_local();
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:LOCK-ACQUIRED\\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:LOCK-ACQUIRED\n");
     if(c&&c->is_thread){
         c->exit_code=code;
         c->state=PROCESS_ZOMBIE;
@@ -905,15 +905,15 @@ void process_exit_current(uint32_t code){
     uint32_t exiting_sid=c->sid;
     c->exit_code=code;
     process_reparent_children_locked(c);
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:REPARENT-DONE\\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:REPARENT-DONE\n");
     c->state=PROCESS_ZOMBIE;
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:ZOMBIE-SET\\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:ZOMBIE-SET\n");
     wake_waiting_parent(c);
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
     process_release_tty_if_session_empty(exiting_sid);
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\n");
 }
 static struct process*find_pid(uint32_t pid){for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED&&processes[i].pid==pid)return &processes[i];return 0;}
 int process_is_descendant_or_child(uint32_t pid,uint32_t ancestor_pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);if(!p||!ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 0;}if(p->parent_pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}for(uint32_t d=0;d<LIONOS_PROCESS_MAX&&p->parent_pid;++d){p=find_pid(p->parent_pid);if(!p)break;if(p->pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}}spinlock_irqrestore_release(&process_lock,flags);return 0;}
@@ -1156,9 +1156,9 @@ int process_deliver_pending_signal(void){
     }
     current->pending_signals&=~hup_bit;
     spinlock_irqrestore_release(&process_lock,flags);
-    debug_write("LIONOS:SIGHUP:DELIVER\\n");
+    debug_write("LIONOS:SIGHUP:DELIVER\n");
     process_exit_current(128u+LIONOS_SIG_HUP);
-    debug_write("LIONOS:SIGHUP:EXIT-RETURNED\\n");
+    debug_write("LIONOS:SIGHUP:EXIT-RETURNED\n");
     return 1;
 }
 uint32_t process_signal_pending(uint32_t pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);uint32_t r=p?p->pending_signals:0u;spinlock_irqrestore_release(&process_lock,flags);return r;}
