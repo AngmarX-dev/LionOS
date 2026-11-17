@@ -177,3 +177,24 @@ The inspected boot contract exposes memory-map, module, and framebuffer informat
 ### Required follow-up
 
 A future ownership implementation must obtain an authoritative Alder Lake firmware/platform hand-off mechanism independent of the generic Multiboot2 framebuffer and memory-map tags, or use a documented OS-visible interface that explicitly grants a disjoint GGTT range. Until such evidence exists, the runtime must continue to report ownership as unverified and keep GGTT mapping disabled.
+
+## Alder Lake-S platform capability cross-check
+
+The upstream i915 platform table was additionally reviewed at the current Linux source revision:
+
+- `adl_s_info` is declared with `GEN12_FEATURES` and `PLATFORM(INTEL_ALDERLAKE_S)`.
+- `GEN12_FEATURES` inherits `GEN11_FEATURES`.
+- `GEN11_FEATURES` sets `has_coherent_ggtt = false` and inherits the platform page-size capability mask `4K | 64K | 2M`.
+- The Alder Lake-S profile specifies a 39-bit DMA mask and advertises RCS0, BCS0, VECS0, VCS0, and VCS2 platform engine bits.
+
+Reference: [upstream Linux i915 platform table](https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/i915/i915_pci.c), especially `GEN11_FEATURES`, `GEN12_FEATURES`, and `adl_s_info`.
+
+### Implications and limits
+
+1. The i915 feature inheritance is evidence that this Alder Lake-S profile must **not** be treated as having a coherent GGTT by default. LionOS must not assume CPU writes automatically become visible to GPU consumers; the exact Alder Lake cache and synchronization contract remains to be taken from the matching Intel programming reference.
+2. The advertised 4K/64K/2M page-size mask is a platform capability summary. It does not, by itself, prove that every size is valid for the GGTT path, nor does it define the GGTT PTE encoding or update protocol. LionOS's first mapping design should remain limited to a specifically documented page size; no page-size support is enabled by this observation.
+3. The 39-bit DMA mask is an upstream driver constraint for the ADL-S profile. It is not permission to map arbitrary physical addresses, and it does not replace LionOS's physical-address validation, DMA reachability checks, or firmware ownership gate.
+4. The engine mask is a platform capability declaration, not proof that an engine is powered, initialized, idle, or safe to program. The current read-only engine snapshots remain diagnostics only.
+
+This cross-check narrows the platform profile but closes none of the firmware ownership, display reservation, PTE write-ordering, cache synchronization, or invalidation-completion blockers. **NO-GO remains unchanged: no GGTT writes, no ring programming, and no GPU submission.**
+
