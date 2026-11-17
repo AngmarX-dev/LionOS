@@ -130,7 +130,7 @@ int process_has_capability(const struct process *process, uint32_t capability);
 uint32_t process_capabilities(const struct process *process);
 int process_set_capabilities(struct process *process, uint32_t capabilities);
 void process_exit_current(uint32_t exit_code);
-/* Delivers default-action SIGHUP at a syscall return boundary. */
+/* Delivers a pending catchable signal at a syscall return boundary. */
 int process_deliver_pending_signal(uint32_t *frame);
 int process_signal_return(uint32_t *frame);
 uint32_t process_fork_current(uint32_t *parent_frame);
