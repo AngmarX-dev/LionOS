@@ -25,8 +25,8 @@ int32_t tty_set_foreground_pgid(uint32_t sid, uint32_t pgid);
 
 /*
  * Feed translated characters from an input backend. This API performs
- * canonical editing only; it does not own PS/2/xHCI devices or deliver
- * process signals.
+ * canonical editing, echo, and foreground Ctrl-C signal routing; it does
+ * not own PS/2/xHCI devices.
  */
 int32_t tty_input_byte(uint8_t byte);
 
