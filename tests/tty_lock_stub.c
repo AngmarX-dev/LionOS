@@ -17,3 +17,4 @@ void spinlock_irqrestore_release(struct spinlock *lock, uint32_t flags) {
     (void)flags;
     spinlock_release(lock);
 }
+void console_write_n(const char *buffer, uint32_t length) { (void)buffer; (void)length; }
