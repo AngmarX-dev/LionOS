@@ -65,7 +65,7 @@ int main(void) {
     if (tty_set_attributes(10u, TTY_ATTR_ECHO | 0x80u, 1u, 0u) == 0 || tty_set_attributes(20u, 0u, 1u, 0u) == 0)
         return fail("invalid TTY attributes accepted", 31);
     tty_test_background_result = 1u;
-    if (tty_read_blocking(10u, 20u, 20u, output, sizeof(output)) != TTY_ERROR ||
+    if (tty_read_blocking(10u, 20u, output, sizeof(output)) != TTY_ERROR ||
         tty_test_background_signal != 21u || tty_test_background_pid != 20u)
         return fail("background read did not queue SIGTTIN", 56);
     tty_test_background_result = 0u;
