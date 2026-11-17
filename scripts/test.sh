@@ -27,9 +27,12 @@ trap cleanup_gui EXIT
 
 run_qemu() {
     local log_file="$1"
+    local cpu_model="${2:-}"
+    local -a cpu_args=()
+    if [ -n "$cpu_model" ]; then cpu_args=(-cpu "$cpu_model"); fi
     set +e
     rm -f "$log_file"
-    timeout "${TIMEOUT_SECONDS}s" qemu-system-i386 \
+    timeout "${TIMEOUT_SECONDS}s" qemu-system-i386 "${cpu_args[@]}" \
         -smp 2 \
         -cdrom build/lionos.iso \
         -drive file=build/lionos-disk.img,format=raw,if=ide,index=0 \
@@ -244,6 +247,12 @@ grep -q 'LIONOS:EXT2-VFS-SYMLINK-SLOW61-TEST-OK' build/qemu-second.log
 grep -q 'LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-OK' build/qemu-second.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
-echo "[6/6] Graphical desktop / keyboard escape smoke test"
+echo "[6/7] NX hardware enforcement / Ring-3 stack execution test"
+run_qemu build/qemu-nx.log max
+grep -q "LIONOS:NX-ENABLED" build/qemu-nx.log
+grep -q "LIONOS:USER-INSTRUCTION-FETCH-FAULT" build/qemu-nx.log
+grep -q "LIONOS:NX-RUNTIME-TEST-OK" build/qemu-nx.log
+
+echo "[7/7] Graphical desktop / keyboard escape smoke test"
 run_gui_smoke build/qemu-gui.log
-echo "LionOS stability + VFS integration + Phase 26 GUI test: PASS"
+echo "LionOS stability + VFS integration + NX + Phase 26 GUI test: PASS"
