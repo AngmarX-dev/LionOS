@@ -192,7 +192,8 @@ int main(int argc, char **argv) {
         puts("[FAIL] cond start");
         return 41;
     }
-    while (!sync_condition_ready) (void)lion_yield();
+    while (__atomic_load_n(&sync_condition_ready, __ATOMIC_ACQUIRE) == 0u)
+        (void)lion_yield();
     if (lion_mutex_lock(&sync_test_mutex) != 0) return 41;
     sync_condition_state = 1u;
     if (lion_cond_signal(&sync_test_condition) != 0 ||
