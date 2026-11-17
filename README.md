@@ -122,7 +122,7 @@ The project explores operating-system internals through real low-level code: boo
 | Native framebuffer desktop | ✅ |
 | Windows / taskbar / launcher | ✅ |
 | Native framebuffer sizing | ✅ |
-| Software TTY (PS/2 + USB HID input bridge; session-scoped read/write syscalls; nonblocking) | 🟡 |
+| Software TTY (PS/2 + USB HID bridge; session-scoped standard FDs; blocking stdin) | 🟡 |
 | PS/2 keyboard | ✅ |
 | PS/2 mouse | ✅ |
 | xHCI HID USB mouse path | ✅ |
