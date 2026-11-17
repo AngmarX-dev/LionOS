@@ -495,12 +495,15 @@ void lionos_user_integration_step(void){
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 integration_process_ok=0;
             integration_pid=-1;
-            integration_done=1;
             debug_write(integration_process_ok
                 ? "LIONOS:PROCESS-WAITPID-TEST-OK\n"
                 : "LIONOS:PROCESS-WAITPID-TEST-FAIL\n");
-            if(!integration_process_ok)
+            if(!integration_process_ok){
+                integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            }else{
+                integration_stage=12;
+            }
         }else if(s<0){
             integration_done=1;
             debug_write("LIONOS:USER-PROCESS-LIFECYCLE-STATE-FAIL\n");
@@ -508,7 +511,42 @@ void lionos_user_integration_step(void){
         }
         return;
     }
-}
+
+    if(integration_stage==12){
+        integration_pid=exec_run_file("signal_test.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:USER-SIGNAL-TEST-LAUNCHED\n");
+            integration_stage=13;
+        }else{
+            integration_done=1;
+            debug_write("LIONOS:USER-SIGNAL-TEST-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==13){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            int signal_ok=valid&&code==0u;
+            if(process_reap_pid((uint32_t)integration_pid)!=0)
+                signal_ok=0;
+            integration_pid=-1;
+            integration_done=1;
+            debug_write(signal_ok
+                ? "LIONOS:SIGNAL-CONTROL-TEST-OK\n"
+                : "LIONOS:SIGNAL-CONTROL-TEST-FAIL\n");
+            if(!signal_ok)
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:USER-SIGNAL-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }}
 
 
 void kernel_main(uint32_t magic, uint32_t multiboot_info){
