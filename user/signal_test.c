@@ -75,6 +75,23 @@ int main(void) {
         if (lion_tty_claim() != 0 ||
             lion_tty_getpgrp() != (int32_t)child_pid)
             lion_exit_code(45u);
+
+        struct lion_tty_attributes timed_attrs;
+        uint8_t timed_byte = 0u;
+        if (lion_tty_getattr(&timed_attrs) != 0)
+            lion_exit_code(58u);
+        uint32_t saved_tty_flags = timed_attrs.flags;
+        timed_attrs.flags &= ~LIONOS_TTY_ATTR_ICANON;
+        timed_attrs.vmin = 0u;
+        timed_attrs.vtime = 1u;
+        if (lion_tty_setattr(&timed_attrs) != 0)
+            lion_exit_code(59u);
+        int32_t timed_read = lion_fread(0, &timed_byte, 1u);
+        timed_attrs.flags = saved_tty_flags;
+        timed_attrs.vmin = 1u;
+        timed_attrs.vtime = 0u;
+        if (lion_tty_setattr(&timed_attrs) != 0 || timed_read != 0)
+            lion_exit_code(60u);
         uint8_t tty_probe = 0u;
         static const char tty_message[] = "TTY";
         if (lion_tty_read(&tty_probe, 1u) != (int32_t)LIONOS_TTY_EMPTY ||
