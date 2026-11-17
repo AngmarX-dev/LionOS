@@ -26,7 +26,7 @@ static void thread_worker_mutex(void) {
 
 static void thread_worker_condition(void) {
     if (lion_mutex_lock(&sync_test_mutex) != 0) lion_thread_exit(83u);
-    sync_condition_ready = 1u;
+    __atomic_add_fetch(&sync_condition_ready, 1u, __ATOMIC_RELEASE);
     while (!sync_condition_state) {
         int result = lion_cond_wait_timeout(&sync_test_condition, &sync_test_mutex, 100u);
         if (result != 0) {
@@ -211,6 +211,27 @@ int main(int argc, char **argv) {
         return 44;
     }
     puts("[PASS] condition signal, mutex reacquire and timeout");
+
+    sync_condition_ready = 0u;
+    sync_condition_state = 0u;
+    uint32_t broadcast_tids[2];
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        broadcast_tids[i] = lion_thread_create(thread_worker_condition);
+        if (broadcast_tids[i] == LIONOS_SYSCALL_ERR) return 45;
+    }
+    while (__atomic_load_n(&sync_condition_ready, __ATOMIC_ACQUIRE) != 2u)
+        (void)lion_yield();
+    if (lion_mutex_lock(&sync_test_mutex) != 0) return 46;
+    sync_condition_state = 1u;
+    int broadcast_result = lion_cond_broadcast(&sync_test_condition);
+    int broadcast_unlock = lion_mutex_unlock(&sync_test_mutex);
+    if (broadcast_result != 0 || broadcast_unlock != 0) return 47;
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        if (lion_thread_join(broadcast_tids[i], &mutex_status) !=
+                (int32_t)broadcast_tids[i] || mutex_status != 0)
+            return 48;
+    }
+    puts("[PASS] condition broadcast wakes all waiters");
 
 
 
