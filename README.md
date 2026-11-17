@@ -125,6 +125,7 @@ The project explores operating-system internals through real low-level code: boo
 | Software TTY (PS/2 + USB HID bridge; session-scoped standard FDs; blocking stdin) | 🟡 |
 | Ctrl-C routing to the session foreground process group (SIGINT pending) | ✅ |
 | Canonical TTY echo with deferred IRQ-safe output and backspace editing | ✅ |
+| Session-scoped TTY ECHO/ISIG runtime attributes | ✅ |
 | PS/2 keyboard | ✅ |
 | PS/2 mouse | ✅ |
 | xHCI HID USB mouse path | ✅ |
@@ -472,7 +473,7 @@ LionOS is intentionally being developed in layers. The roadmap below tracks rema
 | Blocking filesystem operations | ⬜ |
 | Process groups (PGID inheritance, setpgid, and group signals) | ✅ |
 | Sessions (SID inheritance, setsid, getsid) | ✅ |
-| Controlling terminal / foreground-background jobs | ⬜ |
+| Controlling terminal / foreground-background jobs | 🟡 |
 | Foreground/background jobs | ⬜ |
 | Full signal delivery and handling | ⬜ |
 | Signal-safe process termination | ⬜ |
