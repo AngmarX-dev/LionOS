@@ -40,7 +40,25 @@ void smp_ap_main(void){
     debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
     tss_init_cpu(index,stack_top);
     paging_switch_address_space(paging_kernel_directory());
-    if (cpu_memory_type_validate_current(index) != 0) {
+    int memory_type_status = cpu_memory_type_validate_current(index);
+    if (memory_type_status != 0) {
+        static const char *const mismatch_markers[] = {
+            0,
+            "LIONOS:SMP-AP-MEMTYPE-INVALID-INDEX\n",
+            "LIONOS:SMP-AP-MEMTYPE-APIC-ID-MISMATCH\n",
+            "LIONOS:SMP-AP-MEMTYPE-FEATURE-MISMATCH\n",
+            "LIONOS:SMP-AP-MEMTYPE-PAT-MISMATCH\n",
+            "LIONOS:SMP-AP-MEMTYPE-CR0-MISMATCH\n",
+            "LIONOS:SMP-AP-MEMTYPE-MTRR-HEADER-MISMATCH\n",
+            "LIONOS:SMP-AP-MEMTYPE-MTRR-SNAPSHOT-INVALID\n",
+            "LIONOS:SMP-AP-MEMTYPE-FIXED-MTRR-MISMATCH\n",
+            "LIONOS:SMP-AP-MEMTYPE-VARIABLE-MTRR-MISMATCH\n",
+            "LIONOS:SMP-AP-MEMTYPE-PHYS-WIDTH-UNSUPPORTED\n",
+            "LIONOS:SMP-AP-MEMTYPE-PHYS-WIDTH-MISMATCH\n"
+        };
+        if ((uint32_t)memory_type_status <
+            (uint32_t)(sizeof(mismatch_markers) / sizeof(mismatch_markers[0])))
+            debug_write(mismatch_markers[memory_type_status]);
         debug_write("LIONOS:SMP-AP-MEMORY-TYPE-MISMATCH\n");
         for (;;) __asm__ volatile("cli; hlt");
     }
