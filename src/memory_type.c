@@ -82,7 +82,7 @@ static int memory_type_variable_match(const cpu_mtrr_info_t *mtrr,
 
     range_mask = mask & address_mask;
     inverse = address_mask & ~range_mask;
-    size = inverse + 1u;
+    size = inverse + 0x1000ULL;
     if (size < 0x1000ULL || (size & (size - 1u)) != 0u ||
         range_mask != (address_mask & ~(size - 1u)))
         return -1;
