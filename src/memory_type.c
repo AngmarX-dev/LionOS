@@ -114,6 +114,9 @@ static int memory_type_resolve_mtrr(const cpu_mtrr_info_t *mtrr,
     uint32_t all_same = 1u;
     uint8_t type;
 
+    if ((mtrr->default_type & ~0xCFFULL) != 0u)
+        return MEMORY_TYPE_RESOLVE_INVALID_MTRR;
+
     if (!mtrr->enabled) {
         *type_out = MEMORY_TYPE_UC;
         *source_out = MEMORY_TYPE_SOURCE_MTRR_DISABLED;
@@ -136,8 +139,7 @@ static int memory_type_resolve_mtrr(const cpu_mtrr_info_t *mtrr,
         }
     }
 
-    if ((mtrr->default_type & ~0xCFFULL) != 0u ||
-        mtrr->truncated ||
+    if (mtrr->truncated ||
         mtrr->captured_variable_count != mtrr->variable_count ||
         mtrr->captured_variable_count > CPU_MTRR_MAX_VARIABLE_RANGES)
         return MEMORY_TYPE_RESOLVE_INCOMPLETE_SNAPSHOT;
