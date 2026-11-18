@@ -790,6 +790,11 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     paging_init();
 
+    /*
+     * Capture BSP CPU and MTRR state before the first device MMIO mapping.
+     * This is read-only for MTRRs; PAT/MMIO policy remains unchanged.
+     */
+    cpu_init(multiboot_info);
     /* Enumerate real PCI configuration space before device-driver probing. */
     if(pci_init() == 0)
         pci_print_devices();
@@ -806,11 +811,6 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         BOOT_STAGE(34u, "DISPLAY READY");
     }
 
-    /*
-     * Capture BSP CPU and MTRR state before the first device MMIO mapping.
-     * This is read-only for MTRRs; PAT/MMIO policy remains unchanged.
-     */
-    cpu_init(multiboot_info);
 
     /* Exercise the hardware-independent CPU renderer on isolated RAM. */
     if (gfx_software_selftest() == 0) {
