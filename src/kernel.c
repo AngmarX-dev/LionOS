@@ -422,12 +422,9 @@ void lionos_user_integration_step(void){
         int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
-            int exit_status_valid =
-                process_get_exit_code((uint32_t)integration_pid,&code)==0;
-            debug_write("LIONOS:USER-MEMINFO-EXIT-CODE=0x");
-            debug_write_u32_hex(code);
-            debug_write(exit_status_valid ? " VALID\\n" : " INVALID\\n");
-            integration_utility_ok=exit_status_valid&&code==0u;
+            integration_utility_ok =
+                process_get_exit_code((uint32_t)integration_pid,&code)==0 &&
+                code==0u;
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 integration_utility_ok=0;
             integration_pid=-1;
