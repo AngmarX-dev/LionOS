@@ -169,14 +169,14 @@ int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
     uint64_t pat = 0u;
 
     if (expected_cpu_index >= LIONOS_MAX_CPUS)
-        return -1;
+        return 1;
 
     cpuid_count(1u, 0u, &a, &b, &c, &d);
     {
         const struct cpu_info *expected = cpu_get(expected_cpu_index);
         if (!expected || expected->apic_id == 0xFFFFFFFFu ||
             ((b >> 24) & 0xFFu) != expected->apic_id)
-            return -1;
+            return 2;
     }
     msr_supported = (d & (1u << 5)) ? 1u : 0u;
     mtrr_supported = (d & (1u << 12)) ? 1u : 0u;
@@ -185,12 +185,12 @@ int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
     if (msr_supported != cpu_mtrr_info.msr_supported ||
         mtrr_supported != cpu_mtrr_info.supported ||
         pat_supported != cpu_memory_type_state.pat_supported)
-        return -1;
+        return 3;
 
     if (pat_supported) {
         pat = cpu_read_msr(IA32_PAT_MSR);
         if (pat != cpu_memory_type_state.pat)
-            return -1;
+            return 4;
     }
 
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
@@ -198,24 +198,24 @@ int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
             (cpu_memory_type_state.cr0_cache_disable != 0u) ||
         ((cr0 & (1u << 29)) != 0u) !=
             (cpu_memory_type_state.cr0_not_write_through != 0u))
-        return -1;
+        return 5;
 
     if (!mtrr_supported)
         return 0;
 
     if (cpu_read_msr(IA32_MTRRCAP) != cpu_mtrr_info.capability ||
         cpu_read_msr(IA32_MTRR_DEF_TYPE) != cpu_mtrr_info.default_type)
-        return -1;
+        return 6;
 
     if (cpu_mtrr_info.truncated ||
         cpu_mtrr_info.variable_count > CPU_MTRR_MAX_VARIABLE_RANGES ||
         cpu_mtrr_info.captured_variable_count != cpu_mtrr_info.variable_count)
-        return -1;
+        return 7;
 
     if (cpu_mtrr_info.fixed_supported) {
         for (uint32_t i = 0u; i < CPU_MTRR_FIXED_REGISTER_COUNT; ++i) {
             if (cpu_read_msr(fixed_msrs[i]) != cpu_mtrr_info.fixed[i])
-                return -1;
+                return 8;
         }
     }
 
@@ -223,7 +223,7 @@ int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
         uint32_t base_msr = IA32_MTRR_PHYSBASE0 + (i * 2u);
         if (cpu_read_msr(base_msr) != cpu_mtrr_info.variable[i].base ||
             cpu_read_msr(base_msr + 1u) != cpu_mtrr_info.variable[i].mask)
-            return -1;
+            return 9;
     }
 
     if (cpu_identification.max_extended_leaf >= 0x80000008u) {
@@ -232,11 +232,11 @@ int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
         cpuid_count(0x80000000u, 0u, &a, &b, &c, &d);
         max_extended_leaf = a;
         if (max_extended_leaf < 0x80000008u)
-            return -1;
+            return 10;
         cpuid_count(0x80000008u, 0u, &a, &b, &c, &d);
         physical_bits = (uint8_t)(a & 0xFFu);
         if (physical_bits != cpu_mtrr_info.physical_address_bits)
-            return -1;
+            return 11;
     }
 
     return 0;
