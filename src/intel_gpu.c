@@ -6,6 +6,7 @@
 #include "paging.h"
 #include "memory.h"
 #include "cpu.h"
+#include "memory_type.h"
 
 /*
  * Alder Lake Intel display bootstrap for LionOS.
@@ -858,22 +859,57 @@ static int pci_size_bar0(uint8_t bus, uint8_t slot, uint8_t func,
                                     mask_lo, mask_hi, base_out, size_out);
 }
 
+/*
+ * Resolve the effective cache type for every physical page in the BAR.
+ * This is a read-only software preflight; it does not change PAT, MTRRs,
+ * page tables, or device registers.
+ */
+static int intel_gpu_mmio_effective_uc_ready(uint64_t physical, uint64_t size)
+{
+    cpu_mtrr_info_t mtrr;
+    cpu_memory_type_state_t cpu_state;
+
+    if (!physical || !size || size > MMIO_MAX_SIZE ||
+        (physical & (PAGE_SIZE - 1u)) ||
+        (size & (PAGE_SIZE - 1u)) ||
+        physical > UINT64_MAX - size)
+        return 0;
+
+    cpu_mtrr_get_info(&mtrr);
+    cpu_memory_type_get_state(&cpu_state);
+
+    for (uint64_t offset = 0u; offset < size; offset += PAGE_SIZE) {
+        memory_type_result_t result;
+        int rc = memory_type_resolve(&mtrr, &cpu_state,
+                                     physical + offset,
+                                     (uint8_t)MMIO_PAT_INDEX, &result);
+        if (rc != MEMORY_TYPE_RESOLVE_OK ||
+            result.effective_type != MEMORY_TYPE_UC)
+            return 0;
+    }
+
+    return 1;
+}
+
 static int map_gpu_mmio(uint64_t physical, uint64_t size)
 {
+    if (!physical || !size || size > MMIO_MAX_SIZE ||
+        (physical & (PAGE_SIZE - 1u)) ||
+        (size & (PAGE_SIZE - 1u)) || size > UINT32_MAX ||
+        physical > UINT64_MAX - size)
+        return -1;
+
     if (!intel_gpu_mmio_pat_uc_ready()) {
         debug_write("LIONOS:INTEL-MMIO-PAT-UC-UNVERIFIED\n");
         return -1;
     }
     debug_write("LIONOS:INTEL-MMIO-PAT-UC-VERIFIED\n");
 
-    if (!physical || !size || size > MMIO_MAX_SIZE)
+    if (!intel_gpu_mmio_effective_uc_ready(physical, size)) {
+        debug_write("LIONOS:INTEL-MMIO-EFFECTIVE-UC-UNVERIFIED\n");
         return -1;
-    if ((physical & (PAGE_SIZE - 1u)) ||
-        (size & (PAGE_SIZE - 1u)))
-        return -1;
-
-    if (size > UINT32_MAX)
-        return -1;
+    }
+    debug_write("LIONOS:INTEL-MMIO-EFFECTIVE-UC-VERIFIED\n");
 
     /*
      * Preflight and install the complete BAR aperture as one transaction.
