@@ -143,6 +143,95 @@ static void cpu_memory_type_capture(uint32_t leaf1_edx)
         (cr0 & (1u << 29)) ? 1u : 0u;
 }
 
+/*
+ * Compare the current logical processor's cache-type controls with the BSP
+ * snapshot. This is read-only and must run before an AP is published online.
+ */
+int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
+{
+    static const uint32_t fixed_msrs[CPU_MTRR_FIXED_REGISTER_COUNT] = {
+        IA32_MTRR_FIX64K_00000,
+        IA32_MTRR_FIX16K_80000,
+        IA32_MTRR_FIX16K_A0000,
+        IA32_MTRR_FIX4K_C0000 + 0u,
+        IA32_MTRR_FIX4K_C0000 + 1u,
+        IA32_MTRR_FIX4K_C0000 + 2u,
+        IA32_MTRR_FIX4K_C0000 + 3u,
+        IA32_MTRR_FIX4K_C0000 + 4u,
+        IA32_MTRR_FIX4K_C0000 + 5u,
+        IA32_MTRR_FIX4K_C0000 + 6u,
+        IA32_MTRR_FIX4K_C0000 + 7u
+    };
+    uint32_t a, b, c, d, cr0;
+    uint32_t msr_supported;
+    uint32_t mtrr_supported;
+    uint32_t pat_supported;
+    uint64_t pat = 0u;
+
+    if (expected_cpu_index >= LIONOS_MAX_CPUS ||
+        cpu_current_index() != expected_cpu_index)
+        return -1;
+
+    cpuid_count(1u, 0u, &a, &b, &c, &d);
+    msr_supported = (d & (1u << 5)) ? 1u : 0u;
+    mtrr_supported = (d & (1u << 12)) ? 1u : 0u;
+    pat_supported = (msr_supported && (d & (1u << 16))) ? 1u : 0u;
+
+    if (msr_supported != cpu_mtrr_info.msr_supported ||
+        mtrr_supported != cpu_mtrr_info.supported ||
+        pat_supported != cpu_memory_type_state.pat_supported)
+        return -1;
+
+    if (pat_supported) {
+        pat = cpu_read_msr(IA32_PAT_MSR);
+        if (pat != cpu_memory_type_state.pat)
+            return -1;
+    }
+
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    if (((cr0 & (1u << 30)) != 0u) !=
+            (cpu_memory_type_state.cr0_cache_disable != 0u) ||
+        ((cr0 & (1u << 29)) != 0u) !=
+            (cpu_memory_type_state.cr0_not_write_through != 0u))
+        return -1;
+
+    if (!mtrr_supported)
+        return 0;
+
+    if (cpu_read_msr(IA32_MTRRCAP) != cpu_mtrr_info.capability ||
+        cpu_read_msr(IA32_MTRR_DEF_TYPE) != cpu_mtrr_info.default_type)
+        return -1;
+
+    if (cpu_mtrr_info.truncated ||
+        cpu_mtrr_info.variable_count > CPU_MTRR_MAX_VARIABLE_RANGES ||
+        cpu_mtrr_info.captured_variable_count != cpu_mtrr_info.variable_count)
+        return -1;
+
+    if (cpu_mtrr_info.fixed_supported) {
+        for (uint32_t i = 0u; i < CPU_MTRR_FIXED_REGISTER_COUNT; ++i) {
+            if (cpu_read_msr(fixed_msrs[i]) != cpu_mtrr_info.fixed[i])
+                return -1;
+        }
+    }
+
+    for (uint32_t i = 0u; i < cpu_mtrr_info.captured_variable_count; ++i) {
+        uint32_t base_msr = IA32_MTRR_PHYSBASE0 + (i * 2u);
+        if (cpu_read_msr(base_msr) != cpu_mtrr_info.variable[i].base ||
+            cpu_read_msr(base_msr + 1u) != cpu_mtrr_info.variable[i].mask)
+            return -1;
+    }
+
+    if (cpu_identification.max_extended_leaf >= 0x80000008u) {
+        uint8_t physical_bits;
+        cpuid_count(0x80000008u, 0u, &a, &b, &c, &d);
+        physical_bits = (uint8_t)(a & 0xFFu);
+        if (physical_bits != cpu_mtrr_info.physical_address_bits)
+            return -1;
+    }
+
+    return 0;
+}
+
 static uint8_t checksum8(const uint8_t*p,uint32_t n){uint8_t s=0;for(uint32_t i=0;i<n;++i)s=(uint8_t)(s+p[i]);return s;}
 static int sig4(const char*p,const char*s){return p[0]==s[0]&&p[1]==s[1]&&p[2]==s[2]&&p[3]==s[3];}
 static int text_contains(const char *text,const char *needle){
