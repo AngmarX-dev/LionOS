@@ -168,11 +168,16 @@ int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
     uint32_t pat_supported;
     uint64_t pat = 0u;
 
-    if (expected_cpu_index >= LIONOS_MAX_CPUS ||
-        cpu_current_index() != expected_cpu_index)
+    if (expected_cpu_index >= LIONOS_MAX_CPUS)
         return -1;
 
     cpuid_count(1u, 0u, &a, &b, &c, &d);
+    {
+        const struct cpu_info *expected = cpu_get(expected_cpu_index);
+        if (!expected || expected->apic_id == 0xFFFFFFFFu ||
+            ((b >> 24) & 0xFFu) != expected->apic_id)
+            return -1;
+    }
     msr_supported = (d & (1u << 5)) ? 1u : 0u;
     mtrr_supported = (d & (1u << 12)) ? 1u : 0u;
     pat_supported = (msr_supported && (d & (1u << 16))) ? 1u : 0u;
@@ -223,6 +228,11 @@ int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
 
     if (cpu_identification.max_extended_leaf >= 0x80000008u) {
         uint8_t physical_bits;
+        uint32_t max_extended_leaf;
+        cpuid_count(0x80000000u, 0u, &a, &b, &c, &d);
+        max_extended_leaf = a;
+        if (max_extended_leaf < 0x80000008u)
+            return -1;
         cpuid_count(0x80000008u, 0u, &a, &b, &c, &d);
         physical_bits = (uint8_t)(a & 0xFFu);
         if (physical_bits != cpu_mtrr_info.physical_address_bits)
