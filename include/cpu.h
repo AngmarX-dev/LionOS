@@ -88,6 +88,7 @@ uint32_t cpu_feature_flags(void);
 void cpu_get_identification(cpu_identification_t *out);
 void cpu_mtrr_get_info(cpu_mtrr_info_t *out);
 void cpu_memory_type_get_state(cpu_memory_type_state_t *out);
+int cpu_memory_type_validate_current(uint32_t expected_cpu_index);
 int cpu_fpu_sse_init(void);
 int cpu_enable_nx(void);
 uint32_t cpu_nx_enabled(void);
