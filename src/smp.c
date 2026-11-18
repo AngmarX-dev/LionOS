@@ -40,6 +40,11 @@ void smp_ap_main(void){
     debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
     tss_init_cpu(index,stack_top);
     paging_switch_address_space(paging_kernel_directory());
+    if (cpu_memory_type_validate_current(index) != 0) {
+        debug_write("LIONOS:SMP-AP-MEMORY-TYPE-MISMATCH\n");
+        for (;;) __asm__ volatile("cli; hlt");
+    }
+    debug_write("LIONOS:SMP-AP-MEMORY-TYPE-VERIFIED\n");
     if(cpu_nx_enabled()&&cpu_enable_nx()!=0){
         debug_write("LIONOS:SMP-AP-NX-ENABLE-FAIL\n");
         for(;;)__asm__ volatile("cli; hlt");
