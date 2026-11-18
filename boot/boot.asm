@@ -52,6 +52,7 @@ global smp_trampoline_cr3
 global smp_trampoline_entry
 global smp_trampoline_stack
 global smp_trampoline_cpu
+global smp_trampoline_cr0_cache
 BITS 16
 smp_trampoline_start:
     cli
@@ -88,6 +89,15 @@ smp_protected_entry:
     ; The trampoline is identity-mapped, so execution continues at 0x8000.
     jmp short .paging_enabled
 .paging_enabled:
+    ; INIT leaves AP caches disabled (CR0.CD=1). Match the BSP's captured
+    ; cache-control state before entering C and validating memory types.
+    wbinvd
+    mov eax, cr0
+    and eax, 0x9FFFFFFF
+    mov ecx, [smp_trampoline_cr0_cache]
+    and ecx, 0x60000000
+    or eax, ecx
+    mov cr0, eax
     mov dx, 0xE9
     mov al, 'C'
     out dx, al
@@ -117,6 +127,7 @@ smp_trampoline_cr3: dd 0
 smp_trampoline_entry: dd 0
 smp_trampoline_stack: dd 0
 smp_trampoline_cpu: dd 0
+smp_trampoline_cr0_cache: dd 0
 smp_trampoline_end:
 
 section .bss
