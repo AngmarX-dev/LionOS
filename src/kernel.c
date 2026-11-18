@@ -58,6 +58,64 @@ static void boot_hex64(uint64_t value){
     boot_hex32((uint32_t)value);
 }
 
+static void cpu_mtrr_hardware_report(void){
+    cpu_mtrr_info_t mtrr;
+    cpu_mtrr_get_info(&mtrr);
+
+    console_write("\nMTRR snapshot: ");
+    if(!mtrr.msr_supported){
+        console_write("MSR NOT SUPPORTED\n");
+        debug_write("LIONOS:MTRR-MSR-UNSUPPORTED\n");
+        return;
+    }
+    if(!mtrr.supported){
+        console_write("NOT SUPPORTED BY CPU\n");
+        debug_write("LIONOS:MTRR-UNSUPPORTED\n");
+        return;
+    }
+
+    console_write("READ-ONLY\nCapability: 0x");
+    boot_hex64(mtrr.capability);
+    console_write("  Default type: 0x");
+    boot_hex64(mtrr.default_type);
+    console_write("\nMTRR enabled: ");
+    console_write(mtrr.enabled ? "YES" : "NO");
+    console_write("  Fixed supported: ");
+    console_write(mtrr.fixed_supported ? "YES" : "NO");
+    console_write("  Fixed enabled: ");
+    console_write(mtrr.fixed_enabled ? "YES" : "NO");
+    console_write("\nWrite-combining supported: ");
+    console_write(mtrr.write_combining_supported ? "YES" : "NO");
+    console_write("  Physical address bits: ");
+    if(mtrr.physical_address_bits) boot_dec(mtrr.physical_address_bits);
+    else console_write("UNKNOWN");
+    console_write("\nVariable MTRRs captured: ");
+    boot_dec(mtrr.captured_variable_count);
+    console_write(" / advertised: ");
+    boot_dec(mtrr.variable_count);
+    console_write(mtrr.truncated ? " [TRUNCATED]\n" : "\n");
+
+    if(mtrr.fixed_supported){
+        for(uint32_t i=0u;i<CPU_MTRR_FIXED_REGISTER_COUNT;++i){
+            console_write("MTRR fixed[");
+            boot_dec(i);
+            console_write("]: 0x");
+            boot_hex64(mtrr.fixed[i]);
+            console_write("\n");
+        }
+    }
+    for(uint32_t i=0u;i<mtrr.captured_variable_count;++i){
+        console_write("MTRR variable[");
+        boot_dec(i);
+        console_write("] base=0x");
+        boot_hex64(mtrr.variable[i].base);
+        console_write(" mask=0x");
+        boot_hex64(mtrr.variable[i].mask);
+        console_write("\n");
+    }
+    debug_write("LIONOS:MTRR-SNAPSHOT-READ-ONLY-DONE\n");
+}
+
 static void cpu_intel_hardware_report(void){
     cpu_identification_t cpu;
     intel_gpu_info_t gpu;
@@ -96,6 +154,7 @@ static void cpu_intel_hardware_report(void){
     if(cpu.feature_flags & CPU_FEATURE_NX) console_write(" NX");
     console_write("\nCPU feature mask: 0x"); boot_hex32(cpu.feature_flags);
     console_write("\n");
+    cpu_mtrr_hardware_report();
 
     if(intel_gpu_get_info(&gpu)==0){
         console_write("Intel GPU: 0x"); boot_hex32(gpu.device_id);
