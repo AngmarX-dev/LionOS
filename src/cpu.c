@@ -434,6 +434,12 @@ void cpu_get_identification(cpu_identification_t *out){
     *out=cpu_identification;
 }
 
+/* The BSP captures this immutable snapshot in cpu_init() before SMP startup. */
+void cpu_mtrr_get_info(cpu_mtrr_info_t *out){
+    if(!out)return;
+    *out=cpu_mtrr_info;
+}
+
 int cpu_fpu_sse_init(void){
     uint32_t flags;
     __asm__ volatile("mov %%cr0,%0":"=r"(flags));
