@@ -136,7 +136,8 @@ static int memory_type_resolve_mtrr(const cpu_mtrr_info_t *mtrr,
         }
     }
 
-    if (mtrr->truncated ||
+    if ((mtrr->default_type & ~0xCFFULL) != 0u ||
+        mtrr->truncated ||
         mtrr->captured_variable_count != mtrr->variable_count ||
         mtrr->captured_variable_count > CPU_MTRR_MAX_VARIABLE_RANGES)
         return MEMORY_TYPE_RESOLVE_INCOMPLETE_SNAPSHOT;
@@ -261,7 +262,7 @@ int memory_type_resolve(const cpu_mtrr_info_t *mtrr,
     *out = (memory_type_result_t){0};
 
     if (!mtrr->msr_supported || !mtrr->supported ||
-        !cpu_state->pat_supported || mtrr->physical_address_bits < 12u ||
+        !cpu_state->pat_supported || mtrr->physical_address_bits < 32u ||
         mtrr->physical_address_bits > 52u)
         return MEMORY_TYPE_RESOLVE_UNSUPPORTED;
 

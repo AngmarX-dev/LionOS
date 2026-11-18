@@ -42,13 +42,6 @@ typedef struct cpu_mtrr_info {
     uint8_t physical_address_bits;
 } cpu_mtrr_info_t;
 
-typedef struct cpu_memory_type_state {
-    uint64_t pat;
-    uint8_t pat_supported;
-    uint8_t cr0_cache_disable;
-    uint8_t cr0_not_write_through;
-} cpu_memory_type_state_t;
-
 typedef struct cpu_identification {
     char vendor[13];
     char brand[49];
@@ -87,7 +80,6 @@ void cpu_mark_online(uint32_t index, uint32_t apic_id);
 uint32_t cpu_feature_flags(void);
 void cpu_get_identification(cpu_identification_t *out);
 void cpu_mtrr_get_info(cpu_mtrr_info_t *out);
-void cpu_memory_type_get_state(cpu_memory_type_state_t *out);
 int cpu_fpu_sse_init(void);
 int cpu_enable_nx(void);
 uint32_t cpu_nx_enabled(void);
