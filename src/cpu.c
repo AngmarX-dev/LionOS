@@ -38,7 +38,8 @@ static void cpuid_count(uint32_t leaf,uint32_t subleaf,
 #define CPU_FEAT_SSE42 (1u<<5)
 #define CPU_FEAT_AVX   (1u<<6)
 #define CPU_FEAT_APIC  (1u<<7)
-#define CPU_FEAT_NX    (1u<<8)\n
+#define CPU_FEAT_NX    (1u<<8)
+
 #define IA32_MTRRCAP       0x000000FEu
 #define IA32_MTRR_DEF_TYPE 0x000002FFu
 #define IA32_MTRR_PHYSBASE0 0x00000200u
@@ -184,7 +185,8 @@ static uint32_t acpi_find_madt(uint32_t rsdt,uint64_t xsdt,uint8_t revision){
             uint64_t address=*(const uint64_t *)(const void *)(entries+i*8u);
             const struct acpi_sdt *table=0;
             if(acpi_map_sdt(address,ACPI_CHILD_WINDOW,"APIC",&table)==0){
-                debug_write("LIONOS:ACPI-MADT-MAPPED\n");
+                debug_write("LIONOS:ACPI-MADT-MAPPED
+");
                 return (uint32_t)(uintptr_t)table;
             }
         }
@@ -196,12 +198,14 @@ static uint32_t acpi_find_madt(uint32_t rsdt,uint64_t xsdt,uint8_t revision){
             uint32_t address=*(const uint32_t *)(const void *)(entries+i*4u);
             const struct acpi_sdt *table=0;
             if(acpi_map_sdt((uint64_t)address,ACPI_CHILD_WINDOW,"APIC",&table)==0){
-                debug_write("LIONOS:ACPI-MADT-MAPPED\n");
+                debug_write("LIONOS:ACPI-MADT-MAPPED
+");
                 return (uint32_t)(uintptr_t)table;
             }
         }
     }
-    debug_write("LIONOS:ACPI-MADT-NOT-FOUND\n");
+    debug_write("LIONOS:ACPI-MADT-NOT-FOUND
+");
     return 0u;
 }
 static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
@@ -359,7 +363,8 @@ void cpu_init(uint32_t multiboot_info){
     cpus[0].apic_id=bsp;cpus[0].logical_per_package=cpu_hint;cpus[0].online=1u;
     cpu_identification.feature_flags=cpu_features;
     cpuid_count(0x80000000u,0u,&a,&b,&c,&d);
-    cpu_identification.max_extended_leaf=a;\n    cpu_mtrr_capture(leaf1_d, a);
+    cpu_identification.max_extended_leaf=a;
+    cpu_mtrr_capture(leaf1_d, a);
     if(a>=0x80000004u){
         uint32_t words[12],wa,wb,wc,wd;
         cpuid_count(0x80000002u,0u,&wa,&wb,&wc,&wd);
