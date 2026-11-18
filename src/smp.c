@@ -14,7 +14,7 @@ extern uint32_t smp_trampoline_cr3;
 extern uint32_t smp_trampoline_entry;
 extern uint32_t smp_trampoline_stack;
 extern uint32_t smp_trampoline_cpu;
-extern uint32_t smp_trampoline_cr0_cache;
+extern volatile uint32_t smp_trampoline_cr0_cache;
 
 static uint32_t online_count=1u;
 static uint32_t ap_stacks[LIONOS_MAX_CPUS];
