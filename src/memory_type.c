@@ -114,7 +114,10 @@ static int memory_type_resolve_mtrr(const cpu_mtrr_info_t *mtrr,
     uint32_t all_same = 1u;
     uint8_t type;
 
-    if ((mtrr->default_type & ~0xCFFULL) != 0u)
+    if ((mtrr->default_type & ~0xCFFULL) != 0u ||
+        (mtrr->enabled &&
+         !memory_type_valid_mtrr((uint8_t)(mtrr->default_type & 0xFFu),
+                                 mtrr->write_combining_supported)))
         return MEMORY_TYPE_RESOLVE_INVALID_MTRR;
 
     if (!mtrr->enabled) {
