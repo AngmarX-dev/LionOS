@@ -38,7 +38,89 @@ static void cpuid_count(uint32_t leaf,uint32_t subleaf,
 #define CPU_FEAT_SSE42 (1u<<5)
 #define CPU_FEAT_AVX   (1u<<6)
 #define CPU_FEAT_APIC  (1u<<7)
-#define CPU_FEAT_NX    (1u<<8)
+#define CPU_FEAT_NX    (1u<<8)\n
+#define IA32_MTRRCAP       0x000000FEu
+#define IA32_MTRR_DEF_TYPE 0x000002FFu
+#define IA32_MTRR_PHYSBASE0 0x00000200u
+#define IA32_MTRR_FIX64K_00000 0x00000250u
+#define IA32_MTRR_FIX16K_80000 0x00000258u
+#define IA32_MTRR_FIX16K_A0000 0x00000259u
+#define IA32_MTRR_FIX4K_C0000  0x00000268u
+
+static cpu_mtrr_info_t cpu_mtrr_info;
+
+static uint64_t cpu_read_msr(uint32_t msr)
+{
+    uint32_t low, high;
+    __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
+    return ((uint64_t)high << 32) | low;
+}
+
+static void cpu_mtrr_capture(uint32_t leaf1_edx, uint32_t max_extended_leaf)
+{
+    static const uint32_t fixed_msrs[CPU_MTRR_FIXED_REGISTER_COUNT] = {
+        IA32_MTRR_FIX64K_00000,
+        IA32_MTRR_FIX16K_80000,
+        IA32_MTRR_FIX16K_A0000,
+        IA32_MTRR_FIX4K_C0000 + 0u,
+        IA32_MTRR_FIX4K_C0000 + 1u,
+        IA32_MTRR_FIX4K_C0000 + 2u,
+        IA32_MTRR_FIX4K_C0000 + 3u,
+        IA32_MTRR_FIX4K_C0000 + 4u,
+        IA32_MTRR_FIX4K_C0000 + 5u,
+        IA32_MTRR_FIX4K_C0000 + 6u,
+        IA32_MTRR_FIX4K_C0000 + 7u
+    };
+    uint32_t a, b, c, d;
+
+    cpu_mtrr_info = (cpu_mtrr_info_t){0};
+    cpu_mtrr_info.msr_supported = (leaf1_edx & (1u << 5)) ? 1u : 0u;
+    cpu_mtrr_info.supported = (leaf1_edx & (1u << 12)) ? 1u : 0u;
+    if (!cpu_mtrr_info.msr_supported || !cpu_mtrr_info.supported)
+        return;
+
+    if (max_extended_leaf >= 0x80000008u) {
+        cpuid_count(0x80000008u, 0u, &a, &b, &c, &d);
+        cpu_mtrr_info.physical_address_bits = (uint8_t)(a & 0xFFu);
+    }
+
+    cpu_mtrr_info.capability = cpu_read_msr(IA32_MTRRCAP);
+    cpu_mtrr_info.variable_count =
+        (uint32_t)(cpu_mtrr_info.capability & 0xFFu);
+    cpu_mtrr_info.fixed_supported =
+        (cpu_mtrr_info.capability & (1ULL << 8)) ? 1u : 0u;
+    cpu_mtrr_info.write_combining_supported =
+        (cpu_mtrr_info.capability & (1ULL << 10)) ? 1u : 0u;
+
+    cpu_mtrr_info.default_type = cpu_read_msr(IA32_MTRR_DEF_TYPE);
+    cpu_mtrr_info.enabled =
+        (cpu_mtrr_info.default_type & (1ULL << 11)) ? 1u : 0u;
+    cpu_mtrr_info.fixed_enabled =
+        (cpu_mtrr_info.default_type & (1ULL << 10)) ? 1u : 0u;
+
+    if (cpu_mtrr_info.fixed_supported) {
+        for (uint32_t i = 0u; i < CPU_MTRR_FIXED_REGISTER_COUNT; ++i)
+            cpu_mtrr_info.fixed[i] = cpu_read_msr(fixed_msrs[i]);
+    }
+
+    cpu_mtrr_info.captured_variable_count =
+        cpu_mtrr_info.variable_count;
+    if (cpu_mtrr_info.captured_variable_count >
+        CPU_MTRR_MAX_VARIABLE_RANGES) {
+        cpu_mtrr_info.captured_variable_count =
+            CPU_MTRR_MAX_VARIABLE_RANGES;
+        cpu_mtrr_info.truncated = 1u;
+    }
+
+    for (uint32_t i = 0u;
+         i < cpu_mtrr_info.captured_variable_count; ++i) {
+        uint32_t base_msr = IA32_MTRR_PHYSBASE0 + (i * 2u);
+        cpu_mtrr_info.variable[i].base = cpu_read_msr(base_msr);
+        cpu_mtrr_info.variable[i].mask = cpu_read_msr(base_msr + 1u);
+    }
+}
+
+
 
 static uint8_t checksum8(const uint8_t*p,uint32_t n){uint8_t s=0;for(uint32_t i=0;i<n;++i)s=(uint8_t)(s+p[i]);return s;}
 static int sig4(const char*p,const char*s){return p[0]==s[0]&&p[1]==s[1]&&p[2]==s[2]&&p[3]==s[3];}
@@ -277,7 +359,7 @@ void cpu_init(uint32_t multiboot_info){
     cpus[0].apic_id=bsp;cpus[0].logical_per_package=cpu_hint;cpus[0].online=1u;
     cpu_identification.feature_flags=cpu_features;
     cpuid_count(0x80000000u,0u,&a,&b,&c,&d);
-    cpu_identification.max_extended_leaf=a;
+    cpu_identification.max_extended_leaf=a;\n    cpu_mtrr_capture(leaf1_d, a);
     if(a>=0x80000004u){
         uint32_t words[12],wa,wb,wc,wd;
         cpuid_count(0x80000002u,0u,&wa,&wb,&wc,&wd);
