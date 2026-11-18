@@ -14,6 +14,7 @@ extern uint32_t smp_trampoline_cr3;
 extern uint32_t smp_trampoline_entry;
 extern uint32_t smp_trampoline_stack;
 extern uint32_t smp_trampoline_cpu;
+extern uint32_t smp_trampoline_cr0_cache;
 
 static uint32_t online_count=1u;
 static uint32_t ap_stacks[LIONOS_MAX_CPUS];
@@ -91,6 +92,11 @@ void smp_init(void){
     uint32_t bsp_id=lapic_id();
     if(bsp_id==0xFFFFFFFFu){debug_write("LIONOS:SMP-NO-BSP-APIC\n");return;}
     debug_write("LIONOS:SMP-BSP-APIC-OK\n");
+    cpu_memory_type_state_t bsp_memory_type_state;
+    cpu_memory_type_get_state(&bsp_memory_type_state);
+    smp_trampoline_cr0_cache =
+        (bsp_memory_type_state.cr0_cache_disable ? (1u << 30) : 0u) |
+        (bsp_memory_type_state.cr0_not_write_through ? (1u << 29) : 0u);
     smp_trampoline_cr3=paging_kernel_directory();
     smp_trampoline_entry=(uint32_t)(uintptr_t)&smp_ap_main;
     uint32_t target_count=cpu_count_hint();
