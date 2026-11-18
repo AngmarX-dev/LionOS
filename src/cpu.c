@@ -49,6 +49,9 @@ static void cpuid_count(uint32_t leaf,uint32_t subleaf,
 #define IA32_MTRR_FIX4K_C0000  0x00000268u
 
 static cpu_mtrr_info_t cpu_mtrr_info;
+static cpu_memory_type_state_t cpu_memory_type_state;
+
+#define IA32_PAT_MSR 0x00000277u
 
 static uint64_t cpu_read_msr(uint32_t msr)
 {
@@ -122,6 +125,23 @@ static void cpu_mtrr_capture(uint32_t leaf1_edx, uint32_t max_extended_leaf)
 }
 
 
+
+static void cpu_memory_type_capture(uint32_t leaf1_edx)
+{
+    uint32_t cr0;
+
+    cpu_memory_type_state = (cpu_memory_type_state_t){0};
+    cpu_memory_type_state.pat_supported =
+        ((leaf1_edx & (1u << 5)) && (leaf1_edx & (1u << 16))) ? 1u : 0u;
+    if (cpu_memory_type_state.pat_supported)
+        cpu_memory_type_state.pat = cpu_read_msr(IA32_PAT_MSR);
+
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    cpu_memory_type_state.cr0_cache_disable =
+        (cr0 & (1u << 30)) ? 1u : 0u;
+    cpu_memory_type_state.cr0_not_write_through =
+        (cr0 & (1u << 29)) ? 1u : 0u;
+}
 
 static uint8_t checksum8(const uint8_t*p,uint32_t n){uint8_t s=0;for(uint32_t i=0;i<n;++i)s=(uint8_t)(s+p[i]);return s;}
 static int sig4(const char*p,const char*s){return p[0]==s[0]&&p[1]==s[1]&&p[2]==s[2]&&p[3]==s[3];}
@@ -362,6 +382,7 @@ void cpu_init(uint32_t multiboot_info){
     cpuid_count(0x80000000u,0u,&a,&b,&c,&d);
     cpu_identification.max_extended_leaf=a;
     cpu_mtrr_capture(leaf1_d, a);
+    cpu_memory_type_capture(leaf1_d);
     if(a>=0x80000004u){
         uint32_t words[12],wa,wb,wc,wd;
         cpuid_count(0x80000002u,0u,&wa,&wb,&wc,&wd);
@@ -438,6 +459,11 @@ void cpu_get_identification(cpu_identification_t *out){
 void cpu_mtrr_get_info(cpu_mtrr_info_t *out){
     if(!out)return;
     *out=cpu_mtrr_info;
+}
+
+void cpu_memory_type_get_state(cpu_memory_type_state_t *out){
+    if(!out)return;
+    *out=cpu_memory_type_state;
 }
 
 int cpu_fpu_sse_init(void){
