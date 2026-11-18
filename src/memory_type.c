@@ -304,9 +304,69 @@ int memory_type_resolve(const cpu_mtrr_info_t *mtrr,
     return MEMORY_TYPE_RESOLVE_OK;
 }
 
+static int memory_type_combination_selftest(void)
+{
+    static const uint8_t mtrr_types[5] = {
+        MEMORY_TYPE_UC, MEMORY_TYPE_WC, MEMORY_TYPE_WT,
+        MEMORY_TYPE_WB, MEMORY_TYPE_WP
+    };
+    static const uint8_t pat_types[6] = {
+        MEMORY_TYPE_UC, MEMORY_TYPE_UC_MINUS, MEMORY_TYPE_WC,
+        MEMORY_TYPE_WT, MEMORY_TYPE_WB, MEMORY_TYPE_WP
+    };
+    static const uint8_t expected[5][6] = {
+        { MEMORY_TYPE_UC, MEMORY_TYPE_UC, MEMORY_TYPE_WC,
+          MEMORY_TYPE_UC, MEMORY_TYPE_UC, MEMORY_TYPE_UC },
+        { MEMORY_TYPE_UC, MEMORY_TYPE_WC, MEMORY_TYPE_WC,
+          MEMORY_TYPE_UC, MEMORY_TYPE_WC, MEMORY_TYPE_UC },
+        { MEMORY_TYPE_UC, MEMORY_TYPE_UC, MEMORY_TYPE_WC,
+          MEMORY_TYPE_WT, MEMORY_TYPE_WT, MEMORY_TYPE_WP },
+        { MEMORY_TYPE_UC, MEMORY_TYPE_UC, MEMORY_TYPE_WC,
+          MEMORY_TYPE_WT, MEMORY_TYPE_WB, MEMORY_TYPE_WP },
+        { MEMORY_TYPE_UC, MEMORY_TYPE_WC, MEMORY_TYPE_WC,
+          MEMORY_TYPE_WT, MEMORY_TYPE_WP, MEMORY_TYPE_WP }
+    };
+    cpu_mtrr_info_t mtrr = {0};
+    cpu_memory_type_state_t cpu = {0};
+    memory_type_result_t result;
+
+    mtrr.msr_supported = 1u;
+    mtrr.supported = 1u;
+    mtrr.enabled = 1u;
+    mtrr.write_combining_supported = 1u;
+    mtrr.physical_address_bits = 36u;
+    cpu.pat_supported = 1u;
+
+    for (uint32_t i = 0u; i < 5u; ++i) {
+        mtrr.default_type = mtrr_types[i];
+        for (uint32_t j = 0u; j < 6u; ++j) {
+            cpu.pat = pat_types[j];
+            if (memory_type_resolve(&mtrr, &cpu, 0x200000ULL, 0u,
+                                    &result) != MEMORY_TYPE_RESOLVE_OK ||
+                result.mtrr_type != mtrr_types[i] ||
+                result.pat_type != pat_types[j] ||
+                result.effective_type != expected[i][j])
+                return -1;
+        }
+    }
+
+    result = (memory_type_result_t){0xA5u, 0x5Au, 0xC3u, 0x3Cu, 0x69u};
+    cpu.pat = 0x02u;
+    if (memory_type_resolve(&mtrr, &cpu, 0x200000ULL, 0u,
+                            &result) != MEMORY_TYPE_RESOLVE_INVALID_PAT ||
+        result.mtrr_type != 0xA5u || result.pat_type != 0x5Au ||
+        result.effective_type != 0xC3u || result.source != 0x3Cu ||
+        result.matched_variable_count != 0x69u)
+        return -1;
+
+    return 0;
+}
+
 int memory_type_resolver_selftest(void)
 {
     cpu_mtrr_info_t mtrr = {0};
+    if (memory_type_combination_selftest() != 0)
+        return -1;
     cpu_memory_type_state_t cpu = {0};
     memory_type_result_t result;
     const uint64_t address_mask = ((1ULL << 36) - 1ULL) & ~0xFFFULL;
