@@ -260,11 +260,11 @@ int memory_type_resolve(const cpu_mtrr_info_t *mtrr,
     uint8_t source;
     uint8_t match_count;
     uint8_t effective_type;
+    memory_type_result_t result = {0};
     int rc;
 
     if (!mtrr || !cpu_state || !out || pat_index >= 8u)
         return MEMORY_TYPE_RESOLVE_INVALID_ARGUMENT;
-    *out = (memory_type_result_t){0};
 
     if (!mtrr->msr_supported || !mtrr->supported ||
         !cpu_state->pat_supported || mtrr->physical_address_bits < 32u ||
@@ -295,11 +295,12 @@ int memory_type_resolve(const cpu_mtrr_info_t *mtrr,
                                  &effective_type) != 0)
         return MEMORY_TYPE_RESOLVE_INVALID_MTRR;
 
-    out->mtrr_type = mtrr_type;
-    out->pat_type = pat_type;
-    out->effective_type = effective_type;
-    out->source = source;
-    out->matched_variable_count = match_count;
+    result.mtrr_type = mtrr_type;
+    result.pat_type = pat_type;
+    result.effective_type = effective_type;
+    result.source = source;
+    result.matched_variable_count = match_count;
+    *out = result;
     return MEMORY_TYPE_RESOLVE_OK;
 }
 

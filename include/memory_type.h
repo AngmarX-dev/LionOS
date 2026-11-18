@@ -40,7 +40,7 @@ typedef struct {
     uint8_t matched_variable_count;
 } memory_type_result_t;
 
-/* pat_index is the decoded 3-bit PAT:PCD:PWT index. */
+/* pat_index is the decoded 3-bit PAT:PCD:PWT index. out is written only on success. */
 int memory_type_resolve(const cpu_mtrr_info_t *mtrr,
                         const cpu_memory_type_state_t *cpu_state,
                         uint64_t physical_address,
