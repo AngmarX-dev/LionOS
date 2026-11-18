@@ -26,6 +26,7 @@
 #define PTE_WRITABLE 0x2ULL
 #define PTE_USER 0x4ULL
 #define PTE_COW 0x200ULL
+#define PTE_KERNEL_FORBIDDEN_FLAGS (PTE_USER | PTE_COW)
 #define PTE_EXECUTABLE ((uint64_t)PAGING_USER_EXECUTABLE)
 #define PTE_FLAGS_MASK 0x61FULL
 #define PTE_NX (1ULL << 63)
@@ -200,6 +201,9 @@ static void paging_kernel_tlb_shootdown_range(uint32_t address, uint32_t pages) 
 }
 
 int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, uint32_t flags) {
+    /* Kernel mappings must never be user-accessible or marked copy-on-write. */
+    if ((flags & PTE_KERNEL_FORBIDDEN_FLAGS) != 0u)
+        return -1;
     /* Reject addresses beyond the PAE PTE address field instead of silently truncating them. */
     if ((virtual_address & (PAGE_SIZE - 1u)) ||
         (physical_address & (PAGE_SIZE - 1u)) ||
@@ -229,12 +233,14 @@ int paging_map_kernel_page(uint32_t virtual_address, uint64_t physical_address, 
 
 static int paging_kernel_range_valid(uint32_t virtual_address,
                                        uint64_t physical_address,
-                                       uint32_t size)
+                                       uint32_t size,
+                                       uint32_t flags)
 {
     uint64_t virtual_end;
     uint64_t physical_end;
 
     if (size == 0u ||
+        (flags & PTE_KERNEL_FORBIDDEN_FLAGS) != 0u ||
         (virtual_address & (PAGE_SIZE - 1u)) != 0u ||
         (physical_address & (PAGE_SIZE - 1u)) != 0u ||
         (size & (PAGE_SIZE - 1u)) != 0u)
@@ -260,16 +266,20 @@ static int paging_kernel_range_valid(uint32_t virtual_address,
 int paging_kernel_range_selftest(void)
 {
     if (!paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL,
-                                   0x01000000u) ||
-        paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL, 0u) ||
-        paging_kernel_range_valid(0xF8000001u, 0x0000006202000000ULL, PAGE_SIZE) ||
-        paging_kernel_range_valid(0xF8000000u, 0x0000006202000001ULL, PAGE_SIZE) ||
-        paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL, PAGE_SIZE + 1u) ||
-        paging_kernel_range_valid(0xEFFFFFFFu, 0x0000006202000000ULL, PAGE_SIZE) ||
-        paging_kernel_range_valid(0xFFFFF000u, 0x0000006202000000ULL, 2u * PAGE_SIZE) ||
-        paging_kernel_range_valid(0xF8000000u, 0x0010000000000000ULL, PAGE_SIZE) ||
+                                   0x01000000u, 0x1Au) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL, 0u, 0x1Au) ||
+        paging_kernel_range_valid(0xF8000001u, 0x0000006202000000ULL, PAGE_SIZE, 0x1Au) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0000006202000001ULL, PAGE_SIZE, 0x1Au) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL, PAGE_SIZE + 1u, 0x1Au) ||
+        paging_kernel_range_valid(0xEFFFFFFFu, 0x0000006202000000ULL, PAGE_SIZE, 0x1Au) ||
+        paging_kernel_range_valid(0xFFFFF000u, 0x0000006202000000ULL, 2u * PAGE_SIZE, 0x1Au) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0010000000000000ULL, PAGE_SIZE, 0x1Au) ||
         paging_kernel_range_valid(0xF8000000u, UINT64_MAX - PAGE_SIZE + 1u,
-                                  2u * PAGE_SIZE))
+                                  2u * PAGE_SIZE, 0x1Au) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL,
+                                  PAGE_SIZE, (uint32_t)PTE_USER) ||
+        paging_kernel_range_valid(0xF8000000u, 0x0000006202000000ULL,
+                                  PAGE_SIZE, (uint32_t)PTE_COW))
         return -1;
     return 0;
 }
@@ -280,7 +290,7 @@ int paging_map_kernel_range(uint32_t virtual_address, uint64_t physical_address,
     uint32_t pages;
     uint32_t irq;
 
-    if (!paging_kernel_range_valid(virtual_address, physical_address, size) ||
+    if (!paging_kernel_range_valid(virtual_address, physical_address, size, flags) ||
         cpu_current_index() != 0u)
         return -1;
 
