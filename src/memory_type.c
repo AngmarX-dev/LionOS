@@ -413,6 +413,51 @@ int memory_type_resolver_selftest(void)
     if (rc != MEMORY_TYPE_RESOLVE_INVALID_MTRR)
         return -1;
 
+    mtrr.default_type = MEMORY_TYPE_UC;
+    mtrr.variable[0].base = 0x400000ULL | MEMORY_TYPE_WB;
+    mtrr.variable[0].mask = (address_mask & ~0x3FFFFFULL) |
+                            MTRR_VARIABLE_VALID;
+    {
+        static const uint64_t inside[] = { 0x400000ULL, 0x7FF000ULL };
+        static const uint64_t outside[] = { 0x3FF000ULL, 0x800000ULL };
+        for (uint32_t i = 0u; i < 2u; ++i) {
+            rc = memory_type_resolve(&mtrr, &cpu, inside[i], 0u, &result);
+            if (rc != MEMORY_TYPE_RESOLVE_OK ||
+                result.mtrr_type != MEMORY_TYPE_WB)
+                return -1;
+            rc = memory_type_resolve(&mtrr, &cpu, outside[i], 0u, &result);
+            if (rc != MEMORY_TYPE_RESOLVE_OK ||
+                result.mtrr_type != MEMORY_TYPE_UC)
+                return -1;
+        }
+    }
+
+    /* A minimum-size 4 KiB variable range matches exactly one page. */
+    mtrr.variable[0].base = 0x500000ULL | MEMORY_TYPE_WB;
+    mtrr.variable[0].mask = address_mask | MTRR_VARIABLE_VALID;
+    rc = memory_type_resolve(&mtrr, &cpu, 0x500000ULL, 0u, &result);
+    if (rc != MEMORY_TYPE_RESOLVE_OK ||
+        result.mtrr_type != MEMORY_TYPE_WB)
+        return -1;
+    rc = memory_type_resolve(&mtrr, &cpu, 0x501000ULL, 0u, &result);
+    if (rc != MEMORY_TYPE_RESOLVE_OK ||
+        result.mtrr_type != MEMORY_TYPE_UC)
+        return -1;
+
+    /* An 8 KiB range with a 4 KiB-misaligned base is malformed. */
+    mtrr.variable[0].base = 0x501000ULL | MEMORY_TYPE_WB;
+    mtrr.variable[0].mask = (address_mask & ~0x1FFFULL) |
+                            MTRR_VARIABLE_VALID;
+    rc = memory_type_resolve(&mtrr, &cpu, 0x501000ULL, 0u, &result);
+    if (rc != MEMORY_TYPE_RESOLVE_INVALID_MTRR)
+        return -1;
+
+    mtrr.variable[0].base = 0x500000ULL | 0x100ULL | MEMORY_TYPE_WB;
+    mtrr.variable[0].mask = address_mask | MTRR_VARIABLE_VALID;
+    rc = memory_type_resolve(&mtrr, &cpu, 0x500000ULL, 0u, &result);
+    if (rc != MEMORY_TYPE_RESOLVE_INVALID_MTRR)
+        return -1;
+
     mtrr.variable[0].mask = (address_mask & ~0x3FFFFFULL) |
                             MTRR_VARIABLE_VALID;
     mtrr.fixed_supported = 1u;
