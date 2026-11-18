@@ -806,6 +806,12 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         BOOT_STAGE(34u, "DISPLAY READY");
     }
 
+    /*
+     * Capture BSP CPU and MTRR state before the first device MMIO mapping.
+     * This is read-only for MTRRs; PAT/MMIO policy remains unchanged.
+     */
+    cpu_init(multiboot_info);
+
     /* Exercise the hardware-independent CPU renderer on isolated RAM. */
     if (gfx_software_selftest() == 0) {
         debug_write("LIONOS:GFX-CPU-SELFTEST-OK\n");
@@ -1016,7 +1022,6 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     BOOT_STAGE(42u, "HEAP READY");
 
     /* ---- CPU topology / APIC ---- */
-    cpu_init(multiboot_info);
     if(cpu_enable_nx()==0){
         debug_write("LIONOS:NX-ENABLED\n");
     }else{
