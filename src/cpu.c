@@ -81,7 +81,7 @@ static void cpu_debug_mtrr_header(uint32_t index,uint64_t expected_cap,
     cpu_debug_hex64(expected_def);
     debug_write(" actual_def=");
     cpu_debug_hex64(actual_def);
-    debug_write("\\n");
+    debug_write("\n");
 }
 
 static void cpu_mtrr_capture(uint32_t leaf1_edx, uint32_t max_extended_leaf)
