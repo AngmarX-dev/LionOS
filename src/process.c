@@ -129,18 +129,17 @@ static int process_transition_state_locked(struct process *p,uint32_t state){
     p->state=state;
     return 0;
 }
-static int process_runqueue_validate_locked(void){
-    uint32_t queue_totals[LIONOS_MAX_CPUS]={0u};
-    uint32_t ready_totals[LIONOS_MAX_CPUS]={0u};
-    if(__atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE)!=0u)return -1;
-    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
-        spinlock_acquire(&runqueues[cpu].lock);
-        int valid=runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,
-                                           LIONOS_PROCESS_MAX,0);
-        queue_totals[cpu]=runqueues[cpu].total;
-        spinlock_release(&runqueues[cpu].lock);
-        if(valid!=0)return -1;
-    }
+static int process_runqueue_validate_locked(uint32_t cpu){
+    if(cpu>=LIONOS_MAX_CPUS||
+       __atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE)!=0u)return -1;
+    spinlock_acquire(&runqueues[cpu].lock);
+    int valid=runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,
+                                       LIONOS_PROCESS_MAX,0);
+    uint32_t queue_total=runqueues[cpu].total;
+    spinlock_release(&runqueues[cpu].lock);
+    if(valid!=0)return -1;
+
+    uint32_t ready_total=0u;
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
         const struct process *p=&processes[i];
         const struct runqueue_node *node=&runqueue_nodes[i];
@@ -148,7 +147,7 @@ static int process_runqueue_validate_locked(void){
             if(node->queued!=1u||node->queue_cpu>=LIONOS_MAX_CPUS||
                node->queue_cpu!=p->cpu_owner||node->priority!=p->priority)
                 return -1;
-            ++ready_totals[node->queue_cpu];
+            if(node->queue_cpu==cpu)++ready_total;
         }else if(node->queued!=0u||
                  node->next!=LIONOS_RUNQUEUE_INVALID_INDEX||
                  node->previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
@@ -156,9 +155,7 @@ static int process_runqueue_validate_locked(void){
             return -1;
         }
     }
-    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
-        if(queue_totals[cpu]!=ready_totals[cpu])return -1;
-    return 0;
+    return queue_total==ready_total?0:-1;
 }
 
 static int process_resolve_cow_locked(struct process *process,uint32_t page){
@@ -2114,7 +2111,7 @@ uint32_t *process_schedule(uint32_t *frame){
         }
         spinlock_release(&runqueues[cpu].lock);
         if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX)||
-           process_runqueue_validate_locked()!=0)
+           process_runqueue_validate_locked(cpu)!=0)
             __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
     }else{
         /*
