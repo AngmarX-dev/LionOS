@@ -2172,7 +2172,8 @@ uint32_t *process_schedule(uint32_t *frame){
         set_current_local(0);
 
         spinlock_irqrestore_release(&process_lock,flags);
-        return frame;
+        debug_write("LIONOS:SCHEDULER-BLOCKED-AP-NO-IDLE\n");
+        for(;;)__asm__ volatile("cli; hlt");
     }
     if(!prev&&cpu!=0u){
         struct process *idle=(cpu<LIONOS_MAX_CPUS&&
