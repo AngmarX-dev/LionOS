@@ -759,7 +759,34 @@ uint32_t process_futex_wakeup(uintptr_t channel,uint32_t maximum){
     return woken;
 }
 
-static void wake_waiting_parent(struct process*child){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process*p=&processes[i];if(p->state!=PROCESS_WAITING||p->wait_kind!=3u||p->pid!=child->parent_pid)continue;if(p->wait_pid!=PROCESS_WAIT_ANY&&p->wait_pid!=child->pid)continue;uint32_t*f=(uint32_t *)(uintptr_t)p->saved_frame;if(f)f[11]=child->pid;if(p->wait_status_ptr)write_user_u32(p,p->wait_status_ptr,child->exit_code);p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->wait_channel=0;p->wait_kind=0;p->wait_frame_saved=0u;p->state=PROCESS_READY;child->reap_pending=1;return;}}static void wake_waiting_parent_stop(struct process *child){
+static void wake_waiting_parent(struct process *child){
+    if(!child||child->state!=PROCESS_ZOMBIE)return;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process *parent=&processes[i];
+        if(parent->state!=PROCESS_WAITING||parent->wait_kind!=3u||
+           parent->pid!=child->parent_pid||
+           (parent->wait_pid!=PROCESS_WAIT_ANY&&parent->wait_pid!=child->pid))
+            continue;
+
+        int status_ok=!parent->wait_status_ptr||
+            write_user_u32(parent,parent->wait_status_ptr,child->exit_code)==0;
+        uint32_t *frame=(uint32_t *)(uintptr_t)parent->saved_frame;
+        if(frame)frame[11]=status_ok?child->pid:PROCESS_SYSCALL_ERR;
+
+        parent->wait_pid=0u;
+        parent->wait_status_ptr=0u;
+        parent->wait_options=0u;
+        parent->wait_channel=0u;
+        parent->wait_kind=0u;
+        parent->wait_frame_saved=0u;
+        parent->state=PROCESS_READY;
+
+        /* Keep the zombie available for a retry when status delivery failed. */
+        if(status_ok)child->reap_pending=1u;
+        else debug_write("LIONOS:WAITPID-ASYNC-STATUS-WRITE-FAIL\n");
+        return;
+    }
+}static void wake_waiting_parent_stop(struct process *child){
     if(!child||!child->stop_event_pending)return;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *parent=&processes[i];
