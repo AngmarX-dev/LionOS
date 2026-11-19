@@ -80,12 +80,20 @@ static void process_request_blocked_reschedule(uint32_t cpu){
 }
 static struct process *find_free_slot(void) { for (uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) if (processes[i].state==PROCESS_UNUSED) return &processes[i]; return 0; }
 static uint32_t process_index(const struct process *p) { return (uint32_t)(p-processes); }
+static int process_slot_index(const struct process *p,uint32_t *index){
+    uintptr_t base=(uintptr_t)&processes[0],address=(uintptr_t)p;
+    uintptr_t span=sizeof(processes);
+    if(!p||!index||address<base||address-base>=span||
+       (address-base)%sizeof(processes[0])!=0u)return -1;
+    *index=(uint32_t)((address-base)/sizeof(processes[0]));
+    return 0;
+}
 
 /* process_lock is always acquired before a per-CPU run-queue lock. */
 static int process_transition_state_locked(struct process *p,uint32_t state){
     if(!p)return -1;
-    uint32_t index=process_index(p);
-    if(index>=LIONOS_PROCESS_MAX)return -1;
+    uint32_t index;
+    if(process_slot_index(p,&index)!=0)return -1;
     uint32_t old_state=p->state;
     if(old_state==state)return 0;
     if(old_state==PROCESS_READY){
@@ -1753,13 +1761,15 @@ int process_set_current(struct process*p){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     uint32_t cpu=cpu_current_index();
     struct process *old=current_local();
-    if(!p||p->state==PROCESS_UNUSED||p->state==PROCESS_STOPPED||
-       !p->page_directory||cpu>=LIONOS_MAX_CPUS||
+    uint32_t slot;
+    if(process_slot_index(p,&slot)!=0||p->state==PROCESS_UNUSED||
+       p->state==PROCESS_STOPPED||!p->page_directory||cpu>=LIONOS_MAX_CPUS||
        (p!=old&&p->state==PROCESS_RUNNING)||
        (p->state==PROCESS_READY&&p->cpu_owner!=cpu)){
         spinlock_irqrestore_release(&process_lock,flags);return -1;
     }
-    if(old&&old!=p&&old!=&processes[0]&&old->state==PROCESS_RUNNING&&
+    if(old&&old!=p&&old!=&processes[0]&&!scheduler_is_idle_context(old)&&
+       old->state==PROCESS_RUNNING&&
        process_transition_state_locked(old,PROCESS_READY)!=0){
         spinlock_irqrestore_release(&process_lock,flags);return -1;
     }
@@ -1873,8 +1883,8 @@ int process_set_priority(struct process*p,uint32_t priority){
     if(!p||priority>=PROCESS_PRIORITY_LEVELS)return -1;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     if(p->state==PROCESS_READY){
-        uint32_t index=process_index(p);
-        if(index>=LIONOS_PROCESS_MAX){
+        uint32_t index;
+        if(process_slot_index(p,&index)!=0){
             spinlock_irqrestore_release(&process_lock,flags);return -1;
         }
         uint32_t owner=runqueue_nodes[index].queue_cpu;
