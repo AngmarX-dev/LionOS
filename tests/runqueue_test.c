@@ -51,16 +51,18 @@ int main(void) {
     runqueue_init(&wrong_cpu, 2u);
     wrong_cpu.lock.value = 1u;
     if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 2u) != 0) return 23;
-    if ((result = check(runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 0u) < 0, 24u))) return result;
-    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 25;
+    if (runqueue_enqueue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u, 2u) != 0) return 24;
+    if ((result = check(runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 0u) < 0, 25u))) return result;
+    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 26;
+    if (runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u) != 0) return 27;
 
     /* A malformed empty/non-empty lane must not be reported as an empty queue. */
-    if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 1u) != 0) return 26;
+    if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 1u) != 0) return 28;
     queue.head[1] = NODE_COUNT;
-    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) < 0, 25u))) return result;
-    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 0u, 1u) < 0, 27u))) return result;
+    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) < 0, 29u))) return result;
+    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 0u, 1u) < 0, 30u))) return result;
     queue.head[1] = 0u;
-    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 28;
+    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 31;
 
     /* Repeated FIFO cycles exercise link reuse and count restoration. */
     for (uint32_t round = 0u; round < 128u; ++round) {
