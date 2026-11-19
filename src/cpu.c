@@ -167,6 +167,110 @@ static void cpu_memory_type_capture(uint32_t leaf1_edx)
         (cr0 & (1u << 29)) ? 1u : 0u;
 }
 
+static void cpu_write_msr(uint32_t msr,uint64_t value)
+{
+    uint32_t low=(uint32_t)value;
+    uint32_t high=(uint32_t)(value>>32);
+    __asm__ volatile("wrmsr"::"c"(msr),"a"(low),"d"(high):"memory");
+}
+
+static void cpu_flush_local_tlb(uint32_t cr4)
+{
+    if(cr4&(1u<<7)){
+        uint32_t disabled=cr4&~(1u<<7);
+        __asm__ volatile("mov %0,%%cr4"::"r"(disabled):"memory");
+        __asm__ volatile("mov %0,%%cr4"::"r"(cr4):"memory");
+    }else{
+        uint32_t cr3;
+        __asm__ volatile("mov %%cr3,%0":"=r"(cr3));
+        __asm__ volatile("mov %0,%%cr3"::"r"(cr3):"memory");
+    }
+}
+
+/*
+ * An INIT-reset AP starts with MTRRs disabled and reset/default range values.
+ * It must load the immutable BSP snapshot while it is still offline and its
+ * cache is disabled. The BSP is not modified; APs are brought online serially.
+ */
+int cpu_memory_type_apply_current(uint32_t expected_cpu_index)
+{
+    static const uint32_t fixed_msrs[CPU_MTRR_FIXED_REGISTER_COUNT] = {
+        IA32_MTRR_FIX64K_00000,
+        IA32_MTRR_FIX16K_80000,
+        IA32_MTRR_FIX16K_A0000,
+        IA32_MTRR_FIX4K_C0000 + 0u,
+        IA32_MTRR_FIX4K_C0000 + 1u,
+        IA32_MTRR_FIX4K_C0000 + 2u,
+        IA32_MTRR_FIX4K_C0000 + 3u,
+        IA32_MTRR_FIX4K_C0000 + 4u,
+        IA32_MTRR_FIX4K_C0000 + 5u,
+        IA32_MTRR_FIX4K_C0000 + 6u,
+        IA32_MTRR_FIX4K_C0000 + 7u
+    };
+    uint32_t a,b,c,d,cr0,cr4,eflags;
+    uint64_t actual_cap;
+
+    if(expected_cpu_index==0u||expected_cpu_index>=LIONOS_MAX_CPUS)
+        return 1;
+    cpuid_count(1u,0u,&a,&b,&c,&d);
+    {
+        const struct cpu_info *expected=cpu_get(expected_cpu_index);
+        if(!expected||expected->apic_id==0xFFFFFFFFu||
+           ((b>>24)&0xFFu)!=expected->apic_id)
+            return 2;
+    }
+    if(!(d&(1u<<5))||!(d&(1u<<12))||!cpu_mtrr_info.supported||
+       !cpu_mtrr_info.msr_supported)
+        return 3;
+    if(cpu_mtrr_info.truncated||
+       cpu_mtrr_info.variable_count>CPU_MTRR_MAX_VARIABLE_RANGES||
+       cpu_mtrr_info.captured_variable_count!=cpu_mtrr_info.variable_count)
+        return 4;
+
+    actual_cap=cpu_read_msr(IA32_MTRRCAP);
+    if(actual_cap!=cpu_mtrr_info.capability)
+        return 5;
+
+    __asm__ volatile("pushfl; popl %0; cli":"=r"(eflags)::"memory");
+    __asm__ volatile("mov %%cr0,%0":"=r"(cr0));
+    __asm__ volatile("mov %%cr4,%0":"=r"(cr4));
+
+    /* No-fill mode and a cache flush are required before changing MTRRs. */
+    {
+        uint32_t no_fill=(cr0|(1u<<30))&~(1u<<29);
+        __asm__ volatile("mov %0,%%cr0"::"r"(no_fill):"memory");
+    }
+    __asm__ volatile("wbinvd":::"memory");
+    cpu_flush_local_tlb(cr4);
+
+    cpu_write_msr(IA32_MTRR_DEF_TYPE,
+                  cpu_mtrr_info.default_type&~(1ULL<<11));
+    if(cpu_mtrr_info.fixed_supported){
+        for(uint32_t i=0u;i<CPU_MTRR_FIXED_REGISTER_COUNT;++i)
+            cpu_write_msr(fixed_msrs[i],cpu_mtrr_info.fixed[i]);
+    }
+    for(uint32_t i=0u;i<cpu_mtrr_info.variable_count;++i){
+        uint32_t base_msr=IA32_MTRR_PHYSBASE0+(i*2u);
+        cpu_write_msr(base_msr,cpu_mtrr_info.variable[i].base);
+        cpu_write_msr(base_msr+1u,cpu_mtrr_info.variable[i].mask);
+    }
+
+    /* Enable the exact BSP default type only after all ranges are installed. */
+    cpu_write_msr(IA32_MTRR_DEF_TYPE,cpu_mtrr_info.default_type);
+    __asm__ volatile("wbinvd":::"memory");
+    cpu_flush_local_tlb(cr4);
+
+    /* Restore the cache-control bits captured from the BSP, preserving others. */
+    {
+        uint32_t restored=cr0&~0x60000000u;
+        if(cpu_memory_type_state.cr0_cache_disable)restored|=1u<<30;
+        if(cpu_memory_type_state.cr0_not_write_through)restored|=1u<<29;
+        __asm__ volatile("mov %0,%%cr0"::"r"(restored):"memory");
+    }
+    __asm__ volatile("pushl %0; popfl"::"r"(eflags):"memory","cc");
+    return 0;
+}
+
 /*
  * Compare the current logical processor's cache-type controls with the BSP
  * snapshot. This is read-only and must run before an AP is published online.

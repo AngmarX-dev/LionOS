@@ -133,7 +133,13 @@ void smp_ap_main(void){
     debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
     tss_init_cpu(index,stack_top);
     paging_switch_address_space(paging_kernel_directory());
-    int memory_type_status = cpu_memory_type_validate_current(index);
+    int memory_type_status = cpu_memory_type_apply_current(index);
+    if(memory_type_status!=0){
+        debug_write("LIONOS:SMP-AP-MEMTYPE-APPLY-FAIL\n");
+        for(;;)__asm__ volatile("cli; hlt");
+    }
+    debug_write("LIONOS:SMP-AP-MEMTYPE-APPLIED\n");
+    memory_type_status = cpu_memory_type_validate_current(index);
     if (memory_type_status != 0) {
         static const char *const mismatch_markers[] = {
             0,
@@ -188,11 +194,6 @@ void smp_init(void){
     uint32_t bsp_id=lapic_id();
     if(bsp_id==0xFFFFFFFFu){debug_write("LIONOS:SMP-NO-BSP-APIC\n");return;}
     debug_write("LIONOS:SMP-BSP-APIC-OK\n");
-    cpu_memory_type_state_t bsp_memory_type_state;
-    cpu_memory_type_get_state(&bsp_memory_type_state);
-    smp_trampoline_cr0_cache =
-        (bsp_memory_type_state.cr0_cache_disable ? (1u << 30) : 0u) |
-        (bsp_memory_type_state.cr0_not_write_through ? (1u << 29) : 0u);
     smp_trampoline_cr3=paging_kernel_directory();
     smp_trampoline_entry=(uint32_t)(uintptr_t)&smp_ap_main;
     uint32_t target_count=cpu_count_hint();
