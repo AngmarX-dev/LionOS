@@ -47,6 +47,7 @@ static int directory_stream_test(void) {
     DIR *nested;
     struct lion_dirent *entry;
     struct lion_dirent raw_entry;
+    struct lion_stat root_status;
     uint32_t offset = 1u;
     int saw_readme = 0;
     int saw_subdir = 0;
@@ -56,9 +57,17 @@ static int directory_stream_test(void) {
         return 20;
     if (closedir(0) >= 0)
         return 21;
+    if (lion_posix_stat("/ext2", &root_status) < 0)
+        return 220;
+    if ((root_status.flags & LIONOS_STAT_DIRECTORY) == 0u)
+        return 221;
+    void *allocation_probe = malloc(512u);
+    if (!allocation_probe)
+        return 222;
+    free(allocation_probe);
     root = opendir("/ext2");
     if (!root)
-        return 22;
+        return 223;
     while ((entry = readdir(root)) != 0) {
         if (strcmp(entry->name, "README.TXT") == 0 &&
             entry->type == LIONOS_DIRENT_REGULAR)
