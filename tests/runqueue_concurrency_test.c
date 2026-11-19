@@ -19,6 +19,25 @@ static struct runqueue_node nodes[NODE_COUNT];
 static struct worker_argument arguments[WORKER_COUNT];
 static volatile uint32_t failed;
 
+void spinlock_init(struct spinlock *lock) {
+    if (lock) __atomic_store_n(&lock->value, 0u, __ATOMIC_RELAXED);
+}
+
+uint32_t spinlock_try_acquire(struct spinlock *lock) {
+    uint32_t expected = 0u;
+    return lock && __atomic_compare_exchange_n(&lock->value, &expected, 1u,
+        0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+}
+
+void spinlock_acquire(struct spinlock *lock) {
+    while (!spinlock_try_acquire(lock))
+        __asm__ volatile("pause");
+}
+
+void spinlock_release(struct spinlock *lock) {
+    if (lock) __atomic_store_n(&lock->value, 0u, __ATOMIC_RELEASE);
+}
+
 static void fail_test(void) {
     __atomic_store_n(&failed, 1u, __ATOMIC_RELEASE);
 }
