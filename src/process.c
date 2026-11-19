@@ -2043,10 +2043,10 @@ uint32_t *process_schedule(uint32_t *frame){
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
     uint32_t cpu=cpu_current_index();
     if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
-    if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_enter_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-ENTER cpu=");process_debug_write_hex32(cpu);debug_write("\n");}}
+    if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_enter_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-ENTER cpu=");process_debug_write_hex(cpu);debug_write("\n");}}
     struct process *contended_prev=current_local();
     if(!spinlock_try_acquire(&process_lock)){
-        if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_lock_contention_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-LOCK-CONTENDED cpu=");process_debug_write_hex32(cpu);debug_write("\n");}}
+        if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_lock_contention_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-LOCK-CONTENDED cpu=");process_debug_write_hex(cpu);debug_write("\n");}}
         /* An explicit reschedule must not be lost when another CPU briefly
          * owns process_lock. Queue one local APIC retry; the IPI is delivered
          * after this interrupt returns, without spinning in IRQ context. */
