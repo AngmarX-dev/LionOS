@@ -695,6 +695,8 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
     }
     if(options&LIONOS_WAIT_UNTRACED)
         debug_write("LIONOS:JOBCTL:WAITPID-STOP-BLOCK\n");
+    process_diag_status33("WAITPID-BLOCK",caller->pid,pid,
+                          cpu_current_index());
     caller->wait_pid=pid;
     caller->wait_status_ptr=status_ptr;
     caller->wait_options=options;
@@ -839,7 +841,16 @@ static void wake_waiting_parent(struct process *child){
         int status_ok=!parent->wait_status_ptr||
             write_user_u32(parent,parent->wait_status_ptr,child->exit_code)==0;
         uint32_t *frame=(uint32_t *)(uintptr_t)parent->saved_frame;
-        if(frame)frame[11]=status_ok?child->pid:PROCESS_SYSCALL_ERR;
+        process_diag_status33("WAITPID-WAKE",parent->pid,child->pid,
+                              status_ok?1u:0u);
+        if(frame){
+            frame[11]=status_ok?child->pid:PROCESS_SYSCALL_ERR;
+            process_diag_status33("WAITPID-WAKE-FRAME",parent->pid,
+                                  frame[11],parent->cpu_owner);
+        }else{
+            process_diag_status33("WAITPID-WAKE-NO-FRAME",parent->pid,
+                                  child->pid,parent->cpu_owner);
+        }
 
         parent->wait_pid=0u;
         parent->wait_status_ptr=0u;
