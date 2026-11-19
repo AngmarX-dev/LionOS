@@ -12,6 +12,7 @@
 #include "vfs.h"
 #include "tty.h"
 #include "usercopy.h"
+#include "smp.h"
 extern void lionos_kernel_idle(void);
 
 #define PROCESS_WAIT_ANY 0u
@@ -23,6 +24,10 @@ extern void lionos_kernel_idle(void);
 
 static struct process processes[LIONOS_PROCESS_MAX];
 static struct process *current_by_cpu[LIONOS_MAX_CPUS];
+static struct process scheduler_idle_processes[LIONOS_MAX_CPUS];
+static uint32_t scheduler_idle_stacks[LIONOS_MAX_CPUS];
+static volatile uint32_t scheduler_idle_entered_mask;
+static uint32_t scheduler_idle_ready_mask;
 struct scheduler_cpu_state{uint32_t cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t timer_ticks;};
 static struct scheduler_cpu_state scheduler_cpu[LIONOS_MAX_CPUS];
 static uint32_t next_pid;
@@ -65,7 +70,78 @@ static int write_user_u32(const struct process *p,uint32_t ptr,uint32_t value) {
 static void clear_process(struct process *p) { p->pid=0;p->state=PROCESS_UNUSED;p->parent_pid=0;p->adopted_by_init=0u;p->pgid=0;p->sid=0;p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->stop_event_pending=0;p->stop_signal=0;p->continued_event_pending=0;p->wait_channel=0;p->wait_kind=0;p->wait_frame_saved=0;p->wait_timeout_active=0;p->wait_timeout_ticks=0;p->wait_deadline=0;p->wait_cpu=0;p->wait_timeout_result=0; p->reap_pending=0;p->deferred_kernel_stack=0;p->page_directory=0;p->entry=0;p->user_stack=0; p->kernel_stack_top=0;p->saved_frame=0;p->user_code_page=0;p->user_stack_page=0;p->user_page_count=0;p->pending_signals=0;p->signal_active=0u;p->signal_active_restorer=0u;for(uint32_t i=0u;i<32u;++i){p->signal_handlers[i]=LIONOS_SIG_DFL;p->signal_restorers[i]=0u;}for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)p->signal_saved_frame[i]=0u;p->cpu_owner=0;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=0;p->ticks_used=0;p->fpu_valid=0;p->tid=0;p->thread_group_pid=0;p->is_thread=0;p->owns_address_space=0;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->pipe_read_mask=0;p->pipe_write_mask=0;p->fd_closing=0; for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_object[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} for(uint32_t i=0;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} }
 static void init_interrupt_frame(struct process *p) { uint32_t *f=(uint32_t *)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=USER_DATA_SEL;f[1]=USER_DATA_SEL;f[2]=USER_DATA_SEL;f[3]=USER_DATA_SEL; f[14]=p->entry;f[15]=USER_CODE_SEL;f[16]=0x202u;f[17]=p->user_stack;f[18]=USER_DATA_SEL; p->saved_frame=(uint32_t)(uintptr_t)f; }
 static void init_bootstrap_frame(void) { struct process *b=&processes[0]; void *s=page_alloc(); if(!s){b->kernel_stack_top=0;b->saved_frame=0;return;} b->kernel_stack_top=(uint32_t)(uintptr_t)s+4096u;b->page_directory=paging_kernel_directory(); b->entry=(uint32_t)(uintptr_t)&process_schedule;b->user_stack=b->kernel_stack_top; uint32_t *f=(uint32_t *)(uintptr_t)(b->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=0x10u;f[1]=0x10u;f[2]=0x10u;f[3]=0x10u;f[14]=(uint32_t)(uintptr_t)&lionos_kernel_idle; f[15]=0x08u;f[16]=0x202u;f[17]=b->kernel_stack_top;f[18]=0x10u; b->saved_frame=(uint32_t)(uintptr_t)f; }
-void process_init(void) { fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u; if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");} spinlock_init(&process_lock); uint32_t flags=spinlock_irqsave_acquire(&process_lock); for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) clear_process(&processes[i]); for(uint32_t i=0;i<LIONOS_MAX_CPUS;++i){current_by_cpu[i]=0;scheduler_cpu[i].cursor=0;scheduler_cpu[i].schedule_count=0;scheduler_cpu[i].steal_count=0;scheduler_cpu[i].timer_ticks=0;reschedule_requested[i]=0u;} next_pid=2;next_tid=1;processes[0].pid=1;processes[0].pgid=1;processes[0].sid=1;processes[0].thread_group_pid=1;processes[0].state=PROCESS_RUNNING;init_bootstrap_frame(); set_current_local(&processes[0]); spinlock_irqrestore_release(&process_lock,flags); }
+static int scheduler_idle_context_init(uint32_t cpu){
+    if(cpu==0u||cpu>=LIONOS_MAX_CPUS)return -1;
+    void *stack=page_alloc();
+    if(!stack)return -1;
+    struct process *idle=&scheduler_idle_processes[cpu];
+    clear_process(idle);
+    scheduler_idle_stacks[cpu]=(uint32_t)(uintptr_t)stack;
+    idle->pid=0u;
+    idle->state=PROCESS_RUNNING;
+    idle->cpu_owner=cpu;
+    idle->page_directory=paging_kernel_directory();
+    idle->kernel_stack_top=(uint32_t)(uintptr_t)stack+PAGE_SIZE;
+    idle->entry=(uint32_t)(uintptr_t)&scheduler_idle;
+    idle->user_stack=idle->kernel_stack_top;
+    idle->priority=PROCESS_PRIORITY_LEVELS-1u;
+    idle->base_priority=idle->priority;
+    idle->time_slice=0xFFFFFFFFu;
+    uint32_t *frame=(uint32_t *)(uintptr_t)
+        (idle->kernel_stack_top-PROCESS_CONTEXT_WORDS*sizeof(uint32_t));
+    for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)frame[i]=0u;
+    frame[0]=0x10u;frame[1]=0x10u;frame[2]=0x10u;frame[3]=0x10u;
+    frame[14]=(uint32_t)(uintptr_t)&scheduler_idle;
+    frame[15]=0x08u;
+    frame[16]=0x202u;
+    frame[17]=idle->kernel_stack_top;
+    frame[18]=0x10u;
+    idle->saved_frame=(uint32_t)(uintptr_t)frame;
+    scheduler_idle_ready_mask|=1u<<cpu;
+    return 0;
+}
+
+static int scheduler_is_idle_context(const struct process *process){
+    if(!process)return 0;
+    for(uint32_t cpu=1u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(process==&scheduler_idle_processes[cpu])return 1;
+    return 0;
+}
+
+void process_init(void) {
+    fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u;
+    if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");}
+    spinlock_init(&process_lock);
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)clear_process(&processes[i]);
+    scheduler_idle_ready_mask=0u;
+    __atomic_store_n(&scheduler_idle_entered_mask,0u,__ATOMIC_RELAXED);
+    for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i){
+        current_by_cpu[i]=0;
+        scheduler_cpu[i].cursor=0u;
+        scheduler_cpu[i].schedule_count=0u;
+        scheduler_cpu[i].steal_count=0u;
+        scheduler_cpu[i].timer_ticks=0u;
+        reschedule_requested[i]=0u;
+        scheduler_idle_stacks[i]=0u;
+        clear_process(&scheduler_idle_processes[i]);
+    }
+    next_pid=2u;next_tid=1u;
+    processes[0].pid=1u;processes[0].pgid=1u;processes[0].sid=1u;
+    processes[0].thread_group_pid=1u;processes[0].state=PROCESS_RUNNING;
+    init_bootstrap_frame();
+    set_current_local(&processes[0]);
+    uint32_t online=smp_online_count();
+    if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+    for(uint32_t cpu=1u;cpu<online;++cpu){
+        if(scheduler_idle_context_init(cpu)!=0)
+            debug_write("LIONOS:SMP-AP-IDLE-CONTEXT-FAIL\n");
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+    uint32_t expected=online>1u?((1u<<online)-2u):0u;
+    if(expected&&((scheduler_idle_ready_mask&expected)==expected))
+        debug_write("LIONOS:SMP-AP-IDLE-CONTEXTS-READY\n");
+}
 struct process *process_current(void){return current_local();}
 uint32_t process_current_tid(void){struct process*p=current_local();return p?p->tid:0u;}
 struct process *process_at(uint32_t i){return i<LIONOS_PROCESS_MAX?&processes[i]:0;}
@@ -1425,6 +1501,7 @@ uint32_t *process_schedule(uint32_t *frame){
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
     ++sc->schedule_count;
     struct process*prev=current_local();
+    int prev_is_idle=scheduler_is_idle_context(prev);
     if(prev){
         prev->saved_frame=(uint32_t)(uintptr_t)frame;
         if(prev->state==PROCESS_WAITING&&prev->wait_kind==3u&&frame){
@@ -1452,7 +1529,7 @@ uint32_t *process_schedule(uint32_t *frame){
         }
     }
 
-    if(prev && prev->state==PROCESS_RUNNING){
+    if(prev && prev->state==PROCESS_RUNNING && !prev_is_idle){
         if(__atomic_exchange_n(&reschedule_requested[cpu],0u,__ATOMIC_ACQ_REL)==0u){
             ++prev->ticks_used;
             if(prev->ticks_used < prev->time_slice){
@@ -1467,7 +1544,7 @@ uint32_t *process_schedule(uint32_t *frame){
     }
     if(prev&&prev->deferred_kernel_stack){page_free((void *)(uintptr_t)(prev->deferred_kernel_stack-4096u));prev->deferred_kernel_stack=0;}
 
-    uint32_t start_idx=prev?process_index(prev):sc->cursor;
+    uint32_t start_idx=(prev&&!prev_is_idle)?process_index(prev):sc->cursor;
     struct process*next=0;
     /* Per-CPU run queues are represented by cpu_owner. Within each queue,
        select the highest-priority READY task, then round-robin among peers. */
@@ -1490,7 +1567,7 @@ uint32_t *process_schedule(uint32_t *frame){
         /* Preserve the outgoing CPU's FPU/SSE state on every real switch,
            including tasks that blocked, stopped, or exited before scheduling. */
         if(prev)fpu_save(prev);
-        if(prev&&prev->state==PROCESS_RUNNING)prev->state=PROCESS_READY;
+        if(prev&&prev->state==PROCESS_RUNNING&&!prev_is_idle)prev->state=PROCESS_READY;
         fpu_restore(next);
         set_current_local(next);
         next->cpu_owner=cpu;
@@ -1519,8 +1596,50 @@ uint32_t *process_schedule(uint32_t *frame){
             spinlock_irqrestore_release(&process_lock,flags);
             return n;
         }
+        struct process *idle=(cpu<LIONOS_MAX_CPUS&&
+            (scheduler_idle_ready_mask&(1u<<cpu)))?
+            &scheduler_idle_processes[cpu]:0;
+        if(idle){
+            if(prev)fpu_save(prev);
+            if(prev->reap_pending)reap_process(prev);
+            fpu_restore(idle);
+            idle->state=PROCESS_RUNNING;
+            set_current_local(idle);
+            paging_switch_address_space(idle->page_directory);
+            tss_set_kernel_stack(idle->kernel_stack_top);
+            uint32_t entered=__atomic_fetch_or(&scheduler_idle_entered_mask,
+                1u<<cpu,__ATOMIC_ACQ_REL);
+            if((entered&(1u<<cpu))==0u)
+                debug_write("LIONOS:SMP-AP-IDLE-ENTER\n");
+            uint32_t *idle_frame=process_saved_frame(idle);
+            spinlock_irqrestore_release(&process_lock,flags);
+            return idle_frame?idle_frame:frame;
+        }
         set_current_local(0);
         if(prev->reap_pending)reap_process(prev);
+        spinlock_irqrestore_release(&process_lock,flags);
+        return frame;
+    }
+    if(!prev&&cpu!=0u){
+        struct process *idle=(cpu<LIONOS_MAX_CPUS&&
+            (scheduler_idle_ready_mask&(1u<<cpu)))?
+            &scheduler_idle_processes[cpu]:0;
+        if(idle){
+            fpu_restore(idle);
+            idle->state=PROCESS_RUNNING;
+            set_current_local(idle);
+            paging_switch_address_space(idle->page_directory);
+            tss_set_kernel_stack(idle->kernel_stack_top);
+            uint32_t entered=__atomic_fetch_or(&scheduler_idle_entered_mask,
+                1u<<cpu,__ATOMIC_ACQ_REL);
+            if((entered&(1u<<cpu))==0u)
+                debug_write("LIONOS:SMP-AP-IDLE-ENTER\n");
+            uint32_t *idle_frame=process_saved_frame(idle);
+            spinlock_irqrestore_release(&process_lock,flags);
+            return idle_frame?idle_frame:frame;
+        }
+    }
+    if(prev_is_idle&&prev->state==PROCESS_RUNNING){
         spinlock_irqrestore_release(&process_lock,flags);
         return frame;
     }
