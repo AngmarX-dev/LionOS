@@ -485,8 +485,8 @@ fail:
 }
 
 static int is_child_of(const struct process*c,uint32_t parent_pid,uint32_t pid){return c->state!=PROCESS_UNUSED&&c->parent_pid==parent_pid&&(pid==PROCESS_WAIT_ANY||c->pid==pid);}
-static struct process*find_zombie_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i)if(is_child_of(&processes[i],parent_pid,pid)&&processes[i].state==PROCESS_ZOMBIE)return &processes[i];return 0;}
-static int has_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i)if(is_child_of(&processes[i],parent_pid,pid))return 1;return 0;}
+static struct process*find_zombie_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i)if(is_child_of(&processes[i],parent_pid,pid)&&processes[i].state==PROCESS_ZOMBIE&&!processes[i].reap_pending)return &processes[i];return 0;}
+static int has_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process *child=&processes[i];if(is_child_of(child,parent_pid,pid)&&!(child->state==PROCESS_ZOMBIE&&child->reap_pending))return 1;}return 0;}
 static void reap_process(struct process*p){
     if(!p||p->state!=PROCESS_ZOMBIE)return;
     if(p->is_thread){
@@ -803,7 +803,8 @@ static void wake_pending_waitpid_event(struct process *parent){
         return;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *child=&processes[i];
-        if(child->state==PROCESS_UNUSED||child->parent_pid!=parent->pid||
+        if(child->state==PROCESS_UNUSED||child->reap_pending||
+           child->parent_pid!=parent->pid||
            (parent->wait_pid!=PROCESS_WAIT_ANY&&parent->wait_pid!=child->pid))
             continue;
         if(child->state==PROCESS_ZOMBIE){
