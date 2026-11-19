@@ -368,7 +368,7 @@ The following sequence describes engineering priorities for the remaining work. 
 
 ### Phase A — Kernel and SMP Stabilization
 
-- ⬜ Complete SMP and synchronization stress tests
+- ✅ Complete SMP and synchronization stress tests
 - ⬜ Design per-CPU run queues with explicit ownership and locking
 - ⬜ Implement safe task migration and work-stealing after the required infrastructure is ready
 - ⬜ Complete interrupt routing and per-CPU statistics
