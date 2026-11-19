@@ -174,6 +174,14 @@ static void cpu_write_msr(uint32_t msr,uint64_t value)
     __asm__ volatile("wrmsr"::"c"(msr),"a"(low),"d"(high):"memory");
 }
 
+static void cpu_restore_bsp_cache_mode(uint32_t original_cr0)
+{
+    uint32_t restored=original_cr0&~0x60000000u;
+    if(cpu_memory_type_state.cr0_cache_disable)restored|=1u<<30;
+    if(cpu_memory_type_state.cr0_not_write_through)restored|=1u<<29;
+    __asm__ volatile("mov %0,%%cr0"::"r"(restored):"memory");
+}
+
 static void cpu_flush_local_tlb(uint32_t cr4)
 {
     if(cr4&(1u<<7)){
@@ -222,9 +230,13 @@ int cpu_memory_type_apply_current(uint32_t expected_cpu_index)
     if(((d&(1u<<5))!=0u)!=(cpu_mtrr_info.msr_supported!=0u)||
        ((d&(1u<<12))!=0u)!=(cpu_mtrr_info.supported!=0u))
         return 3;
-    /* CPUs without MTRRs need no synchronization; preserve that portability. */
-    if(!cpu_mtrr_info.msr_supported||!cpu_mtrr_info.supported)
+    /* CPUs without MTRRs need no synchronization; still restore BSP cache mode. */
+    if(!cpu_mtrr_info.msr_supported||!cpu_mtrr_info.supported){
+        uint32_t current_cr0;
+        __asm__ volatile("mov %%cr0,%0":"=r"(current_cr0));
+        cpu_restore_bsp_cache_mode(current_cr0);
         return 0;
+    }
     if(cpu_mtrr_info.truncated||
        cpu_mtrr_info.variable_count>CPU_MTRR_MAX_VARIABLE_RANGES||
        cpu_mtrr_info.captured_variable_count!=cpu_mtrr_info.variable_count)
@@ -264,12 +276,7 @@ int cpu_memory_type_apply_current(uint32_t expected_cpu_index)
     cpu_flush_local_tlb(cr4);
 
     /* Restore the cache-control bits captured from the BSP, preserving others. */
-    {
-        uint32_t restored=cr0&~0x60000000u;
-        if(cpu_memory_type_state.cr0_cache_disable)restored|=1u<<30;
-        if(cpu_memory_type_state.cr0_not_write_through)restored|=1u<<29;
-        __asm__ volatile("mov %0,%%cr0"::"r"(restored):"memory");
-    }
+    cpu_restore_bsp_cache_mode(cr0);
     __asm__ volatile("pushl %0; popfl"::"r"(eflags):"memory","cc");
     return 0;
 }
