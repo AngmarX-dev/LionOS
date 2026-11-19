@@ -43,6 +43,8 @@ int main(void){
             if(pressure==0u){
                 volatile uint32_t scratch[32];
                 for(uint32_t j=0u;j<32u;++j)scratch[j]=i+j;
+                if(scratch[0]!=i||scratch[31]!=i+31u)
+                    lion_exit_code(27u);
                 lion_exit_code(0u);
             }
             int32_t pressure_status=-1;
