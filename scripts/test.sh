@@ -29,12 +29,13 @@ trap cleanup_gui EXIT
 run_qemu() {
     local log_file="$1"
     local cpu_model="${2:-}"
+    local cpu_count="${3:-2}"
     local -a cpu_args=()
     if [ -n "$cpu_model" ]; then cpu_args=(-cpu "$cpu_model"); fi
     set +e
     rm -f "$log_file"
     timeout "${TIMEOUT_SECONDS}s" qemu-system-i386 "${cpu_args[@]}" \
-        -smp 2 \
+        -smp "$cpu_count" \
         -cdrom build/lionos.iso \
         -drive file=build/lionos-disk.img,format=raw,if=ide,index=0 \
         -drive file=build/ext2-slave-test.img,format=raw,if=ide,index=1,snapshot=on \
@@ -235,6 +236,18 @@ grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' buil
 
 echo "[4/6] High-memory allocator + cross-CPU TLB shootdown"
 QEMU_MEMORY=512M run_qemu build/qemu-highmem.log
+
+echo "[4b/6] Four-CPU SMP AP bring-up regression"
+run_qemu build/qemu-smp-4cpu.log "" 4
+online_aps=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-4cpu.log || true)
+if [ "$online_aps" -ne 3 ]; then
+    echo "SMP regression: expected 3 online APs with -smp 4, observed $online_aps" >&2
+    exit 1
+fi
+if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-smp-4cpu.log; then
+    echo "SMP regression: AP memory-type validation or startup failure detected" >&2
+    exit 1
+fi
 grep -q 'LIONOS:HIGH-MEMORY-TEST-OK' build/qemu-highmem.log
 grep -q 'LIONOS:TLB-SHOOTDOWN-ACKED' build/qemu-highmem.log
 grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-highmem.log
