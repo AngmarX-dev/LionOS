@@ -27,6 +27,7 @@ extern void lionos_kernel_idle(void);
 static struct process processes[LIONOS_PROCESS_MAX];
 static struct runqueue runqueues[LIONOS_MAX_CPUS];
 static struct runqueue_node runqueue_nodes[LIONOS_PROCESS_MAX];
+static volatile uint32_t runqueue_fault;
 static struct process *current_by_cpu[LIONOS_MAX_CPUS];
 static struct process scheduler_idle_processes[LIONOS_MAX_CPUS];
 static volatile uint32_t scheduler_idle_entered_mask;
@@ -103,7 +104,7 @@ static int process_transition_state_locked(struct process *p,uint32_t state){
         int result=runqueue_dequeue_locked(&runqueues[owner],runqueue_nodes,
                                            LIONOS_PROCESS_MAX,index);
         spinlock_release(&runqueues[owner].lock);
-        if(result!=0)return -1;
+        if(result!=0){__atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);return -1;}
     }
     if(state==PROCESS_READY){
         uint32_t online=smp_online_count();
@@ -118,16 +119,20 @@ static int process_transition_state_locked(struct process *p,uint32_t state){
         int result=runqueue_enqueue_locked(&runqueues[owner],runqueue_nodes,
                                            LIONOS_PROCESS_MAX,index,p->priority);
         spinlock_release(&runqueues[owner].lock);
-        if(result!=0)return -1;
+        if(result!=0){__atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);return -1;}
     }
     p->state=state;
     return 0;
 }
 static int process_runqueue_validate_locked(void){
+    uint32_t queue_totals[LIONOS_MAX_CPUS]={0u};
+    uint32_t ready_totals[LIONOS_MAX_CPUS]={0u};
+    if(__atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE)!=0u)return -1;
     for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
         spinlock_acquire(&runqueues[cpu].lock);
         int valid=runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,
                                            LIONOS_PROCESS_MAX,0);
+        queue_totals[cpu]=runqueues[cpu].total;
         spinlock_release(&runqueues[cpu].lock);
         if(valid!=0)return -1;
     }
@@ -138,10 +143,16 @@ static int process_runqueue_validate_locked(void){
             if(node->queued!=1u||node->queue_cpu>=LIONOS_MAX_CPUS||
                node->queue_cpu!=p->cpu_owner||node->priority!=p->priority)
                 return -1;
-        }else if(node->queued!=0u){
+            ++ready_totals[node->queue_cpu];
+        }else if(node->queued!=0u||
+                 node->next!=LIONOS_RUNQUEUE_INVALID_INDEX||
+                 node->previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
+                 node->queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX){
             return -1;
         }
     }
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(queue_totals[cpu]!=ready_totals[cpu])return -1;
     return 0;
 }
 
@@ -267,6 +278,7 @@ void process_init(void) {
     scheduler_idle_expected_mask=0u;
     __atomic_store_n(&scheduler_idle_entered_mask,0u,__ATOMIC_RELAXED);
     __atomic_store_n(&scheduler_idle_reported,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&runqueue_fault,0u,__ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i){
         runqueue_init(&runqueues[i],i);
         current_by_cpu[i]=0;
