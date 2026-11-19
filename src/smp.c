@@ -136,7 +136,7 @@ void smp_ap_main(void){
         debug_write("LIONOS:SMP-AP-MEMTYPE-APPLY-FAIL\n");
         for(;;)__asm__ volatile("cli; hlt");
     }
-    debug_write("LIONOS:SMP-AP-MEMTYPE-APPLIED\n");
+    debug_write("LIONOS:SMP-AP-MTRR-SYNC-DONE\n");
     memory_type_status = cpu_memory_type_validate_current(index);
     if (memory_type_status != 0) {
         static const char *const mismatch_markers[] = {
