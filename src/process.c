@@ -47,15 +47,13 @@ static void process_kernel_thread_return_trap(void){
     for(;;)__asm__ volatile("sti; hlt");
 }
 
-static void process_scheduler_ap_probe(uint32_t task_id){
-    uint32_t expected_cpu=task_id>>1u;
-    uint32_t ordinal=task_id&1u;
+static void process_scheduler_ap_probe(uint32_t expected_cpu){
     uint32_t actual_cpu=cpu_current_index();
     if(actual_cpu!=expected_cpu||actual_cpu==0u||
-       actual_cpu>=LIONOS_MAX_CPUS||ordinal>=2u){
+       actual_cpu>=LIONOS_MAX_CPUS){
         __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
     }else{
-        uint32_t bit=1u<<(actual_cpu*2u+ordinal);
+        uint32_t bit=1u<<actual_cpu;
         __atomic_fetch_or(&scheduler_ap_probe_seen,bit,__ATOMIC_ACQ_REL);
     }
     process_exit_current(0u);
@@ -399,10 +397,8 @@ void process_init(void) {
     __atomic_store_n(&process_scheduler_ready,1u,__ATOMIC_RELEASE);
     uint32_t probe_mask=0u,probe_count=0u;
     for(uint32_t cpu=1u;cpu<online;++cpu){
-        for(uint32_t ordinal=0u;ordinal<2u;++ordinal){
-            probe_mask|=1u<<(cpu*2u+ordinal);
-            ++probe_count;
-        }
+        probe_mask|=1u<<cpu;
+        ++probe_count;
     }
     __atomic_store_n(&scheduler_ap_probe_expected,probe_mask,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_expected_count,probe_count,__ATOMIC_RELEASE);
@@ -411,13 +407,10 @@ void process_init(void) {
     __atomic_store_n(&scheduler_ap_probe_reported,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_reaped,0u,__ATOMIC_RELEASE);
     for(uint32_t cpu=1u;cpu<online;++cpu){
-        for(uint32_t ordinal=0u;ordinal<2u;++ordinal){
-            uint32_t task_id=(cpu<<1u)|ordinal;
-            if(!process_create_kernel_thread_on_cpu(
-                    (uint32_t)(uintptr_t)&process_scheduler_ap_probe,
-                    task_id,cpu))
-                __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
-        }
+        if(!process_create_kernel_thread_on_cpu(
+                (uint32_t)(uintptr_t)&process_scheduler_ap_probe,
+                cpu,cpu))
+            __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
     }
     process_scheduler_ap_probe_report();
 }
