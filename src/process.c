@@ -145,10 +145,10 @@ void process_init(void) {
         if(scheduler_idle_context_init(cpu)!=0)
             debug_write("LIONOS:SMP-AP-IDLE-CONTEXT-FAIL\n");
     }
-    spinlock_irqrestore_release(&process_lock,flags);
     uint32_t expected=online>1u?((1u<<online)-2u):0u;
     if(expected&&((scheduler_idle_ready_mask&expected)==expected))
         debug_write("LIONOS:SMP-AP-IDLE-CONTEXTS-READY\n");
+    spinlock_irqrestore_release(&process_lock,flags);
 }
 struct process *process_current(void){return current_local();}
 uint32_t process_current_tid(void){struct process*p=current_local();return p?p->tid:0u;}
