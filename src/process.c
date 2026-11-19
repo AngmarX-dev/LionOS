@@ -396,11 +396,11 @@ uint32_t process_fork_current(uint32_t *parent_frame){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process*parent=current_local();
     struct process*parent_owner=process_pipe_owner();
-    if(!parent||parent==&processes[0]||!parent_owner||!parent_frame||!parent->user_page_count){debug_write("LIONOS:FORK-FAIL-CONTEXT\\n");spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
+    if(!parent||parent==&processes[0]||!parent_owner||!parent_frame||!parent->user_page_count){debug_write("LIONOS:FORK-FAIL-CONTEXT\n");spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
     struct process*slot=find_free_slot();
-    if(!slot){debug_write("LIONOS:FORK-FAIL-NO-SLOT\\n");spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
+    if(!slot){debug_write("LIONOS:FORK-FAIL-NO-SLOT\n");spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
     uint32_t pd=paging_create_address_space();
-    if(!pd){debug_write("LIONOS:FORK-FAIL-NO-ADDRESS-SPACE\\n");spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
+    if(!pd){debug_write("LIONOS:FORK-FAIL-NO-ADDRESS-SPACE\n");spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
 
     uint32_t pages[LIONOS_PROCESS_MAX_USER_PAGES]={0};
     uint32_t vas[LIONOS_PROCESS_MAX_USER_PAGES]={0};
@@ -408,16 +408,16 @@ uint32_t process_fork_current(uint32_t *parent_frame){
     uint32_t count=parent->user_page_count,retained=0,cowed=0;
 
     for(uint32_t i=0;i<count;++i){
-        if(paging_get_user_page(parent->page_directory,parent->user_page_vas[i],&pages[i],&old_flags[i])!=0){debug_write("LIONOS:FORK-FAIL-PAGE-LOOKUP\\n");goto fail;}
+        if(paging_get_user_page(parent->page_directory,parent->user_page_vas[i],&pages[i],&old_flags[i])!=0){debug_write("LIONOS:FORK-FAIL-PAGE-LOOKUP\n");goto fail;}
         vas[i]=parent->user_page_vas[i];
         uint32_t child_flags=old_flags[i];
         if(old_flags[i]&0x2u)child_flags=(old_flags[i]&~0x2u)|0x200u;
-        if(paging_map_user_page_in(pd,vas[i],pages[i],child_flags)!=0){debug_write("LIONOS:FORK-FAIL-PAGE-MAP\\n");goto fail;}
+        if(paging_map_user_page_in(pd,vas[i],pages[i],child_flags)!=0){debug_write("LIONOS:FORK-FAIL-PAGE-MAP\n");goto fail;}
         page_retain((void*)(uintptr_t)pages[i]);++retained;
     }
     for(uint32_t i=0;i<count;++i){
         if(!(old_flags[i]&0x2u))continue;
-        if(paging_set_user_page_flags(parent->page_directory,vas[i],(old_flags[i]&~0x2u)|0x200u)!=0){debug_write("LIONOS:FORK-FAIL-PARENT-COW\\n");goto restore;}
+        if(paging_set_user_page_flags(parent->page_directory,vas[i],(old_flags[i]&~0x2u)|0x200u)!=0){debug_write("LIONOS:FORK-FAIL-PARENT-COW\n");goto restore;}
         ++cowed;
     }
 
@@ -425,7 +425,7 @@ uint32_t process_fork_current(uint32_t *parent_frame){
        non-destructive, so the parent continues with identical live registers. */
     fpu_save(parent);
     slot=process_create_ex_vas_locked(parent->entry,parent->user_stack,pd,pages,vas,count);
-    if(!slot){debug_write("LIONOS:FORK-FAIL-PROCESS-CREATE\\n");goto restore;}
+    if(!slot){debug_write("LIONOS:FORK-FAIL-PROCESS-CREATE\n");goto restore;}
     if(fpu_enabled&&parent->fpu_valid){
         for(uint32_t i=0u;i<sizeof(parent->fpu_state);++i)
             slot->fpu_state[i]=parent->fpu_state[i];
@@ -456,7 +456,7 @@ uint32_t process_fork_current(uint32_t *parent_frame){
         spinlock_irqrestore_release(&process_lock,flags);
         uint32_t cleanup_flags;
         if(vfs_fork_process(parent_owner,slot)!=0){
-            debug_write("LIONOS:FORK-FAIL-VFS-CLONE\\n");
+            debug_write("LIONOS:FORK-FAIL-VFS-CLONE\n");
             cleanup_flags=spinlock_irqsave_acquire(&process_lock);
             if(slot->state==PROCESS_STOPPED)slot->state=PROCESS_ZOMBIE;
             spinlock_irqrestore_release(&process_lock,cleanup_flags);
@@ -464,7 +464,7 @@ uint32_t process_fork_current(uint32_t *parent_frame){
             return PROCESS_SYSCALL_ERR;
         }
         if(pipe_fork(parent_owner,slot)!=0){
-            debug_write("LIONOS:FORK-FAIL-PIPE-CLONE\\n");
+            debug_write("LIONOS:FORK-FAIL-PIPE-CLONE\n");
             vfs_close_all_process(slot);
             slot->pipe_read_mask=0u;
             slot->pipe_write_mask=0u;
