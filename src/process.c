@@ -572,9 +572,8 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
     }
     struct process *zombie=find_zombie_child(caller->pid,pid);
     if(zombie){
-        if(zombie->exit_code!=0u)
-            process_diag_status33("WAITPID-REAP-STATUS",zombie->pid,
-                                  caller->pid,zombie->exit_code);
+        process_diag_status33("WAITPID-REAP-STATUS",zombie->pid,
+                              caller->pid,zombie->exit_code);
         if(status_ptr&&write_user_u32(caller,status_ptr,zombie->exit_code)!=0){
             process_diag_status33("WAITPID-STATUS-WRITE-FAIL",zombie->pid,
                                   caller->pid,status_ptr);
@@ -1131,9 +1130,8 @@ void process_exit_current(uint32_t code){
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
-    if(code!=0u)
-        process_diag_status33("PROCESS-EXIT-STATUS",diagnostic_pid,
-                              diagnostic_parent_pid,code);
+    process_diag_status33("PROCESS-EXIT-STATUS",diagnostic_pid,
+                          diagnostic_parent_pid,code);
     process_release_tty_if_session_empty(exiting_sid);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\n");
 }
