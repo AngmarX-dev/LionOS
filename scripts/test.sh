@@ -257,6 +257,19 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-smp-8cpu.l
     echo "SMP regression: AP memory-type validation or startup failure detected" >&2
     exit 1
 fi
+
+echo "[4c/6] Maximum-supported 16-CPU SMP AP bring-up regression"
+run_qemu build/qemu-smp-16cpu.log "" 16
+online_aps_16=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-16cpu.log || true)
+if [ "$online_aps_16" -ne 15 ]; then
+    echo "SMP regression: expected 15 online APs with -smp 16, observed $online_aps_16" >&2
+    exit 1
+fi
+if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT|LIONOS:SMP-STACK-FAIL|LIONOS:SMP-BAD-APIC-ID' build/qemu-smp-16cpu.log; then
+    echo "SMP regression: AP validation, stack allocation, APIC identity, or startup failure detected" >&2
+    exit 1
+fi
+
 grep -q 'LIONOS:HIGH-MEMORY-TEST-OK' build/qemu-highmem.log
 grep -q 'LIONOS:TLB-SHOOTDOWN-ACKED' build/qemu-highmem.log
 grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-highmem.log
