@@ -6,13 +6,20 @@ This document defines the synchronization and ownership contract for replacing t
 
 The implementation must preserve the existing scheduler behavior until the queue implementation and its regression tests are ready. Cross-CPU work stealing remains disabled.
 
-The first implementation slice now provides a standalone intrusive run-queue core in
-`include/runqueue.h` and `src/runqueue.c`, with host-side invariant and ordering tests
-in `tests/runqueue_test.c`. These primitives are not yet connected to the process
-table or scheduler. The scheduler still uses the legacy process-table scan, and all
-tasks remain pinned to their current CPU. The module's locked API requires callers
-to hold the queue lock; scheduler integration must also preserve the documented
-`process_lock`-before-run-queue-lock order.
+The implementation now connects the intrusive run-queue core in
+`include/runqueue.h` and `src/runqueue.c` to process lifecycle transitions and
+`process_schedule()`. Each CPU has four FIFO priority lanes. READY transitions
+enqueue exactly once; transitions away from READY dequeue before publishing the
+new state; scheduler selection removes the highest-priority head. The global
+`process_lock` remains in place and is always acquired before a queue lock.
+The timer scheduler uses a non-blocking try-acquire for its local queue selection.
+Work stealing and task migration remain disabled.
+
+Host tests cover queue invariants, FIFO/priority ordering, and concurrent lock
+contention across two independent per-CPU queues. Runtime validation checks queue
+membership against process states during scheduler decisions. QEMU SMP lifecycle
+stress and AP task-execution verification are still required before this milestone
+can be considered complete.
 
 
 ## Current implementation
@@ -22,12 +29,12 @@ The current scheduler has these relevant properties:
 - The process table is a fixed array protected by the global `process_lock`.
 - `process_schedule()` disables local interrupts and uses `spinlock_try_acquire()` on `process_lock`. If another CPU owns the lock, the timer scheduling attempt is dropped rather than spinning in interrupt context.
 - Each CPU has a small scheduler state record (scan cursor, schedule count, steal count, and timer ticks).
-- Runnable selection scans the process table and filters by `PROCESS_READY`, priority, and `cpu_owner`.
-- New processes and threads are initially assigned to the CPU that creates them. The scheduler currently keeps them pinned to that CPU.
+- Runnable selection dequeues from the current CPU's highest-priority non-empty FIFO run-queue lane; process-table scans are retained only for lifecycle and relationship operations.
+- New processes and threads are initially assigned to the CPU that creates them. The scheduler keeps them pinned to that CPU; no work stealing or migration is enabled.
 - APs complete CPU-local initialization and receive a dedicated kernel idle context during `process_init()`. Their Local APIC timer enters `process_schedule()`, which switches an AP with no current task into that idle context. APs still do not receive ordinary tasks through migration or work stealing.
 - Process state transitions, wakeups, creation, exit, reaping, and priority changes are currently serialized by `process_lock`.
 
-Consequently, `cpu_owner` is currently an affinity/ownership field, not a queue membership structure. The existing per-CPU scan cursor is not a run queue.
+Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue contains a READY task. The per-CPU scan cursor remains only as diagnostic/compatibility state; it no longer selects runnable tasks.
 
 ## Goals
 
@@ -115,7 +122,7 @@ Queue mutation must be centralized. Direct writes to `PROCESS_READY` outside the
 - `runqueue_pick_next_locked(cpu)`: called by that CPU's scheduler with the required locks held; removes the head of the highest-priority non-empty lane and returns the process.
 - `process_make_ready_locked(process, preferred_cpu)`: single state-transition entry point for creation completion, wakeups, waitpid events, futex wakeups, signal continuation, and preemption.
 
-The helper names are design identifiers; they are not present APIs until implemented.
+The process transition and scheduler queue operations are implemented in `src/process.c`; future migration helpers remain out of scope.
 
 ## CPU selection policy
 
@@ -162,7 +169,7 @@ The queue conversion is not complete until tests demonstrate:
 3. Exactly-one queue membership through create, fork, thread creation, wakeup, timeout, stop/continue, exit, and reap paths.
 4. No queue entry for WAITING, STOPPED, ZOMBIE, UNUSED, or RUNNING tasks.
 5. Queue counts and head/tail/link consistency after every stress iteration.
-6. Concurrent enqueue/dequeue/wakeup stress across all online CPUs without duplicate ownership or lost wakeups.
+6. Host-side concurrent enqueue/dequeue stress across two per-CPU queues; QEMU SMP lifecycle stress across all online CPUs is still required.
 7. Timer scheduling remains bounded when a lock is contended.
 8. Existing process, waitpid, futex, pipe, TTY, FPU/SSE, and xHCI regressions pass.
 9. QEMU tests cover one CPU, multiple CPUs, and the maximum supported CPU topology.
