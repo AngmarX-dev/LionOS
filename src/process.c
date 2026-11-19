@@ -568,6 +568,9 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
     }
     struct process *zombie=find_zombie_child(caller->pid,pid);
     if(zombie){
+        if(zombie->exit_code==33u)
+            process_diag_status33("WAITPID-STATUS-DIAG",zombie->pid,
+                                  caller->pid,zombie->exit_code);
         if(status_ptr&&write_user_u32(caller,status_ptr,zombie->exit_code)!=0){
             spinlock_irqrestore_release(&process_lock,flags);
             return -1;
@@ -1014,6 +1017,27 @@ static void process_reparent_children_locked(struct process *exiting){
     }
 }
 
+static void process_diag_hex32(uint32_t value){
+    static const char digits[]="0123456789ABCDEF";
+    for(uint32_t shift=28u;;shift-=4u){
+        debug_putc(digits[(value>>shift)&0xFu]);
+        if(shift==0u)break;
+    }
+}
+
+static void process_diag_status33(const char *kind,uint32_t pid,
+                                  uint32_t parent_pid,uint32_t value){
+    debug_write("LIONOS:");
+    debug_write(kind);
+    debug_write(" pid=0x");
+    process_diag_hex32(pid);
+    debug_write(" parent=0x");
+    process_diag_hex32(parent_pid);
+    debug_write(" value=0x");
+    process_diag_hex32(value);
+    debug_write("\n");
+}
+
 void process_exit_current(uint32_t code){
     struct process*c=current_local();
     int is_hup_exit=(code==(128u+LIONOS_SIG_HUP));
@@ -1063,6 +1087,8 @@ void process_exit_current(uint32_t code){
         }
     }
     uint32_t exiting_sid=c->sid;
+    uint32_t diagnostic_pid=c->pid;
+    uint32_t diagnostic_parent_pid=c->parent_pid;
     c->exit_code=code;
     process_reparent_children_locked(c);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:REPARENT-DONE\n");
@@ -1072,6 +1098,9 @@ void process_exit_current(uint32_t code){
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
+    if(code==33u)
+        process_diag_status33("PROCESS-EXIT-DIAG",diagnostic_pid,
+                              diagnostic_parent_pid,code);
     process_release_tty_if_session_empty(exiting_sid);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\n");
 }
