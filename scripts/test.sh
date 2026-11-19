@@ -192,7 +192,16 @@ echo "[3/6] First SMP boot / filesystem initialization"
 echo "SMP AP entry symbol:"
 nm -n build/lionos.bin | grep -E " smp_ap_main$| page_root$|kernel_pd|identity_pt| _kernel_end$" || true
 objdump -d --disassemble=smp_ap_main build/lionos.bin | head -n 24
-run_qemu build/qemu-first.log
+run_qemu build/qemu-first.log "" 4
+first_boot_online_aps=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-first.log || true)
+if [ "$first_boot_online_aps" -ne 3 ]; then
+    echo "SMP integration: expected 3 online APs during the four-CPU system boot, observed $first_boot_online_aps" >&2
+    exit 1
+fi
+if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-first.log; then
+    echo "SMP integration: AP memory-type validation or startup failure detected during the full system boot" >&2
+    exit 1
+fi
 grep -q 'LIONOS:READY' build/qemu-first.log
 grep -q 'LIONOS:GFX-PCI-CLASSIFY-SELFTEST-OK' build/qemu-first.log
 grep -q 'LIONOS:GFX-PCI-DISCOVERY-OK' build/qemu-first.log
@@ -237,14 +246,14 @@ grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' buil
 echo "[4/6] High-memory allocator + cross-CPU TLB shootdown"
 QEMU_MEMORY=512M run_qemu build/qemu-highmem.log
 
-echo "[4b/6] Four-CPU SMP AP bring-up regression"
-run_qemu build/qemu-smp-4cpu.log "" 4
-online_aps=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-4cpu.log || true)
-if [ "$online_aps" -ne 3 ]; then
-    echo "SMP regression: expected 3 online APs with -smp 4, observed $online_aps" >&2
+echo "[4b/6] Eight-CPU SMP AP bring-up scalability regression"
+run_qemu build/qemu-smp-8cpu.log "" 8
+online_aps=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-8cpu.log || true)
+if [ "$online_aps" -ne 7 ]; then
+    echo "SMP regression: expected 7 online APs with -smp 8, observed $online_aps" >&2
     exit 1
 fi
-if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-smp-4cpu.log; then
+if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-smp-8cpu.log; then
     echo "SMP regression: AP memory-type validation or startup failure detected" >&2
     exit 1
 fi
