@@ -9,8 +9,10 @@ static uint32_t simulate_resolver_race;
 int process_resolve_cow(uint32_t address) {
     ++cow_resolver_calls;
     if (simulate_resolver_race) {
+        int resolved;
         simulate_resolver_race = 0u;
-        return paging_resolve_cow(paging_current_address_space(), address);
+        resolved = paging_resolve_cow(paging_current_address_space(), address);
+        return resolved == 0 ? -1 : resolved;
     }
     return paging_resolve_cow(paging_current_address_space(), address);
 }
