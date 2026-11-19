@@ -1470,6 +1470,9 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
             p->pending_signals|=(1u<<(signal-1u));
             p->exit_code=128u+signal;
             p->state=PROCESS_ZOMBIE;
+            uint32_t target_cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
+            if(current_by_cpu[target_cpu]==p)
+                process_request_blocked_reschedule(target_cpu);
             spinlock_irqrestore_release(&process_lock,flags);
             return LIONOS_SIGNAL_OK;
         }
