@@ -2143,7 +2143,7 @@ uint32_t *process_schedule(uint32_t *frame){
         spinlock_irqrestore_release(&process_lock,flags);
         return n;
     }
-    if(prev&&(prev->state==PROCESS_ZOMBIE||prev->state==PROCESS_STOPPED||prev->state==PROCESS_WAITING)){
+    if(prev&&prev->state!=PROCESS_RUNNING){
         if(cpu==0){
             fpu_save(prev);
             struct process*b=&processes[0];
