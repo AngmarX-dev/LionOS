@@ -130,8 +130,6 @@ void smp_ap_main(void){
     debug_write("LIONOS:SMP-AP-MAIN-ENTER\n");
     if(index>=LIONOS_MAX_CPUS){debug_write("LIONOS:SMP-AP-BAD-INDEX\n");for(;;)__asm__ volatile("cli; hlt");}
     uint32_t stack_top=ap_stacks[index]+LIONOS_SMP_STACK_PAGES*4096u;
-    debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
-    tss_init_cpu(index,stack_top);
     paging_switch_address_space(paging_kernel_directory());
     int memory_type_status = cpu_memory_type_apply_current(index);
     if(memory_type_status!=0){
@@ -162,6 +160,9 @@ void smp_ap_main(void){
         for (;;) __asm__ volatile("cli; hlt");
     }
     debug_write("LIONOS:SMP-AP-MEMORY-TYPE-VERIFIED\n");
+    /* Shared TSS state is touched only after this AP has matching MTRRs. */
+    debug_write("LIONOS:SMP-AP-TSS-BEGIN\n");
+    tss_init_cpu(index,stack_top);
     if(cpu_nx_enabled()&&cpu_enable_nx()!=0){
         debug_write("LIONOS:SMP-AP-NX-ENABLE-FAIL\n");
         for(;;)__asm__ volatile("cli; hlt");
