@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include "console.h"
-#include "debug.h"
 #include "exec.h"
 #include "futex.h"
 #include "ipc.h"
@@ -33,12 +32,6 @@ static int syscall_copy_out(uint32_t address,const void *buffer,uint32_t length)
 
 static int process_exists(uint32_t pid){if(!pid)return 0;for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i){struct process*p=process_at(i);if(p&&p->state!=PROCESS_UNUSED&&p->pid==pid)return 1;}return 0;}
 static int has_cap(uint32_t cap){return process_has_capability(process_current(),cap);}
-static int syscall_is_ext2_root(const char *path) {
-    return path && path[0] == '/' && path[1] == 'e' &&
-           path[2] == 'x' && path[3] == 't' &&
-           path[4] == '2' && path[5] == '\0';
-}
-
 static uint32_t syscall_dispatch(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2,uint32_t arg3,uint32_t arg4){switch(number){
 case SYS_ABI_VERSION:return 16u;
 case SYS_PUTC:if(!has_cap(PROCESS_CAP_CONSOLE))return SYSCALL_ERR;if(arg0>0xFFu)return SYSCALL_ERR;console_putc((char)arg0);return SYSCALL_OK;
@@ -75,34 +68,7 @@ case LIONOS_SYS_CLOSE:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{struct pro
 case LIONOS_SYS_FREAD:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;if(arg2>USER_COPY_MAX||!usercopy_validate_write(arg1,arg2))return SYSCALL_ERR;if(!arg2)return 0u;{void *buffer=kmalloc(arg2);if(!buffer)return SYSCALL_ERR;int r=vfs_read_for_process(process_fd_owner(),(int)arg0,buffer,arg2);if(r==TTY_READ_BLOCKED){kfree(buffer);return PROCESS_WAIT_BLOCKED;}if(r>0&&syscall_copy_out(arg1,buffer,(uint32_t)r)!=0)r=-1;kfree(buffer);return(uint32_t)r;}
 case LIONOS_SYS_FWRITE:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;if(arg2>USER_COPY_MAX||!usercopy_validate_read(arg1,arg2))return SYSCALL_ERR;if(!arg2)return 0u;{void *buffer=syscall_copy_in(arg1,arg2);if(!buffer)return SYSCALL_ERR;int r=vfs_write_for_process(process_fd_owner(),(int)arg0,buffer,arg2);kfree(buffer);return(uint32_t)r;}
 case LIONOS_SYS_REMOVE:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];if(usercopy_copy_string(path,sizeof(path),arg0)!=0)return SYSCALL_ERR;return(uint32_t)vfs_remove(path);}
-case LIONOS_SYS_STAT:
-    if (!has_cap(PROCESS_CAP_FS)) return SYSCALL_ERR;
-    {
-        char path[VFS_PATH_MAX];
-        struct lion_stat st;
-        struct vfs_stat kst;
-        int root_path;
-        if (usercopy_copy_string(path, sizeof(path), arg0) != 0)
-            return SYSCALL_ERR;
-        root_path = syscall_is_ext2_root(path);
-        if (!usercopy_validate_write(arg1, sizeof(st))) {
-            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-USERCOPY-FAIL\n");
-            return SYSCALL_ERR;
-        }
-        if (vfs_stat_path(path, &kst) < 0) {
-            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-VFS-FAIL\n");
-            return SYSCALL_ERR;
-        }
-        st.size = kst.size;
-        st.backend = kst.backend;
-        st.flags = kst.flags;
-        if (syscall_copy_out(arg1, &st, sizeof(st)) != 0) {
-            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-COPYOUT-FAIL\n");
-            return SYSCALL_ERR;
-        }
-        if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-OK\n");
-        return SYSCALL_OK;
-    }
+case LIONOS_SYS_STAT:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];struct lion_stat st;struct vfs_stat kst;if(usercopy_copy_string(path,sizeof(path),arg0)!=0||!usercopy_validate_write(arg1,sizeof(st))||vfs_stat_path(path,&kst)<0)return SYSCALL_ERR;st.size=kst.size;st.backend=kst.backend;st.flags=kst.flags;return syscall_copy_out(arg1,&st,sizeof(st))==0?SYSCALL_OK:SYSCALL_ERR;}
 case LIONOS_SYS_READLINK:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];if(usercopy_copy_string(path,sizeof(path),arg0)!=0||arg2==0u||arg2>USER_COPY_MAX||!usercopy_validate_write(arg1,arg2))return SYSCALL_ERR;char *buffer=(char*)kmalloc(arg2);if(!buffer)return SYSCALL_ERR;int r=vfs_readlink(path,buffer,arg2);if(r>0&&syscall_copy_out(arg1,buffer,(uint32_t)r)!=0)r=-1;kfree(buffer);return(uint32_t)r;}
 case LIONOS_SYS_LSTAT:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];struct lion_stat st;struct vfs_stat kst;if(usercopy_copy_string(path,sizeof(path),arg0)!=0||!usercopy_validate_write(arg1,sizeof(st))||vfs_lstat_path(path,&kst)<0)return SYSCALL_ERR;st.size=kst.size;st.backend=kst.backend;st.flags=kst.flags;return syscall_copy_out(arg1,&st,sizeof(st))==0?SYSCALL_OK:SYSCALL_ERR;}
 case LIONOS_SYS_READDIR:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];struct lion_dirent user_entry;struct vfs_dirent kernel_entry;uint32_t offset;if(usercopy_copy_string(path,sizeof(path),arg0)!=0||!usercopy_validate_write(arg1,sizeof(offset))||!usercopy_validate_write(arg2,sizeof(user_entry))||(arg1<arg2+sizeof(user_entry)&&arg2<arg1+sizeof(offset))||usercopy_copy_from(&offset,arg1,sizeof(offset))!=0)return SYSCALL_ERR;int32_t result=vfs_readdir(path,&offset,&kernel_entry);if(result<0)return SYSCALL_ERR;if(syscall_copy_out(arg1,&offset,sizeof(offset))!=0)return SYSCALL_ERR;if(result==0)return 0u;user_entry.inode=kernel_entry.inode;user_entry.type=kernel_entry.type;for(uint32_t i=0u;i<sizeof(user_entry.name);++i)user_entry.name[i]=kernel_entry.name[i];if(syscall_copy_out(arg2,&user_entry,sizeof(user_entry))!=0)return SYSCALL_ERR;return 1u;}
