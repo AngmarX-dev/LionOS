@@ -1905,13 +1905,11 @@ void process_request_reschedule(void){
 }
 
 int process_set_priority(struct process*p,uint32_t priority){
-    if(!p||priority>=PROCESS_PRIORITY_LEVELS)return -1;
+    uint32_t index;
+    if(priority>=PROCESS_PRIORITY_LEVELS||
+       process_slot_index(p,&index)!=0)return -1;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     if(p->state==PROCESS_READY){
-        uint32_t index;
-        if(process_slot_index(p,&index)!=0){
-            spinlock_irqrestore_release(&process_lock,flags);return -1;
-        }
         uint32_t owner=runqueue_nodes[index].queue_cpu;
         if(owner>=LIONOS_MAX_CPUS){
             __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
