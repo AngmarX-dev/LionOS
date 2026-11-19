@@ -673,6 +673,13 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
     if(!has_child(caller->pid,pid)){
         process_diag_status33("WAITPID-NO-CHILD",caller->pid,pid,
                               caller->pending_signals);
+        struct process *requested=find_pid(pid);
+        if(requested)
+            process_diag_status33("WAITPID-TARGET",requested->pid,
+                                  requested->parent_pid,requested->state);
+        else
+            process_diag_status33("WAITPID-TARGET-MISSING",pid,caller->pid,
+                                  cpu_current_index());
         spinlock_irqrestore_release(&process_lock,flags);
         return -1;
     }
@@ -936,6 +943,9 @@ static void stop_process_locked(struct process *process,uint32_t signal){
         process->wait_channel=0u;process->wait_kind=0u;
         process->wait_timeout_active=0u;process->wait_timeout_result=0u;
     }
+    if(!process->is_thread&&!was_stopped)
+        process_diag_status33("PROCESS-STOP",process->pid,
+                              process->parent_pid,signal);
     process->state=PROCESS_STOPPED;
     uint32_t cpu=process->cpu_owner<LIONOS_MAX_CPUS?process->cpu_owner:0u;
     __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
@@ -1102,6 +1112,8 @@ static void process_reparent_children_locked(struct process *exiting){
                 ++group_count;
             }
         }
+        process_diag_status33("PROCESS-REPARENT",child->pid,
+                              child->parent_pid,child->state);
         child->parent_pid=1u;
         child->adopted_by_init=1u;
         if(child->state==PROCESS_ZOMBIE)child->reap_pending=1u;
@@ -1650,6 +1662,8 @@ uint32_t *process_schedule(uint32_t *frame){
         if(prev->state==PROCESS_WAITING&&prev->wait_kind==3u&&frame){
             prev->wait_frame_saved=1u;
             if(process_has_interrupting_signal_locked(prev)){
+                process_diag_status33("WAITPID-INTERRUPTED-SCHEDULE",prev->pid,
+                                      prev->wait_pid,prev->pending_signals);
                 frame[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(prev);prev->state=PROCESS_RUNNING;
             }
         }
