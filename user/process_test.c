@@ -110,10 +110,16 @@ int main(int argc, char **argv) {
         puts("[FAIL] create cooperative-yield worker");
         return 30;
     }
-    if (lion_yield() != LIONOS_SYSCALL_OK ||
-        yield_marker != 0x5949454Cu) {
+    uint32_t yield_result = lion_yield();
+    if (yield_result != LIONOS_SYSCALL_OK) {
+        puts("[FAIL] cooperative yield syscall result");
+        print_u32("[FAIL] yield result: ", yield_result);
+        return 51;
+    }
+    if (yield_marker != 0x5949454Cu) {
         puts("[FAIL] cooperative yield did not run peer thread");
-        return 31;
+        print_u32("[FAIL] yield marker: ", yield_marker);
+        return 52;
     }
     if (lion_thread_join(yield_tid, &yield_status) != (int32_t)yield_tid ||
         yield_status != 17) {

@@ -13,6 +13,7 @@
 #include "tty.h"
 #include "usercopy.h"
 #include "smp.h"
+#include "lapic.h"
 extern void lionos_kernel_idle(void);
 
 #define PROCESS_WAIT_ANY 0u
@@ -1790,6 +1791,14 @@ uint32_t *process_schedule(uint32_t *frame){
     if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
     struct process *contended_prev=current_local();
     if(!spinlock_try_acquire(&process_lock)){
+        /* An explicit reschedule must not be lost when another CPU briefly
+         * owns process_lock. Queue one local APIC retry; the IPI is delivered
+         * after this interrupt returns, without spinning in IRQ context. */
+        if(__atomic_load_n(&reschedule_requested[cpu],__ATOMIC_ACQUIRE)!=0u){
+            uint32_t apic=lapic_id();
+            if(apic!=0xFFFFFFFFu)
+                lapic_send_ipi(apic,LIONOS_LAPIC_RESCHEDULE_VECTOR);
+        }
         /*
          * A contended timer tick may be dropped for a runnable task, but a
          * blocked/stopped/zombie task must never be returned to user mode.

@@ -6,6 +6,7 @@
 #define LIONOS_LAPIC_PHYS 0xFEE00000u
 #define LIONOS_LAPIC_VIRT 0xFEE00000u
 #define LIONOS_LAPIC_TIMER_VECTOR 48u
+#define LIONOS_LAPIC_RESCHEDULE_VECTOR 50u
 
 int lapic_init(void);
 uint32_t lapic_id(void);

@@ -321,7 +321,7 @@ grep -q 'LIONOS:EXT2-VFS-SYMLINK-PARENT-TEST-OK' build/qemu-second.log
 grep -Eq 'LIONOS:SMP-CPU-ONLINE|LIONOS:SMP-CPU-COUNT-1|LIONOS:SMP-DISABLED' build/qemu-second.log
 
 echo "[6/7] NX hardware enforcement / Ring-3 stack execution test"
-run_qemu build/qemu-nx.log max
+run_qemu build/qemu-nx.log "max,+nx,+pae"
 grep -q "LIONOS:NX-ENABLED" build/qemu-nx.log
 grep -q "LIONOS:USER-INSTRUCTION-FETCH-FAULT" build/qemu-nx.log
 grep -q "LIONOS:NX-RUNTIME-TEST-OK" build/qemu-nx.log
