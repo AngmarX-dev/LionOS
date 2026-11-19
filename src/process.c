@@ -115,6 +115,28 @@ static int process_transition_state_locked(struct process *p,uint32_t state){
     p->state=state;
     return 0;
 }
+static int process_runqueue_validate_locked(void){
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
+        spinlock_acquire(&runqueues[cpu].lock);
+        int valid=runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,
+                                           LIONOS_PROCESS_MAX,0);
+        spinlock_release(&runqueues[cpu].lock);
+        if(valid!=0)return -1;
+    }
+    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
+        const struct process *p=&processes[i];
+        const struct runqueue_node *node=&runqueue_nodes[i];
+        if(p->state==PROCESS_READY){
+            if(node->queued!=1u||node->queue_cpu>=LIONOS_MAX_CPUS||
+               node->queue_cpu!=p->cpu_owner||node->priority!=p->priority)
+                return -1;
+        }else if(node->queued!=0u){
+            return -1;
+        }
+    }
+    return 0;
+}
+
 static int process_resolve_cow_locked(struct process *process,uint32_t page){
     if(!process||!process->page_directory||page>=0xC0000000u||
        (page&(PAGE_SIZE-1u)))return -1;
@@ -1727,7 +1749,30 @@ int process_has_capability(const struct process *p,uint32_t capability){return p
 uint32_t process_capabilities(const struct process *p){return p?p->capabilities:0u;}
 int process_set_capabilities(struct process *p,uint32_t capabilities){uint32_t flags=spinlock_irqsave_acquire(&process_lock);if(!p||p==&processes[0]){spinlock_irqrestore_release(&process_lock,flags);return -1;}p->capabilities=capabilities&~PROCESS_CAP_ADMIN;spinlock_irqrestore_release(&process_lock,flags);return 0;}
 
-int process_set_current(struct process*p){uint32_t flags=spinlock_irqsave_acquire(&process_lock);if(!p||p->state==PROCESS_UNUSED||p->state==PROCESS_STOPPED||!p->page_directory){spinlock_irqrestore_release(&process_lock,flags);return -1;}struct process*old=current_local();if(old&&old!=p&&old->state==PROCESS_RUNNING)(void)process_transition_state_locked(old,PROCESS_READY);set_current_local(p);p->cpu_owner=cpu_current_index();p->state=PROCESS_RUNNING;paging_switch_address_space(p->page_directory);tss_set_kernel_stack(p->kernel_stack_top);spinlock_irqrestore_release(&process_lock,flags);return 0;}
+int process_set_current(struct process*p){
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    uint32_t cpu=cpu_current_index();
+    struct process *old=current_local();
+    if(!p||p->state==PROCESS_UNUSED||p->state==PROCESS_STOPPED||
+       !p->page_directory||cpu>=LIONOS_MAX_CPUS||
+       (p!=old&&p->state==PROCESS_RUNNING)||
+       (p->state==PROCESS_READY&&p->cpu_owner!=cpu)){
+        spinlock_irqrestore_release(&process_lock,flags);return -1;
+    }
+    if(old&&old!=p&&old!=&processes[0]&&old->state==PROCESS_RUNNING&&
+       process_transition_state_locked(old,PROCESS_READY)!=0){
+        spinlock_irqrestore_release(&process_lock,flags);return -1;
+    }
+    if(p!=old&&process_transition_state_locked(p,PROCESS_RUNNING)!=0){
+        spinlock_irqrestore_release(&process_lock,flags);return -1;
+    }
+    set_current_local(p);
+    p->cpu_owner=cpu;
+    paging_switch_address_space(p->page_directory);
+    tss_set_kernel_stack(p->kernel_stack_top);
+    spinlock_irqrestore_release(&process_lock,flags);
+    return 0;
+}
 uint32_t process_count(void){uint32_t flags=spinlock_irqsave_acquire(&process_lock),n=0;for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED)++n;spinlock_irqrestore_release(&process_lock,flags);return n;}
 void process_set_saved_frame(struct process*p,uint32_t*f){uint32_t flags=spinlock_irqsave_acquire(&process_lock);if(p)__atomic_store_n(&p->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE);spinlock_irqrestore_release(&process_lock,flags);}
 uint32_t*process_saved_frame(struct process*p){return p?(uint32_t *)(uintptr_t)__atomic_load_n(&p->saved_frame,__ATOMIC_ACQUIRE):0;}
@@ -1761,7 +1806,15 @@ uint32_t process_create_user_thread(uint32_t entry){
     uint32_t top=va+4096u;uint32_t*sp=(uint32_t*)(uintptr_t)top;--sp;*sp=0u;
     clear_process(p);p->pid=0;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=parent->thread_group_pid;p->pgid=parent->pgid;p->sid=parent->sid;p->is_thread=1;p->owns_address_space=0;(void)process_transition_state_locked(p,PROCESS_STOPPED);p->cpu_owner=cpu_current_index();p->page_directory=parent->page_directory;p->entry=entry;p->user_stack=(uint32_t)(uintptr_t)sp;p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u;p->thread_stack_page=(uint32_t)(uintptr_t)kp;p->thread_stack_va=va;p->capabilities=parent->capabilities;p->priority=parent->priority;p->base_priority=parent->base_priority;p->time_slice=quantum_for_priority(p->priority);p->fpu_valid=0;
     uint32_t*f=(uint32_t*)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u);for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i)f[i]=0;f[14]=entry;f[15]=USER_CODE_SEL;f[16]=0x202u;f[17]=p->user_stack;f[18]=USER_DATA_SEL;__atomic_store_n(&p->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE);
-    if(process_transition_state_locked(p,PROCESS_READY)!=0){(void)paging_unmap_user_page_in(parent->page_directory,va,0);page_free(kp);page_free(ks);clear_process(p);spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
+    if(process_transition_state_locked(p,PROCESS_READY)!=0){
+        int unmap=paging_unmap_user_page_in(parent->page_directory,va,
+                                             (uint32_t)(uintptr_t)kp);
+        if(unmap==0)page_free(kp);
+        else debug_write("LIONOS:THREAD-STACK-ROLLBACK-UNMAP-FAIL\n");
+        page_free(ks);clear_process(p);
+        spinlock_irqrestore_release(&process_lock,flags);
+        return PROCESS_SYSCALL_ERR;
+    }
     spinlock_irqrestore_release(&process_lock,flags);return p->tid;
 }
 void process_exit_thread(uint32_t code){process_exit_current(code);}
@@ -1820,8 +1873,12 @@ int process_set_priority(struct process*p,uint32_t priority){
     if(!p||priority>=PROCESS_PRIORITY_LEVELS)return -1;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     if(p->state==PROCESS_READY){
-        uint32_t index=process_index(p),owner=runqueue_nodes[index].queue_cpu;
-        if(index>=LIONOS_PROCESS_MAX||owner>=LIONOS_MAX_CPUS){
+        uint32_t index=process_index(p);
+        if(index>=LIONOS_PROCESS_MAX){
+            spinlock_irqrestore_release(&process_lock,flags);return -1;
+        }
+        uint32_t owner=runqueue_nodes[index].queue_cpu;
+        if(owner>=LIONOS_MAX_CPUS){
             spinlock_irqrestore_release(&process_lock,flags);return -1;
         }
         spinlock_acquire(&runqueues[owner].lock);
@@ -1953,7 +2010,7 @@ uint32_t *process_schedule(uint32_t *frame){
     }
     if(prev&&prev->deferred_kernel_stack){page_free((void *)(uintptr_t)(prev->deferred_kernel_stack-4096u));prev->deferred_kernel_stack=0;}
 
-    if(prev&&prev->state==PROCESS_RUNNING&&!prev_is_idle){
+    if(prev&&prev!=&processes[0]&&prev->state==PROCESS_RUNNING&&!prev_is_idle){
         if(process_transition_state_locked(prev,PROCESS_READY)!=0){
             spinlock_irqrestore_release(&process_lock,flags);
             return frame;
@@ -1977,6 +2034,12 @@ uint32_t *process_schedule(uint32_t *frame){
         sc->cursor=picked;
         next->state=PROCESS_RUNNING;
     }else if(pick_result<0){
+        debug_write("LIONOS:RUNQUEUE-PICK-FAIL\n");
+        spinlock_irqrestore_release(&process_lock,flags);
+        return frame;
+    }
+    if(process_runqueue_validate_locked()!=0){
+        debug_write("LIONOS:RUNQUEUE-INVARIANT-FAIL\n");
         spinlock_irqrestore_release(&process_lock,flags);
         return frame;
     }
