@@ -79,7 +79,7 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-IDLE-ALL-ENTERED" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK" "$log_file"
     fi
-    if grep -q "LIONOS:SMP-AP-RUNQUEUE-TASKS-FAIL" "$log_file"; then
+    if grep -q "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL" "$log_file"; then
         echo "AP run-queue task execution self-test failed: $log_file" >&2
         return 1
     fi
