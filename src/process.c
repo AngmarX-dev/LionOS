@@ -397,7 +397,6 @@ void process_init(void) {
         debug_write("LIONOS:SMP-AP-IDLE-CONTEXTS-READY\n");
     spinlock_irqrestore_release(&process_lock,flags);
     __atomic_store_n(&process_scheduler_ready,1u,__ATOMIC_RELEASE);
-    uint32_t ap_mask=online>1u?((1u<<online)-2u):0u;
     uint32_t probe_mask=0u,probe_count=0u;
     for(uint32_t cpu=1u;cpu<online;++cpu){
         for(uint32_t ordinal=0u;ordinal<2u;++ordinal){
