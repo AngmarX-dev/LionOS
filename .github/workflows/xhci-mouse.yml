@@ -203,10 +203,13 @@ jobs:
           sock.close()
           PY
 
-          # Wait for the USB keyboard input marker after GUI readiness.
-          # Keep a bounded timeout so a missing input event fails clearly.
-          for _ in $(seq 1 20); do
-            if grep -q 'LIONOS:KEYBOARD-USB-INPUT' build/qemu-xhci-keyboard-only.log; then
+          # Wait for both the keyboard event and the userland integration
+          # completion marker. The integration runner shares the desktop idle
+          # loop, so a keyboard-only guest can take longer to finish than the
+          # input event itself. Keep the wait bounded and fail on either a
+          # reported integration failure or a missing completion marker.
+          for _ in $(seq 1 60); do
+            if grep -Eq 'LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-(OK|FAIL)' build/qemu-xhci-keyboard-only.log; then
               break
             fi
             sleep 1
