@@ -621,6 +621,31 @@ static int process_has_interrupting_signal_locked(const struct process *p){
     if((p->pending_signals&int_bit)&&p->signal_handlers[LIONOS_SIG_INT-1u]!=LIONOS_SIG_IGN)return 1;
     return 0;
 }
+
+/* Complete waitpid interruption after a contended scheduler tick has saved
+   the blocked task's frame. The signal may have arrived before that frame
+   became available, so every successful scheduler lock acquisition retries
+   pending waitpid wakeups under process_lock. */
+static void process_wake_interrupted_waitpid_locked(void){
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process *p=&processes[i];
+        if(p->state!=PROCESS_WAITING||p->wait_kind!=3u||
+           !__atomic_load_n(&p->wait_frame_saved,__ATOMIC_ACQUIRE)||
+           !process_has_interrupting_signal_locked(p))
+            continue;
+        uint32_t frame_address=
+            __atomic_load_n(&p->saved_frame,__ATOMIC_ACQUIRE);
+        if(!frame_address)continue;
+        uint32_t *saved=(uint32_t *)(uintptr_t)frame_address;
+        process_diag_status33("WAITPID-INTERRUPTED-SCAN",p->pid,
+                              p->wait_pid,p->pending_signals);
+        saved[11]=(uint32_t)LIONOS_EINTR;
+        process_clear_waitpid_locked(p);
+        p->state=PROCESS_READY;
+        uint32_t cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
+        __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+    }
+}
 static void process_clear_waitpid_locked(struct process *p){
     if(!p)return;
     p->wait_pid=0u;p->wait_status_ptr=0u;p->wait_options=0u;
@@ -1094,8 +1119,12 @@ static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
                               member->parent_pid,member->state);
         process_diag_status33("JOBCTL-HUP-PGID",member->pid,
                               member->pgid,member->sid);
-        if(member->state==PROCESS_WAITING&&member->wait_kind==3u&&member->wait_frame_saved&&process_has_interrupting_signal_locked(member)){
-            uint32_t *saved=(uint32_t *)(uintptr_t)member->saved_frame;
+        if(member->state==PROCESS_WAITING&&member->wait_kind==3u&&
+           __atomic_load_n(&member->wait_frame_saved,__ATOMIC_ACQUIRE)&&
+           process_has_interrupting_signal_locked(member)){
+            uint32_t frame_address=
+                __atomic_load_n(&member->saved_frame,__ATOMIC_ACQUIRE);
+            uint32_t *saved=(uint32_t *)(uintptr_t)frame_address;
             if(saved){saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(member);member->state=PROCESS_READY;uint32_t cpu=member->cpu_owner<LIONOS_MAX_CPUS?member->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
         }
         for(uint32_t j=1u;j<LIONOS_PROCESS_MAX;++j){
@@ -1324,8 +1353,12 @@ int32_t process_tty_signal_foreground(uint32_t sid,uint32_t pgid,uint32_t signal
         if(member->state==PROCESS_UNUSED||member->is_thread||
            member->state==PROCESS_ZOMBIE||member->pgid!=pgid)continue;
         member->pending_signals|=bit;
-        if(member->state==PROCESS_WAITING&&member->wait_kind==3u&&member->wait_frame_saved&&process_has_interrupting_signal_locked(member)){
-            uint32_t *saved=(uint32_t *)(uintptr_t)member->saved_frame;
+        if(member->state==PROCESS_WAITING&&member->wait_kind==3u&&
+           __atomic_load_n(&member->wait_frame_saved,__ATOMIC_ACQUIRE)&&
+           process_has_interrupting_signal_locked(member)){
+            uint32_t frame_address=
+                __atomic_load_n(&member->saved_frame,__ATOMIC_ACQUIRE);
+            uint32_t *saved=(uint32_t *)(uintptr_t)frame_address;
             if(saved){saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(member);member->state=PROCESS_READY;uint32_t cpu=member->cpu_owner<LIONOS_MAX_CPUS?member->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
         }
         for(uint32_t j=1u;j<LIONOS_PROCESS_MAX;++j){
@@ -1497,9 +1530,13 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
     }
     if(signal==LIONOS_SIG_HUP||signal==LIONOS_SIG_INT){
         p->pending_signals|=(1u<<(signal-1u));
-        if(p->state==PROCESS_WAITING&&p->wait_kind==3u&&p->wait_frame_saved&&process_has_interrupting_signal_locked(p)){
-            uint32_t *saved=(uint32_t *)(uintptr_t)p->saved_frame;
-            if(saved){debug_write("LIONOS:WAITPID-EINTR-REMOTE-WAKE\n");saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(p);p->state=PROCESS_READY;uint32_t cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
+        if(p->state==PROCESS_WAITING&&p->wait_kind==3u&&
+           __atomic_load_n(&p->wait_frame_saved,__ATOMIC_ACQUIRE)&&
+           process_has_interrupting_signal_locked(p)){
+            uint32_t frame_address=
+                __atomic_load_n(&p->saved_frame,__ATOMIC_ACQUIRE);
+            uint32_t *saved=(uint32_t *)(uintptr_t)frame_address;
+            if(saved){debug_write("LIONOS:WAITPID-EINTR-REMOTE-WAKE\\n");saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(p);p->state=PROCESS_READY;uint32_t cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
         }
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_OK;
@@ -1761,7 +1798,11 @@ uint32_t *process_schedule(uint32_t *frame){
          */
         if(contended_prev&&
            __atomic_load_n(&reschedule_blocked[cpu],__ATOMIC_ACQUIRE)!=0u){
-            contended_prev->saved_frame=(uint32_t)(uintptr_t)frame;
+            __atomic_store_n(&contended_prev->saved_frame,
+                             (uint32_t)(uintptr_t)frame,__ATOMIC_RELEASE);
+            if(frame)
+                __atomic_store_n(&contended_prev->wait_frame_saved,1u,
+                                 __ATOMIC_RELEASE);
             if(cpu==0u){
                 struct process *bootstrap=&processes[0];
                 fpu_save(contended_prev);
@@ -1806,15 +1847,11 @@ uint32_t *process_schedule(uint32_t *frame){
     struct process*prev=current_local();
     int prev_is_idle=scheduler_is_idle_context(prev);
     if(prev){
-        prev->saved_frame=(uint32_t)(uintptr_t)frame;
-        if(prev->state==PROCESS_WAITING&&prev->wait_kind==3u&&frame){
-            prev->wait_frame_saved=1u;
-            if(process_has_interrupting_signal_locked(prev)){
-                process_diag_status33("WAITPID-INTERRUPTED-SCHEDULE",prev->pid,
-                                      prev->wait_pid,prev->pending_signals);
-                frame[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(prev);prev->state=PROCESS_RUNNING;
-            }
-        }
+        __atomic_store_n(&prev->saved_frame,(uint32_t)(uintptr_t)frame,
+                         __ATOMIC_RELEASE);
+        if(prev->state==PROCESS_WAITING&&prev->wait_kind==3u&&frame)
+            __atomic_store_n(&prev->wait_frame_saved,1u,__ATOMIC_RELEASE);
+        process_wake_interrupted_waitpid_locked();
         /* Reap adopted or explicitly deferred zombies only after no CPU
          * references them as its current execution context. */
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
