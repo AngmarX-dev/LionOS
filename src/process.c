@@ -28,6 +28,7 @@ static struct process scheduler_idle_processes[LIONOS_MAX_CPUS];
 static volatile uint32_t scheduler_idle_entered_mask;
 static volatile uint32_t scheduler_idle_reported;
 static uint32_t scheduler_idle_ready_mask;
+static uint32_t scheduler_idle_expected_mask;
 struct scheduler_cpu_state{uint32_t cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t timer_ticks;};
 static struct scheduler_cpu_state scheduler_cpu[LIONOS_MAX_CPUS];
 static uint32_t next_pid;
@@ -109,11 +110,15 @@ static int scheduler_is_idle_context(const struct process *process){
 
 static void scheduler_note_idle_entry(uint32_t cpu){
     uint32_t bit=1u<<cpu;
-    (void)__atomic_fetch_or(&scheduler_idle_entered_mask,bit,__ATOMIC_ACQ_REL);
+    uint32_t entered=__atomic_fetch_or(&scheduler_idle_entered_mask,bit,
+        __ATOMIC_ACQ_REL)|bit;
+    if(!scheduler_idle_expected_mask||
+       (entered&scheduler_idle_expected_mask)!=scheduler_idle_expected_mask)
+        return;
     uint32_t expected=0u;
     if(__atomic_compare_exchange_n(&scheduler_idle_reported,&expected,1u,0,
             __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
-        debug_write("LIONOS:SMP-AP-IDLE-ENTER\n");
+        debug_write("LIONOS:SMP-AP-IDLE-ALL-ENTERED\n");
 }
 
 void process_init(void) {
@@ -123,6 +128,7 @@ void process_init(void) {
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)clear_process(&processes[i]);
     scheduler_idle_ready_mask=0u;
+    scheduler_idle_expected_mask=0u;
     __atomic_store_n(&scheduler_idle_entered_mask,0u,__ATOMIC_RELAXED);
     __atomic_store_n(&scheduler_idle_reported,0u,__ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i){
@@ -141,12 +147,14 @@ void process_init(void) {
     set_current_local(&processes[0]);
     uint32_t online=smp_online_count();
     if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+    scheduler_idle_expected_mask=online>1u?((1u<<online)-2u):0u;
     for(uint32_t cpu=1u;cpu<online;++cpu){
         if(scheduler_idle_context_init(cpu)!=0)
             debug_write("LIONOS:SMP-AP-IDLE-CONTEXT-FAIL\n");
     }
-    uint32_t expected=online>1u?((1u<<online)-2u):0u;
-    if(expected&&((scheduler_idle_ready_mask&expected)==expected))
+    if(scheduler_idle_expected_mask&&
+       ((scheduler_idle_ready_mask&scheduler_idle_expected_mask)==
+        scheduler_idle_expected_mask))
         debug_write("LIONOS:SMP-AP-IDLE-CONTEXTS-READY\n");
     spinlock_irqrestore_release(&process_lock,flags);
 }
@@ -1517,8 +1525,9 @@ uint32_t *process_schedule(uint32_t *frame){
             if(process_has_interrupting_signal_locked(prev)){
                 frame[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(prev);prev->state=PROCESS_RUNNING;
             }
-        }    /* Reap adopted or explicitly deferred zombies only after no CPU
-       references them as its current execution context. */
+        }
+        /* Reap adopted or explicitly deferred zombies only after no CPU
+         * references them as its current execution context. */
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *zombie=&processes[i];
         if(zombie==prev||zombie->state!=PROCESS_ZOMBIE||

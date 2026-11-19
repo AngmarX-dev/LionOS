@@ -130,7 +130,7 @@ The scheduler must not perform debug console I/O while holding scheduler locks.
 
 ## AP scheduling prerequisite
 
-The present AP main loop only services early-boot stress work and then halts. Before an AP can consume a run queue, implement and test:
+The AP main loop services early-boot stress work and halts; the Local APIC timer now transfers it into a dedicated scheduler idle context. Before an AP can consume normal runnable work, implement and test:
 
 The dedicated AP idle context and stack, AP timer entry into the common scheduler, per-CPU TSS/address-space switch on idle entry, and FPU/SSE restoration for idle entry are now implemented. CI must still verify the AP idle-entry markers on the configured QEMU SMP topology.
 
