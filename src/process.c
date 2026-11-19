@@ -1754,7 +1754,7 @@ uint32_t *process_schedule(uint32_t *frame){
                     __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
                     return bootstrap_frame;
                 }
-                debug_write("LIONOS:SCHEDULER-BOOTSTRAP-FRAME-MISSING\\n");
+                debug_write("LIONOS:SCHEDULER-BOOTSTRAP-FRAME-MISSING\n");
                 for(;;)__asm__ volatile("cli; hlt");
             }
             struct process *idle=
@@ -1772,7 +1772,7 @@ uint32_t *process_schedule(uint32_t *frame){
                 __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
                 return idle_frame;
             }
-            debug_write("LIONOS:SCHEDULER-CONTENDED-NO-IDLE\\n");
+            debug_write("LIONOS:SCHEDULER-CONTENDED-NO-IDLE\n");
             for(;;)__asm__ volatile("cli; hlt");
         }
         __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
