@@ -1404,7 +1404,7 @@ void process_exit_current(uint32_t code){
     if(c->is_thread){
         process_diag_status33("THREAD-EXIT",c->tid,c->thread_group_pid,code);
         c->exit_code=code;
-        if(c->pid==0u)c->reap_pending=1u;
+        if(c->thread_group_pid==0u)c->reap_pending=1u;
         (void)process_transition_state_locked(c,PROCESS_ZOMBIE);
         for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
             struct process*w=&processes[i];
