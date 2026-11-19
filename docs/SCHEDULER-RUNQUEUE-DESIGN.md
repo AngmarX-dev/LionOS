@@ -17,9 +17,11 @@ Work stealing and task migration remain disabled.
 
 Host tests cover queue invariants, FIFO/priority ordering, and concurrent lock
 contention across two independent per-CPU queues. Runtime validation checks queue
-membership against process states during scheduler decisions. QEMU SMP lifecycle
-stress and AP task-execution verification are still required before this milestone
-can be considered complete.
+membership against process states during scheduler decisions. A boot-time AP
+run-queue probe now places one short-lived kernel task on every online AP queue,
+checks the executing CPU, and marks the task for deferred reclamation on exit.
+The QEMU stability suite requires this marker for every multi-CPU boot; broader
+process-lifecycle stress and physical hardware verification remain outstanding.
 
 
 ## Current implementation

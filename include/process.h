@@ -113,6 +113,7 @@ struct process *process_pipe_owner(void);
 struct process *process_fd_owner(void);
 uint32_t process_current_tid(void);
 struct process *process_create_kernel_thread(uint32_t entry, uint32_t arg);
+struct process *process_create_kernel_thread_on_cpu(uint32_t entry, uint32_t arg, uint32_t cpu);
 uint32_t process_create_user_thread(uint32_t entry);
 void process_exit_thread(uint32_t exit_code);
 int32_t process_join_thread(uint32_t tid, uint32_t status_ptr);
