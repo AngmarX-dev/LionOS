@@ -15,7 +15,7 @@ The current scheduler has these relevant properties:
 - Each CPU has a small scheduler state record (scan cursor, schedule count, steal count, and timer ticks).
 - Runnable selection scans the process table and filters by `PROCESS_READY`, priority, and `cpu_owner`.
 - New processes and threads are initially assigned to the CPU that creates them. The scheduler currently keeps them pinned to that CPU.
-- APs complete CPU-local initialization and then remain in an interruptible `hlt` loop. They do not yet enter the process scheduler or own a scheduler idle task.
+- APs complete CPU-local initialization and receive a dedicated kernel idle context during `process_init()`. Their Local APIC timer enters `process_schedule()`, which switches an AP with no current task into that idle context. APs still do not receive ordinary tasks through migration or work stealing.
 - Process state transitions, wakeups, creation, exit, reaping, and priority changes are currently serialized by `process_lock`.
 
 Consequently, `cpu_owner` is currently an affinity/ownership field, not a queue membership structure. The existing per-CPU scan cursor is not a run queue.
@@ -132,15 +132,17 @@ The scheduler must not perform debug console I/O while holding scheduler locks.
 
 The present AP main loop only services early-boot stress work and then halts. Before an AP can consume a run queue, implement and test:
 
-- A dedicated idle context and stack for every online AP.
-- Correct entry into the common scheduler without reusing the BSP bootstrap frame.
-- Per-CPU TSS and address-space state throughout every switch.
-- FPU/SSE save/restore for AP idle and task contexts.
-- Timer tick accounting and reschedule signaling per CPU.
-- Safe handling of task exit/reap when the exiting CPU has no runnable task.
-- SMP tests proving two CPUs never execute the same task simultaneously.
+The dedicated AP idle context and stack, AP timer entry into the common scheduler, per-CPU TSS/address-space switch on idle entry, and FPU/SSE restoration for idle entry are now implemented. CI must still verify the AP idle-entry markers on the configured QEMU SMP topology.
 
-Until these prerequisites pass, all normal processes remain pinned to CPU 0 or their existing owner according to the current policy, and APs must not steal or run user tasks.
+The remaining prerequisites are:
+
+- FPU/SSE save/restore under real AP task switches.
+- Timer tick accounting and reschedule signaling under AP task load.
+- Safe task exit/reap on APs, including deferred reclamation only after a task stack is no longer current on any CPU.
+- SMP tests proving two CPUs never execute the same task simultaneously.
+- Explicit queue membership and synchronized enqueue/dequeue before any task migration.
+
+Until these prerequisites pass, normal tasks remain pinned to their current owner and work stealing remains disabled.
 
 ## Validation and acceptance criteria
 

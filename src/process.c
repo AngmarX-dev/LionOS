@@ -1517,9 +1517,8 @@ uint32_t *process_schedule(uint32_t *frame){
             if(process_has_interrupting_signal_locked(prev)){
                 frame[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(prev);prev->state=PROCESS_RUNNING;
             }
-        }    /* PID 1 adopts orphaned children. Reap adopted zombies only when no
-       CPU still owns their execution context; the outgoing task is handled
-       by the normal deferred-reap path below. */
+        }    /* Reap adopted or explicitly deferred zombies only after no CPU
+       references them as its current execution context. */
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *zombie=&processes[i];
         if(zombie==prev||zombie->state!=PROCESS_ZOMBIE||
@@ -1566,10 +1565,9 @@ uint32_t *process_schedule(uint32_t *frame){
         }
     }
     /*
-     * Cross-CPU work stealing is temporarily disabled. The AP currently lacks
-     * a dedicated scheduler idle context for safely retiring a task that exits
-     * on a secondary CPU. Keep each task on its creator CPU until that context
-     * and migration-safe run-queue handling are implemented.
+     * APs now have dedicated idle contexts, but cross-CPU work stealing remains
+     * disabled. Keep tasks pinned until run-queue membership, migration
+     * lifetime, and cross-CPU reaping have explicit synchronization and tests.
      */
     if(next){
         /* Preserve the outgoing CPU's FPU/SSE state on every real switch,
@@ -1583,7 +1581,7 @@ uint32_t *process_schedule(uint32_t *frame){
         /* Scheduler hot path: never emit debug I/O here. Port 0xE9 is a\n         * QEMU debug console and is far more expensive than the context switch. */
         paging_switch_address_space(next->page_directory);
         tss_set_kernel_stack(next->kernel_stack_top);
-        /* Reaping is deferred until a later scheduler entry confirms this stack is inactive. */
+
         uint32_t*n=process_saved_frame(next);
         spinlock_irqrestore_release(&process_lock,flags);
         return n;
@@ -1599,7 +1597,7 @@ uint32_t *process_schedule(uint32_t *frame){
             b->state=PROCESS_RUNNING;
             paging_switch_address_space(b->page_directory);
             tss_set_kernel_stack(b->kernel_stack_top);
-        /* Reaping is deferred until a later scheduler entry confirms this stack is inactive. */
+
             uint32_t*n=process_saved_frame(b);
             spinlock_irqrestore_release(&process_lock,flags);
             return n;
@@ -1609,7 +1607,7 @@ uint32_t *process_schedule(uint32_t *frame){
             &scheduler_idle_processes[cpu]:0;
         if(idle){
             if(prev)fpu_save(prev);
-        /* Reaping is deferred until a later scheduler entry confirms this stack is inactive. */
+
             fpu_restore(idle);
             idle->state=PROCESS_RUNNING;
             set_current_local(idle);
@@ -1621,7 +1619,7 @@ uint32_t *process_schedule(uint32_t *frame){
             return idle_frame?idle_frame:frame;
         }
         set_current_local(0);
-        /* Reaping is deferred until a later scheduler entry confirms this stack is inactive. */
+
         spinlock_irqrestore_release(&process_lock,flags);
         return frame;
     }
