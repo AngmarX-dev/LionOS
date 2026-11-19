@@ -389,6 +389,10 @@ int main(int argc, char **argv) {
     if (joined != (int32_t)zombie_tid || thread_status != 91 ||
         thread_marker != 0x2468ACE0u) {
         puts("[FAIL] join failed for an existing zombie thread");
+        print_u32("[DIAG] zombie TID: ", zombie_tid);
+        print_u32("[DIAG] join result: ", (uint32_t)joined);
+        print_u32("[DIAG] join status: ", (uint32_t)thread_status);
+        print_u32("[DIAG] thread marker: ", thread_marker);
         return 21;
     }
 
