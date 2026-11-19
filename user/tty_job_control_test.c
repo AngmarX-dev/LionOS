@@ -29,6 +29,17 @@ static int32_t waitpid_event_bounded(uint32_t pid,int32_t *status,uint32_t optio
     return -2;
 }
 
+/* Pipe syscalls report -2 when the caller has been queued for wakeup.
+   Retry after yielding instead of treating that scheduler state as an I/O error. */
+static int32_t pipe_read_bounded(uint32_t handle,void *buffer,uint32_t size){
+    for(uint32_t attempt=0u;attempt<10000u;++attempt){
+        int32_t result=lion_pipe_read(handle,buffer,size);
+        if(result!=-2)return result;
+        (void)lion_yield();
+    }
+    return -2;
+}
+
 static int test_setsid_orphan_transition(void){
     int32_t status=-1;
     uint32_t parent=lion_fork();
@@ -101,7 +112,7 @@ static int test_setpgid_orphan_transition(void){
         }
         if(group_parent==LIONOS_SYSCALL_ERR)lion_exit_code(76u);
         (void)lion_pipe_close(sync_write);
-        if(lion_pipe_read(sync_read,&pids,sizeof(pids))!=(int32_t)sizeof(pids)||
+        if(pipe_read_bounded(sync_read,&pids,sizeof(pids))!=(int32_t)sizeof(pids)||
            pids.group_parent!=group_parent||pids.child==0u)
             lion_exit_code(77u);
         (void)lion_pipe_close(sync_read);
@@ -250,7 +261,7 @@ int main(void){
             lion_exit_code(32u);
         }
         uint32_t ready=0u;
-        if(lion_pipe_read(sync_read,&ready,sizeof(ready))!=(int32_t)sizeof(ready)||
+        if(pipe_read_bounded(sync_read,&ready,sizeof(ready))!=(int32_t)sizeof(ready)||
            ready!=0xA11CE001u){
             uint32_t fail=0u;(void)lion_pipe_write(report_write,&fail,sizeof(fail));
             lion_exit_code(33u);
@@ -269,7 +280,7 @@ int main(void){
         return 23;
     }
     uint32_t orphan_pid=0u;
-    if(lion_pipe_read(report_read,&orphan_pid,sizeof(orphan_pid))!=(int32_t)sizeof(orphan_pid)||
+    if(pipe_read_bounded(report_read,&orphan_pid,sizeof(orphan_pid))!=(int32_t)sizeof(orphan_pid)||
        orphan_pid==0u){
         return cleanup_child(orphan_parent,24);
     }
