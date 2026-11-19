@@ -215,30 +215,12 @@ int runqueue_validate_locked(const struct runqueue *queue,
         total += visited;
     }
     if (total != queue->total) return -1;
-    for (uint32_t i = 0u; i < capacity; ++i) {
-        const struct runqueue_node *node = &nodes[i];
-        if (node->queued == 0u) {
-            if (node->next != LIONOS_RUNQUEUE_INVALID_INDEX ||
-                node->previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
-                node->queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
-                return -1;
-        } else if (node->queued != 1u ||
-                   node->queue_cpu == LIONOS_RUNQUEUE_INVALID_INDEX ||
-                   node->priority >= LIONOS_RUNQUEUE_PRIORITY_LEVELS) {
-            return -1;
-        } else if (node->queue_cpu == queue->cpu) {
-            uint32_t cursor = queue->head[node->priority];
-            uint32_t occurrences = 0u;
-            for (uint32_t step = 0u;
-                 cursor != LIONOS_RUNQUEUE_INVALID_INDEX && step < capacity;
-                 ++step) {
-                if (cursor >= capacity) return -1;
-                if (cursor == i) ++occurrences;
-                cursor = nodes[cursor].next;
-            }
-            if (occurrences != 1u) return -1;
-        }
-    }
+    /*
+     * nodes may be shared by per-CPU queues. Inspecting nodes owned by another
+     * CPU here would race with that queue's lock holder. Validate only nodes
+     * reachable from this queue; process-table-wide membership checks belong
+     * to the caller while holding process_lock.
+     */
     if (total_out) *total_out = total;
     return 0;
 }
