@@ -118,6 +118,26 @@ static void process_request_blocked_reschedule(uint32_t cpu){
     __atomic_store_n(&reschedule_blocked[cpu],1u,__ATOMIC_RELEASE);
     __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
 }
+/*
+ * A CPU-local run queue can receive work while its owner is halted.  Do not
+ * rely on the next periodic timer interrupt to make that CPU runnable: send
+ * the scheduler IPI after queue publication and after releasing process_lock.
+ */
+static void process_kick_cpu(uint32_t cpu){
+    if(cpu>=LIONOS_MAX_CPUS)return;
+    uint32_t apic_id=0xFFFFFFFFu;
+    if(cpu==cpu_current_index()){
+        apic_id=lapic_id();
+    }else{
+        const struct cpu_info *target=cpu_get(cpu);
+        if(!target||__atomic_load_n(&target->online,__ATOMIC_ACQUIRE)==0u)
+            return;
+        apic_id=target->apic_id;
+    }
+    if(apic_id==0xFFFFFFFFu)return;
+    __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+    lapic_send_ipi(apic_id,LIONOS_LAPIC_RESCHEDULE_VECTOR);
+}
 static struct process *find_free_slot(void) { for (uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) if (processes[i].state==PROCESS_UNUSED) return &processes[i]; return 0; }
 static uint32_t process_index(const struct process *p) { return (uint32_t)(p-processes); }
 static int process_slot_index(const struct process *p,uint32_t *index){
@@ -1424,7 +1444,9 @@ void process_exit_current(uint32_t code){
             break;
         }
         spinlock_irqrestore_release(&process_lock,flags);
-        process_request_blocked_reschedule(cpu_current_index());
+        uint32_t exit_cpu=cpu_current_index();
+        process_request_blocked_reschedule(exit_cpu);
+        process_kick_cpu(exit_cpu);
         return;
     }
 
@@ -1898,7 +1920,9 @@ struct process *process_create_kernel_thread_on_cpu(uint32_t entry,uint32_t arg,
         spinlock_irqrestore_release(&process_lock,flags);
         return 0;
     }
-    spinlock_irqrestore_release(&process_lock,flags);return p;
+    spinlock_irqrestore_release(&process_lock,flags);
+    process_kick_cpu(cpu);
+    return p;
 }
 struct process *process_create_kernel_thread(uint32_t entry,uint32_t arg){
     return process_create_kernel_thread_on_cpu(entry,arg,cpu_current_index());
