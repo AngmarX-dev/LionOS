@@ -54,6 +54,10 @@ run_qemu() {
     fi
     if [ -f "$log_file" ]; then
         cat "$log_file"
+        if grep -q 'LIONOS:RUNQUEUE-FAULT' "$log_file"; then
+            echo "scheduler run-queue invariant failure detected: $log_file" >&2
+            return 1
+        fi
         if grep -q 'LIONOS:PANIC' "$log_file"; then
             panic_eip=$(sed -nE 's/.*LIONOS:PANIC.*eip=(0x[[:xdigit:]]+).*/\1/p' "$log_file" | head -n 1)
             if [ -n "$panic_eip" ]; then
@@ -158,6 +162,10 @@ PY
     done
 
     cat "$log_file"
+    if grep -q 'LIONOS:RUNQUEUE-FAULT' "$log_file"; then
+        echo "scheduler run-queue invariant failure detected: $log_file" >&2
+        return 1
+    fi
     # The runtime bootstrap owns the desktop loop; the keyboard smoke test
     # therefore verifies that the injected key reached the kernel input path.
     # GUI-EXIT is intentionally not required here.
