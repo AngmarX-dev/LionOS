@@ -1483,7 +1483,7 @@ void process_exit_thread(uint32_t code){process_exit_current(code);}
 int32_t process_join_thread(uint32_t tid,uint32_t status_ptr){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*c=current_local();if(!c||c->is_thread||!tid||!status_ptr){spinlock_irqrestore_release(&process_lock,flags);return -1;}
     for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process*p=&processes[i];if(!p->is_thread||p->thread_group_pid!=c->thread_group_pid||p->tid!=tid)continue;
-        if(p->state==PROCESS_ZOMBIE){if(write_user_u32(c,status_ptr,p->exit_code)!=0){spinlock_irqrestore_release(&process_lock,flags);return -1;}reap_process(p);spinlock_irqrestore_release(&process_lock,flags);return (int32_t)tid;}
+        if(p->state==PROCESS_ZOMBIE){if(p->reap_pending||write_user_u32(c,status_ptr,p->exit_code)!=0){spinlock_irqrestore_release(&process_lock,flags);return -1;}reap_process(p);spinlock_irqrestore_release(&process_lock,flags);return (int32_t)tid;}
         c->join_tid=tid;c->join_status_ptr=status_ptr;c->state=PROCESS_WAITING;spinlock_irqrestore_release(&process_lock,flags);return PROCESS_WAIT_BLOCKED;
     }
     spinlock_irqrestore_release(&process_lock,flags);return -1;
