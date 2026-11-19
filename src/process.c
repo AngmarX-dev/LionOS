@@ -2064,45 +2064,53 @@ uint32_t *process_schedule(uint32_t *frame){
     uint32_t picked=LIONOS_RUNQUEUE_INVALID_INDEX;
     uint32_t prev_index=LIONOS_RUNQUEUE_INVALID_INDEX;
     int prev_enqueued=0;
-    if(!spinlock_try_acquire(&runqueues[cpu].lock)){
-        spinlock_irqrestore_release(&process_lock,flags);
-        return frame;
-    }
-    if(prev&&prev!=&processes[0]&&prev->state==PROCESS_RUNNING&&!prev_is_idle){
-        prev_index=process_index(prev);
-        if(prev_index>=LIONOS_PROCESS_MAX||
-           runqueue_enqueue_locked(&runqueues[cpu],runqueue_nodes,
-               LIONOS_PROCESS_MAX,prev_index,prev->priority)!=0){
-            spinlock_release(&runqueues[cpu].lock);
-            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
-            spinlock_irqrestore_release(&process_lock,flags);
-            return frame;
+    int queue_lock_acquired=spinlock_try_acquire(&runqueues[cpu].lock);
+    int pick_result=-1;
+    if(queue_lock_acquired){
+        if(prev&&prev!=&processes[0]&&prev->state==PROCESS_RUNNING&&!prev_is_idle){
+            prev_index=process_index(prev);
+            if(prev_index>=LIONOS_PROCESS_MAX||
+               runqueue_enqueue_locked(&runqueues[cpu],runqueue_nodes,
+                   LIONOS_PROCESS_MAX,prev_index,prev->priority)!=0){
+                spinlock_release(&runqueues[cpu].lock);
+                __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+                spinlock_irqrestore_release(&process_lock,flags);
+                return frame;
+            }
+            prev->state=PROCESS_READY;
+            prev_enqueued=1;
         }
-        prev->state=PROCESS_READY;
-        prev_enqueued=1;
-    }
-    int pick_result=runqueue_pick_next_locked(&runqueues[cpu],runqueue_nodes,
+        pick_result=runqueue_pick_next_locked(&runqueues[cpu],runqueue_nodes,
                                                LIONOS_PROCESS_MAX,&picked);
-    if(pick_result==0&&picked<LIONOS_PROCESS_MAX){
-        next=&processes[picked];
-        sc->cursor=picked;
-        next->state=PROCESS_RUNNING;
-    }else if(prev_enqueued){
-        /* Roll back the outgoing task before returning its live frame. */
-        if(runqueue_dequeue_locked(&runqueues[cpu],runqueue_nodes,
-                                   LIONOS_PROCESS_MAX,prev_index)!=0){
-            spinlock_release(&runqueues[cpu].lock);
-            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
-            spinlock_irqrestore_release(&process_lock,flags);
-            for(;;)__asm__ volatile("cli; hlt");
+        if(pick_result==0&&picked<LIONOS_PROCESS_MAX){
+            next=&processes[picked];
+            sc->cursor=picked;
+            next->state=PROCESS_RUNNING;
+        }else if(prev_enqueued){
+            /* Roll back the outgoing task before returning its live frame. */
+            if(runqueue_dequeue_locked(&runqueues[cpu],runqueue_nodes,
+                                       LIONOS_PROCESS_MAX,prev_index)!=0){
+                spinlock_release(&runqueues[cpu].lock);
+                __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+                spinlock_irqrestore_release(&process_lock,flags);
+                for(;;)__asm__ volatile("cli; hlt");
+            }
+            prev->state=PROCESS_RUNNING;
+            prev_enqueued=0;
         }
-        prev->state=PROCESS_RUNNING;
-        prev_enqueued=0;
-    }
-    spinlock_release(&runqueues[cpu].lock);
-    if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX)||
-       process_runqueue_validate_locked()!=0)
+        spinlock_release(&runqueues[cpu].lock);
+        if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX)||
+           process_runqueue_validate_locked()!=0)
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+    }else{
+        /*
+         * Do not return a blocked task's frame merely because a local queue
+         * lock is contended. Leave state unchanged and retry next tick; the
+         * common idle fallback below handles blocked/stopped/zombie contexts.
+         */
         __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+        __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+    }
     /*
      * APs now have dedicated idle contexts, but cross-CPU work stealing remains
      * disabled. Keep tasks pinned until run-queue membership, migration
