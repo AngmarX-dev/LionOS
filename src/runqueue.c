@@ -54,7 +54,7 @@ int runqueue_enqueue_locked(struct runqueue *queue,
     uint32_t tail;
     if (!queue || !nodes || !capacity || index >= capacity ||
         priority >= LIONOS_RUNQUEUE_PRIORITY_LEVELS ||
-        queue->total >= capacity ||
+        queue->total >= capacity || queue->count[priority] >= capacity ||
         !lane_valid(queue, nodes, capacity, priority))
         return -1;
     node = &nodes[index];
@@ -92,7 +92,7 @@ int runqueue_dequeue_locked(struct runqueue *queue,
     struct runqueue_node *node;
     uint32_t priority, previous, next;
     if (!queue || !nodes || !capacity || index >= capacity ||
-        queue->total == 0u)
+        queue->total == 0u || queue->total > capacity)
         return -1;
     node = &nodes[index];
     priority = node->priority;
@@ -149,6 +149,7 @@ int runqueue_pick_next_locked(struct runqueue *queue,
     *index = LIONOS_RUNQUEUE_INVALID_INDEX;
     for (uint32_t priority = 0u;
          priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+        if (!lane_valid(queue, nodes, capacity, priority)) return -1;
         if (queue->count[priority] == 0u) continue;
         uint32_t candidate = queue->head[priority];
         if (candidate >= capacity ||
@@ -210,6 +211,7 @@ int runqueue_validate_locked(const struct runqueue *queue,
         if (visited != queue->count[priority] ||
             (visited && previous != queue->tail[priority]))
             return -1;
+        if (visited > capacity - total) return -1;
         total += visited;
     }
     if (total != queue->total) return -1;

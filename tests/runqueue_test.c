@@ -44,6 +44,18 @@ int main(void) {
     }
     if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == 0u, 18u))) return result;
 
+    /* A foreign CPU cannot unlink a node owned by this queue. */
+    struct runqueue wrong_cpu;
+    runqueue_init(&wrong_cpu, 2u);
+    if ((result = check(runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 0u) < 0, 23u))) return result;
+
+    /* A malformed empty/non-empty lane must not be reported as an empty queue. */
+    if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 1u) != 0) return 24;
+    queue.head[1] = NODE_COUNT;
+    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) < 0, 25u))) return result;
+    queue.head[1] = 0u;
+    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 26;
+
     /* Repeated FIFO cycles exercise link reuse and count restoration. */
     for (uint32_t round = 0u; round < 128u; ++round) {
         for (uint32_t i = 0u; i < NODE_COUNT; ++i)

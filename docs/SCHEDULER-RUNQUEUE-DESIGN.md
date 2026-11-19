@@ -6,6 +6,15 @@ This document defines the synchronization and ownership contract for replacing t
 
 The implementation must preserve the existing scheduler behavior until the queue implementation and its regression tests are ready. Cross-CPU work stealing remains disabled.
 
+The first implementation slice now provides a standalone intrusive run-queue core in
+`include/runqueue.h` and `src/runqueue.c`, with host-side invariant and ordering tests
+in `tests/runqueue_test.c`. These primitives are not yet connected to the process
+table or scheduler. The scheduler still uses the legacy process-table scan, and all
+tasks remain pinned to their current CPU. The module's locked API requires callers
+to hold the queue lock; scheduler integration must also preserve the documented
+`process_lock`-before-run-queue-lock order.
+
+
 ## Current implementation
 
 The current scheduler has these relevant properties:
