@@ -131,6 +131,8 @@ int process_has_capability(const struct process *process, uint32_t capability);
 uint32_t process_capabilities(const struct process *process);
 int process_set_capabilities(struct process *process, uint32_t capabilities);
 void process_exit_current(uint32_t exit_code);
+/* Resolve a user COW fault and update the owning process's page references. */
+int process_resolve_cow(uint32_t virtual_address);
 /* Delivers a pending catchable signal at a syscall return boundary. */
 int process_deliver_pending_signal(uint32_t *frame);
 int process_signal_return(uint32_t *frame);
