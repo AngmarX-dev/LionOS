@@ -613,6 +613,8 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
         }
     }
     if(!has_child(caller->pid,pid)){
+        process_diag_status33("WAITPID-NO-CHILD",caller->pid,pid,
+                              caller->pending_signals);
         spinlock_irqrestore_release(&process_lock,flags);
         return -1;
     }
@@ -621,6 +623,8 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
         return 0;
     }
     if(process_has_interrupting_signal_locked(caller)){
+        process_diag_status33("WAITPID-INTERRUPTED",caller->pid,pid,
+                              caller->pending_signals);
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_EINTR;
     }
@@ -992,6 +996,10 @@ static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
         if(member->state==PROCESS_UNUSED||member->state==PROCESS_ZOMBIE||
            member->is_thread||member->pgid!=pgid||member->sid!=sid)continue;
         member->pending_signals|=hup_bit;
+        process_diag_status33("JOBCTL-HUP-MEMBER",member->pid,
+                              member->parent_pid,member->state);
+        process_diag_status33("JOBCTL-HUP-PGID",member->pid,
+                              member->pgid,member->sid);
         if(member->state==PROCESS_WAITING&&member->wait_kind==3u&&member->wait_frame_saved&&process_has_interrupting_signal_locked(member)){
             uint32_t *saved=(uint32_t *)(uintptr_t)member->saved_frame;
             if(saved){saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(member);member->state=PROCESS_READY;uint32_t cpu=member->cpu_owner<LIONOS_MAX_CPUS?member->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
