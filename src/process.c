@@ -36,6 +36,7 @@ static uint32_t next_pid;
 static uint32_t next_tid;
 static struct spinlock process_lock;
 static volatile uint32_t reschedule_requested[LIONOS_MAX_CPUS];
+static volatile uint32_t reschedule_ipi_pending[LIONOS_MAX_CPUS];
 static volatile uint32_t reschedule_blocked[LIONOS_MAX_CPUS];
 static uint32_t fpu_enabled;
 
@@ -205,6 +206,7 @@ void process_init(void) {
         scheduler_cpu[i].steal_count=0u;
         scheduler_cpu[i].timer_ticks=0u;
         reschedule_requested[i]=0u;
+        reschedule_ipi_pending[i]=0u;
         reschedule_blocked[i]=0u;
         clear_process(&scheduler_idle_processes[i]);
     }
@@ -1795,8 +1797,11 @@ uint32_t *process_schedule(uint32_t *frame){
          * owns process_lock. Queue one local APIC retry; the IPI is delivered
          * after this interrupt returns, without spinning in IRQ context. */
         if(__atomic_load_n(&reschedule_requested[cpu],__ATOMIC_ACQUIRE)!=0u){
+            uint32_t expected=0u;
             uint32_t apic=lapic_id();
-            if(apic!=0xFFFFFFFFu)
+            if(apic!=0xFFFFFFFFu&&
+               __atomic_compare_exchange_n(&reschedule_ipi_pending[cpu],
+                   &expected,1u,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
                 lapic_send_ipi(apic,LIONOS_LAPIC_RESCHEDULE_VECTOR);
         }
         /*
@@ -1851,6 +1856,7 @@ uint32_t *process_schedule(uint32_t *frame){
         return frame;
     }
     __atomic_store_n(&reschedule_blocked[cpu],0u,__ATOMIC_RELEASE);
+    __atomic_store_n(&reschedule_ipi_pending[cpu],0u,__ATOMIC_RELEASE);
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
     ++sc->schedule_count;
     struct process*prev=current_local();
