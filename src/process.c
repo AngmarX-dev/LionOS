@@ -1956,7 +1956,7 @@ uint32_t *process_schedule(uint32_t *frame){
                 __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
             debug_write("LIONOS:RUNQUEUE-FAULT\n");
     }
-    /* Do not let a timer interrupt spin behind another CPU. Linux keeps\n     * scheduler critical sections CPU-local; until LionOS has independent\n     * runqueue locks, dropping a contended tick is preferable to stalling\n     * the CPU in an IRQ-disabled spin loop. */
+    /* Do not let a timer interrupt spin behind another CPU. Per-CPU\n     * run-queue locks are in place, but process lifetime and state are still\n     * serialized by process_lock; dropping a contended tick is preferable\n     * to stalling the CPU in an IRQ-disabled spin loop. */
     uint32_t flags;
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
     uint32_t cpu=cpu_current_index();
