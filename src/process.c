@@ -1507,6 +1507,8 @@ uint32_t *process_schedule(uint32_t *frame){
         if(cpu==0){
             fpu_save(prev);
             struct process*b=&processes[0];
+            /* Restore the bootstrap task's architectural FPU/SSE context too. */
+            fpu_restore(b);
             set_current_local(b);
             b->cpu_owner=0;
             b->state=PROCESS_RUNNING;
