@@ -21,6 +21,18 @@ static uint32_t ap_stacks[LIONOS_MAX_CPUS];
 static struct spinlock smp_lock;
 static volatile uint32_t ap_online_mask;
 
+/* Early-boot SMP lock contention test, serviced by AP idle loops. */
+#define SMP_STRESS_ITERATIONS 4096u
+#define SMP_STRESS_TIMEOUT 100000000u
+static struct spinlock smp_stress_lock;
+static volatile uint32_t smp_stress_request;
+static volatile uint32_t smp_stress_ready_mask;
+static volatile uint32_t smp_stress_go;
+static volatile uint32_t smp_stress_done_mask;
+static uint32_t smp_stress_counter;
+static uint32_t smp_stress_active;
+static uint32_t smp_stress_violations;
+
 static void delay(uint32_t loops){for(volatile uint32_t i=0;i<loops;++i)__asm__ volatile("pause");}
 static int wait_for_online(uint32_t index){
     uint32_t mask=1u<<index;
@@ -32,6 +44,86 @@ static int wait_for_online(uint32_t index){
 }
 
 uint32_t smp_lock_selftest(void){uint32_t flags=spinlock_irqsave_acquire(&smp_lock);uint32_t ok=smp_lock.value==1u;spinlock_irqrestore_release(&smp_lock,flags);return ok;}
+
+static void smp_lock_stress_worker(uint32_t cpu_index){
+    if(cpu_index>=LIONOS_MAX_CPUS)return;
+    uint32_t cpu_bit=1u<<cpu_index;
+    if(__atomic_load_n(&smp_stress_done_mask,__ATOMIC_ACQUIRE)&cpu_bit)return;
+
+    if(cpu_index!=0u){
+        __atomic_fetch_or(&smp_stress_ready_mask,cpu_bit,__ATOMIC_RELEASE);
+        while(!__atomic_load_n(&smp_stress_go,__ATOMIC_ACQUIRE)){
+            if(!__atomic_load_n(&smp_stress_request,__ATOMIC_ACQUIRE))return;
+            __asm__ volatile("pause");
+        }
+    }
+
+    for(uint32_t i=0u;i<SMP_STRESS_ITERATIONS;++i){
+        spinlock_acquire(&smp_stress_lock);
+        uint32_t active=__atomic_add_fetch(&smp_stress_active,1u,__ATOMIC_SEQ_CST);
+        if(active!=1u)
+            (void)__atomic_add_fetch(&smp_stress_violations,1u,__ATOMIC_RELAXED);
+        (void)__atomic_add_fetch(&smp_stress_counter,1u,__ATOMIC_RELAXED);
+        (void)__atomic_sub_fetch(&smp_stress_active,1u,__ATOMIC_SEQ_CST);
+        spinlock_release(&smp_stress_lock);
+    }
+
+    __atomic_fetch_or(&smp_stress_done_mask,cpu_bit,__ATOMIC_RELEASE);
+}
+
+static void smp_lock_stress_selftest(void){
+    if(online_count==0u||online_count>LIONOS_MAX_CPUS){
+        debug_write("LIONOS:SMP-LOCK-STRESS-FAIL-CPU-COUNT\n");
+        return;
+    }
+
+    spinlock_init(&smp_stress_lock);
+    smp_stress_counter=0u;
+    smp_stress_active=0u;
+    smp_stress_violations=0u;
+    __atomic_store_n(&smp_stress_ready_mask,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&smp_stress_go,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&smp_stress_done_mask,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&smp_stress_request,1u,__ATOMIC_RELEASE);
+
+    uint32_t expected_mask=(1u<<online_count)-1u;
+    uint32_t expected_ap_mask=expected_mask&~1u;
+    uint32_t ready=0u;
+    for(uint32_t i=0u;i<SMP_STRESS_TIMEOUT;++i){
+        ready=__atomic_load_n(&smp_stress_ready_mask,__ATOMIC_ACQUIRE);
+        if((ready&expected_ap_mask)==expected_ap_mask)break;
+        __asm__ volatile("pause");
+    }
+    if((ready&expected_ap_mask)!=expected_ap_mask){
+        __atomic_store_n(&smp_stress_request,0u,__ATOMIC_RELEASE);
+        debug_write("LIONOS:SMP-LOCK-STRESS-FAIL-READY-TIMEOUT\n");
+        return;
+    }
+
+    /* Release all AP workers together, then contend with them on the BSP. */
+    __atomic_store_n(&smp_stress_go,1u,__ATOMIC_RELEASE);
+    smp_lock_stress_worker(0u);
+
+    uint32_t completed=0u;
+    for(uint32_t i=0u;i<SMP_STRESS_TIMEOUT;++i){
+        completed=__atomic_load_n(&smp_stress_done_mask,__ATOMIC_ACQUIRE);
+        if((completed&expected_mask)==expected_mask)break;
+        __asm__ volatile("pause");
+    }
+    __atomic_store_n(&smp_stress_request,0u,__ATOMIC_RELEASE);
+
+    uint32_t expected_count=online_count*SMP_STRESS_ITERATIONS;
+    uint32_t actual_count=__atomic_load_n(&smp_stress_counter,__ATOMIC_RELAXED);
+    uint32_t active=__atomic_load_n(&smp_stress_active,__ATOMIC_SEQ_CST);
+    uint32_t violations=__atomic_load_n(&smp_stress_violations,__ATOMIC_RELAXED);
+    if((completed&expected_mask)!=expected_mask||actual_count!=expected_count||
+       active!=0u||violations!=0u){
+        debug_write("LIONOS:SMP-LOCK-STRESS-FAIL\n");
+        return;
+    }
+
+    debug_write("LIONOS:SMP-LOCK-STRESS-OK\n");
+}
 
 void smp_ap_main(void){
     uint32_t index=smp_trampoline_cpu;
@@ -80,7 +172,11 @@ void smp_ap_main(void){
     cpu_mark_online(index,lapic_id());
     __atomic_fetch_or(&ap_online_mask,1u<<index,__ATOMIC_RELEASE);
     debug_write("LIONOS:SMP-AP-ONLINE-MARKED\n");
-    for(;;)__asm__ volatile("hlt");
+    for(;;){
+        if(__atomic_load_n(&smp_stress_request,__ATOMIC_ACQUIRE))
+            smp_lock_stress_worker(index);
+        __asm__ volatile("hlt");
+    }
 }
 
 void smp_init(void){
@@ -139,5 +235,6 @@ void smp_init(void){
             break;
         }
     }
+    smp_lock_stress_selftest();
 }
 uint32_t smp_online_count(void){return online_count;}

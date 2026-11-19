@@ -66,6 +66,10 @@ run_qemu() {
         echo "LionOS test: QEMU exited unexpectedly with status $status" >&2
         return 1
     fi
+    if ! grep -q "LIONOS:SMP-LOCK-STRESS-OK" "$log_file"; then
+        echo "SMP lock contention stress test did not pass: $log_file" >&2
+        return 1
+    fi
 }
 
 run_gui_smoke() {
@@ -97,6 +101,7 @@ run_gui_smoke() {
     done
 
     grep -q 'LIONOS:READY' "$log_file"
+    grep -q 'LIONOS:SMP-LOCK-STRESS-OK' "$log_file"
     grep -q 'LIONOS:GUI-ENTER' "$log_file"
     grep -q 'LIONOS:GUI-READY' "$log_file"
     grep -q 'LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK' "$log_file"
