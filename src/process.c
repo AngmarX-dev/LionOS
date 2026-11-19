@@ -1225,6 +1225,7 @@ void process_exit_current(uint32_t code){
             break;
         }
         spinlock_irqrestore_release(&process_lock,flags);
+        process_request_reschedule();
         return;
     }
 
@@ -1250,6 +1251,7 @@ void process_exit_current(uint32_t code){
     wake_waiting_parent(c);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
+    process_request_reschedule();
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
     process_diag_status33("PROCESS-EXIT-STATUS",diagnostic_pid,
                           diagnostic_parent_pid,code);
@@ -1736,7 +1738,7 @@ uint32_t *process_schedule(uint32_t *frame){
          * the contended global process lock.
          */
         if(contended_prev&&
-           __atomic_load_n(&contended_prev->state,__ATOMIC_ACQUIRE)!=PROCESS_RUNNING){
+           __atomic_load_n(&reschedule_requested[cpu],__ATOMIC_ACQUIRE)!=0u){
             contended_prev->saved_frame=(uint32_t)(uintptr_t)frame;
             if(cpu==0u){
                 struct process *bootstrap=&processes[0];
