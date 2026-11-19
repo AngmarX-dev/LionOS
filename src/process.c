@@ -113,7 +113,7 @@ static void scheduler_note_idle_entry(uint32_t cpu){
     uint32_t expected=0u;
     if(__atomic_compare_exchange_n(&scheduler_idle_reported,&expected,1u,0,
             __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
-        debug_write("LIONOS:SMP-AP-IDLE-ENTER\\n");
+        debug_write("LIONOS:SMP-AP-IDLE-ENTER\n");
 }
 
 void process_init(void) {
