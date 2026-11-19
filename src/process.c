@@ -544,10 +544,13 @@ struct process *process_create_ex_vas(uint32_t entry,uint32_t stack,uint32_t pd,
         spinlock_irqrestore_release(&process_lock,flags);
         vfs_close_all_process(p);
         flags=spinlock_irqsave_acquire(&process_lock);
-        if(p->state==PROCESS_STOPPED)
-            (void)process_transition_state_locked(p,PROCESS_ZOMBIE);
-        reap_process(p);
+        if(p->state==PROCESS_STOPPED){
+            if(p->kernel_stack_top)
+                page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));
+            clear_process(p);
+        }
         spinlock_irqrestore_release(&process_lock,flags);
+        /* Preserve the caller-owned address space and user pages on failure. */
         return 0;
     }
     spinlock_irqrestore_release(&process_lock,flags);
