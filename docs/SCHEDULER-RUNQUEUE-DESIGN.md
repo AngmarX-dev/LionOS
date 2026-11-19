@@ -96,7 +96,7 @@ Code holding a run-queue lock must never acquire `process_lock`. Code that needs
 
 When an operation touches one queue, it holds only that queue lock. If an operation ever needs two queues (reserved for a future migration implementation), it must acquire them in ascending CPU-index order and release them in reverse order. It must never hold two queue locks while calling code that can acquire `process_lock`.
 
-The scheduler's interrupt path must not spin indefinitely. It should disable local interrupts, try-acquire `process_lock`, then try-acquire its local run-queue lock. If either try-acquire fails, it restores the saved interrupt state and returns the current frame without partially changing process state. Every successful acquisition must have a single cleanup path that releases locks in reverse order and restores the original flags.
+The scheduler's interrupt path must not spin indefinitely. It disables local interrupts and try-acquires `process_lock`, then try-acquires its local run-queue lock. If `process_lock` is contended, the existing process-lock fallback applies. If the local queue lock is contended, no queue/state mutation is committed, a reschedule is requested for the next tick, and a runnable current task may continue; a blocked/stopped/zombie current task must instead enter its CPU-local idle/bootstrap fallback. Every successful acquisition releases locks in reverse order and restores the original interrupt flags.
 
 This phase deliberately retains the global lock. It introduces queue correctness and ownership first; it does not yet claim parallel scheduler scalability.
 
