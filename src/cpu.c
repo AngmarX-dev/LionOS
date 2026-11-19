@@ -60,6 +60,30 @@ static uint64_t cpu_read_msr(uint32_t msr)
     return ((uint64_t)high << 32) | low;
 }
 
+static void cpu_debug_hex64(uint64_t value)
+{
+    static const char digits[]="0123456789ABCDEF";
+    for(int shift=60;shift>=0;shift-=4)
+        debug_putc(digits[(value>>(uint32_t)shift)&0xFu]);
+}
+
+static void cpu_debug_mtrr_header(uint32_t index,uint64_t expected_cap,
+                                  uint64_t actual_cap,uint64_t expected_def,
+                                  uint64_t actual_def)
+{
+    debug_write("LIONOS:SMP-MTRR-HEADER cpu=");
+    cpu_debug_hex64(index);
+    debug_write(" expected_cap=");
+    cpu_debug_hex64(expected_cap);
+    debug_write(" actual_cap=");
+    cpu_debug_hex64(actual_cap);
+    debug_write(" expected_def=");
+    cpu_debug_hex64(expected_def);
+    debug_write(" actual_def=");
+    cpu_debug_hex64(actual_def);
+    debug_write("\\n");
+}
+
 static void cpu_mtrr_capture(uint32_t leaf1_edx, uint32_t max_extended_leaf)
 {
     static const uint32_t fixed_msrs[CPU_MTRR_FIXED_REGISTER_COUNT] = {
@@ -203,9 +227,17 @@ int cpu_memory_type_validate_current(uint32_t expected_cpu_index)
     if (!mtrr_supported)
         return 0;
 
-    if (cpu_read_msr(IA32_MTRRCAP) != cpu_mtrr_info.capability ||
-        cpu_read_msr(IA32_MTRR_DEF_TYPE) != cpu_mtrr_info.default_type)
-        return 6;
+    {
+        uint64_t actual_cap=cpu_read_msr(IA32_MTRRCAP);
+        uint64_t actual_def=cpu_read_msr(IA32_MTRR_DEF_TYPE);
+        if(actual_cap!=cpu_mtrr_info.capability||
+           actual_def!=cpu_mtrr_info.default_type){
+            cpu_debug_mtrr_header(expected_cpu_index,cpu_mtrr_info.capability,
+                                  actual_cap,cpu_mtrr_info.default_type,
+                                  actual_def);
+            return 6;
+        }
+    }
 
     if (cpu_mtrr_info.truncated ||
         cpu_mtrr_info.variable_count > CPU_MTRR_MAX_VARIABLE_RANGES ||
