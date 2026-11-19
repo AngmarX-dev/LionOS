@@ -36,7 +36,7 @@ static int has_cap(uint32_t cap){return process_has_capability(process_current()
 static int syscall_is_ext2_root(const char *path) {
     return path && path[0] == '/' && path[1] == 'e' &&
            path[2] == 'x' && path[3] == 't' &&
-           path[4] == '2' && path[5] == '\\0';
+           path[4] == '2' && path[5] == '\0';
 }
 
 static uint32_t syscall_dispatch(uint32_t number,uint32_t arg0,uint32_t arg1,uint32_t arg2,uint32_t arg3,uint32_t arg4){switch(number){
@@ -86,21 +86,21 @@ case LIONOS_SYS_STAT:
             return SYSCALL_ERR;
         root_path = syscall_is_ext2_root(path);
         if (!usercopy_validate_write(arg1, sizeof(st))) {
-            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-USERCOPY-FAIL\\n");
+            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-USERCOPY-FAIL\n");
             return SYSCALL_ERR;
         }
         if (vfs_stat_path(path, &kst) < 0) {
-            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-VFS-FAIL\\n");
+            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-VFS-FAIL\n");
             return SYSCALL_ERR;
         }
         st.size = kst.size;
         st.backend = kst.backend;
         st.flags = kst.flags;
         if (syscall_copy_out(arg1, &st, sizeof(st)) != 0) {
-            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-COPYOUT-FAIL\\n");
+            if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-COPYOUT-FAIL\n");
             return SYSCALL_ERR;
         }
-        if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-OK\\n");
+        if (root_path) debug_write("LIONOS:STAT-EXT2-ROOT-OK\n");
         return SYSCALL_OK;
     }
 case LIONOS_SYS_READLINK:if(!has_cap(PROCESS_CAP_FS))return SYSCALL_ERR;{char path[VFS_PATH_MAX];if(usercopy_copy_string(path,sizeof(path),arg0)!=0||arg2==0u||arg2>USER_COPY_MAX||!usercopy_validate_write(arg1,arg2))return SYSCALL_ERR;char *buffer=(char*)kmalloc(arg2);if(!buffer)return SYSCALL_ERR;int r=vfs_readlink(path,buffer,arg2);if(r>0&&syscall_copy_out(arg1,buffer,(uint32_t)r)!=0)r=-1;kfree(buffer);return(uint32_t)r;}
