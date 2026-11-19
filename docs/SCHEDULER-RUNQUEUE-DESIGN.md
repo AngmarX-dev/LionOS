@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-This document defines the synchronization and ownership contract for replacing the current process-table scan with explicit per-CPU run queues. It is a design milestone, not a claim that queue-based scheduling, CPU migration, or AP task execution is already implemented.
+This document records the synchronization and ownership contract for the per-CPU run-queue scheduler. The first scheduler-integration slice is implemented: process lifecycle transitions maintain queue membership and `process_schedule()` selects from local priority lanes. The milestone remains partial until QEMU SMP lifecycle stress and AP task-execution verification pass.
 
-The implementation must preserve the existing scheduler behavior until the queue implementation and its regression tests are ready. Cross-CPU work stealing remains disabled.
+Cross-CPU migration and work stealing remain disabled.
 
 The implementation now connects the intrusive run-queue core in
 `include/runqueue.h` and `src/runqueue.c` to process lifecycle transitions and
@@ -49,23 +49,17 @@ Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue con
 
 - Do not enable work stealing.
 - Do not migrate a running task.
-- Do not let APs schedule tasks until each AP has a valid idle context, per-CPU scheduler state, TSS stack handling, and tested FPU/SSE context switching.
+- Do not enable cross-CPU migration or work stealing. An AP may select only tasks already assigned to its own local queue; this local AP task-execution path still requires QEMU SMP verification.
 - Do not remove `process_lock` in the first queue conversion. Process-table lifetime and complex process-group/parent-child operations still require a stable serialization mechanism.
 - Do not change xHCI, interrupt routing, or unrelated driver code.
 
 ## Data model
 
-Each CPU will own one `run_queue` containing four FIFO priority lanes, one lane per `PROCESS_PRIORITY_LEVELS` value. Each lane has head and tail process indices and a runnable count. Queue links should use process-table indices (or a clearly typed invalid-index sentinel), not raw pointers, so that slot reuse cannot leave dangling heap references.
+Each CPU owns one `struct runqueue` in `runqueues[LIONOS_MAX_CPUS]`, containing four FIFO priority lanes. Each lane stores head/tail process-table indices and a runnable count. Intrusive links use a typed invalid-index sentinel rather than raw pointers, so process-slot reuse cannot leave dangling references.
 
-The per-CPU scheduler state will contain:
+The run-queue object contains its spinlock, CPU owner, four lane head/tail pairs, per-lane counts, and total runnable count. Timer and scheduler statistics remain in the separate per-CPU scheduler state.
 
-- A run-queue spinlock.
-- Four lane head/tail pairs and per-lane counts.
-- A total runnable count.
-- A monotonically increasing enqueue sequence or equivalent deterministic FIFO bookkeeping if intrusive links alone cannot preserve FIFO order.
-- Existing timer and scheduler statistics.
-
-Each process will have explicit run-queue membership metadata: queued/not-queued state, owning queue CPU, and next/previous indices (or the chosen equivalent). The metadata must be reset by process-slot initialization and reaping.
+Membership metadata is kept in the parallel `runqueue_nodes[LIONOS_PROCESS_MAX]` array, indexed by process-table slot. Each node stores queued state, owning CPU, priority, and next/previous indices. `clear_process()` resets the node when a process slot is reclaimed; scheduler idle contexts are outside the process table and are never queued.
 
 The process state and queue membership must agree:
 
@@ -116,13 +110,13 @@ A future lock-scope reduction must document object lifetime and lock ordering fo
 
 Queue mutation must be centralized. Direct writes to `PROCESS_READY` outside these helpers are prohibited after conversion.
 
-- `runqueue_enqueue_locked(process, cpu)`: requires `process_lock`; validates READY state, valid online CPU, no existing membership, and priority range; inserts once and updates counts/owner metadata.
-- `runqueue_dequeue_locked(process)`: requires `process_lock`; validates membership and queue owner; unlinks once and updates counts/metadata.
-- `runqueue_requeue_priority_locked(process, new_priority)`: handles READY processes by unlinking and reinserting under the same queue lock; non-READY processes only update their priority metadata.
-- `runqueue_pick_next_locked(cpu)`: called by that CPU's scheduler with the required locks held; removes the head of the highest-priority non-empty lane and returns the process.
-- `process_make_ready_locked(process, preferred_cpu)`: single state-transition entry point for creation completion, wakeups, waitpid events, futex wakeups, signal continuation, and preemption.
+- `process_transition_state_locked(process, state)`: the process-layer transition helper. It adds READY tasks to their owner queue and removes queued tasks before publishing a non-READY state.
+- `runqueue_enqueue_locked(queue, nodes, capacity, index, priority)`: requires the owning queue lock; validates membership, lane integrity, bounds, and priority before insertion.
+- `runqueue_dequeue_locked(queue, nodes, capacity, index)`: requires the owning queue lock; validates owner and links before unlinking and resetting node metadata.
+- `runqueue_requeue_priority_locked(queue, nodes, capacity, index, priority)`: moves a queued node between priority lanes while preserving queue ownership.
+- `runqueue_pick_next_locked(queue, nodes, capacity, index)`: removes the head of the highest-priority non-empty lane.
 
-The process transition and scheduler queue operations are implemented in `src/process.c`; future migration helpers remain out of scope.
+The process layer always acquires `process_lock` before a queue lock. Future migration helpers remain out of scope.
 
 ## CPU selection policy
 
@@ -146,9 +140,7 @@ The scheduler must not perform debug console I/O while holding scheduler locks.
 
 ## AP scheduling prerequisite
 
-The AP main loop services early-boot stress work and halts; the Local APIC timer now transfers it into a dedicated scheduler idle context. Before an AP can consume normal runnable work, implement and test:
-
-The dedicated AP idle context and stack, AP timer entry into the common scheduler, per-CPU TSS/address-space switch on idle entry, and FPU/SSE restoration for idle entry are now implemented. CI must still verify the AP idle-entry markers on the configured QEMU SMP topology.
+The AP main loop services early-boot stress work and halts; the Local APIC timer transfers it into a dedicated scheduler idle context. Per-CPU run queues are now integrated into the common scheduler, so an AP can select work only from its own queue. The dedicated AP idle context and stack, AP timer entry, per-CPU TSS/address-space switch, and FPU/SSE restoration for idle entry are implemented. CI must still verify AP idle-entry markers and actual local-queue task execution on the configured QEMU SMP topology.
 
 The remaining prerequisites are:
 
