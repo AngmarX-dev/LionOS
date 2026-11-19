@@ -57,12 +57,12 @@ int main(void){
     status=-1;
     int32_t nested_result=lion_waitpid(nested,&status);
     if(nested_result!=(int32_t)nested){
-        printf("LIONOS:COW-NESTED-WAIT-RESULT pid=%u result=%d status=%d\\n",
+        printf("LIONOS:COW-NESTED-WAIT-RESULT pid=%u result=%d status=%d\n",
                nested,nested_result,status);
         return 80;
     }
     if(status!=0){
-        printf("LIONOS:COW-NESTED-WAIT-STATUS pid=%u status=%d\\n",
+        printf("LIONOS:COW-NESTED-WAIT-STATUS pid=%u status=%d\n",
                nested,status);
         return 81;
     }
