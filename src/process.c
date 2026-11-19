@@ -1160,18 +1160,50 @@ static void process_diag_status33(const char *kind,uint32_t pid,
 }
 
 void process_exit_current(uint32_t code){
-    struct process*c=current_local();
+    /*
+     * Exit may be reached from more than one return/exception path. Once a
+     * process is a zombie its exit status and parent relationship are final.
+     * Check before closing resources, then recheck after cleanup under the
+     * lock before publishing the terminal state.
+     */
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process *c=current_local();
+    if(!c||c==&processes[0]||c->state==PROCESS_UNUSED||
+       c->state==PROCESS_ZOMBIE){
+        if(c&&c->state==PROCESS_ZOMBIE){
+            process_diag_status33("PROCESS-EXIT-DUPLICATE",c->pid,
+                                  c->parent_pid,code);
+            process_diag_status33("PROCESS-EXIT-PRESERVED",c->pid,
+                                  c->parent_pid,c->exit_code);
+        }
+        spinlock_irqrestore_release(&process_lock,flags);
+        return;
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+
     int is_hup_exit=(code==(128u+LIONOS_SIG_HUP));
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:EXIT-ENTER\n");
-    if(c&&!c->is_thread&&c!=&processes[0]){
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:EXIT-ENTER\\n");
+    if(!c->is_thread){
         pipe_close_all(c);
         vfs_close_all_process(c);
     }
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:FD-CLOSE-DONE\n");
-    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:FD-CLOSE-DONE\\n");
+
+    flags=spinlock_irqsave_acquire(&process_lock);
     c=current_local();
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:LOCK-ACQUIRED\n");
-    if(c&&c->is_thread){
+    if(!c||c==&processes[0]||c->state==PROCESS_UNUSED||
+       c->state==PROCESS_ZOMBIE){
+        if(c&&c->state==PROCESS_ZOMBIE){
+            process_diag_status33("PROCESS-EXIT-RACE-DUPLICATE",c->pid,
+                                  c->parent_pid,code);
+            process_diag_status33("PROCESS-EXIT-RACE-PRESERVED",c->pid,
+                                  c->parent_pid,c->exit_code);
+        }
+        spinlock_irqrestore_release(&process_lock,flags);
+        return;
+    }
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:LOCK-ACQUIRED\\n");
+    if(c->is_thread){
         process_diag_status33("THREAD-EXIT",c->tid,c->thread_group_pid,code);
         c->exit_code=code;
         c->state=PROCESS_ZOMBIE;
@@ -1195,10 +1227,7 @@ void process_exit_current(uint32_t code){
         spinlock_irqrestore_release(&process_lock,flags);
         return;
     }
-    if(!c||c==&processes[0]){
-        spinlock_irqrestore_release(&process_lock,flags);
-        return;
-    }
+
     /* A process owns its user threads. Retire all non-current siblings before
        the address space can be reaped by waitpid. Threads share cpu_owner, so
        none of these siblings can be executing concurrently on another CPU. */
@@ -1215,17 +1244,17 @@ void process_exit_current(uint32_t code){
     uint32_t diagnostic_parent_pid=c->parent_pid;
     c->exit_code=code;
     process_reparent_children_locked(c);
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:REPARENT-DONE\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:REPARENT-DONE\\n");
     c->state=PROCESS_ZOMBIE;
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:ZOMBIE-SET\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:ZOMBIE-SET\\n");
     wake_waiting_parent(c);
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\\n");
     spinlock_irqrestore_release(&process_lock,flags);
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\\n");
     process_diag_status33("PROCESS-EXIT-STATUS",diagnostic_pid,
                           diagnostic_parent_pid,code);
     process_release_tty_if_session_empty(exiting_sid);
-    if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\n");
+    if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\\n");
 }
 static struct process*find_pid(uint32_t pid){for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED&&processes[i].pid==pid)return &processes[i];return 0;}
 int process_is_descendant_or_child(uint32_t pid,uint32_t ancestor_pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);if(!p||!ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 0;}if(p->parent_pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}for(uint32_t d=0;d<LIONOS_PROCESS_MAX&&p->parent_pid;++d){p=find_pid(p->parent_pid);if(!p)break;if(p->pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}}spinlock_irqrestore_release(&process_lock,flags);return 0;}
