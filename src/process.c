@@ -35,6 +35,7 @@ static uint32_t next_pid;
 static uint32_t next_tid;
 static struct spinlock process_lock;
 static volatile uint32_t reschedule_requested[LIONOS_MAX_CPUS];
+static volatile uint32_t reschedule_blocked[LIONOS_MAX_CPUS];
 static uint32_t fpu_enabled;
 
 static void reap_process(struct process *p);
@@ -67,6 +68,11 @@ static void fpu_restore(struct process *p){if(!fpu_enabled||!p)return;if(p->fpu_
 
 static struct process *current_local(void) { uint32_t cpu = cpu_current_index(); return cpu < LIONOS_MAX_CPUS ? current_by_cpu[cpu] : 0; }
 static void set_current_local(struct process *p) { uint32_t cpu = cpu_current_index(); if (cpu < LIONOS_MAX_CPUS) current_by_cpu[cpu] = p; }
+static void process_request_blocked_reschedule(uint32_t cpu){
+    if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
+    __atomic_store_n(&reschedule_blocked[cpu],1u,__ATOMIC_RELEASE);
+    __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+}
 static struct process *find_free_slot(void) { for (uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) if (processes[i].state==PROCESS_UNUSED) return &processes[i]; return 0; }
 static uint32_t process_index(const struct process *p) { return (uint32_t)(p-processes); }
 static int process_resolve_cow_locked(struct process *process,uint32_t page){
@@ -198,6 +204,7 @@ void process_init(void) {
         scheduler_cpu[i].steal_count=0u;
         scheduler_cpu[i].timer_ticks=0u;
         reschedule_requested[i]=0u;
+        reschedule_blocked[i]=0u;
         clear_process(&scheduler_idle_processes[i]);
     }
     next_pid=2u;next_tid=1u;
@@ -705,6 +712,7 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
     caller->wait_frame_saved=0u;
     debug_write("LIONOS:WAITPID-EINTR-BLOCK\n");
     caller->state=PROCESS_WAITING;
+    process_request_blocked_reschedule(cpu_current_index());
     spinlock_irqrestore_release(&process_lock,flags);
     return PROCESS_WAIT_BLOCKED;
 }
@@ -738,6 +746,7 @@ static int32_t process_sleep_on_kind(uintptr_t channel, struct spinlock *held_lo
     c->wait_cpu=cpu;
     c->wait_deadline=0u;
     c->state=PROCESS_WAITING;
+    process_request_blocked_reschedule(cpu);
     spinlock_irqrestore_release(&process_lock,flags);
     spinlock_irqrestore_release(held_lock,irq_flags);
     return PROCESS_WAIT_BLOCKED;
@@ -959,7 +968,10 @@ static void stop_process_locked(struct process *process,uint32_t signal){
                               process->parent_pid,signal);
     process->state=PROCESS_STOPPED;
     uint32_t cpu=process->cpu_owner<LIONOS_MAX_CPUS?process->cpu_owner:0u;
-    __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+    if(current_by_cpu[cpu]==process)
+        process_request_blocked_reschedule(cpu);
+    else
+        __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
     if(!process->is_thread){
         for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
             struct process *thread=&processes[i];
@@ -974,7 +986,10 @@ static void stop_process_locked(struct process *process,uint32_t signal){
             }
             thread->state=PROCESS_STOPPED;
             cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
-            __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+            if(current_by_cpu[cpu]==thread)
+                process_request_blocked_reschedule(cpu);
+            else
+                __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
         }
         if(!was_stopped)wake_waiting_parent_stop(process);
     }
@@ -1225,7 +1240,7 @@ void process_exit_current(uint32_t code){
             break;
         }
         spinlock_irqrestore_release(&process_lock,flags);
-        process_request_reschedule();
+        process_request_blocked_reschedule(cpu_current_index());
         return;
     }
 
@@ -1461,6 +1476,9 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         p->pending_signals|=(1u<<(signal-1u));
         p->exit_code=128u+signal;
         p->state=PROCESS_STOPPED;
+        uint32_t target_cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
+        if(current_by_cpu[target_cpu]==p)
+            process_request_blocked_reschedule(target_cpu);
         uint32_t exiting_sid=p->sid;
         spinlock_irqrestore_release(&process_lock,flags);
         pipe_close_all(p);
@@ -1698,6 +1716,7 @@ int32_t process_join_thread(uint32_t tid,uint32_t status_ptr){
         c->join_tid=tid;
         c->join_status_ptr=status_ptr;
         c->state=PROCESS_WAITING;
+        process_request_blocked_reschedule(cpu_current_index());
         spinlock_irqrestore_release(&process_lock,flags);
         return PROCESS_WAIT_BLOCKED;
     }
@@ -1738,7 +1757,7 @@ uint32_t *process_schedule(uint32_t *frame){
          * the contended global process lock.
          */
         if(contended_prev&&
-           __atomic_load_n(&reschedule_requested[cpu],__ATOMIC_ACQUIRE)!=0u){
+           __atomic_load_n(&reschedule_blocked[cpu],__ATOMIC_ACQUIRE)!=0u){
             contended_prev->saved_frame=(uint32_t)(uintptr_t)frame;
             if(cpu==0u){
                 struct process *bootstrap=&processes[0];
@@ -1778,6 +1797,7 @@ uint32_t *process_schedule(uint32_t *frame){
         __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
         return frame;
     }
+    __atomic_store_n(&reschedule_blocked[cpu],0u,__ATOMIC_RELEASE);
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
     ++sc->schedule_count;
     struct process*prev=current_local();
