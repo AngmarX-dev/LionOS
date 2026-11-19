@@ -118,6 +118,8 @@ jobs:
           grep -q 'HID mouse reports active' build/qemu-xhci-mouse.log
           grep -q 'LIONOS:USB-MOUSE-RING-WRAP-OK' build/qemu-xhci-mouse.log
           grep -q 'LIONOS:KEYBOARD-USB-INPUT' build/qemu-xhci-mouse.log
+          grep -q 'LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK' build/qemu-xhci-mouse.log
+          ! grep -q 'LIONOS:USER-INTEGRATION-FAIL' build/qemu-xhci-mouse.log
 
 
       - name: Regress USB keyboard discovery with no USB mouse attached
@@ -210,3 +212,5 @@ jobs:
           cat build/qemu-xhci-keyboard-only.log
           grep -q 'LIONOS:READY' build/qemu-xhci-keyboard-only.log
           grep -q 'LIONOS:KEYBOARD-USB-INPUT' build/qemu-xhci-keyboard-only.log
+          grep -q 'LIONOS:USER-EXT2-SYMLINK-SYSCALL-TEST-OK' build/qemu-xhci-keyboard-only.log
+          ! grep -q 'LIONOS:USER-INTEGRATION-FAIL' build/qemu-xhci-keyboard-only.log
