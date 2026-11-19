@@ -1750,8 +1750,12 @@ uint32_t *process_schedule(uint32_t *frame){
                 paging_switch_address_space(bootstrap->page_directory);
                 tss_set_kernel_stack(bootstrap->kernel_stack_top);
                 uint32_t *bootstrap_frame=process_saved_frame(bootstrap);
-                __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
-                return bootstrap_frame?bootstrap_frame:frame;
+                if(bootstrap_frame){
+                    __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
+                    return bootstrap_frame;
+                }
+                debug_write("LIONOS:SCHEDULER-BOOTSTRAP-FRAME-MISSING\\n");
+                for(;;)__asm__ volatile("cli; hlt");
             }
             struct process *idle=
                 (scheduler_idle_ready_mask&(1u<<cpu))?
