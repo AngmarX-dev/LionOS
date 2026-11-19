@@ -25,8 +25,8 @@ extern void lionos_kernel_idle(void);
 static struct process processes[LIONOS_PROCESS_MAX];
 static struct process *current_by_cpu[LIONOS_MAX_CPUS];
 static struct process scheduler_idle_processes[LIONOS_MAX_CPUS];
-static uint32_t scheduler_idle_stacks[LIONOS_MAX_CPUS];
 static volatile uint32_t scheduler_idle_entered_mask;
+static volatile uint32_t scheduler_idle_reported;
 static uint32_t scheduler_idle_ready_mask;
 struct scheduler_cpu_state{uint32_t cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t timer_ticks;};
 static struct scheduler_cpu_state scheduler_cpu[LIONOS_MAX_CPUS];
@@ -76,7 +76,6 @@ static int scheduler_idle_context_init(uint32_t cpu){
     if(!stack)return -1;
     struct process *idle=&scheduler_idle_processes[cpu];
     clear_process(idle);
-    scheduler_idle_stacks[cpu]=(uint32_t)(uintptr_t)stack;
     idle->pid=0u;
     idle->state=PROCESS_RUNNING;
     idle->cpu_owner=cpu;
@@ -108,6 +107,15 @@ static int scheduler_is_idle_context(const struct process *process){
     return 0;
 }
 
+static void scheduler_note_idle_entry(uint32_t cpu){
+    uint32_t bit=1u<<cpu;
+    (void)__atomic_fetch_or(&scheduler_idle_entered_mask,bit,__ATOMIC_ACQ_REL);
+    uint32_t expected=0u;
+    if(__atomic_compare_exchange_n(&scheduler_idle_reported,&expected,1u,0,
+            __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
+        debug_write("LIONOS:SMP-AP-IDLE-ENTER\\n");
+}
+
 void process_init(void) {
     fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u;
     if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");}
@@ -116,6 +124,7 @@ void process_init(void) {
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)clear_process(&processes[i]);
     scheduler_idle_ready_mask=0u;
     __atomic_store_n(&scheduler_idle_entered_mask,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&scheduler_idle_reported,0u,__ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i){
         current_by_cpu[i]=0;
         scheduler_cpu[i].cursor=0u;
@@ -123,7 +132,6 @@ void process_init(void) {
         scheduler_cpu[i].steal_count=0u;
         scheduler_cpu[i].timer_ticks=0u;
         reschedule_requested[i]=0u;
-        scheduler_idle_stacks[i]=0u;
         clear_process(&scheduler_idle_processes[i]);
     }
     next_pid=2u;next_tid=1u;
@@ -1607,10 +1615,7 @@ uint32_t *process_schedule(uint32_t *frame){
             set_current_local(idle);
             paging_switch_address_space(idle->page_directory);
             tss_set_kernel_stack(idle->kernel_stack_top);
-            uint32_t entered=__atomic_fetch_or(&scheduler_idle_entered_mask,
-                1u<<cpu,__ATOMIC_ACQ_REL);
-            if((entered&(1u<<cpu))==0u)
-                debug_write("LIONOS:SMP-AP-IDLE-ENTER\n");
+            scheduler_note_idle_entry(cpu);
             uint32_t *idle_frame=process_saved_frame(idle);
             spinlock_irqrestore_release(&process_lock,flags);
             return idle_frame?idle_frame:frame;
@@ -1630,10 +1635,7 @@ uint32_t *process_schedule(uint32_t *frame){
             set_current_local(idle);
             paging_switch_address_space(idle->page_directory);
             tss_set_kernel_stack(idle->kernel_stack_top);
-            uint32_t entered=__atomic_fetch_or(&scheduler_idle_entered_mask,
-                1u<<cpu,__ATOMIC_ACQ_REL);
-            if((entered&(1u<<cpu))==0u)
-                debug_write("LIONOS:SMP-AP-IDLE-ENTER\n");
+            scheduler_note_idle_entry(cpu);
             uint32_t *idle_frame=process_saved_frame(idle);
             spinlock_irqrestore_release(&process_lock,flags);
             return idle_frame?idle_frame:frame;
