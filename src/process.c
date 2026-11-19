@@ -1910,11 +1910,22 @@ struct process *process_create_kernel_thread_on_cpu(uint32_t entry,uint32_t arg,
     struct process*p=find_free_slot();if(!p){spinlock_irqrestore_release(&process_lock,flags);return 0;}
     void*ks=page_alloc();if(!ks){spinlock_irqrestore_release(&process_lock,flags);return 0;}
     clear_process(p);p->pid=0;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=0;p->is_thread=1;p->owns_address_space=0;p->state=PROCESS_STOPPED;p->cpu_owner=cpu;p->page_directory=paging_kernel_directory();p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u;
-    uint32_t*f=(uint32_t*)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u);for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i)f[i]=0;
-    uint32_t *initial_stack=(uint32_t *)(uintptr_t)(p->kernel_stack_top-64u);
-    initial_stack[0]=(uint32_t)(uintptr_t)&process_kernel_thread_return_trap;
-    initial_stack[1]=arg;
-    f[14]=entry;f[15]=0x08u;f[16]=0x202u;f[17]=(uint32_t)(uintptr_t)initial_stack;f[18]=0x10u;
+    /*
+     * isr_common restores a same-ring kernel context with IRETD.  IRETD
+     * consumes EIP/CS/EFLAGS but does not load ESP/SS, so after the restore
+     * the live stack begins at frame[17].  Seed that stack as a normal i386
+     * call frame: return address followed by the entry argument.  The
+     * three-word padding makes ESP 12 mod 16 at function entry, matching
+     * the i386 SysV ABI while keeping both words inside this stack page.
+     */
+    uint32_t *f=(uint32_t *)(uintptr_t)
+        (p->kernel_stack_top-(PROCESS_CONTEXT_WORDS+3u)*sizeof(uint32_t));
+    for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)f[i]=0u;
+    f[14]=entry;
+    f[15]=0x08u;
+    f[16]=0x202u;
+    f[17]=(uint32_t)(uintptr_t)&process_kernel_thread_return_trap;
+    f[18]=arg;
     __atomic_store_n(&p->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE);
     if(process_transition_state_locked(p,PROCESS_READY)!=0){
         (void)process_transition_state_locked(p,PROCESS_ZOMBIE);
