@@ -38,6 +38,11 @@ static volatile uint32_t scheduler_ap_probe_seen;
 static volatile uint32_t scheduler_ap_probe_fault;
 static volatile uint32_t scheduler_ap_probe_reported;
 
+static void process_kernel_thread_return_trap(void){
+    process_exit_current(0xFFFFFFFFu);
+    for(;;)__asm__ volatile("sti; hlt");
+}
+
 static void process_scheduler_ap_probe(uint32_t expected_cpu){
     uint32_t actual_cpu=cpu_current_index();
     if(actual_cpu!=expected_cpu||actual_cpu==0u||actual_cpu>=LIONOS_MAX_CPUS){
@@ -46,7 +51,7 @@ static void process_scheduler_ap_probe(uint32_t expected_cpu){
         __atomic_fetch_or(&scheduler_ap_probe_seen,1u<<actual_cpu,__ATOMIC_ACQ_REL);
     }
     process_exit_current(0u);
-    for(;;)__asm__ volatile("cli; hlt");
+    for(;;)__asm__ volatile("sti; hlt");
 }
 
 static void process_scheduler_ap_probe_report(void){
@@ -1882,8 +1887,11 @@ struct process *process_create_kernel_thread_on_cpu(uint32_t entry,uint32_t arg,
     void*ks=page_alloc();if(!ks){spinlock_irqrestore_release(&process_lock,flags);return 0;}
     clear_process(p);p->pid=0;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=0;p->is_thread=1;p->owns_address_space=0;p->state=PROCESS_STOPPED;p->cpu_owner=cpu;p->page_directory=paging_kernel_directory();p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u;
     uint32_t*f=(uint32_t*)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u);for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i)f[i]=0;
-    f[14]=entry;f[15]=0x08u;f[16]=0x202u;f[17]=p->kernel_stack_top-64u;f[18]=0x10u;
-    ((uint32_t*)(uintptr_t)(p->kernel_stack_top-64u))[0]=arg;__atomic_store_n(&p->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE);
+    uint32_t *initial_stack=(uint32_t *)(uintptr_t)(p->kernel_stack_top-64u);
+    initial_stack[0]=(uint32_t)(uintptr_t)&process_kernel_thread_return_trap;
+    initial_stack[1]=arg;
+    f[14]=entry;f[15]=0x08u;f[16]=0x202u;f[17]=(uint32_t)(uintptr_t)initial_stack;f[18]=0x10u;
+    __atomic_store_n(&p->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE);
     if(process_transition_state_locked(p,PROCESS_READY)!=0){
         (void)process_transition_state_locked(p,PROCESS_ZOMBIE);
         reap_process(p);
