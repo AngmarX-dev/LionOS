@@ -14,6 +14,8 @@ int main(void) {
     int result;
 
     runqueue_init(&queue, 1u);
+    /* The locked API is exercised with its queue lock held. */
+    queue.lock.value = 1u;
     for (uint32_t i = 0u; i < NODE_COUNT; ++i)
         runqueue_node_init(&nodes[i]);
 
@@ -47,6 +49,7 @@ int main(void) {
     /* A foreign CPU cannot unlink a node owned by this queue. */
     struct runqueue wrong_cpu;
     runqueue_init(&wrong_cpu, 2u);
+    wrong_cpu.lock.value = 1u;
     if ((result = check(runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 0u) < 0, 23u))) return result;
 
     /* A malformed empty/non-empty lane must not be reported as an empty queue. */
