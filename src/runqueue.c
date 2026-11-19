@@ -173,9 +173,9 @@ int runqueue_requeue_priority_locked(struct runqueue *queue,
         nodes[index].queue_cpu != queue->cpu)
         return -1;
     old_priority = nodes[index].priority;
-    if (old_priority == priority) return 0;
     if (runqueue_validate_locked(queue, nodes, capacity, 0) != 0)
         return -1;
+    if (old_priority == priority) return 0;
     if (runqueue_dequeue_locked(queue, nodes, capacity, index) != 0)
         return -1;
     if (runqueue_enqueue_locked(queue, nodes, capacity, index, priority) == 0)

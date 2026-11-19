@@ -56,6 +56,7 @@ int main(void) {
     if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 1u) != 0) return 24;
     queue.head[1] = NODE_COUNT;
     if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) < 0, 25u))) return result;
+    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 0u, 1u) < 0, 27u))) return result;
     queue.head[1] = 0u;
     if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 26;
 
