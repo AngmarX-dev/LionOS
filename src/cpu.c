@@ -219,9 +219,12 @@ int cpu_memory_type_apply_current(uint32_t expected_cpu_index)
            ((b>>24)&0xFFu)!=expected->apic_id)
             return 2;
     }
-    if(!(d&(1u<<5))||!(d&(1u<<12))||!cpu_mtrr_info.supported||
-       !cpu_mtrr_info.msr_supported)
+    if(((d&(1u<<5))!=0u)!=(cpu_mtrr_info.msr_supported!=0u)||
+       ((d&(1u<<12))!=0u)!=(cpu_mtrr_info.supported!=0u))
         return 3;
+    /* CPUs without MTRRs need no synchronization; preserve that portability. */
+    if(!cpu_mtrr_info.msr_supported||!cpu_mtrr_info.supported)
+        return 0;
     if(cpu_mtrr_info.truncated||
        cpu_mtrr_info.variable_count>CPU_MTRR_MAX_VARIABLE_RANGES||
        cpu_mtrr_info.captured_variable_count!=cpu_mtrr_info.variable_count)
