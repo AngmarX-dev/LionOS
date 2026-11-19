@@ -182,7 +182,12 @@ void smp_ap_main(void){
     for(;;){
         if(__atomic_load_n(&smp_stress_request,__ATOMIC_ACQUIRE))
             smp_lock_stress_worker(index);
-        __asm__ volatile("hlt");
+        /*
+         * Keep the idle transition atomic with respect to maskable
+         * interrupts. A reschedule/stress IPI arriving after the work check
+         * but before HLT must remain pending and wake this AP.
+         */
+        __asm__ volatile("sti; hlt" ::: "memory");
     }
 }
 
