@@ -85,7 +85,7 @@ memory-type-check: | $(BUILD)
 runqueue-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/runqueue.c tests/runqueue_test.c -o $(BUILD)/runqueue_test
 	$(BUILD)/runqueue_test
-	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -pthread -Iinclude src/spinlock.c src/runqueue.c tests/runqueue_concurrency_test.c -o $(BUILD)/runqueue_concurrency_test
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -pthread -Iinclude src/runqueue.c tests/runqueue_concurrency_test.c -o $(BUILD)/runqueue_concurrency_test
 	$(BUILD)/runqueue_concurrency_test
 
 third-party-check:
