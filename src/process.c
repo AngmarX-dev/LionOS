@@ -1799,12 +1799,17 @@ int process_set_current(struct process*p){
        (p->state==PROCESS_READY&&p->cpu_owner!=cpu)){
         spinlock_irqrestore_release(&process_lock,flags);return -1;
     }
+    int old_requeued=0;
     if(old&&old!=p&&old!=&processes[0]&&!scheduler_is_idle_context(old)&&
-       old->state==PROCESS_RUNNING&&
-       process_transition_state_locked(old,PROCESS_READY)!=0){
-        spinlock_irqrestore_release(&process_lock,flags);return -1;
+       old->state==PROCESS_RUNNING){
+        if(process_transition_state_locked(old,PROCESS_READY)!=0){
+            spinlock_irqrestore_release(&process_lock,flags);return -1;
+        }
+        old_requeued=1;
     }
     if(p!=old&&process_transition_state_locked(p,PROCESS_RUNNING)!=0){
+        if(old_requeued&&process_transition_state_locked(old,PROCESS_RUNNING)!=0)
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
         spinlock_irqrestore_release(&process_lock,flags);return -1;
     }
     set_current_local(p);
