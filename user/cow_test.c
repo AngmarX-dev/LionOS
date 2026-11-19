@@ -55,7 +55,17 @@ int main(void){
         lion_exit_code(0u);
     }
     status=-1;
-    if(lion_waitpid(nested,&status)!=(int32_t)nested||status!=0)return 8;
+    int32_t nested_result=lion_waitpid(nested,&status);
+    if(nested_result!=(int32_t)nested){
+        printf("LIONOS:COW-NESTED-WAIT-RESULT pid=%u result=%d status=%d\\n",
+               nested,nested_result,status);
+        return 80;
+    }
+    if(status!=0){
+        printf("LIONOS:COW-NESTED-WAIT-STATUS pid=%u status=%d\\n",
+               nested,status);
+        return 81;
+    }
     if(nested_guard!=0xA55A3CC3u)return 9;
     return 0;
 }
