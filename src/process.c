@@ -15,6 +15,9 @@
 #include "smp.h"
 #include "lapic.h"
 #include "runqueue.h"
+#if PROCESS_PRIORITY_LEVELS != LIONOS_RUNQUEUE_PRIORITY_LEVELS
+#error "process and runqueue priority levels must match"
+#endif
 extern void lionos_kernel_idle(void);
 
 #define PROCESS_WAIT_ANY 0u
@@ -28,6 +31,7 @@ static struct process processes[LIONOS_PROCESS_MAX];
 static struct runqueue runqueues[LIONOS_MAX_CPUS];
 static struct runqueue_node runqueue_nodes[LIONOS_PROCESS_MAX];
 static volatile uint32_t runqueue_fault;
+static volatile uint32_t runqueue_fault_reported;
 static volatile uint32_t process_scheduler_ready;
 static struct process *current_by_cpu[LIONOS_MAX_CPUS];
 static struct process scheduler_idle_processes[LIONOS_MAX_CPUS];
@@ -281,6 +285,7 @@ void process_init(void) {
     __atomic_store_n(&scheduler_idle_entered_mask,0u,__ATOMIC_RELAXED);
     __atomic_store_n(&scheduler_idle_reported,0u,__ATOMIC_RELAXED);
     __atomic_store_n(&runqueue_fault,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&runqueue_fault_reported,0u,__ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i){
         runqueue_init(&runqueues[i],i);
         current_by_cpu[i]=0;
@@ -1934,6 +1939,12 @@ uint32_t process_scheduler_steals(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?sched
 uint32_t *process_schedule(uint32_t *frame){
     if(__atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)
         return frame;
+    if(__atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE)!=0u){
+        uint32_t expected=0u;
+        if(__atomic_compare_exchange_n(&runqueue_fault_reported,&expected,1u,0,
+                __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
+            debug_write("LIONOS:RUNQUEUE-FAULT\n");
+    }
     /* Do not let a timer interrupt spin behind another CPU. Linux keeps\n     * scheduler critical sections CPU-local; until LionOS has independent\n     * runqueue locks, dropping a contended tick is preferable to stalling\n     * the CPU in an IRQ-disabled spin loop. */
     uint32_t flags;
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
@@ -2063,7 +2074,7 @@ uint32_t *process_schedule(uint32_t *frame){
            runqueue_enqueue_locked(&runqueues[cpu],runqueue_nodes,
                LIONOS_PROCESS_MAX,prev_index,prev->priority)!=0){
             spinlock_release(&runqueues[cpu].lock);
-            debug_write("LIONOS:RUNQUEUE-ENQUEUE-FAIL\n");
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
             spinlock_irqrestore_release(&process_lock,flags);
             return frame;
         }
@@ -2081,7 +2092,7 @@ uint32_t *process_schedule(uint32_t *frame){
         if(runqueue_dequeue_locked(&runqueues[cpu],runqueue_nodes,
                                    LIONOS_PROCESS_MAX,prev_index)!=0){
             spinlock_release(&runqueues[cpu].lock);
-            debug_write("LIONOS:RUNQUEUE-ROLLBACK-FAIL\n");
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
             spinlock_irqrestore_release(&process_lock,flags);
             for(;;)__asm__ volatile("cli; hlt");
         }
@@ -2089,10 +2100,9 @@ uint32_t *process_schedule(uint32_t *frame){
         prev_enqueued=0;
     }
     spinlock_release(&runqueues[cpu].lock);
-    if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX))
-        debug_write("LIONOS:RUNQUEUE-PICK-FAIL\n");
-    if(process_runqueue_validate_locked()!=0)
-        debug_write("LIONOS:RUNQUEUE-INVARIANT-FAIL\n");
+    if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX)||
+       process_runqueue_validate_locked()!=0)
+        __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
     /*
      * APs now have dedicated idle contexts, but cross-CPU work stealing remains
      * disabled. Keep tasks pinned until run-queue membership, migration
