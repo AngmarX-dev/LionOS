@@ -3,6 +3,18 @@
 #include "paging.h"
 #include "usercopy.h"
 
+static uint32_t cow_resolver_calls;
+static uint32_t simulate_resolver_race;
+
+int process_resolve_cow(uint32_t address) {
+    ++cow_resolver_calls;
+    if (simulate_resolver_race) {
+        simulate_resolver_race = 0u;
+        return paging_resolve_cow(paging_current_address_space(), address);
+    }
+    return paging_resolve_cow(paging_current_address_space(), address);
+}
+
 #define PAGE_SIZE 4096u
 #define TEST_PAGES 4u
 #define PTE_WRITABLE 0x2u
@@ -44,6 +56,8 @@ int paging_resolve_cow(uint32_t pd, uint32_t address) {
 }
 
 static void reset_pages(void) {
+    cow_resolver_calls = 0u;
+    simulate_resolver_race = 0u;
     for (uint32_t i = 0u; i < TEST_PAGES; ++i) {
         pages[i].address = 0x10000000u + i * PAGE_SIZE;
         pages[i].flags = PTE_WRITABLE;
@@ -88,6 +102,8 @@ int main(void) {
     pages[0].flags = PTE_COW;
     failures += check("COW page becomes writable",
                       usercopy_validate_write(0x10000020u, 8u), 1);
+    failures += check("COW uses process metadata resolver",
+                      (int)cow_resolver_calls, 1);
     failures += check("COW flag cleared",
                       (pages[0].flags & PTE_COW) != 0u, 0);
 
@@ -96,6 +112,8 @@ int main(void) {
     pages[1].flags = PTE_COW;
     failures += check("cross-page COW range",
                       usercopy_validate_write(0x10000FF0u, 32u), 1);
+    failures += check("cross-page COW resolves both owners",
+                      (int)cow_resolver_calls, 2);
     failures += check("first COW page writable",
                       (pages[0].flags & PTE_WRITABLE) != 0u, 1);
     failures += check("second COW page writable",
@@ -108,6 +126,16 @@ int main(void) {
                       usercopy_validate_write(0x10000FF0u, 32u), 0);
     failures += check("preflight leaves first COW page unchanged",
                       (pages[0].flags & PTE_COW) != 0u, 1);
+    failures += check("preflight does not call resolver",
+                      (int)cow_resolver_calls, 0);
+
+    reset_pages();
+    pages[0].flags = PTE_COW;
+    simulate_resolver_race = 1u;
+    failures += check("concurrent COW resolution is rechecked",
+                      usercopy_validate_write(0x10000020u, 8u), 1);
+    failures += check("concurrent COW page is writable",
+                      (pages[0].flags & PTE_WRITABLE) != 0u, 1);
 
     reset_pages();
     pages[0].flags = 0u;

@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "paging.h"
+#include "process.h"
 #include "usercopy.h"
 
 #define USER_MIN 0x10000000u
@@ -37,9 +38,19 @@ static int validate_pages(uint32_t address, uint32_t length, int write) {
     for (uint32_t current = page; current < end; current += PAGE_SIZE) {
         uint32_t flags = 0u;
         if (paging_get_user_page(pd, current, 0, &flags) != 0) return 0;
-        if (!(flags & PTE_WRITABLE) &&
-            (!(flags & PTE_COW) || paging_resolve_cow(pd, current) != 0))
-            return 0;
+        if (!(flags & PTE_WRITABLE)) {
+            if (!(flags & PTE_COW)) return 0;
+            if (process_resolve_cow(current) != 0) {
+                /*
+                 * Another thread may have resolved this shared address-space
+                 * page after the initial read. Accept only a verified writable
+                 * PTE; the process resolver remains responsible for metadata.
+                 */
+                if (paging_get_user_page(pd, current, 0, &flags) != 0 ||
+                    !(flags & PTE_WRITABLE))
+                    return 0;
+            }
+        }
     }
 
     for (uint32_t current = page; current < end; current += PAGE_SIZE) {
