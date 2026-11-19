@@ -215,7 +215,7 @@ int cpu_memory_type_apply_current(uint32_t expected_cpu_index)
         IA32_MTRR_FIX4K_C0000 + 6u,
         IA32_MTRR_FIX4K_C0000 + 7u
     };
-    uint32_t a,b,c,d,cr0,cr4,eflags;
+    uint32_t a,b,c,d,cr0,cr4;
     uint64_t actual_cap;
 
     if(expected_cpu_index==0u||expected_cpu_index>=LIONOS_MAX_CPUS)
@@ -246,7 +246,7 @@ int cpu_memory_type_apply_current(uint32_t expected_cpu_index)
     if(actual_cap!=cpu_mtrr_info.capability)
         return 5;
 
-    __asm__ volatile("pushfl; popl %0; cli":"=r"(eflags)::"memory");
+    __asm__ volatile("cli":::"memory");
     __asm__ volatile("mov %%cr0,%0":"=r"(cr0));
     __asm__ volatile("mov %%cr4,%0":"=r"(cr4));
 
@@ -277,7 +277,7 @@ int cpu_memory_type_apply_current(uint32_t expected_cpu_index)
 
     /* Restore the cache-control bits captured from the BSP, preserving others. */
     cpu_restore_bsp_cache_mode(cr0);
-    __asm__ volatile("pushl %0; popfl"::"r"(eflags):"memory","cc");
+    /* Keep interrupts disabled until smp_ap_main installs the local IDT. */
     return 0;
 }
 
