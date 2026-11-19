@@ -1172,6 +1172,7 @@ void process_exit_current(uint32_t code){
     c=current_local();
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:LOCK-ACQUIRED\n");
     if(c&&c->is_thread){
+        process_diag_status33("THREAD-EXIT",c->tid,c->thread_group_pid,code);
         c->exit_code=code;
         c->state=PROCESS_ZOMBIE;
         for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
@@ -1182,6 +1183,8 @@ void process_exit_current(uint32_t code){
             uint32_t*f=(uint32_t*)(uintptr_t)w->saved_frame;
             int status_ok=w->join_status_ptr&&
                 write_user_u32(w,w->join_status_ptr,code)==0;
+            process_diag_status33("THREAD-JOIN-WAKE",w->pid,c->tid,
+                                  status_ok?code:PROCESS_SYSCALL_ERR);
             if(f)f[11]=status_ok?c->tid:PROCESS_SYSCALL_ERR;
             w->join_tid=0u;
             w->join_status_ptr=0u;
@@ -1630,12 +1633,47 @@ uint32_t process_create_user_thread(uint32_t entry){
 }
 void process_exit_thread(uint32_t code){process_exit_current(code);}
 int32_t process_join_thread(uint32_t tid,uint32_t status_ptr){
-    uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*c=current_local();if(!c||c->is_thread||!tid||!status_ptr){spinlock_irqrestore_release(&process_lock,flags);return -1;}
-    for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process*p=&processes[i];if(!p->is_thread||p->thread_group_pid!=c->thread_group_pid||p->tid!=tid)continue;
-        if(p->state==PROCESS_ZOMBIE){if(p->reap_pending||write_user_u32(c,status_ptr,p->exit_code)!=0){spinlock_irqrestore_release(&process_lock,flags);return -1;}reap_process(p);spinlock_irqrestore_release(&process_lock,flags);return (int32_t)tid;}
-        c->join_tid=tid;c->join_status_ptr=status_ptr;c->state=PROCESS_WAITING;spinlock_irqrestore_release(&process_lock,flags);return PROCESS_WAIT_BLOCKED;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process*c=current_local();
+    if(!c||c->is_thread||!tid||!status_ptr){
+        process_diag_status33("THREAD-JOIN-INVALID",tid,status_ptr,
+                              cpu_current_index());
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
     }
-    spinlock_irqrestore_release(&process_lock,flags);return -1;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process*p=&processes[i];
+        if(!p->is_thread||p->thread_group_pid!=c->thread_group_pid||
+           p->tid!=tid)continue;
+        if(p->state==PROCESS_ZOMBIE){
+            if(p->reap_pending){
+                process_diag_status33("THREAD-JOIN-REAP-PENDING",tid,c->pid,
+                                      p->exit_code);
+                spinlock_irqrestore_release(&process_lock,flags);
+                return -1;
+            }
+            if(write_user_u32(c,status_ptr,p->exit_code)!=0){
+                process_diag_status33("THREAD-JOIN-STATUS-WRITE-FAIL",tid,
+                                      c->pid,status_ptr);
+                spinlock_irqrestore_release(&process_lock,flags);
+                return -1;
+            }
+            process_diag_status33("THREAD-JOIN-REAP",tid,c->pid,p->exit_code);
+            reap_process(p);
+            spinlock_irqrestore_release(&process_lock,flags);
+            return (int32_t)tid;
+        }
+        process_diag_status33("THREAD-JOIN-BLOCK",tid,c->pid,p->state);
+        c->join_tid=tid;
+        c->join_status_ptr=status_ptr;
+        c->state=PROCESS_WAITING;
+        spinlock_irqrestore_release(&process_lock,flags);
+        return PROCESS_WAIT_BLOCKED;
+    }
+    process_diag_status33("THREAD-JOIN-NOT-FOUND",tid,c->pid,
+                          c->thread_group_pid);
+    spinlock_irqrestore_release(&process_lock,flags);
+    return -1;
 }
 
 void process_request_reschedule(void){
