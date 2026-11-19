@@ -54,6 +54,8 @@ static void process_notify_child_group_transitions_locked(
     const struct process_group_snapshot *groups,uint32_t count);
 static int process_has_interrupting_signal_locked(const struct process *p);
 static void process_clear_waitpid_locked(struct process *p);
+static void process_diag_status33(const char *kind,uint32_t pid,
+                                  uint32_t parent_pid,uint32_t value);
 static uint8_t fpu_initial_state[512] __attribute__((aligned(16)));
 
 static uint32_t quantum_for_priority(uint32_t priority){
