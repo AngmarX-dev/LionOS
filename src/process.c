@@ -28,6 +28,7 @@ static struct process processes[LIONOS_PROCESS_MAX];
 static struct runqueue runqueues[LIONOS_MAX_CPUS];
 static struct runqueue_node runqueue_nodes[LIONOS_PROCESS_MAX];
 static volatile uint32_t runqueue_fault;
+static volatile uint32_t process_scheduler_ready;
 static struct process *current_by_cpu[LIONOS_MAX_CPUS];
 static struct process scheduler_idle_processes[LIONOS_MAX_CPUS];
 static volatile uint32_t scheduler_idle_entered_mask;
@@ -269,6 +270,7 @@ static void scheduler_note_idle_entry(uint32_t cpu){
 }
 
 void process_init(void) {
+    __atomic_store_n(&process_scheduler_ready,0u,__ATOMIC_RELEASE);
     fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u;
     if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");}
     spinlock_init(&process_lock);
@@ -308,6 +310,7 @@ void process_init(void) {
         scheduler_idle_expected_mask))
         debug_write("LIONOS:SMP-AP-IDLE-CONTEXTS-READY\n");
     spinlock_irqrestore_release(&process_lock,flags);
+    __atomic_store_n(&process_scheduler_ready,1u,__ATOMIC_RELEASE);
 }
 struct process *process_current(void){return current_local();}
 uint32_t process_current_tid(void){struct process*p=current_local();return p?p->tid:0u;}
@@ -1929,6 +1932,8 @@ uint32_t process_scheduler_ticks(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?schedu
 uint32_t process_scheduler_steals(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?scheduler_cpu[cpu].steal_count:0u;}
 
 uint32_t *process_schedule(uint32_t *frame){
+    if(__atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)
+        return frame;
     /* Do not let a timer interrupt spin behind another CPU. Linux keeps\n     * scheduler critical sections CPU-local; until LionOS has independent\n     * runqueue locks, dropping a contended tick is preferable to stalling\n     * the CPU in an IRQ-disabled spin loop. */
     uint32_t flags;
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
