@@ -1,374 +1,348 @@
 # 🦁 LionOS
 
 <p align="center">
-  <strong>A 32-bit x86 operating system built from scratch.</strong><br>
-  Low-level engineering • Experimental kernel • AI-assisted development
+  <strong>یک سیستم‌عامل آزمایشی ۳۲ بیتی x86 که از پایه توسعه داده می‌شود</strong><br>
+  Kernel Development · Memory Management · SMP · Drivers · Networking · Desktop
 </p>
 
 <p align="center">
   <a href="https://github.com/AngmarX-dev/LionOS/actions/workflows/build.yml"><img src="https://github.com/AngmarX-dev/LionOS/actions/workflows/build.yml/badge.svg" alt="LionOS Build"></a>
   <a href="https://github.com/AngmarX-dev/LionOS/actions/workflows/xhci-mouse.yml"><img src="https://github.com/AngmarX-dev/LionOS/actions/workflows/xhci-mouse.yml/badge.svg" alt="xHCI Mouse Test"></a>
-  <a href="https://github.com/AngmarX-dev/LionOS/blob/main/LICENSE"><img src="https://img.shields.io/github/license/AngmarX-dev/LionOS" alt="MIT License"></a>
-  <a href="https://github.com/AngmarX-dev/LionOS"><img src="https://img.shields.io/github/stars/AngmarX-dev/LionOS" alt="GitHub Stars"></a>
+  <a href="https://img.shields.io/github/license/AngmarX-dev/LionOS"><img src="https://img.shields.io/github/license/AngmarX-dev/LionOS" alt="License"></a>
 </p>
 
 <p align="center">
-  <a href="#-overview">Overview</a> • <a href="#-features">Features</a> • <a href="#-architecture">Architecture</a> • <a href="#-build--run">Build & Run</a> • <a href="#-testing">Testing</a> • <a href="#-live-usb">Live USB</a>
+  <a href="#معرفی">معرفی</a> · <a href="#قابلیتهای-فعلی">قابلیت‌ها</a> ·
+  <a href="#معماری">معماری</a> · <a href="#ساخت-و-اجرا">ساخت و اجرا</a> ·
+  <a href="#نقشهراه">نقشه‌راه</a>
 </p>
 
 ---
 
-## Portable HID input
+## معرفی
 
-LionOS input is selected by hardware capability rather than by a laptop model:
+**LionOS** یک سیستم‌عامل آموزشی و آزمایشی است که با تمرکز بر توسعه واقعی Kernel و زیرسیستم‌های سطح پایین ساخته می‌شود. هدف پروژه، ساخت تدریجی یک سیستم‌عامل ماژولار با مدیریت حافظه، پردازش، فایل‌سیستم، ورودی/خروجی، شبکه و محیط گرافیکی است.
 
-- Legacy **i8042/PS/2** keyboard and mouse are probed only when the controller is present.
-- **USB HID keyboards and mice** run through the xHCI controller path.
-- USB HID boot devices and compatible **non-boot HID report descriptors** are parsed.
-- Composite USB devices can expose keyboard and mouse interfaces on the same USB address.
-- Missing PS/2 hardware no longer prevents USB input initialization.
+LionOS هنوز یک سیستم‌عامل در حال توسعه است و جایگزین آماده‌ای برای Windows یا Linux محسوب نمی‌شود. در این سند، قابلیت‌های پیاده‌سازی‌شده از قابلیت‌های آزمایشی و برنامه‌های آینده جدا شده‌اند.
 
-Modern laptops may expose their internal keyboard/touchpad through **I²C-HID** rather than PS/2 or USB HID. That transport requires a separate I²C/ACPI HID driver and is not yet covered by the current input stack.
+### اصول توسعه
 
-## 🦁 Overview
+- زبان اصلی: C freestanding؛ استفاده محدود از NASM در بخش‌های ضروری.
+- اولویت با صحت، پایداری، کیفیت کد و سازگاری سخت‌افزاری.
+- حفظ مسیرهای سالم و جلوگیری از Regression در Kernel، حافظه، ورودی، USB و گرافیک.
+- آزمون در QEMU و CI پیش از اعلام تکمیل هر مرحله.
+- تفکیک وضعیت شناسایی سخت‌افزار، راه‌اندازی، بارگذاری Driver و عملکرد واقعاً آزمایش‌شده.
 
-**LionOS** is an experimental educational operating system for **32-bit x86** machines.
+### راهنمای وضعیت
 
-The project explores operating-system internals through real low-level code: bootstrapping, protected mode, interrupts, virtual memory, processes, system calls, filesystems, networking, SMP bring-up, graphics, and hardware input.
+| نشان | معنی |
+|---|---|
+| ✅ | پیاده‌سازی موجود و آزمون نرم‌افزاری/CI مرتبط موفق |
+| 🟡 | پیاده‌سازی جزئی، آزمایشی یا دارای محدودیت شناخته‌شده |
+| ⬜ | پیاده‌سازی نشده یا در نقشه‌راه قرار دارد |
 
-### 🎯 Project philosophy
-
-> **Build from the bottom up. Understand every layer. Test every subsystem.**
+موفقیت CI به‌تنهایی تضمین‌کننده عملکرد روی تمام سخت‌افزارهای فیزیکی نیست.
 
 ---
 
-## ✨ Features
+## قابلیت‌های فعلی
 
-### 🧠 Kernel & CPU
+### Kernel، CPU و Interrupts
 
-| Subsystem | Status |
+| قابلیت | وضعیت |
 |---|:---:|
-| Multiboot2 / GRUB boot | ✅ |
-| GDT / IDT / TSS | ✅ |
-| CPU exceptions | ✅ |
-| PIC / PIT | ✅ |
-| CPUID topology detection | ✅ |
-| ACPI MADT CPU enumeration | ✅ |
-| Local APIC + AP startup | ✅ |
-| Per-CPU TSS / IDT bootstrap | ✅ |
-| Local APIC timer | ✅ |
+| راه‌اندازی GRUB و Multiboot2 | ✅ |
+| GDT / IDT / TSS و Protected Mode | ✅ |
+| CPU Exceptions و مسیر Kernel Panic | ✅ |
+| PIC / PIT و مدیریت پایه وقفه‌ها | ✅ |
+| CPUID و شناسایی قابلیت‌های CPU | ✅ |
+| ACPI MADT و شناسایی Local APICها | ✅ |
+| راه‌اندازی APها با INIT / SIPI و handshake | ✅ |
+| Per-CPU TSS / IDT و Local APIC Timer | ✅ |
+| SMP bring-up و آزمون تا ۱۶ vCPU در QEMU | ✅ |
+| Snapshot و اعتبارسنجی پایه MTRR / PAT | 🟡 |
+| Interrupt Routing کامل برای سخت‌افزارهای متنوع | ⬜ |
+| Lazy FPU | ⬜ |
 
-### 🧮 Memory
+**محدودیت SMP:** زیرساخت راه‌اندازی AP و Per-CPU وجود دارد؛ اما Scheduler را نباید یک Scheduler کاملاً همزمان با مهاجرت آزاد پردازش‌ها بین تمام CPUها دانست. Work-stealing و مهاجرت امن Task هنوز تکمیل نشده‌اند.
 
-| Subsystem | Status |
+### مدیریت حافظه
+
+| قابلیت | وضعیت |
 |---|:---:|
-| Physical page allocator | ✅ |
-| Paging | ✅ |
-| Kernel heap | ✅ |
-| Per-process address spaces | ✅ |
-| User mappings below 3 GiB | ✅ |
-| Physical-page reference counting | ✅ |
-| Copy-on-write fork support | ✅ |
-| COW write-fault resolution | ✅ |
+| Physical Page Allocator | ✅ |
+| Paging و فضای آدرس مجازی Kernel | ✅ |
+| Kernel Heap | ✅ |
+| Address Space مجزا برای Processها | ✅ |
+| جداسازی User و Kernel | ✅ |
+| شمارش Reference صفحات فیزیکی | ✅ |
+| Copy-on-Write برای fork و رسیدگی به Write Fault | ✅ |
+| پشتیبانی از آدرس‌های فیزیکی بالاتر | 🟡 |
+| NX و کنترل مجوز صفحات | 🟡 |
+| mmap و Anonymous Mapping | ⬜ |
+| Demand Paging و Lazy Allocation | ⬜ |
+| Slab / Object Allocator | ⬜ |
+| Memory Accounting و Guard Pages | ⬜ |
+| Swap و Memory Pressure Management | ⬜ |
 
-### ⚙️ Processes & Scheduling
+### Process، Thread، Scheduler و IPC
 
-| Subsystem | Status |
+| قابلیت | وضعیت |
 |---|:---:|
-| Ring-3 user mode | ✅ |
-| Preemptive scheduling | ✅ |
-| Context switching | ✅ |
-| fork / waitpid / exit status | ✅ |
-| True exec replacement | ✅ |
-| Per-CPU scheduler state | ✅ |
-| Per-CPU process ownership | ✅ |
-| Scheduler work-stealing path | ✅ |
+| اجرای برنامه در Ring 3 | ✅ |
+| Context Switching و Preemptive Scheduling | ✅ |
+| fork / exec / exit / waitpid | ✅ |
+| Kernel Thread و User Thread | ✅ |
+| PID / TID و چرخه عمر Thread | ✅ |
+| زمان‌بندی اولویت‌محور و تعاملی | ✅ |
+| Per-CPU Scheduler State و CPU ownership | ✅ |
+| FPU/SSE Context Switching | ✅ |
+| Pipe و Blocking Pipe I/O | ✅ |
+| Process Group و Session پایه | ✅ |
+| waitpid با WNOHANG / WUNTRACED / WCONTINUED | ✅ |
+| Foreground / Background و Controlling TTY کامل | 🟡 |
+| Signal delivery و handling کامل در User Space | ⬜ |
+| Shared Memory و Unix Domain Socket | ⬜ |
+| مهاجرت امن Task و Load Balancing واقعی | ⬜ |
 
-> **SMP note:** AP bring-up and scheduler foundations are implemented. The normal userspace scheduler is not currently claimed as fully concurrent on physical multicore hardware.
+### Storage، VFS و Filesystem
 
-### 📁 Filesystems & Userland
-
-| Subsystem | Status |
+| قابلیت | وضعیت |
 |---|:---:|
+| VFS و File Descriptorها | ✅ |
 | RAMFS | ✅ |
-| Persistent LionFS | ✅ |
-| VFS abstraction | ✅ |
-| ATA PIO storage | ✅ |
-| POSIX-style file descriptors | ✅ |
-| ELF32/i386 loader | ✅ |
-| Ring-3 ELF processes | ✅ |
-| Userspace libc | ✅ |
-| Multi-program userland build | ✅ |
-| VFS integration test | ✅ |
-| COW integration test | ✅ |
+| LionFS پایدار | ✅ |
+| ATA PIO | ✅ |
+| ELF32 Loader | ✅ |
+| Ext2 Read-only | 🟡 |
+| Directory و عملیات کامل مدیریت فایل در LionFS | ⬜ |
+| Permission / Ownership / Timestamp | ⬜ |
+| Mount / Unmount و Filesystem Driver API کامل | ⬜ |
+| FAT32 | ⬜ |
+| AHCI / SATA | ⬜ |
+| NVMe | ⬜ |
+| Buffer Cache، Journaling و Recovery | ⬜ |
 
-### 🌐 Networking
+### ورودی، USB و Device Drivers
 
-| Subsystem | Status |
+| قابلیت | وضعیت |
+|---|:---:|
+| PS/2 Keyboard و Mouse | ✅ |
+| PCI Device Enumeration پایه | 🟡 |
+| xHCI USB Controller Path | ✅ |
+| USB HID Mouse | ✅ |
+| USB HID Keyboard و HID Report Parsing | 🟡 |
+| USB Composite Device و چند Interface | 🟡 |
+| HID Boot و برخی Non-boot Reportها | 🟡 |
+| Cursor Smoothing | ✅ |
+| Generic Input Event API | ⬜ |
+| I²C-HID برای صفحه‌کلید و تاچ‌پد داخلی لپ‌تاپ | ⬜ |
+| USB Mass Storage و USB Gamepad | ⬜ |
+| Hot-plug عمومی و Device Manager | ⬜ |
+| UHCI / OHCI / EHCI | ⬜ |
+
+**نکته سخت‌افزاری:** بسیاری از لپ‌تاپ‌های جدید صفحه‌کلید و تاچ‌پد داخلی را از طریق I²C-HID ارائه می‌کنند. پشتیبانی PS/2 یا USB HID به معنی پشتیبانی از این دستگاه‌ها نیست. آزمون xHCI در CI با USB مجازی QEMU انجام می‌شود و جایگزین تست روی دستگاه فیزیکی نیست.
+
+### شبکه
+
+| قابلیت | وضعیت |
 |---|:---:|
 | Loopback IPv4 | ✅ |
-| RTL8139 Ethernet | ✅ |
-| ARP / IPv4 / ICMP | ✅ |
-| userspace networking syscalls | ✅ |
-| terminal ping | ✅ |
-| experimental HTTP browser | ✅ |
+| RTL8139 Ethernet | 🟡 |
+| Ethernet TX/RX | 🟡 |
+| ARP / IPv4 / ICMP | 🟡 |
+| Ping در User Space | 🟡 |
+| Network Syscallهای پایه | 🟡 |
+| TCP / UDP و Socket API | ⬜ |
+| DHCP و DNS Resolver | ⬜ |
+| IPv6 و Routing | ⬜ |
+| VirtIO-net و Intel e1000 | ⬜ |
+| ابزارهای پیکربندی و عیب‌یابی شبکه | ⬜ |
 
-### 🎨 Desktop & Input
+### Desktop، GUI و Browser
 
-| Subsystem | Status |
+| قابلیت | وضعیت |
 |---|:---:|
-| VGA console | ✅ |
-| Colorized shell UI | ✅ |
-| Native framebuffer desktop | ✅ |
-| Windows / taskbar / launcher | ✅ |
-| Native framebuffer sizing | ✅ |
-| Software TTY (PS/2 + USB HID bridge; session-scoped standard FDs; blocking stdin) | 🟡 |
-| Ctrl-C routing to the session foreground process group (SIGINT pending) | ✅ |
-| Canonical TTY echo with deferred IRQ-safe output and backspace editing | ✅ |
-| Session-scoped TTY ECHO/ISIG runtime attributes | ✅ |
-| Runtime canonical/noncanonical TTY input mode | ✅ |
-| Noncanonical VMIN byte-threshold reads and live threshold updates | ✅ |
-| Noncanonical VTIME total/inter-byte read timeouts | ✅ |
-| Foreground/background TTY I/O checks with SIGTTIN/SIGTTOU and TOSTOP | 🟡 |
-| waitpid WNOHANG, WUNTRACED and WCONTINUED job-control notifications | ✅ |
-| PS/2 keyboard | ✅ |
-| PS/2 mouse | ✅ |
-| xHCI HID USB mouse path | ✅ |
-| Cursor smoothing | ✅ |
+| VGA Console و Shell | ✅ |
+| Firmware Framebuffer از Multiboot2 | ✅ |
+| Desktop گرافیکی مبتنی بر Framebuffer | ✅ |
+| Window، Taskbar و Launcher پایه | ✅ |
+| Wallpaper و Assetهای گرافیکی | ✅ |
+| Mouse Cursor و تعامل پایه | ✅ |
+| Software Compositor | 🟡 |
+| Window Manager مستقل و کامل | ⬜ |
+| Double / Triple Buffering و Damage Tracking | ⬜ |
+| Clipboard، Notification و چند Workspace | ⬜ |
+| Font Engine و HiDPI | ⬜ |
+| Browser آزمایشی با HTTP روی IPv4 و آدرس عددی | 🟡 |
+| نمایش ساده متن HTML | 🟡 |
+| DNS، HTTPS/TLS، JavaScript و CSS Layout | ⬜ |
+| Image Rendering و Browser Storage | ⬜ |
 
+مرورگر فعلی نمونه‌ای آزمایشی برای اتصال شبکه و نمایش ساده متن است و با مرورگرهای وب مدرن قابل مقایسه نیست.
 
-### 🖥️ Intel Graphics
+### Graphics و GPU
 
-LionOS now has an **Intel graphics bootstrap layer** inspired by the architecture used by Linux's Intel graphics stack. It performs PCI graphics-function discovery, validates the Intel display function, recognizes current Alder Lake display IDs used by the Linux i915 device table, and preserves the firmware framebuffer handoff provided through Multiboot2.
+مسیر نمایش فعلی LionOS از **Firmware Framebuffer** و ترکیب نرم‌افزاری تصویر استفاده می‌کند. لایه شناسایی گرافیک Intel برای آماده‌سازی Driver بومی توسعه یافته است؛ اما شناسایی GPU یا خواندن MMIO به معنی شتاب‌دهی گرافیکی نیست.
 
-This is intentionally **not a copy of Linux's i915 driver**. The LionOS implementation is a small original layer that prepares the platform for a future native Intel display engine.
+| قابلیت | وضعیت |
+|---|:---:|
+| حفظ و استفاده از Multiboot2 Framebuffer | ✅ |
+| Software Compositor پایه | 🟡 |
+| PCI Graphics Device Discovery | ✅ |
+| شناسایی Intel Display Function و Device IDهای پشتیبانی‌شده | ✅ |
+| تشخیص Intel UHD روی سخت‌افزار Alder Lake آزمایش‌شده | ✅ |
+| بررسی اولیه BAR و محدوده MMIO | 🟡 |
+| اعتبارسنجی کامل GGTT / Stolen Memory | ⬜ |
+| Native Intel Display Driver و Mode Setting | ⬜ |
+| Graphics Memory Manager | ⬜ |
+| Hardware Cursor و VBlank | ⬜ |
+| 2D BLT / Fill / Copy Acceleration | ⬜ |
+| GPU Command Submission و Ring Management | ⬜ |
+| اتصال شتاب‌دهی GPU به Compositor | ⬜ |
+| Native Driver برای NVIDIA و AMD | ⬜ |
+| EDID و Multi-display | ⬜ |
 
+**محدودیت مهم:** در این مرحله شتاب‌دهی سخت‌افزاری Intel/NVIDIA/AMD فعال نیست و GPU Command Submission انجام نمی‌شود. مسیر Framebuffer نرم‌افزاری باید تا زمان اعتبارسنجی کامل Driver حفظ شود.
 
----
+### Userland و ابزارها
 
-## 🏗️ Architecture
-
-```text
-                         ┌──────────────────────────┐
-                         │       GRUB / BIOS        │
-                         │        Multiboot2        │
-                         └────────────┬─────────────┘
-                                      │
-                                      ▼
-                    ┌─────────────────────────────────┐
-                    │          LIONOS KERNEL          │
-                    │                                 │
-                    │ GDT • IDT • TSS • SMP • APIC   │
-                    │ Memory • Paging • COW          │
-                    │ Scheduler • Syscalls • VFS    │
-                    │ Drivers • Networking • GUI     │
-                    └───────────────┬─────────────────┘
-                                    │
-                     ┌──────────────┴──────────────┐
-                     ▼                             ▼
-             ┌───────────────┐             ┌───────────────┐
-             │  RING-3 APPS  │             │    HARDWARE   │
-             │ ELF • libc    │             │ ATA • NIC     │
-             │ VFS syscalls  │             │ PS/2 • xHCI   │
-             └───────────────┘             └───────────────┘
-```
-
-### 🧱 Kernel layers
-
-```text
-Boot
- ↓
-CPU + Interrupts
- ↓
-Physical Memory + Paging
- ↓
-Processes + Scheduler
- ↓
-Syscalls + UAPI
- ↓
-VFS + Filesystems
- ↓
-Drivers + Networking
- ↓
-Framebuffer GUI + Userland
-```
+| قابلیت | وضعیت |
+|---|:---:|
+| ELF32 User Program و User API | ✅ |
+| libc پایه و تخصیص حافظه User Space | 🟡 |
+| echo / cat / ls / pwd / uname | ✅ |
+| rm / stat / grep / find / cp / mv | ✅ |
+| ping و تست‌های VFS / COW | 🟡 |
+| TTY با ورودی Blocking و حالت Canonical / Noncanonical | 🟡 |
+| Shell Job Control کامل | ⬜ |
+| mkdir / rmdir / chmod / chown | ⬜ |
+| Process Monitor و System Monitor کامل | ⬜ |
+| Package Manager و Application Format | ⬜ |
+| Init و Service Manager | ⬜ |
+| ابزارهای Debugging بومی | ⬜ |
 
 ---
 
-## 📦 Project Structure
+## معماری
+
+```text
+                    GRUB / Multiboot2
+                           |
+                           v
+                  +-------------------+
+                  |    LIONOS KERNEL |
+                  |-------------------|
+                  | CPU / Interrupts  |
+                  | SMP / Scheduler  |
+                  | Memory / Paging  |
+                  | Syscalls / UAPI  |
+                  | VFS / Filesystems |
+                  | Drivers / Network|
+                  | Framebuffer GUI  |
+                  +---------+---------+
+                            |
+                 +----------+----------+
+                 |                     |
+                 v                     v
+          +-------------+       +--------------+
+          | RING-3 APPS |       |   HARDWARE   |
+          | ELF32 / libc|       | ATA / RTL8139|
+          | VFS / Syscall|      | PS/2 / xHCI  |
+          +-------------+       +--------------+
+```
+
+### ساختار مخزن
 
 ```text
 LionOS/
-├── boot/                 # Boot code and Multiboot2 entry
-├── include/              # Kernel headers and UAPI
-├── src/                  # Kernel, drivers, VFS, GUI, SMP
-├── user/                 # Ring-3 programs, libc, tests
-├── assets/
-│   ├── boot/             # Boot splash artwork
-│   ├── branding/         # LionOS logo, emblem and wordmark
-│   ├── icons/            # Application, desktop, file-type and system icons
-│   └── wallpapers/       # Default, minimal and sunrise backgrounds
-├── scripts/              # Automated test scripts
-├── docs/                 # Design and feature documentation
-├── .github/workflows/    # GitHub Actions CI
-├── Makefile              # Build / ISO / disk / USB / test
-├── LICENSE
+├── boot/                 # Multiboot2 و کد راه‌اندازی
+├── include/              # Headerهای Kernel و UAPI
+├── src/                  # Kernel، Driverها، VFS، GUI و SMP
+├── user/                 # برنامه‌ها، libc و تست‌های User Space
+├── assets/               # لوگو، آیکون‌ها و Wallpaperها
+├── docs/                 # مستندات فنی و طراحی
+├── scripts/              # اسکریپت‌های Build و Test
+├── tests/                # تست‌های مستقل
+├── .github/workflows/    # GitHub Actions
+├── Makefile
+├── linker.ld
 └── README.md
 ```
 
-Boot splash art, branding, application/file-type icons, and wallpapers are now built from `assets/`. Open **Settings** in the desktop to switch between the default, minimal, and sunrise wallpapers.
+## پیش‌نیازها
 
----
+- سیستم میزبان Linux
+- GCC با پشتیبانی از خروجی ۳۲ بیتی
+- NASM، GNU Make و Binutils
+- GRUB tooling و xorriso برای ساخت ISO
+- QEMU برای اجرا و تست
 
-## 🚀 Build & Run
+LionOS یک Kernel از نوع freestanding است و به Runtime سیستم‌عامل میزبان وابسته نیست.
 
-LionOS uses a **freestanding 32-bit Linux toolchain** with NASM and GCC.
-
-### Clone
+## ساخت و اجرا
 
 ```bash
 git clone https://github.com/AngmarX-dev/LionOS.git
 cd LionOS
-```
 
-### Build
-
-```bash
 make
 make userland
 make iso
 make disk
 ```
 
-### Run in QEMU
+اجرای QEMU:
 
 ```bash
 make run
 ```
 
-For a normal QEMU window:
+برای اجرای QEMU در پنجره عادی:
 
 ```bash
 LIONOS_QEMU_FULLSCREEN=0 make run
 ```
 
-The graphical desktop uses the **real framebuffer dimensions supplied through Multiboot2** instead of forcing a fixed 1920×1080 mode.
-
----
-
-## 🧪 Testing
-
-LionOS has automated validation through **GitHub Actions** plus the local stability suite.
+اجرای تست‌ها:
 
 ```bash
 make test
 ```
 
-The test pipeline covers:
+در صورت تفاوت Targetها، Makefile مرجع نهایی دستورات ساخت است.
 
-- Multiboot2 and ELF32 validation
-- kernel and userspace rebuilds
-- ISO generation
-- QEMU boot and SMP configuration
-- persistent-storage reboot checks
-- VFS/userspace integration
-- COW fork/write integration
-- GUI smoke testing
-- xHCI USB mouse testing in QEMU
+## آزمون‌ها و اعتبارسنجی
 
-> 🖱️ **Hardware note:** the CI xHCI test uses a QEMU virtual USB mouse. Continuous movement with a real physical USB mouse still requires testing on the target machine.
+آزمون‌های پروژه در چند سطح انجام می‌شوند:
 
----
+- Build کردن Kernel و Userland
+- اعتبارسنجی Multiboot2 و ELF32
+- ساخت ISO و Disk Image
+- Boot و Smoke Test در QEMU
+- تست‌های حافظه، VFS و Copy-on-Write
+- بررسی Persistence پس از راه‌اندازی مجدد
+- آزمون SMP در پیکربندی‌های چند CPU
+- تست xHCI USB Mouse در QEMU
 
-## 💻 Userland
+موفقیت QEMU/CI عملکرد روی تمام BIOSها، چیپ‌ست‌ها، کنترلرهای USB، GPUها یا لپ‌تاپ‌ها را تضمین نمی‌کند. تست فیزیکی برای هر خانواده سخت‌افزاری لازم است.
 
-Example programs include:
+## ساخت Live USB
 
-```text
-echo.elf
-cat.elf
-ls.elf
-pwd.elf
-uname.elf
-rm.elf
-stat.elf
-vfs_test.elf
-cow_test.elf
-```
-
-The kernel exposes a small userspace API through **include/uapi.h** and **include/user_api.h**.
-
----
-
-## 🗂️ Storage Stack
-
-```text
-                    USERSPACE
-                        │
-                        ▼
-                     ┌─────┐
-                     │ VFS │
-                     └──┬──┘
-                        │
-                 ┌──────┴──────┐
-                 ▼             ▼
-               RAMFS         LionFS
-                                │
-                                ▼
-                             ATA PIO
-                                │
-                                ▼
-                           Disk Image
-```
-
----
-
-## 🌐 LionOS Browser
-
-The graphical desktop includes an experimental native browser.
-
-Current scope:
-
-```text
-✅ HTTP over IPv4
-✅ Numeric-address URLs
-✅ Native framebuffer URL bar
-✅ Keyboard and mouse controls
-✅ Basic HTML-tag stripping
-
-❌ DNS
-❌ HTTPS / TLS
-❌ JavaScript
-❌ CSS layout
-❌ Image rendering
-❌ Cookies
-❌ Persistent browser storage
-```
-
-Example URL:
-
-```text
-http://10.0.2.2/
-```
-
----
-
-## 💾 Live USB
-
-Create the raw USB image with:
+ابتدا Image را بسازید:
 
 ```bash
 make clean
 make usb
 ```
 
-Check the correct device first:
+دستگاه USB را شناسایی کنید:
 
 ```bash
 lsblk
 ```
 
-Then write the image to the **whole USB device**, not a partition:
+سپس Image را روی کل دستگاه USB بنویسید، نه پارتیشن آن:
 
 ```bash
 sudo umount /dev/sdX* 2>/dev/null || true
@@ -376,414 +350,161 @@ sudo dd if=build/lionos-usb.img of=/dev/sdX bs=4M status=progress conv=fsync
 sync
 ```
 
-> ⚠️ **Warning:** dd erases the selected device. Verify the device name with lsblk before writing.
+> **هشدار:** دستور dd تمام داده‌های دستگاه مقصد را حذف می‌کند. پیش از اجرا نام دیسک را با lsblk چند بار بررسی کنید.
 
 ---
 
-## 🔐 Security Model
+## مدل امنیتی و محدودیت‌ها
 
-LionOS treats Ring-3 userspace as **untrusted code**.
+LionOS برای اجرای کد User Space از Ring 3 و بررسی ورودی‌های System Call استفاده می‌کند. کنترل محدوده حافظه User، اعتبارسنجی داده‌های ورودی و محدودیت دسترسی به برخی عملیات پیاده‌سازی شده یا در حال توسعه‌اند.
 
-Current protection layers include:
-
-- user address/range validation at syscall boundaries
-- bounded userspace strings and I/O copies
-- ownership-aware process-control operations
-- supervisor-only kernel mappings
-- capability checks for major syscall groups
-- ELF structure and load-range validation
-
-> This is an educational isolation layer, not a production security boundary.
+با این حال، پروژه هنوز ممیزی امنیتی مستقل، مدل کامل User/Group و Permission، ASLR، محافظت جامع در برابر آسیب‌پذیری‌های Kernel یا تضمین امنیت در برابر کد مخرب ندارد. بنابراین برای داده‌های حساس یا محیط عملیاتی مناسب نیست.
 
 ---
 
-## 🧩 Development Milestones
+## نقشه‌راه
 
-| Milestone | Status |
-|---|:---:|
-| Phase 22 — SMP Bring-Up | ✅ |
-| Phase 23 — Stability & Persistence | ✅ |
-| Phase 25/26 — Graphical UI | ✅ |
+ترتیب زیر اولویت مهندسی مراحل باقی‌مانده را نشان می‌دهد؛ این فهرست تعهد زمانی یا تضمین نسخه انتشار نیست.
 
-### Phase 22 — SMP
+### مرحله A — تثبیت Kernel و SMP
 
-Includes ACPI MADT enumeration, local APIC setup, AP startup, INIT-SIPI-SIPI delivery, AP online handshaking, per-CPU TSS/IDT initialization, LAPIC timer infrastructure, and initial synchronization primitives.
+- ⬜ تکمیل آزمون‌های Stress برای SMP و Synchronization
+- ⬜ طراحی Run Queue مستقل برای هر CPU با مالکیت و قفل‌گذاری روشن
+- ⬜ پیاده‌سازی مهاجرت امن Task و Work-stealing پس از آماده‌شدن زیرساخت
+- ⬜ تکمیل Interrupt Routing و آمار Per-CPU
+- ⬜ بررسی Lazy FPU در کنار مسیر فعلی FPU/SSE
+- ⬜ تست طولانی‌مدت Context Switch، Timer و Process Lifecycle
 
-### Phase 23 — Stability
+### مرحله B — حافظه و قابلیت اطمینان
 
-The release-baseline suite validates clean builds, ELF32 userspace, ISO generation, first boot, persistence initialization, second boot recovery, and required boot markers.
+- ⬜ تکمیل مدیریت صفحات در تمام محدوده‌های پشتیبانی‌شده
+- ⬜ mmap و Anonymous Mapping
+- ⬜ Demand Paging و Lazy Allocation
+- ⬜ Slab / Object Allocator
+- ⬜ Guard Page و Memory Accounting
+- ⬜ تست فشار حافظه و بازیابی از خطا
+- ⬜ طراحی Swap در صورت نیاز معماری
 
-### Phase 25/26 — UI
+### مرحله C — Driver و ورودی
 
-Adds a framebuffer desktop, native framebuffer sizing, graphical windows, taskbar, launcher, shell handoff, and mouse-driven interaction.
+- ⬜ Generic Device Model و Driver Registration API
+- ⬜ تکمیل PCI Capability و BAR Resource Management
+- ⬜ Generic Input Event Subsystem
+- ⬜ I²C و I²C-HID برای سخت‌افزارهای جدید
+- ⬜ تکمیل USB HID و تست روی چند کنترلر واقعی
+- ⬜ USB Mass Storage
+- ⬜ Hot-plug و مدیریت چرخه عمر Device
 
----
+### مرحله D — Storage و Filesystem
 
-## 🤖 AI-Assisted Development
+- ⬜ تکمیل Directoryها و عملیات فایل LionFS
+- ⬜ Permission، Ownership و Timestamp
+- ⬜ Mount / Unmount و Filesystem Interface
+- ⬜ FAT32 و بهبود Ext2
+- ⬜ AHCI و سپس NVMe
+- ⬜ Buffer Cache و Disk Cache
+- ⬜ Journaling یا سازوکار Recovery مناسب
+- ⬜ ابزار Filesystem Check و تست قطع ناگهانی برق
 
-LionOS uses extensive AI assistance during:
+### مرحله E — Networking
 
-```text
-Architecture
-    ↓
-Implementation
-    ↓
-Debugging
-    ↓
-Testing
-    ↓
-Documentation
-    ↓
-Iteration
-```
+- ⬜ تکمیل و سخت‌سازی RTL8139
+- ⬜ UDP و TCP
+- ⬜ Socket API
+- ⬜ DHCP و DNS
+- ⬜ Network Interface Abstraction
+- ⬜ VirtIO-net و e1000
+- ⬜ IPv6 و Routing
+- ⬜ Packet Diagnostics و تست پایداری شبکه
 
-The repository keeps the low-level source, tests, and engineering history visible so the project can be studied and reproduced.
+### مرحله F — Graphics Engine
 
----
+- ⬜ تکمیل تشخیص CPU/GPU و قابلیت‌ها بدون وابستگی به یک مدل خاص
+- ⬜ اعتبارسنجی BAR، MMIO، MTRR و PAT
+- ⬜ شناسایی مالکیت و محدوده GGTT و Stolen Memory
+- ⬜ مدیریت امن Graphics Memory
+- ⬜ پیاده‌سازی عملیات 2D محدود و قابل‌آزمون (Fill / Copy / BLT)
+- ⬜ طراحی Command Submission پس از اثبات صحت Memory و Engine State
+- ⬜ اتصال شتاب‌دهی به Compositor همراه Software Fallback
+- ⬜ پشتیبانی Native از Intel GPUهای بیشتر
+- ⬜ بررسی معماری Driver برای AMD و NVIDIA
+- ⬜ EDID، Mode Setting، VBlank و Multi-display
 
-## 🗺️ Future Roadmap
+**اصل ایمنی Graphics:** تا وقتی مالکیت حافظه گرافیکی، نوع Cache، آدرس‌دهی و وضعیت Engine اثبات نشده، نباید GGTT یا Ring Buffer دستکاری شود یا فرمان GPU ارسال گردد. Software Framebuffer باید مسیر پشتیبان باقی بماند.
 
-LionOS is intentionally being developed in layers. The roadmap below tracks remaining work after the scheduler, diagnostics, SIMD, SMP, thread, and IPC foundations now implemented.
+### مرحله G — Desktop و User Experience
 
-### 🧠 Kernel & CPU
+- ⬜ Window Manager مستقل
+- ⬜ Compositor با Double / Triple Buffering
+- ⬜ Damage Tracking و مدیریت Z-order
+- ⬜ Widget Toolkit و Text Input
+- ⬜ Clipboard، Notification و Dialog
+- ⬜ Workspace و Session Manager
+- ⬜ Font Rendering و HiDPI
+- ⬜ Accessibility و مدیریت ورودی چند دستگاه
 
-| Planned feature | Status |
-|---|:---:|
-| Kernel panic / crash dump framework | ✅ |
-| Structured kernel logging levels | ✅ |
-| Runtime kernel diagnostics report | ✅ |
-| Better APIC / interrupt routing | ⬜ |
-| Per-CPU interrupt statistics | ✅ |
-| CPU feature management (SSE/AVX detection) | ✅ |
-| FPU/SSE context switching | ✅ |
-| Lazy FPU state management | ⬜ |
-| Kernel preemption improvements | ✅ |
-| Priority-aware scheduling | ✅ |
-| MLFQ-style interactive scheduling | ✅ |
-| Scheduler load balancing | ✅ |
-| Per-CPU run queues | ✅ |
-| More robust SMP synchronization | ✅ |
+### مرحله H — Userland و ابزارهای توسعه
 
-### ⚙️ Processes, Threads & IPC
+- ⬜ تکمیل libc و قراردادهای استاندارد فایل
+- ⬜ Shell Job Control و Redirection
+- ⬜ Signal API کامل
+- ⬜ ابزارهای مدیریت فایل و Permission
+- ⬜ Process Monitor و System Monitor
+- ⬜ Editor و ابزارهای Debugging
+- ⬜ Package Manager و Application Format
+- ⬜ Init و Service Manager
 
-| Planned feature | Status |
-|---|:---:|
-| Kernel threads | ✅ |
-| User threads | ✅ |
-| Thread IDs / thread lifecycle | ✅ |
-| Generic sleep(channel) / wakeup(channel) API expansion | ✅ |
-| Blocking keyboard reads (legacy input queue) | ⬜ |
-| Blocking canonical TTY stdin reads | ✅ |
-| Blocking pipe reads/writes | ✅ |
-| Blocking filesystem operations | ⬜ |
-| Process groups (PGID inheritance, setpgid, and group signals) | ✅ |
-| waitpid WNOHANG / WUNTRACED / WCONTINUED job-control event reporting | ✅ |
-| Sessions (SID inheritance, setsid, getsid) | ✅ |
-| Controlling terminal / foreground-background jobs | 🟡 |
-| Foreground/background jobs | ⬜ |
-| Full signal delivery and handling | ⬜ |
-| Signal-safe process termination | ⬜ |
-| Shared memory IPC | ⬜ |
-| Pipes | ✅ |
-| Named pipes | ⬜ |
-| Unix-style sockets | ⬜ |
+### مرحله I — Browser و برنامه‌های شبکه‌ای
 
-### 🧮 Memory Management
+- ⬜ HTTP کامل‌تر شامل Header، Redirect و Chunked Transfer
+- ⬜ DNS و HTTPS/TLS
+- ⬜ HTML Parser و Document Tree
+- ⬜ CSS Parser و Layout Engine
+- ⬜ Image Decoder و Font Integration
+- ⬜ Browser Storage، Cookie و Download
+- ⬜ بررسی JavaScript Engine در مرحله‌ای مستقل
 
-| Planned feature | Status |
-|---|:---:|
-| mmap-style virtual memory API | ⬜ |
-| Demand paging | ⬜ |
-| Page-fault driven lazy allocation | ⬜ |
-| Anonymous memory mappings | ⬜ |
-| Shared memory mappings | ⬜ |
-| Guard pages | ⬜ |
-| User/kernel memory accounting | ⬜ |
-| Slab / object allocator | ⬜ |
-| Per-CPU allocation caches | ⬜ |
-| Memory pressure diagnostics | ⬜ |
-| Swap / paging-to-disk architecture | ⬜ |
+### مرحله J — Security و Release Engineering
 
-### 🖱️ Input & Device Drivers
-
-| Planned feature | Status |
-|---|:---:|
-| Generic input-event subsystem | ⬜ |
-| Blocking mouse event reads | ✅ |
-| Blocking keyboard event reads | ⬜ |
-| Keyboard key-event API beyond ASCII | ⬜ |
-| Extended PS/2 keys (arrows/Home/End/Delete) | ⬜ |
-| Mouse wheel support | ⬜ |
-| Mouse extra buttons | ⬜ |
-| Multi-device input routing | ⬜ |
-| Device manager | ⬜ |
-| PCI device enumeration framework | ⬜ |
-| Generic driver registration API | ⬜ |
-| /dev device filesystem | ⬜ |
-| USB HID keyboard | ⬜ |
-| USB HID gamepad | ⬜ |
-| USB mass-storage support | ⬜ |
-| UHCI/OHCI/EHCI support | ⬜ |
-| More complete xHCI framework | ⬜ |
-| Hot-plug device detection | ⬜ |
-
-### 💽 Storage & Filesystems
-
-| Planned feature | Status |
-|---|:---:|
-| LionFS directories | ⬜ |
-| Directory creation/removal syscalls | ⬜ |
-| File permissions and ownership | ⬜ |
-| File timestamps | ⬜ |
-| Symbolic links | ⬜ |
-| Hard links | ⬜ |
-| File locking | ⬜ |
-| Mount/unmount framework | ⬜ |
-| Filesystem driver interface | ⬜ |
-| Read-only filesystem support | ⬜ |
-| ext2 read support | ⬜ |
-| FAT32 support | ⬜ |
-| Improved ATA driver | ⬜ |
-| AHCI/SATA support | ⬜ |
-| NVMe driver | ⬜ |
-| Disk cache / buffer cache | ⬜ |
-| Journaling for persistent storage | ⬜ |
-| Filesystem consistency checker | ⬜ |
-
-### 🌐 Networking
-
-| Planned feature | Status |
-|---|:---:|
-| UDP | ⬜ |
-| TCP | ⬜ |
-| Socket API | ⬜ |
-| DNS resolver | ⬜ |
-| DHCP client | ⬜ |
-| Routing table | ⬜ |
-| Network interface abstraction | ⬜ |
-| Ethernet driver framework | ⬜ |
-| VirtIO-net driver | ⬜ |
-| e1000 driver | ⬜ |
-| IPv6 | ⬜ |
-| TCP retransmission/congestion control | ⬜ |
-| Loopback socket support | ⬜ |
-| Network configuration commands | ⬜ |
-| Packet tracing / diagnostics | ⬜ |
-
-### 🌍 Browser
-
-| Planned feature | Status |
-|---|:---:|
-| DNS URL resolution | ⬜ |
-| HTTPS / TLS | ⬜ |
-| HTTP headers | ⬜ |
-| HTTP redirects | ⬜ |
-| Chunked transfer decoding | ⬜ |
-| HTML parser | ⬜ |
-| Proper document tree | ⬜ |
-| CSS parser | ⬜ |
-| CSS layout engine | ⬜ |
-| Image decoding | ⬜ |
-| Font rendering improvements | ⬜ |
-| Tabs | ⬜ |
-| Bookmarks | ⬜ |
-| Downloads | ⬜ |
-| Browser cache | ⬜ |
-| Cookies/storage | ⬜ |
-| JavaScript engine integration | ⬜ |
-
-### 🎨 Desktop & Window System
-
-| Planned feature | Status |
-|---|:---:|
-| Unified window-manager subsystem | ⬜ |
-| Compositor architecture | ⬜ |
-| Double/triple buffering | ⬜ |
-| Damage tracking improvements | ⬜ |
-| Window resize handles | ⬜ |
-| Window snapping | ⬜ |
-| Window z-order management | ⬜ |
-| Desktop notifications | ⬜ |
-| Context menus | ⬜ |
-| Modal dialogs | ⬜ |
-| Menus / menu bars | ⬜ |
-| Scrollable widgets | ⬜ |
-| Text input widget | ⬜ |
-| Checkbox/radio controls | ⬜ |
-| Clipboard | ⬜ |
-| Drag-and-drop framework | ⬜ |
-| Multiple workspaces | ⬜ |
-| Lock screen | ⬜ |
-| Login/session manager | ⬜ |
-| Theme engine | ⬜ |
-| Font scaling / HiDPI support | ⬜ |
-| Accessibility APIs | ⬜ |
-
-### 🖼️ Graphics
-
-| Planned feature | Status |
-|---|:---:|
-| Native Intel display engine | ⬜ |
-| Display mode setting | ⬜ |
-| Hardware cursor | ⬜ |
-| Multiple display support | ⬜ |
-| EDID parsing | ⬜ |
-| VBlank synchronization | ⬜ |
-| Graphics memory management | ⬜ |
-| 2D acceleration | ⬜ |
-| GPU command submission foundation | ⬜ |
-| Basic software rasterizer | ⬜ |
-| Sprite/image compositing | ⬜ |
-| PNG/BMP image decoding | ⬜ |
-| Better font rasterization | ⬜ |
-
-### 🧰 Userland & POSIX-like Environment
-
-| Planned feature | Status |
-|---|:---:|
-| More complete libc | ✅ |
-| printf family | ✅ |
-| Dynamic memory allocation | ✅ |
-| Environment variables | ✅ |
-| argv / argc conventions | ✅ |
-| Standard streams | ⬜ |
-| File descriptor inheritance | ✅ |
-| Pipes / redirection | ⬜ |
-| Shell job control | ⬜ |
-| env command | ✅ |
-| grep | ✅ |
-| find | ✅ |
-| cp / mv | ✅ |
-| mkdir / rmdir | ⬜ |
-| chmod / chown | ⬜ |
-| ps improvements | ⬜ |
-| top-style system monitor | ⬜ |
-| Text editor improvements | ⬜ |
-| Package/application format | ⬜ |
-| Init/system service manager | ⬜ |
-
-### 🔐 Security & Reliability
-
-| Planned feature | Status |
-|---|:---:|
-| User/group identity model | ⬜ |
-| Permission enforcement in VFS | ⬜ |
-| Capability refinement | ⬜ |
-| Kernel stack protection | ⬜ |
-| User stack guard pages | ⬜ |
-| ASLR research implementation | ⬜ |
-| NX / executable-page policy | ⬜ |
-| Syscall audit logging | ⬜ |
-| Secure process-exec checks | ⬜ |
-| Random number generator | ⬜ |
-| Entropy collection | ⬜ |
-| Secure boot research path | ⬜ |
-| Watchdog / hang detection | ⬜ |
-| Crash recovery diagnostics | ⬜ |
-| Fuzz testing for parsers | ⬜ |
-
-### 🧪 Testing & Developer Tools
-
-| Planned feature | Status |
-|---|:---:|
-| More QEMU hardware profiles | ⬜ |
-| Automated keyboard CI tests | ⬜ |
-| Automated mouse CI tests | ✅ |
-| Automated filesystem corruption tests | ⬜ |
-| Automated process/scheduler tests | ⬜ |
-| Automated syscall ABI tests | ⬜ |
-| Memory allocator stress tests | ⬜ |
-| SMP stress tests | ⬜ |
-| Network integration tests | ⬜ |
-| Browser protocol tests | ⬜ |
-| Kernel unit-test harness | ⬜ |
-| Kernel tracing framework | ⬜ |
-| Serial console diagnostics | ⬜ |
-| GDB remote debugging | ⬜ |
-| QEMU monitor integration | ⬜ |
-| Deterministic boot test mode | ⬜ |
-| Performance benchmarks | ⬜ |
-| Boot-time subsystem timing | ⬜ |
-
-### 🏗️ Build, Release & Project Infrastructure
-
-| Planned feature | Status |
-|---|:---:|
-| Reproducible builds | ⬜ |
-| Versioned kernel ABI | ⬜ |
-| Release artifacts on GitHub | ⬜ |
-| Automated ISO releases | ⬜ |
-| Automated USB image releases | ⬜ |
-| Nightly CI | ⬜ |
-| Hardware compatibility matrix | ⬜ |
-| Documentation site | ⬜ |
-| Developer setup script | ⬜ |
-| Cross-compiler bootstrap script | ⬜ |
-| Coding/style checks in CI | ⬜ |
-| Static analysis in CI | ⬜ |
-| Sanitizer-assisted host tests | ⬜ |
-| Architecture decision records | ⬜ |
-
-### 🦁 Long-Term LionOS Goals
-
-The long-term direction is to evolve LionOS from a small experimental kernel into a coherent, self-hosted operating-system environment:
-
-```text
-Bootloader
-    ↓
-Kernel + Drivers
-    ↓
-Virtual Memory + Scheduler
-    ↓
-Syscalls + IPC
-    ↓
-VFS + Storage
-    ↓
-Networking
-    ↓
-Graphics + Window System
-    ↓
-libc + Shell + Applications
-    ↓
-Self-hosted LionOS development environment
-```
-
-Possible long-term milestones:
-
-- ⬜ Boot LionOS on a wider range of real x86 hardware
-- ⬜ Native USB keyboard and storage
-- ⬜ Native Intel graphics modesetting
-- ⬜ Full TCP/IP socket layer
-- ⬜ Persistent multi-user filesystem
-- ⬜ Complete desktop session manager
-- ⬜ Native development tools
-- ⬜ Self-hosted compiler/toolchain research
-- ⬜ More complete POSIX-like userspace
-- ⬜ Stronger real-hardware test coverage
----
-
-## ⚠️ Status
-
-LionOS is an **experimental operating system** intended for learning, kernel development, experimentation, and architecture exploration.
-
-Subsystems are intentionally small and incomplete in places. Automated QEMU validation and real-hardware validation are treated as separate stages.
+- ⬜ User / Group و Permission Enforcement
+- ⬜ Capability Model دقیق‌تر
+- ⬜ Kernel Stack و User Stack Protection
+- ⬜ ASLR و Hardening
+- ⬜ Fuzzing برای Parserها و System Callها
+- ⬜ تست‌های طولانی‌مدت و Regression در چند پیکربندی QEMU
+- ⬜ ماتریس تست سخت‌افزار فیزیکی
+- ⬜ Release Artifact قابل تکرار و نسخه‌بندی‌شده
+- ⬜ مستندات توسعه Driver و Kernel
+- ⬜ بررسی امکان Self-hosting در آینده
 
 ---
 
-## 📜 License
+## اهداف بلندمدت
 
-Released under the **MIT License**.
+1. Kernel قابل‌اعتماد با مدیریت حافظه و Process مستقل.
+2. Scheduler چندپردازنده‌ای با Synchronization و Migration امن.
+3. Driver Model قابل‌گسترش برای سخت‌افزارهای متنوع.
+4. Filesystem پایدار و پشتیبانی از Storage مدرن.
+5. شبکه کامل با TCP/IP و ابزارهای User Space.
+6. Desktop مستقل با Compositor و شتاب‌دهی در سخت‌افزارهای پشتیبانی‌شده.
+7. محیط برنامه‌نویسی و ابزارهای توسعه بومی.
+8. مدل امنیتی مستند، آزمون‌پذیر و قابل ممیزی.
 
-See [LICENSE](LICENSE).
+این اهداف بلندمدت هستند و نباید با قابلیت‌های فعلی اشتباه گرفته شوند.
 
----
+## وضعیت فعلی پروژه
 
-<p align="center">
-  <strong>🦁 LionOS</strong><br>
-  <sub>Build low-level. Learn deeply. Ship the kernel.</sub>
-</p>
+- معماری پایه Kernel، User Space، VFS، ورودی، شبکه آزمایشی و Desktop در مخزن وجود دارد.
+- مسیر نمایش فعلی Framebuffer و Software Compositor است.
+- Intel GPU در سطح PCI/Bootstrap شناسایی می‌شود؛ Native Acceleration هنوز پیاده‌سازی نشده است.
+- SMP bring-up در QEMU آزمون شده؛ مهاجرت آزاد Task بین CPUها تکمیل نشده است.
+- اجرای فیزیکی روی دستگاه‌های متنوع همچنان به آزمون سخت‌افزاری نیاز دارد.
+- پروژه برای توسعه و آزمایش است و هنوز نسخه پایدار روزمره محسوب نمی‌شود.
 
-> CI verification: Kernel/CPU plus Processes/Threads/IPC foundations are validated through the full build/test pipeline.
+## مشارکت
 
+برای پیشنهاد قابلیت، گزارش خطا یا مشارکت در توسعه، از GitHub Issues و Pull Requests استفاده کنید. هر تغییر Kernel باید همراه با توضیح محدودیت‌ها، تست‌های مرتبط و بررسی اثر آن بر زیرسیستم‌های موجود باشد.
 
-CI verification marker: kernel audit validation.
+## مجوز
+
+این پروژه تحت مجوز MIT منتشر شده است. برای جزئیات، فایل [LICENSE](LICENSE) را ببینید.
