@@ -18,6 +18,8 @@
 #if PROCESS_PRIORITY_LEVELS != LIONOS_RUNQUEUE_PRIORITY_LEVELS
 #error "process and runqueue priority levels must match"
 #endif
+_Static_assert(LIONOS_PROCESS_MAX >= LIONOS_MAX_CPUS,
+               "AP lifecycle probe requires one non-bootstrap slot per CPU");
 extern void lionos_kernel_idle(void);
 
 #define PROCESS_WAIT_ANY 0u
