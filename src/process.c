@@ -1725,12 +1725,53 @@ uint32_t *process_schedule(uint32_t *frame){
     /* Do not let a timer interrupt spin behind another CPU. Linux keeps\n     * scheduler critical sections CPU-local; until LionOS has independent\n     * runqueue locks, dropping a contended tick is preferable to stalling\n     * the CPU in an IRQ-disabled spin loop. */
     uint32_t flags;
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
+    uint32_t cpu=cpu_current_index();
+    if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
+    struct process *contended_prev=current_local();
     if(!spinlock_try_acquire(&process_lock)){
+        /*
+         * A contended timer tick may be dropped for a runnable task, but a
+         * blocked/stopped/zombie task must never be returned to user mode.
+         * Switch it to the CPU-local bootstrap/idle context without touching
+         * the contended global process lock.
+         */
+        if(contended_prev&&
+           __atomic_load_n(&contended_prev->state,__ATOMIC_ACQUIRE)!=PROCESS_RUNNING){
+            contended_prev->saved_frame=(uint32_t)(uintptr_t)frame;
+            if(cpu==0u){
+                struct process *bootstrap=&processes[0];
+                fpu_save(contended_prev);
+                fpu_restore(bootstrap);
+                set_current_local(bootstrap);
+                bootstrap->cpu_owner=0u;
+                bootstrap->state=PROCESS_RUNNING;
+                paging_switch_address_space(bootstrap->page_directory);
+                tss_set_kernel_stack(bootstrap->kernel_stack_top);
+                uint32_t *bootstrap_frame=process_saved_frame(bootstrap);
+                __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
+                return bootstrap_frame?bootstrap_frame:frame;
+            }
+            struct process *idle=
+                (scheduler_idle_ready_mask&(1u<<cpu))?
+                &scheduler_idle_processes[cpu]:0;
+            if(idle&&idle->saved_frame){
+                fpu_save(contended_prev);
+                fpu_restore(idle);
+                idle->state=PROCESS_RUNNING;
+                set_current_local(idle);
+                paging_switch_address_space(idle->page_directory);
+                tss_set_kernel_stack(idle->kernel_stack_top);
+                scheduler_note_idle_entry(cpu);
+                uint32_t *idle_frame=process_saved_frame(idle);
+                __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
+                return idle_frame;
+            }
+            debug_write("LIONOS:SCHEDULER-CONTENDED-NO-IDLE\\n");
+            for(;;)__asm__ volatile("cli; hlt");
+        }
         __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
         return frame;
     }
-    uint32_t cpu=cpu_current_index();
-    if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
     ++sc->schedule_count;
     struct process*prev=current_local();
