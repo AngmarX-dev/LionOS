@@ -541,7 +541,11 @@ struct process *process_create_ex_vas(uint32_t entry,uint32_t stack,uint32_t pd,
     flags=spinlock_irqsave_acquire(&process_lock);
     if(p->state==PROCESS_STOPPED&&!p->stop_event_pending&&
        process_transition_state_locked(p,PROCESS_READY)!=0){
-        (void)process_transition_state_locked(p,PROCESS_ZOMBIE);
+        spinlock_irqrestore_release(&process_lock,flags);
+        vfs_close_all_process(p);
+        flags=spinlock_irqsave_acquire(&process_lock);
+        if(p->state==PROCESS_STOPPED)
+            (void)process_transition_state_locked(p,PROCESS_ZOMBIE);
         reap_process(p);
         spinlock_irqrestore_release(&process_lock,flags);
         return 0;
@@ -641,6 +645,8 @@ uint32_t process_fork_current(uint32_t *parent_frame){
            process_transition_state_locked(slot,PROCESS_READY)!=0){
             (void)process_transition_state_locked(slot,PROCESS_ZOMBIE);
             spinlock_irqrestore_release(&process_lock,cleanup_flags);
+            pipe_close_all(slot);
+            vfs_close_all_process(slot);
             (void)process_reap_pid(result);
             return PROCESS_SYSCALL_ERR;
         }
