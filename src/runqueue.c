@@ -223,10 +223,10 @@ int runqueue_validate_locked(const struct runqueue *queue,
                 node->queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
                 return -1;
         } else if (node->queued != 1u ||
-                   node->queue_cpu != queue->cpu ||
+                   node->queue_cpu == LIONOS_RUNQUEUE_INVALID_INDEX ||
                    node->priority >= LIONOS_RUNQUEUE_PRIORITY_LEVELS) {
             return -1;
-        } else {
+        } else if (node->queue_cpu == queue->cpu) {
             uint32_t cursor = queue->head[node->priority];
             uint32_t occurrences = 0u;
             for (uint32_t step = 0u;

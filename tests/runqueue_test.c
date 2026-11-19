@@ -53,6 +53,8 @@ int main(void) {
     if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 2u) != 0) return 23;
     if (runqueue_enqueue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u, 2u) != 0) return 24;
     if ((result = check(runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 0u) < 0, 25u))) return result;
+    if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == 1u, 32u))) return result;
+    if ((result = check(runqueue_validate_locked(&wrong_cpu, nodes, NODE_COUNT, &total) == 0 && total == 1u, 33u))) return result;
     if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 26;
     if (runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u) != 0) return 27;
 
