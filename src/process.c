@@ -37,6 +37,8 @@ static volatile uint32_t scheduler_ap_probe_expected;
 static volatile uint32_t scheduler_ap_probe_seen;
 static volatile uint32_t scheduler_ap_probe_fault;
 static volatile uint32_t scheduler_ap_probe_reported;
+static volatile uint32_t scheduler_ap_probe_reaped;
+static volatile uint32_t scheduler_ap_probe_expected_count;
 static volatile uint32_t smp_ap_schedule_enter_seen;
 static volatile uint32_t smp_ap_schedule_lock_contention_seen;
 
@@ -45,30 +47,24 @@ static void process_kernel_thread_return_trap(void){
     for(;;)__asm__ volatile("sti; hlt");
 }
 
-static void process_scheduler_ap_probe(uint32_t expected_cpu){
+static void process_scheduler_ap_probe(uint32_t task_id){
+    uint32_t expected_cpu=task_id>>1u;
+    uint32_t ordinal=task_id&1u;
     uint32_t actual_cpu=cpu_current_index();
-    if(actual_cpu!=expected_cpu||actual_cpu==0u||actual_cpu>=LIONOS_MAX_CPUS){
+    if(actual_cpu!=expected_cpu||actual_cpu==0u||
+       actual_cpu>=LIONOS_MAX_CPUS||ordinal>=2u){
         __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
     }else{
-        __atomic_fetch_or(&scheduler_ap_probe_seen,1u<<actual_cpu,__ATOMIC_ACQ_REL);
+        uint32_t bit=1u<<(actual_cpu*2u+ordinal);
+        __atomic_fetch_or(&scheduler_ap_probe_seen,bit,__ATOMIC_ACQ_REL);
     }
     process_exit_current(0u);
     for(;;)__asm__ volatile("sti; hlt");
 }
 
-static void process_scheduler_ap_probe_report(void){
-    if(cpu_current_index()!=0u)return;
-    uint32_t expected=__atomic_load_n(&scheduler_ap_probe_expected,__ATOMIC_ACQUIRE);
-    if(!expected)return;
-    uint32_t fault=__atomic_load_n(&scheduler_ap_probe_fault,__ATOMIC_ACQUIRE);
-    uint32_t seen=__atomic_load_n(&scheduler_ap_probe_seen,__ATOMIC_ACQUIRE);
-    if(!fault&&(seen&expected)!=expected)return;
-    uint32_t reported=0u;
-    if(!__atomic_compare_exchange_n(&scheduler_ap_probe_reported,&reported,1u,0,
-            __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return;
-    debug_write(fault?"LIONOS:SMP-AP-RUNQUEUE-TASKS-FAIL\n":
-                      "LIONOS:SMP-AP-RUNQUEUE-TASKS-OK\n");
-}
+/* Defined after the run-queue validator so reporting can validate every CPU
+   queue while process_lock protects process states and membership metadata. */
+static void process_scheduler_ap_probe_report(void);
 static struct process *current_by_cpu[LIONOS_MAX_CPUS];
 static struct process scheduler_idle_processes[LIONOS_MAX_CPUS];
 static volatile uint32_t scheduler_idle_entered_mask;
@@ -212,6 +208,38 @@ static int process_runqueue_validate_locked(uint32_t cpu){
         }
     }
     return queue_total==ready_total?0:-1;
+}
+
+static void process_scheduler_ap_probe_report(void){
+    if(cpu_current_index()!=0u)return;
+    uint32_t expected=__atomic_load_n(&scheduler_ap_probe_expected,__ATOMIC_ACQUIRE);
+    if(!expected)return;
+    uint32_t fault=__atomic_load_n(&scheduler_ap_probe_fault,__ATOMIC_ACQUIRE);
+    uint32_t seen=__atomic_load_n(&scheduler_ap_probe_seen,__ATOMIC_ACQUIRE);
+    uint32_t expected_count=__atomic_load_n(&scheduler_ap_probe_expected_count,
+                                             __ATOMIC_ACQUIRE);
+    uint32_t reaped=__atomic_load_n(&scheduler_ap_probe_reaped,__ATOMIC_ACQUIRE);
+    if(!fault&&((seen&expected)!=expected||reaped!=expected_count))return;
+
+    if(!fault){
+        if(!spinlock_try_acquire(&process_lock))return;
+        uint32_t online=smp_online_count();
+        if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+        for(uint32_t cpu=0u;cpu<online;++cpu){
+            if(process_runqueue_validate_locked(cpu)!=0){
+                fault=1u;
+                __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+                break;
+            }
+        }
+        spinlock_release(&process_lock);
+    }
+
+    uint32_t reported=0u;
+    if(!__atomic_compare_exchange_n(&scheduler_ap_probe_reported,&reported,1u,0,
+            __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return;
+    debug_write(fault?"LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL\n":
+                      "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK\n");
 }
 
 static int process_resolve_cow_locked(struct process *process,uint32_t page){
@@ -370,14 +398,27 @@ void process_init(void) {
     spinlock_irqrestore_release(&process_lock,flags);
     __atomic_store_n(&process_scheduler_ready,1u,__ATOMIC_RELEASE);
     uint32_t ap_mask=online>1u?((1u<<online)-2u):0u;
-    __atomic_store_n(&scheduler_ap_probe_expected,ap_mask,__ATOMIC_RELEASE);
+    uint32_t probe_mask=0u,probe_count=0u;
+    for(uint32_t cpu=1u;cpu<online;++cpu){
+        for(uint32_t ordinal=0u;ordinal<2u;++ordinal){
+            probe_mask|=1u<<(cpu*2u+ordinal);
+            ++probe_count;
+        }
+    }
+    __atomic_store_n(&scheduler_ap_probe_expected,probe_mask,__ATOMIC_RELEASE);
+    __atomic_store_n(&scheduler_ap_probe_expected_count,probe_count,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_seen,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_fault,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_reported,0u,__ATOMIC_RELEASE);
+    __atomic_store_n(&scheduler_ap_probe_reaped,0u,__ATOMIC_RELEASE);
     for(uint32_t cpu=1u;cpu<online;++cpu){
-        if(!process_create_kernel_thread_on_cpu(
-                (uint32_t)(uintptr_t)&process_scheduler_ap_probe,cpu,cpu))
-            __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+        for(uint32_t ordinal=0u;ordinal<2u;++ordinal){
+            uint32_t task_id=(cpu<<1u)|ordinal;
+            if(!process_create_kernel_thread_on_cpu(
+                    (uint32_t)(uintptr_t)&process_scheduler_ap_probe,
+                    task_id,cpu))
+                __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+        }
     }
     process_scheduler_ap_probe_report();
 }
@@ -742,6 +783,9 @@ static void reap_process(struct process*p){
         }
         if(p->kernel_stack_top)
             page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));
+        if(p->pid==0u&&p->thread_group_pid==0u&&
+           p->entry==(uint32_t)(uintptr_t)&process_scheduler_ap_probe)
+            __atomic_fetch_add(&scheduler_ap_probe_reaped,1u,__ATOMIC_ACQ_REL);
         clear_process(p);
         return;
     }
@@ -1909,7 +1953,7 @@ struct process *process_create_kernel_thread_on_cpu(uint32_t entry,uint32_t arg,
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process*p=find_free_slot();if(!p){spinlock_irqrestore_release(&process_lock,flags);return 0;}
     void*ks=page_alloc();if(!ks){spinlock_irqrestore_release(&process_lock,flags);return 0;}
-    clear_process(p);p->pid=0;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=0;p->is_thread=1;p->owns_address_space=0;p->state=PROCESS_STOPPED;p->cpu_owner=cpu;p->page_directory=paging_kernel_directory();p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u;
+    clear_process(p);p->pid=0;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=0;p->is_thread=1;p->owns_address_space=0;p->state=PROCESS_STOPPED;p->cpu_owner=cpu;p->page_directory=paging_kernel_directory();p->entry=entry;p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u;
     /*
      * isr_common restores a same-ring kernel context with IRETD.  IRETD
      * consumes EIP/CS/EFLAGS but does not load ESP/SS, so after the restore

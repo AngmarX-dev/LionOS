@@ -163,7 +163,7 @@ The queue conversion is not complete until tests demonstrate:
 3. Exactly-one queue membership through create, fork, thread creation, wakeup, timeout, stop/continue, exit, and reap paths.
 4. No queue entry for WAITING, STOPPED, ZOMBIE, UNUSED, or RUNNING tasks.
 5. Queue counts and head/tail/link consistency after every stress iteration.
-6. Host-side concurrent enqueue/dequeue stress across two per-CPU queues; QEMU SMP lifecycle stress across all online CPUs is still required.
+6. Host-side concurrent enqueue/dequeue stress across two per-CPU queues; The boot-time AP probe now verifies multiple task create/enqueue/dispatch/exit/reap cycles and queue invariants on every online AP; broader cross-CPU wakeup/timeout/stop/continue/fork lifecycle stress is still required.
 7. Timer scheduling remains bounded when a lock is contended.
 8. Existing process, waitpid, futex, pipe, TTY, FPU/SSE, and xHCI regressions pass.
 9. QEMU tests cover one CPU, multiple CPUs, and the maximum supported CPU topology.
