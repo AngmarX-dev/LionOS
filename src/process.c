@@ -1521,13 +1521,13 @@ uint32_t *process_schedule(uint32_t *frame){
        CPU still owns their execution context; the outgoing task is handled
        by the normal deferred-reap path below. */
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
-        struct process *adopted=&processes[i];
-        if(adopted==prev||adopted->state!=PROCESS_ZOMBIE||
-           !adopted->adopted_by_init)continue;
+        struct process *zombie=&processes[i];
+        if(zombie==prev||zombie->state!=PROCESS_ZOMBIE||
+           (!zombie->adopted_by_init&&!zombie->reap_pending))continue;
         int current_on_cpu=0;
         for(uint32_t c=0u;c<LIONOS_MAX_CPUS;++c)
-            if(current_by_cpu[c]==adopted){current_on_cpu=1;break;}
-        if(!current_on_cpu)reap_process(adopted);
+            if(current_by_cpu[c]==zombie){current_on_cpu=1;break;}
+        if(!current_on_cpu)reap_process(zombie);
     }
 
         if(prev->state==PROCESS_WAITING&&(prev->wait_kind==1u||prev->wait_kind==2u)&&
@@ -1583,7 +1583,7 @@ uint32_t *process_schedule(uint32_t *frame){
         /* Scheduler hot path: never emit debug I/O here. Port 0xE9 is a\n         * QEMU debug console and is far more expensive than the context switch. */
         paging_switch_address_space(next->page_directory);
         tss_set_kernel_stack(next->kernel_stack_top);
-        if(prev&&prev->reap_pending)reap_process(prev);
+        /* Reaping is deferred until a later scheduler entry confirms this stack is inactive. */
         uint32_t*n=process_saved_frame(next);
         spinlock_irqrestore_release(&process_lock,flags);
         return n;
@@ -1599,7 +1599,7 @@ uint32_t *process_schedule(uint32_t *frame){
             b->state=PROCESS_RUNNING;
             paging_switch_address_space(b->page_directory);
             tss_set_kernel_stack(b->kernel_stack_top);
-            if(prev->reap_pending)reap_process(prev);
+        /* Reaping is deferred until a later scheduler entry confirms this stack is inactive. */
             uint32_t*n=process_saved_frame(b);
             spinlock_irqrestore_release(&process_lock,flags);
             return n;
@@ -1609,7 +1609,7 @@ uint32_t *process_schedule(uint32_t *frame){
             &scheduler_idle_processes[cpu]:0;
         if(idle){
             if(prev)fpu_save(prev);
-            if(prev->reap_pending)reap_process(prev);
+        /* Reaping is deferred until a later scheduler entry confirms this stack is inactive. */
             fpu_restore(idle);
             idle->state=PROCESS_RUNNING;
             set_current_local(idle);
@@ -1621,7 +1621,7 @@ uint32_t *process_schedule(uint32_t *frame){
             return idle_frame?idle_frame:frame;
         }
         set_current_local(0);
-        if(prev->reap_pending)reap_process(prev);
+        /* Reaping is deferred until a later scheduler entry confirms this stack is inactive. */
         spinlock_irqrestore_release(&process_lock,flags);
         return frame;
     }
