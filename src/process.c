@@ -99,7 +99,7 @@ static int process_transition_state_locked(struct process *p,uint32_t state){
     if(old_state==state)return 0;
     if(old_state==PROCESS_READY){
         uint32_t owner=runqueue_nodes[index].queue_cpu;
-        if(owner>=LIONOS_MAX_CPUS)return -1;
+        if(owner>=LIONOS_MAX_CPUS){__atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);return -1;}
         spinlock_acquire(&runqueues[owner].lock);
         int result=runqueue_dequeue_locked(&runqueues[owner],runqueue_nodes,
                                            LIONOS_PROCESS_MAX,index);
@@ -1907,7 +1907,7 @@ int process_set_priority(struct process*p,uint32_t priority){
         int queued=runqueue_requeue_priority_locked(&runqueues[owner],
             runqueue_nodes,LIONOS_PROCESS_MAX,index,priority);
         spinlock_release(&runqueues[owner].lock);
-        if(queued!=0){spinlock_irqrestore_release(&process_lock,flags);return -1;}
+        if(queued!=0){__atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);spinlock_irqrestore_release(&process_lock,flags);return -1;}
     }
     p->priority=priority;p->base_priority=priority;p->time_slice=quantum_for_priority(priority);p->ticks_used=0;
     spinlock_irqrestore_release(&process_lock,flags);
@@ -2072,16 +2072,10 @@ uint32_t *process_schedule(uint32_t *frame){
         prev_enqueued=0;
     }
     spinlock_release(&runqueues[cpu].lock);
-    if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX)){
+    if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX))
         debug_write("LIONOS:RUNQUEUE-PICK-FAIL\n");
-        spinlock_irqrestore_release(&process_lock,flags);
-        return frame;
-    }
-    if(process_runqueue_validate_locked()!=0){
+    else if(process_runqueue_validate_locked()!=0)
         debug_write("LIONOS:RUNQUEUE-INVARIANT-FAIL\n");
-        spinlock_irqrestore_release(&process_lock,flags);
-        return frame;
-    }
     /*
      * APs now have dedicated idle contexts, but cross-CPU work stealing remains
      * disabled. Keep tasks pinned until run-queue membership, migration
