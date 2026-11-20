@@ -1077,7 +1077,12 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ OK ] PS/2 mouse / polled input\n");
 
     /* ---- Memory / paging ---- */
-    memory_init(multiboot_info);
+    if(memory_init(multiboot_info)!=0){
+        debug_write("LIONOS:MEMORY-INIT-FAILED\n");
+        console_write("[ERR] Physical memory manager initialization failed; halting safely\n");
+        for(;;) __asm__ volatile("cli; hlt");
+    }
+    debug_write("LIONOS:MEMORY-INIT-OK\n");
     console_write("[ OK ] Physical memory manager\n");
     console_write("       Total pages: ");
     boot_dec(memory_total_pages());

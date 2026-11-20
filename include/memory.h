@@ -3,7 +3,8 @@
 
 #include <stdint.h>
 
-void memory_init(uint32_t multiboot_info);
+/* Returns 0 after complete validation; -1 leaves all allocator pages unavailable. */
+int memory_init(uint32_t multiboot_info);
 void *page_alloc(void);
 void *page_alloc_contiguous(uint32_t count);
 /* Allocates physical pages above 256 MiB; returned address is physical, not directly dereferenceable. */

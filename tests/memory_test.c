@@ -188,7 +188,8 @@ int main(void)
     if (multiboot2_info_validate(boot_info) != 0)
         return fail(2, "test Multiboot2 information is invalid");
 
-    memory_init((uint32_t)(uintptr_t)boot_info);
+    if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(49, "valid Multiboot2 map failed allocator initialization");
 
     if (memory_total_pages() !=
         (uint32_t)(LOW_AVAILABLE_END / PAGE_SIZE))
@@ -293,7 +294,8 @@ int main(void)
      * below the high allocator's exclusive 64 GiB limit.
      */
     make_boundary_boot_info();
-    memory_init((uint32_t)(uintptr_t)boot_info);
+    if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(50, "boundary map failed allocator initialization");
 
     if (memory_total_pages() != LOW_MEMORY_LIMIT / PAGE_SIZE ||
         memory_free_pages() != 1u ||
@@ -348,7 +350,8 @@ int main(void)
     make_full_high_map_boot_info();
     if (multiboot2_info_validate(boot_info) != 0)
         return fail(26, "full high-memory map metadata is invalid");
-    memory_init((uint32_t)(uintptr_t)boot_info);
+    if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(51, "full high-memory map failed allocator initialization");
 
     if (memory_high_free_pages() !=
             (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE) ||
@@ -383,7 +386,8 @@ int main(void)
      * reservation of a page that was already allocated.
      */
     make_full_high_map_boot_info();
-    memory_init((uint32_t)(uintptr_t)boot_info);
+    if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(52, "contiguous map failed allocator initialization");
     const uint32_t full_high_pages =
         (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE);
 
@@ -431,8 +435,9 @@ int main(void)
 
     /* Invalid boot metadata must fail closed and expose no physical pages. */
     put32(0u, 8u);
-    memory_init((uint32_t)(uintptr_t)boot_info);
-    if (memory_free_pages() != 0u || memory_high_free_pages() != 0u ||
+    if (memory_init((uint32_t)(uintptr_t)boot_info) == 0)
+        return fail(53, "invalid Multiboot2 metadata reported successful initialization");
+    if (page_alloc() != 0 || memory_free_pages() != 0u || memory_high_free_pages() != 0u ||
         memory_total_pages() != 0u || memory_high_available_bytes() != 0u)
         return fail(41, "invalid Multiboot2 metadata exposed allocator memory");
 

@@ -111,15 +111,21 @@ static void high_reserve_range(uint64_t start,uint64_t end)
     }
 }
 
-void memory_init(uint32_t mi){
+static void memory_reset_unavailable(void)
+{
+    for (uint32_t i = 0u; i < MAX_PAGES / 32u; ++i) bitmap[i] = 0xFFFFFFFFu;
+    for (uint32_t i = 0u; i < MAX_PAGES; ++i) page_refs[i] = 0u;
+    for (uint32_t i = 0u; i < HIGH_BITMAP_WORDS; ++i) {
+        high_available[i] = 0u;
+        high_allocated[i] = 0u;
+    }
+    total_pages = free_pages = high_free_pages = high_scan_hint = 0u;
+    high_available_bytes = 0u;
+}
+
+int memory_init(uint32_t mi){
     spinlock_init(&memory_lock);
-    for(uint32_t i=0;i<MAX_PAGES/32u;++i)bitmap[i]=0xFFFFFFFFu;
-    for(uint32_t i=0;i<MAX_PAGES;++i)page_refs[i]=0u;
-    for(uint32_t i=0;i<HIGH_BITMAP_WORDS;++i){high_available[i]=0u;high_allocated[i]=0u;}
-    total_pages=free_pages=0u;
-    high_free_pages=0u;
-    high_scan_hint=0u;
-    high_available_bytes=0u;
+    memory_reset_unavailable();
 
     /*
      * Validate the complete Multiboot2 tag stream before consuming any
@@ -128,14 +134,14 @@ void memory_init(uint32_t mi){
      */
     if(multiboot2_info_validate((const void *)(uintptr_t)mi)!=0){
         debug_write("LIONOS:MB2-INFO-INVALID-MEMORY-UNAVAILABLE\\n");
-        return;
+        return -1;
     }
 
     uint32_t ts=*(const uint32_t *)(uintptr_t)mi;
     mb2_info_iterator_t iterator;
     mb2_tag_view_t tag;
     if(multiboot2_info_iterator_init((const void *)(uintptr_t)mi,&iterator)!=0)
-        return;
+        return -1;
 
     int next = 0;
     /*
@@ -182,13 +188,9 @@ void memory_init(uint32_t mi){
         }
     }
     if(next<0){
-        for(uint32_t i=0u;i<MAX_PAGES/32u;++i)bitmap[i]=0xFFFFFFFFu;
-        for(uint32_t i=0u;i<MAX_PAGES;++i)page_refs[i]=0u;
-        for(uint32_t i=0u;i<HIGH_BITMAP_WORDS;++i){high_available[i]=0u;high_allocated[i]=0u;}
-        total_pages=free_pages=high_free_pages=high_scan_hint=0u;
-        high_available_bytes=0u;
+        memory_reset_unavailable();
         debug_write("LIONOS:MB2-INFO-ITERATION-FAILED-MEMORY-UNAVAILABLE\\n");
-        return;
+        return -1;
     }
 
     reserve_low_range(0,RESERVED_PAGES*PAGE_SIZE);
@@ -197,8 +199,11 @@ void memory_init(uint32_t mi){
     high_reserve_range(mi,(uint64_t)mi+ts);
 
     /* Reserve every module only after all available regions were discovered. */
-    if(multiboot2_info_iterator_init((const void *)(uintptr_t)mi,&iterator)!=0)
-        return;
+    if(multiboot2_info_iterator_init((const void *)(uintptr_t)mi,&iterator)!=0){
+        memory_reset_unavailable();
+        debug_write("LIONOS:MB2-MODULE-ITERATION-FAILED\\n");
+        return -1;
+    }
     while((next=multiboot2_info_iterator_next(&iterator,&tag))>0){
         if(tag.type==MULTIBOOT2_TAG_MODULE){
             uint32_t module_start=*(const uint32_t *)(const void *)tag.payload;
@@ -208,9 +213,11 @@ void memory_init(uint32_t mi){
         }
     }
     if(next<0){
+        memory_reset_unavailable();
         debug_write("LIONOS:MB2-MODULE-ITERATION-FAILED\\n");
-        return;
+        return -1;
     }
+    return 0;
 }
 
 static int high_find_contiguous(uint32_t count, uint32_t *first_page)
