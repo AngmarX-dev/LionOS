@@ -326,6 +326,7 @@ static int integration_process_ok;
 #define INTEGRATION_MIGRATION_PROCESS_COUNT 3u
 static int integration_migration_pids[INTEGRATION_MIGRATION_PROCESS_COUNT] = {-1,-1,-1};
 static uint32_t integration_migration_steals_before[LIONOS_MAX_CPUS];
+static uint32_t integration_migration_ticks_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_count;
 static uint32_t integration_migration_failed;
 static volatile uint32_t integration_ap_user_pid;
@@ -840,9 +841,12 @@ void lionos_user_integration_step(void){
             return;
         }
         if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
-        for(uint32_t cpu=0u;cpu<online;++cpu)
+        for(uint32_t cpu=0u;cpu<online;++cpu){
             integration_migration_steals_before[cpu]=
                 process_scheduler_steals(cpu);
+            integration_migration_ticks_before[cpu]=
+                process_scheduler_ticks(cpu);
+        }
         for(uint32_t i=0u;i<INTEGRATION_MIGRATION_PROCESS_COUNT;++i)
             integration_migration_pids[i]=-1;
         integration_migration_count=0u;
@@ -867,7 +871,9 @@ void lionos_user_integration_step(void){
             debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             return;
         }
-        process_request_reschedule_cpu(1u);
+        /* Wake every online AP after publishing the BSP-owned work batch. */
+        for(uint32_t cpu=1u;cpu<online;++cpu)
+            process_request_reschedule_cpu(cpu);
         debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-LAUNCHED\n");
         integration_stage=23;
         return;
@@ -932,6 +938,21 @@ void lionos_user_integration_step(void){
             debug_write(ok
                 ? "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK\n"
                 : "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");
+            if(!ok){
+                for(uint32_t cpu=1u;cpu<online;++cpu){
+                    debug_write("LIONOS:SMP-WORK-STEAL-CPU-DIAG cpu=");
+                    debug_write_u32_hex(cpu);
+                    debug_write(" ticks=");
+                    debug_write_u32_hex(process_scheduler_ticks(cpu));
+                    debug_write(" ticks_before=");
+                    debug_write_u32_hex(integration_migration_ticks_before[cpu]);
+                    debug_write(" steals=");
+                    debug_write_u32_hex(process_scheduler_steals(cpu));
+                    debug_write(" steals_before=");
+                    debug_write_u32_hex(integration_migration_steals_before[cpu]);
+                    debug_write("\n");
+                }
+            }
             debug_write(ok
                 ? "LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK\n"
                 : "LIONOS:USER-INTEGRATION-FAIL\n");
