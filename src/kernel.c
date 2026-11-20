@@ -733,24 +733,24 @@ void lionos_user_integration_step(void){
             int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
             debug_write("LIONOS:SIGNAL-HANDLER-EXIT-CODE=0x");
             debug_write_u32_hex(code);
-            debug_write(valid?" VALID\\n":" INVALID\\n");
+            debug_write(valid?" VALID\n":" INVALID\n");
             int handler_ok=valid&&code==0u;
             if(process_reap_pid((uint32_t)integration_pid)!=0)
                 handler_ok=0;
             integration_pid=-1;
             debug_write(handler_ok
-                ? "LIONOS:SIGNAL-HANDLER-TEST-OK\\n"
-                : "LIONOS:SIGNAL-HANDLER-TEST-FAIL\\n");
+                ? "LIONOS:SIGNAL-HANDLER-TEST-OK\n"
+                : "LIONOS:SIGNAL-HANDLER-TEST-FAIL\n");
             if(!handler_ok){
                 integration_done=1;
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             }else{
                 integration_stage=20;
             }
         }else if(s<0){
             integration_done=1;
-            debug_write("LIONOS:SIGNAL-HANDLER-TEST-STATE-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:SIGNAL-HANDLER-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
@@ -758,7 +758,7 @@ void lionos_user_integration_step(void){
     if(integration_stage==20){
         uint32_t online=smp_online_count();
         if(online<=1u){
-            debug_write("LIONOS:SMP-AP-USER-FORK-SKIP\\n");
+            debug_write("LIONOS:SMP-AP-USER-FORK-SKIP\n");
             integration_done=1;
             return;
         }
@@ -768,11 +768,11 @@ void lionos_user_integration_step(void){
                 (uint32_t)(uintptr_t)&integration_ap_user_launch_worker,
                 1u,1u)){
             integration_done=1;
-            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             return;
         }
-        debug_write("LIONOS:SMP-AP-USER-FORK-LAUNCHED\\n");
+        debug_write("LIONOS:SMP-AP-USER-FORK-LAUNCHED\n");
         integration_stage=21;
         return;
     }
@@ -784,18 +784,18 @@ void lionos_user_integration_step(void){
         if(launch_status!=1u){
             integration_done=1;
             debug_write(launch_status==2u
-                ? "LIONOS:SMP-AP-USER-WORKER-CPU-MISMATCH\\n"
-                : "LIONOS:SMP-AP-USER-EXEC-LAUNCH-FAIL\\n");
-            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+                ? "LIONOS:SMP-AP-USER-WORKER-CPU-MISMATCH\n"
+                : "LIONOS:SMP-AP-USER-EXEC-LAUNCH-FAIL\n");
+            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             return;
         }
         uint32_t pid=__atomic_load_n(&integration_ap_user_pid,__ATOMIC_ACQUIRE);
         if(pid==0u){
             integration_done=1;
-            debug_write("LIONOS:SMP-AP-USER-PID-MISSING\\n");
-            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:SMP-AP-USER-PID-MISSING\n");
+            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             return;
         }
         int32_t state=process_get_state(pid);
@@ -806,15 +806,15 @@ void lionos_user_integration_step(void){
             if(process_reap_pid(pid)!=0)ap_test_ok=0;
             integration_done=1;
             debug_write(ap_test_ok
-                ? "LIONOS:SMP-AP-USER-FORK-WAITPID-OK\\n"
-                : "LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");
+                ? "LIONOS:SMP-AP-USER-FORK-WAITPID-OK\n"
+                : "LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
             if(!ap_test_ok)
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }else if(state<0){
             integration_done=1;
-            debug_write("LIONOS:SMP-AP-USER-PROCESS-STATE-FAIL\\n");
-            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:SMP-AP-USER-PROCESS-STATE-FAIL\n");
+            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
