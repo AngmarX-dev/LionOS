@@ -1230,7 +1230,18 @@ void process_futex_tick(uint32_t cpu){
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *p=&processes[i];
         if(p->state!=PROCESS_WAITING||(p->wait_kind!=1u&&p->wait_kind!=2u)||
-           p->wait_timeout_active!=1u||p->wait_cpu!=cpu||
+           p->wait_cpu!=cpu)continue;
+        /*
+         * A scheduler lock-contention fallback may switch a blocked task to
+         * idle without reaching the normal deadline-arm point. Complete that
+         * pending arm here while process_lock is held, before testing expiry.
+         */
+        if(p->wait_timeout_active==2u){
+            p->wait_deadline=now+p->wait_timeout_ticks;
+            p->wait_timeout_active=1u;
+            continue;
+        }
+        if(p->wait_timeout_active!=1u||
            (int32_t)(now-p->wait_deadline)<0)continue;
         uint32_t kind=p->wait_kind;
         p->wait_channel=0u;
@@ -2333,24 +2344,6 @@ uint32_t *process_schedule(uint32_t *frame){
             if(frame)
                 __atomic_store_n(&contended_prev->wait_frame_saved,1u,
                                  __ATOMIC_RELEASE);
-            /*
-             * The normal scheduler path arms a timeout after acquiring
-             * process_lock. This blocked-task fallback cannot enter that path,
-             * so publish the same AP-local deadline before switching to idle.
-             * Only the owning CPU expires this wait.
-             */
-            if(contended_prev->state==PROCESS_WAITING&&
-               (contended_prev->wait_kind==1u||
-                contended_prev->wait_kind==2u)&&
-               contended_prev->wait_timeout_active==2u&&
-               contended_prev->wait_cpu==cpu){
-                uint32_t now=__atomic_load_n(&scheduler_cpu[cpu].timer_ticks,
-                                               __ATOMIC_ACQUIRE);
-                __atomic_store_n(&contended_prev->wait_deadline,
-                    now+contended_prev->wait_timeout_ticks,__ATOMIC_RELAXED);
-                __atomic_store_n(&contended_prev->wait_timeout_active,1u,
-                                 __ATOMIC_RELEASE);
-            }
             if(cpu==0u){
                 struct process *bootstrap=&processes[0];
                 fpu_save(contended_prev);
