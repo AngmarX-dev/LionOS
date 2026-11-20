@@ -82,6 +82,7 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-TIMEOUT-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-STOP-CONT-OK" "$log_file"
+        grep -q "LIONOS:SMP-AP-RUNQUEUE-PRIORITY-REQUEUE-OK" "$log_file"
     fi
     if grep -q "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL" "$log_file"; then
         echo "AP run-queue task execution self-test failed: $log_file" >&2
@@ -125,6 +126,7 @@ run_gui_smoke() {
     grep -q 'LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK' "$log_file"
     grep -q 'LIONOS:SMP-AP-RUNQUEUE-TIMEOUT-OK' "$log_file"
     grep -q 'LIONOS:SMP-AP-RUNQUEUE-STOP-CONT-OK' "$log_file"
+    grep -q 'LIONOS:SMP-AP-RUNQUEUE-PRIORITY-REQUEUE-OK' "$log_file"
     grep -q 'LIONOS:GUI-ENTER' "$log_file"
     grep -q 'LIONOS:GUI-READY' "$log_file"
     grep -q 'LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK' "$log_file"
