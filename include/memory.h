@@ -6,8 +6,11 @@
 void memory_init(uint32_t multiboot_info);
 void *page_alloc(void);
 void *page_alloc_contiguous(uint32_t count);
-/* Allocates physical pages above 256 MiB; returned pointer is a physical address, not dereferenceable. */
+/* Allocates physical pages above 256 MiB; returned address is physical, not directly dereferenceable. */
 int page_alloc_high(uint64_t *physical_address);
+/* Allocates/releases a physically contiguous high-memory run; release skips pages already reserved. */
+int page_alloc_high_contiguous(uint32_t count, uint64_t *physical_address);
+void page_free_high_contiguous(uint64_t physical_address, uint32_t count);
 void page_free_high(uint64_t physical_address);
 /* Exclude firmware/device-owned physical ranges from all PMM allocators. */
 void memory_reserve_physical_range(uint64_t start, uint64_t end);

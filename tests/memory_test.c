@@ -155,17 +155,17 @@ static void make_full_high_map_boot_info(void)
     for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
         boot_info[i] = 0u;
 
-    put32(0u, 80u);
+    put32(0u, 56u);
     put32(4u, 0u);
     put32(8u, MULTIBOOT2_TAG_MMAP);
-    put32(12u, 64u);
+    put32(12u, 40u);
     put32(16u, 24u);
     put32(20u, 0u);
     put_mmap_entry(24u, LOW_MEMORY_LIMIT,
                    HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT,
                    MULTIBOOT2_MEMORY_AVAILABLE);
-    put32(72u, MULTIBOOT2_TAG_END);
-    put32(76u, 8u);
+    put32(48u, MULTIBOOT2_TAG_END);
+    put32(52u, 8u);
 }
 
 static int fail(int code, const char *message)
@@ -347,12 +347,63 @@ int main(void)
     if (memory_high_free_pages() != 2u)
         return fail(31, "full-window allocated pages were not returned correctly");
 
+    /*
+     * Verify contiguous high-page allocation, fragmentation handling, and
+     * reservation of a page that was already allocated.
+     */
+    make_full_high_map_boot_info();
+    memory_init((uint32_t)(uintptr_t)boot_info);
+    const uint32_t full_high_pages =
+        (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE);
+
+    if (page_alloc_high_contiguous(0u, &high_address) == 0 ||
+        page_alloc_high_contiguous(3u, 0) == 0)
+        return fail(32, "high contiguous allocator accepted invalid arguments");
+
+    if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
+        high_address != LOW_MEMORY_LIMIT ||
+        memory_high_free_pages() != full_high_pages - 3u)
+        return fail(33, "high contiguous allocation or accounting failed");
+
+    page_free_high_contiguous(high_address, 3u);
+    if (memory_high_free_pages() != full_high_pages)
+        return fail(34, "high contiguous release did not restore all pages");
+
+    if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
+        high_address != LOW_MEMORY_LIMIT)
+        return fail(35, "high contiguous allocator did not reuse the first run");
+
+    memory_reserve_physical_range(LOW_MEMORY_LIMIT + PAGE_SIZE,
+                                  LOW_MEMORY_LIMIT + 2u * PAGE_SIZE);
+    if (memory_high_free_pages() != full_high_pages - 3u ||
+        memory_range_contains_available_ram(LOW_MEMORY_LIMIT + PAGE_SIZE,
+                                            LOW_MEMORY_LIMIT + 2u * PAGE_SIZE) != 0)
+        return fail(36, "reserving an allocated high page corrupted free-page accounting");
+
+    page_free_high_contiguous(high_address, 3u);
+    if (memory_high_free_pages() != full_high_pages - 1u)
+        return fail(37, "releasing a run did not preserve its newly reserved page");
+
+    if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
+        high_address != LOW_MEMORY_LIMIT + 3u * PAGE_SIZE ||
+        memory_high_free_pages() != full_high_pages - 4u)
+        return fail(38, "high contiguous allocator crossed a reserved-page hole");
+
+    page_free_high_contiguous(high_address, 3u);
+    if (memory_high_free_pages() != full_high_pages - 1u)
+        return fail(39, "fragmented contiguous allocation did not release cleanly");
+
+    page_free_high_contiguous(HIGH_MEMORY_LIMIT - PAGE_SIZE, 2u);
+    page_free_high_contiguous(LOW_MEMORY_LIMIT + 1u, 1u);
+    if (memory_high_free_pages() != full_high_pages - 1u)
+        return fail(40, "invalid high contiguous release changed allocator state");
+
     /* Invalid boot metadata must fail closed and expose no physical pages. */
     put32(0u, 8u);
     memory_init((uint32_t)(uintptr_t)boot_info);
     if (memory_free_pages() != 0u || memory_high_free_pages() != 0u ||
         memory_total_pages() != 0u || memory_high_available_bytes() != 0u)
-        return fail(32, "invalid Multiboot2 metadata exposed allocator memory");
+        return fail(41, "invalid Multiboot2 metadata exposed allocator memory");
 
     puts("physical allocator low/high range and lifecycle tests passed");
     return 0;

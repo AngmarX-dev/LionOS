@@ -93,9 +93,14 @@ static void high_reserve_range(uint64_t start,uint64_t end)
     for (uint64_t address = first; address < last; address += PAGE_SIZE) {
         uint32_t page = (uint32_t)((address - HIGH_MEMORY_BASE) / PAGE_SIZE);
         if (high_bit_get(high_available, page)) {
-            high_bit_clear(high_available, page);
-            if (high_free_pages)
+            /*
+             * Allocated pages are already excluded from high_free_pages.
+             * Reserving one must revoke the allocation without subtracting
+             * the free count a second time.
+             */
+            if (!high_bit_get(high_allocated, page) && high_free_pages)
                 --high_free_pages;
+            high_bit_clear(high_available, page);
         }
         high_bit_clear(high_allocated, page);
     }
@@ -203,27 +208,109 @@ void memory_init(uint32_t mi){
     }
 }
 
-int page_alloc_high(uint64_t *physical_address){
-    if(!physical_address)return -1;
-    uint32_t irq=spinlock_irqsave_acquire(&memory_lock);
-    if(!high_free_pages){spinlock_irqrestore_release(&memory_lock,irq);return -1;}
-    for(uint32_t pass=0u;pass<2u;++pass){
-        uint32_t begin=pass?0u:high_scan_hint;
-        uint32_t finish=pass?high_scan_hint:HIGH_MEMORY_PAGES;
-        for(uint32_t page=begin;page<finish;++page){
-            if(high_bit_get(high_available,page)&&!high_bit_get(high_allocated,page)){
-                high_bit_set(high_allocated,page);
-                --high_free_pages;
-                high_scan_hint=page+1u;
-                if(high_scan_hint>=HIGH_MEMORY_PAGES)high_scan_hint=0u;
-                *physical_address=HIGH_MEMORY_BASE+(uint64_t)page*PAGE_SIZE;
-                spinlock_irqrestore_release(&memory_lock,irq);
-                return 0;
+static int high_find_contiguous(uint32_t count, uint32_t *first_page)
+{
+    if (!count || !first_page || count > HIGH_MEMORY_PAGES)
+        return 0;
+
+    /*
+     * Prefer the current scan hint, then perform a complete linear pass.
+     * The second pass is intentionally allowed to cross the hint boundary:
+     * physical contiguity must never be broken by allocator search state.
+     */
+    for (uint32_t pass = 0u; pass < 2u; ++pass) {
+        uint32_t begin = pass == 0u ? high_scan_hint : 0u;
+        uint32_t run = 0u;
+        uint32_t run_start = 0u;
+
+        for (uint32_t page = begin; page < HIGH_MEMORY_PAGES; ++page) {
+            if (high_bit_get(high_available, page) &&
+                !high_bit_get(high_allocated, page)) {
+                if (run == 0u)
+                    run_start = page;
+                ++run;
+                if (run == count) {
+                    *first_page = run_start;
+                    return 1;
+                }
+            } else {
+                run = 0u;
             }
         }
     }
-    spinlock_irqrestore_release(&memory_lock,irq);
-    return -1;
+    return 0;
+}
+
+int page_alloc_high_contiguous(uint32_t count, uint64_t *physical_address)
+{
+    uint32_t first_page;
+    uint32_t irq;
+
+    if (!physical_address || !count)
+        return -1;
+
+    irq = spinlock_irqsave_acquire(&memory_lock);
+    if (count > high_free_pages ||
+        !high_find_contiguous(count, &first_page)) {
+        spinlock_irqrestore_release(&memory_lock, irq);
+        return -1;
+    }
+
+    for (uint32_t i = 0u; i < count; ++i)
+        high_bit_set(high_allocated, first_page + i);
+
+    high_free_pages -= count;
+    high_scan_hint = first_page + count;
+    if (high_scan_hint >= HIGH_MEMORY_PAGES)
+        high_scan_hint = 0u;
+
+    *physical_address = HIGH_MEMORY_BASE +
+                        (uint64_t)first_page * PAGE_SIZE;
+    spinlock_irqrestore_release(&memory_lock, irq);
+    return 0;
+}
+
+int page_alloc_high(uint64_t *physical_address)
+{
+    return page_alloc_high_contiguous(1u, physical_address);
+}
+
+void page_free_high_contiguous(uint64_t physical_address, uint32_t count)
+{
+    uint64_t first_page_64;
+    uint32_t first_page;
+    uint32_t irq;
+
+    if (!count || (physical_address & (PAGE_SIZE - 1u)) ||
+        physical_address < HIGH_MEMORY_BASE ||
+        physical_address >= HIGH_MEMORY_LIMIT)
+        return;
+
+    first_page_64 = (physical_address - HIGH_MEMORY_BASE) / PAGE_SIZE;
+    if (first_page_64 >= HIGH_MEMORY_PAGES ||
+        (uint64_t)count > (uint64_t)HIGH_MEMORY_PAGES - first_page_64)
+        return;
+
+    first_page = (uint32_t)first_page_64;
+    irq = spinlock_irqsave_acquire(&memory_lock);
+    for (uint32_t i = 0u; i < count; ++i) {
+        uint32_t page = first_page + i;
+        if (!high_bit_get(high_allocated, page))
+            continue;
+
+        high_bit_clear(high_allocated, page);
+        if (high_bit_get(high_available, page)) {
+            ++high_free_pages;
+            if (page < high_scan_hint)
+                high_scan_hint = page;
+        }
+    }
+    spinlock_irqrestore_release(&memory_lock, irq);
+}
+
+void page_free_high(uint64_t physical_address)
+{
+    page_free_high_contiguous(physical_address, 1u);
 }
 
 void memory_reserve_physical_range(uint64_t start,uint64_t end){
