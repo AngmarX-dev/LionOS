@@ -86,7 +86,7 @@ int lapic_enable(void)
             wrmsr(IA32_APIC_BASE_MSR,
                   prepared_msr&~LIONOS_IA32_APIC_BASE_ENABLE);
             readback=rdmsr(IA32_APIC_BASE_MSR);
-            if((readback&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
+            if((readback&(msr_address_mask|
                           LIONOS_IA32_APIC_BASE_ENABLE|
                           LIONOS_IA32_APIC_BASE_X2APIC)) !=
                (prepared_msr&msr_address_mask))
