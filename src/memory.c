@@ -321,20 +321,6 @@ void memory_reserve_physical_range(uint64_t start,uint64_t end){
     spinlock_irqrestore_release(&memory_lock,irq);
 }
 
-void page_free_high(uint64_t physical){
-    if((physical&(PAGE_SIZE-1u))||physical<HIGH_MEMORY_BASE||physical>=HIGH_MEMORY_LIMIT)return;
-    uint32_t page=(uint32_t)((physical-HIGH_MEMORY_BASE)/PAGE_SIZE);
-    uint32_t irq=spinlock_irqsave_acquire(&memory_lock);
-    if(high_bit_get(high_allocated,page)){
-        high_bit_clear(high_allocated,page);
-        if(high_bit_get(high_available,page)){
-            ++high_free_pages;
-            if(page<high_scan_hint)high_scan_hint=page;
-        }
-    }
-    spinlock_irqrestore_release(&memory_lock,irq);
-}
-
 uint32_t memory_high_free_pages(void){
     uint32_t irq=spinlock_irqsave_acquire(&memory_lock);
     uint32_t count=high_free_pages;
