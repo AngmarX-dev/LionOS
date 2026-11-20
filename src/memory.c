@@ -8,14 +8,6 @@
 #define MAX_PAGES 65536u
 #define RESERVED_PAGES 2048u
 
-#define MULTIBOOT2_TAG_END 0
-#define MULTIBOOT2_TAG_MODULE 3
-#define MULTIBOOT2_TAG_MMAP 6
-#define MULTIBOOT2_MEMORY_AVAILABLE 1
-
-struct mb2_tag { uint32_t type; uint32_t size; };
-struct mb2_module_tag { uint32_t type,size,mod_start,mod_end; char string[0]; };
-struct mb2_mmap_tag { uint32_t type,size,entry_size,entry_version; };
 struct mb2_mmap_entry { uint64_t addr,len; uint32_t type,reserved; };
 extern uint8_t _kernel_start; extern uint8_t _kernel_end;
 static uint32_t bitmap[MAX_PAGES / 32u]; static uint16_t page_refs[MAX_PAGES]; static uint32_t total_pages; static uint32_t free_pages; static uint64_t high_available_bytes;

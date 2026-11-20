@@ -66,8 +66,12 @@ int main(void)
     make_valid();
     put32(8u,MULTIBOOT2_TAG_MMAP);put32(12u,40u);
     put32(48u,MULTIBOOT2_TAG_MMAP);put32(52u,40u);
-    put32(0u,96u);
+    put32(56u,24u);put32(60u,0u);
+    *(uint64_t *)(void *)(storage+64u)=0x500000u;
+    *(uint64_t *)(void *)(storage+72u)=0x100000u;
+    put32(80u,MULTIBOOT2_MEMORY_AVAILABLE);put32(84u,0u);
     put32(88u,MULTIBOOT2_TAG_END);put32(92u,8u);
+    put32(0u,96u);
     if(expect_invalid(18))return 18;
 
     make_valid();put32(8u,MULTIBOOT2_TAG_MODULE);put32(12u,16u);
