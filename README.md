@@ -103,7 +103,8 @@ A passing CI run alone does not guarantee operation on every physical hardware c
 | Complete foreground/background and controlling TTY support | 🟡 |
 | Complete user-space signal delivery and handling | ⬜ |
 | Shared memory and Unix domain sockets | ⬜ |
-| Safe task migration and real load balancing | ⬜ |
+| Limited READY user-process migration (one migration per process) | 🟡 |
+| General task migration and real load balancing | ⬜ |
 
 ### Storage, VFS, and Filesystems
 
@@ -370,8 +371,8 @@ The following sequence describes engineering priorities for the remaining work. 
 
 - ✅ Complete SMP and synchronization stress tests
 - ✅ Design per-CPU run queues with explicit ownership and locking ([design document](docs/SCHEDULER-RUNQUEUE-DESIGN.md))
-- 🟡 Integrate per-CPU priority FIFO run queues with process lifecycle and scheduler; concurrent host stress and QEMU AP task create/dispatch/exit/reap, BSP-to-AP blocked-task wakeup, AP-local timer-timeout/one-shot result verification, and AP-local stop/continue with remote queue validation and AP-owned READY-task priority requeue, host verification that multiple priority changes preserve destination-lane FIFO order, AP probe reclamation checks for detached queue metadata, non-current ownership, page-aligned kernel stacks, and cleared process slots, AP-local user-process execution with fork/waitpid lifecycle coverage, and a host-tested two-queue READY-node transfer primitive with FIFO preservation are implemented; scheduler work stealing, process-level migration, broader SMP coverage, and physical hardware verification remain pending
-- ⬜ Implement safe task migration and work-stealing after the required infrastructure is ready
+- 🟡 Integrate per-CPU priority FIFO run queues with process lifecycle and scheduler; concurrent host stress and QEMU AP task create/dispatch/exit/reap, BSP-to-AP blocked-task wakeup, AP-local timer-timeout/one-shot result verification, and AP-local stop/continue with remote queue validation and AP-owned READY-task priority requeue, host verification that multiple priority changes preserve destination-lane FIFO order, AP probe reclamation checks for detached queue metadata, non-current ownership, page-aligned kernel stacks, and cleared process slots, AP-local user-process execution with fork/waitpid lifecycle coverage, a host-tested two-queue READY-node transfer primitive, and initial QEMU-verified stealing of independent READY user processes are implemented; each process is limited to one migration and kernel threads, user threads, and leaders with unreaped sibling threads remain pinned; broader SMP coverage, general load balancing, and physical hardware verification remain pending
+- 🟡 Implement safe task migration and work-stealing: the initial scheduler path steals eligible READY user processes from the most-loaded online queue when local work is empty, with fixed two-queue lock ordering, current-task exclusion, unreaped-thread-group exclusion, and a one-migration-per-process limit; broader balancing and thread migration remain pending
 - ⬜ Complete interrupt routing and per-CPU statistics
 - ⬜ Evaluate Lazy FPU alongside the current FPU/SSE path
 - ⬜ Run long-duration context-switch, timer, and process-lifecycle tests

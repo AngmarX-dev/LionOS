@@ -221,6 +221,7 @@ static void process_kick_cpu(uint32_t cpu){
     __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
     lapic_send_ipi(apic_id,LIONOS_LAPIC_RESCHEDULE_VECTOR);
 }
+void process_request_reschedule_cpu(uint32_t cpu){process_kick_cpu(cpu);}
 static struct process *find_free_slot(void) { for (uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) if (processes[i].state==PROCESS_UNUSED) return &processes[i]; return 0; }
 static uint32_t process_index(const struct process *p) { return (uint32_t)(p-processes); }
 static int process_slot_index(const struct process *p,uint32_t *index){
@@ -319,6 +320,121 @@ static int process_set_priority_locked(struct process *p,uint32_t priority){
     p->base_priority=priority;
     p->time_slice=quantum_for_priority(priority);
     p->ticks_used=0u;
+    return 0;
+}
+
+
+/* Only independent user processes are initially migratable. Kernel threads,
+ * user threads, and leaders with any unreaped sibling thread retain affinity.
+ * A process is migrated at most once until broader migration semantics have
+ * dedicated address-space and thread-group coverage. */
+static int process_steal_candidate_locked(uint32_t index,uint32_t source_cpu){
+    if(index>=LIONOS_PROCESS_MAX||source_cpu>=LIONOS_MAX_CPUS)return 0;
+    struct process *p=&processes[index];
+    if(p->state!=PROCESS_READY||p->pid<=1u||p->is_thread||
+       p->thread_group_pid!=p->pid||p->owns_address_space!=1u||
+       !p->page_directory||p->page_directory==paging_kernel_directory()||
+       !p->user_page_count||p->user_page_count>LIONOS_PROCESS_MAX_USER_PAGES||
+       !p->kernel_stack_top||(p->kernel_stack_top&(PAGE_SIZE-1u))!=0u||
+       !__atomic_load_n(&p->saved_frame,__ATOMIC_ACQUIRE)||
+       p->cpu_owner!=source_cpu||p->migration_count!=0u||
+       p->thread_stack_page||p->deferred_kernel_stack||p->reap_pending||
+       p->wait_kind||p->wait_channel||p->wait_timeout_active||
+       p->wait_timeout_result||p->wait_pid||p->wait_status_ptr||
+       p->wait_options||p->stop_event_pending||
+       __atomic_load_n(&p->wait_frame_saved,__ATOMIC_ACQUIRE)!=0u)return 0;
+    if(runqueue_nodes[index].queued!=1u||
+       runqueue_nodes[index].queue_cpu!=source_cpu||
+       runqueue_nodes[index].priority!=p->priority)return 0;
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(current_cpu_load(cpu)==p)return 0;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        const struct process *member=&processes[i];
+        if(member!=p&&member->state!=PROCESS_UNUSED&&member->is_thread&&
+           member->thread_group_pid==p->pid)return 0;
+    }
+    return 1;
+}
+
+/* process_lock is held; queue locks are acquired in ascending CPU order. */
+static int process_try_steal_locked(uint32_t cpu,uint32_t *picked){
+    uint32_t online=smp_online_count();
+    if(online==0u||online>LIONOS_MAX_CPUS)online=1u;
+    if(!picked||cpu>=online)return 0;
+    uint32_t visited=0u;
+    for(uint32_t attempt=0u;attempt+1u<online;++attempt){
+        uint32_t victim=LIONOS_RUNQUEUE_INVALID_INDEX,largest=0u;
+        for(uint32_t other=0u;other<online;++other){
+            if(other==cpu||(visited&(1u<<other)))continue;
+            if(runqueues[other].total>largest){
+                largest=runqueues[other].total;victim=other;
+            }
+        }
+        if(victim==LIONOS_RUNQUEUE_INVALID_INDEX||largest==0u)return 0;
+        visited|=1u<<victim;
+        uint32_t first=cpu<victim?cpu:victim;
+        uint32_t second=cpu<victim?victim:cpu;
+        if(!spinlock_try_acquire(&runqueues[first].lock))return 0;
+        if(!spinlock_try_acquire(&runqueues[second].lock)){
+            spinlock_release(&runqueues[first].lock);return 0;
+        }
+        if(runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,LIONOS_PROCESS_MAX,0)!=0||
+           runqueue_validate_locked(&runqueues[victim],runqueue_nodes,LIONOS_PROCESS_MAX,0)!=0){
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+            spinlock_release(&runqueues[second].lock);
+            spinlock_release(&runqueues[first].lock);return -1;
+        }
+        if(runqueues[cpu].total!=0u){
+            spinlock_release(&runqueues[second].lock);
+            spinlock_release(&runqueues[first].lock);return 0;
+        }
+        uint32_t candidate=LIONOS_RUNQUEUE_INVALID_INDEX;
+        for(uint32_t priority=0u;priority<LIONOS_RUNQUEUE_PRIORITY_LEVELS&&
+            candidate==LIONOS_RUNQUEUE_INVALID_INDEX;++priority){
+            uint32_t index=runqueues[victim].head[priority];
+            while(index!=LIONOS_RUNQUEUE_INVALID_INDEX){
+                if(index>=LIONOS_PROCESS_MAX){
+                    __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);break;
+                }
+                uint32_t next=runqueue_nodes[index].next;
+                if(process_steal_candidate_locked(index,victim)){
+                    candidate=index;break;
+                }
+                index=next;
+            }
+        }
+        if(__atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE)!=0u){
+            spinlock_release(&runqueues[second].lock);
+            spinlock_release(&runqueues[first].lock);return -1;
+        }
+        if(candidate==LIONOS_RUNQUEUE_INVALID_INDEX){
+            spinlock_release(&runqueues[second].lock);
+            spinlock_release(&runqueues[first].lock);continue;
+        }
+        struct process *migrating=&processes[candidate];
+        if(!process_steal_candidate_locked(candidate,victim)||
+           runqueue_move_locked(&runqueues[victim],&runqueues[cpu],
+               runqueue_nodes,LIONOS_PROCESS_MAX,candidate)!=0){
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+            spinlock_release(&runqueues[second].lock);
+            spinlock_release(&runqueues[first].lock);return -1;
+        }
+        migrating->cpu_owner=cpu;
+        migrating->migration_count=1u;
+        uint32_t selected=LIONOS_RUNQUEUE_INVALID_INDEX;
+        int pick_result=runqueue_pick_next_locked(&runqueues[cpu],
+            runqueue_nodes,LIONOS_PROCESS_MAX,&selected);
+        int queues_valid=
+            runqueue_validate_locked(&runqueues[victim],runqueue_nodes,LIONOS_PROCESS_MAX,0)==0&&
+            runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,LIONOS_PROCESS_MAX,0)==0;
+        spinlock_release(&runqueues[second].lock);
+        spinlock_release(&runqueues[first].lock);
+        if(pick_result!=0||selected!=candidate||!queues_valid){
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);return -1;
+        }
+        ++scheduler_cpu[cpu].steal_count;
+        *picked=selected;return 1;
+    }
     return 0;
 }
 
@@ -631,7 +747,7 @@ static int write_user_u32(struct process *p,uint32_t ptr,uint32_t value) {
     *(uint32_t *)(uintptr_t)(physical+(ptr&(PAGE_SIZE-1u)))=value;
     return 0;
 }
-static void clear_process(struct process *p) { if(p){uintptr_t base=(uintptr_t)&processes[0],addr=(uintptr_t)p;uintptr_t span=sizeof(processes);if(addr>=base&&addr-base<span&&(addr-base)%sizeof(processes[0])==0u)runqueue_node_init(&runqueue_nodes[(addr-base)/sizeof(processes[0])]);} p->pid=0;p->state=PROCESS_UNUSED;p->parent_pid=0;p->adopted_by_init=0u;p->pgid=0;p->sid=0;p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->stop_event_pending=0;p->stop_signal=0;p->continued_event_pending=0;p->wait_channel=0;p->wait_kind=0;__atomic_store_n(&p->wait_frame_saved,0,__ATOMIC_RELEASE);p->wait_timeout_active=0;p->wait_timeout_ticks=0;p->wait_deadline=0;p->wait_cpu=0;p->wait_timeout_result=0; p->reap_pending=0;p->deferred_kernel_stack=0;p->page_directory=0;p->entry=0;p->user_stack=0; p->kernel_stack_top=0;__atomic_store_n(&p->saved_frame,0,__ATOMIC_RELEASE);p->user_code_page=0;p->user_stack_page=0;p->user_page_count=0;p->pending_signals=0;p->signal_active=0u;p->signal_active_restorer=0u;for(uint32_t i=0u;i<32u;++i){p->signal_handlers[i]=LIONOS_SIG_DFL;p->signal_restorers[i]=0u;}for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)p->signal_saved_frame[i]=0u;p->cpu_owner=0;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=0;p->ticks_used=0;p->fpu_valid=0;p->tid=0;p->thread_group_pid=0;p->is_thread=0;p->owns_address_space=0;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->pipe_read_mask=0;p->pipe_write_mask=0;p->fd_closing=0; for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_object[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} for(uint32_t i=0;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} }
+static void clear_process(struct process *p) { if(p){uintptr_t base=(uintptr_t)&processes[0],addr=(uintptr_t)p;uintptr_t span=sizeof(processes);if(addr>=base&&addr-base<span&&(addr-base)%sizeof(processes[0])==0u)runqueue_node_init(&runqueue_nodes[(addr-base)/sizeof(processes[0])]);} p->pid=0;p->state=PROCESS_UNUSED;p->parent_pid=0;p->adopted_by_init=0u;p->pgid=0;p->sid=0;p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->stop_event_pending=0;p->stop_signal=0;p->continued_event_pending=0;p->wait_channel=0;p->wait_kind=0;__atomic_store_n(&p->wait_frame_saved,0,__ATOMIC_RELEASE);p->wait_timeout_active=0;p->wait_timeout_ticks=0;p->wait_deadline=0;p->wait_cpu=0;p->wait_timeout_result=0; p->reap_pending=0;p->deferred_kernel_stack=0;p->page_directory=0;p->entry=0;p->user_stack=0; p->kernel_stack_top=0;__atomic_store_n(&p->saved_frame,0,__ATOMIC_RELEASE);p->user_code_page=0;p->user_stack_page=0;p->user_page_count=0;p->pending_signals=0;p->signal_active=0u;p->signal_active_restorer=0u;for(uint32_t i=0u;i<32u;++i){p->signal_handlers[i]=LIONOS_SIG_DFL;p->signal_restorers[i]=0u;}for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)p->signal_saved_frame[i]=0u;p->cpu_owner=0;p->migration_count=0;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=0;p->ticks_used=0;p->fpu_valid=0;p->tid=0;p->thread_group_pid=0;p->is_thread=0;p->owns_address_space=0;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->pipe_read_mask=0;p->pipe_write_mask=0;p->fd_closing=0; for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_object[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} for(uint32_t i=0;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} }
 static void init_interrupt_frame(struct process *p) { uint32_t *f=(uint32_t *)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=USER_DATA_SEL;f[1]=USER_DATA_SEL;f[2]=USER_DATA_SEL;f[3]=USER_DATA_SEL; f[14]=p->entry;f[15]=USER_CODE_SEL;f[16]=0x202u;f[17]=p->user_stack;f[18]=USER_DATA_SEL; __atomic_store_n(&p->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE); }
 static void init_bootstrap_frame(void) { struct process *b=&processes[0]; void *s=page_alloc(); if(!s){b->kernel_stack_top=0;__atomic_store_n(&b->saved_frame,0,__ATOMIC_RELEASE);return;} b->kernel_stack_top=(uint32_t)(uintptr_t)s+4096u;b->page_directory=paging_kernel_directory(); b->entry=(uint32_t)(uintptr_t)&process_schedule;b->user_stack=b->kernel_stack_top; uint32_t *f=(uint32_t *)(uintptr_t)(b->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=0x10u;f[1]=0x10u;f[2]=0x10u;f[3]=0x10u;f[14]=(uint32_t)(uintptr_t)&lionos_kernel_idle; f[15]=0x08u;f[16]=0x202u;f[17]=b->kernel_stack_top;f[18]=0x10u; __atomic_store_n(&b->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE); }
 static int scheduler_idle_context_init(uint32_t cpu){
@@ -1158,6 +1274,18 @@ static void reap_process(struct process*p){
         page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));
     clear_process(p);
 }
+int process_get_migration_info(uint32_t pid,uint32_t *cpu_owner,
+                               uint32_t *migration_count){
+    if(!pid||!cpu_owner||!migration_count)return -1;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process *p=find_pid(pid);
+    if(!p||p->state==PROCESS_UNUSED){
+        spinlock_irqrestore_release(&process_lock,flags);return -1;
+    }
+    *cpu_owner=p->cpu_owner;*migration_count=p->migration_count;
+    spinlock_irqrestore_release(&process_lock,flags);return 0;
+}
+
 int process_get_exit_code(uint32_t pid,uint32_t*code){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process*p=0;
@@ -2620,6 +2748,13 @@ uint32_t *process_schedule(uint32_t *frame){
         }
         pick_result=runqueue_pick_next_locked(&runqueues[cpu],runqueue_nodes,
                                                LIONOS_PROCESS_MAX,&picked);
+        if(pick_result==1&&!prev_enqueued){
+            spinlock_release(&runqueues[cpu].lock);
+            queue_lock_acquired=0;
+            int steal_result=process_try_steal_locked(cpu,&picked);
+            if(steal_result>0)pick_result=0;
+            else if(steal_result<0)pick_result=-1;
+        }
         if(pick_result==0&&picked<LIONOS_PROCESS_MAX){
             next=&processes[picked];
             sc->cursor=picked;
@@ -2636,7 +2771,7 @@ uint32_t *process_schedule(uint32_t *frame){
             prev->state=PROCESS_RUNNING;
             prev_enqueued=0;
         }
-        spinlock_release(&runqueues[cpu].lock);
+        if(queue_lock_acquired)spinlock_release(&runqueues[cpu].lock);
         if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX)||
            process_runqueue_validate_locked(cpu)!=0)
             __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
@@ -2650,9 +2785,9 @@ uint32_t *process_schedule(uint32_t *frame){
         __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
     }
     /*
-     * APs now have dedicated idle contexts, but cross-CPU work stealing remains
-     * disabled. Keep tasks pinned until run-queue membership, migration
-     * lifetime, and cross-CPU reaping have explicit synchronization and tests.
+     * Only an empty CPU queue may steal. The transfer is serialized by
+     * process_lock, uses ascending queue-lock order, and excludes current tasks,
+     * kernel threads, live thread groups, and already-migrated processes.
      */
     if(next){
         /* Preserve the outgoing CPU's FPU/SSE state on every real switch,
