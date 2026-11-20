@@ -13,9 +13,6 @@ static volatile uint32_t sync_test_counter;
 static volatile uint32_t sync_condition_ready;
 static volatile uint32_t sync_condition_state;
 
-static volatile uint32_t long_duration_worker_mask;
-static volatile uint32_t long_duration_worker_sink[2];
-
 static void thread_worker_mutex(void) {
     for (uint32_t i = 0u; i < 250u; ++i) {
         if (lion_mutex_lock(&sync_test_mutex) != 0)
@@ -59,24 +56,6 @@ static void thread_worker_blocking(void) {
 static void thread_worker_zombie(void) {
     thread_marker = 0x2468ACE0u;
     lion_thread_exit(91u);
-}
-
-static void thread_worker_preempt_a(void) {
-    volatile uint32_t value = 0x13579BDFu;
-    for (uint32_t i = 0u; i < 2000000u; ++i)
-        value = (value * 1664525u) + 1013904223u + i;
-    long_duration_worker_sink[0] = value;
-    __atomic_fetch_or(&long_duration_worker_mask, 1u, __ATOMIC_RELEASE);
-    lion_thread_exit(0u);
-}
-
-static void thread_worker_preempt_b(void) {
-    volatile uint32_t value = 0x2468ACE0u;
-    for (uint32_t i = 0u; i < 2000000u; ++i)
-        value = (value * 22695477u) + 1u + i;
-    long_duration_worker_sink[1] = value;
-    __atomic_fetch_or(&long_duration_worker_mask, 2u, __ATOMIC_RELEASE);
-    lion_thread_exit(0u);
 }
 
 static void print_u32(const char *label, uint32_t value) {
@@ -467,52 +446,6 @@ int main(int argc, char **argv) {
         }
     }
     puts("[PASS] process exit reaps unjoined threads");
-
-    /* Keep two CPU-bound peers runnable while the parent consumes CPU. The
-       completion mask must change before the parent yields or blocks, which
-       verifies timer-driven preemption rather than cooperative scheduling. */
-    long_duration_worker_mask = 0u;
-    long_duration_worker_sink[0] = 0u;
-    long_duration_worker_sink[1] = 0u;
-    uint32_t preempt_tids[2];
-    preempt_tids[0] = lion_thread_create(thread_worker_preempt_a);
-    preempt_tids[1] = lion_thread_create(thread_worker_preempt_b);
-    if (preempt_tids[0] == LIONOS_SYSCALL_ERR || preempt_tids[0] == 0u ||
-        preempt_tids[1] == LIONOS_SYSCALL_ERR || preempt_tids[1] == 0u) {
-        puts("[FAIL] long-duration preemption worker creation");
-        return 27;
-    }
-    volatile uint32_t parent_work = 0xA5A5A5A5u;
-    for (uint32_t i = 0u; i < 32000000u; ++i)
-        parent_work = (parent_work * 1664525u) + 1013904223u + i;
-    (void)parent_work;
-    if (__atomic_load_n(&long_duration_worker_mask, __ATOMIC_ACQUIRE) != 3u) {
-        puts("[FAIL] timer preemption did not run both CPU-bound peers");
-        print_u32("[DIAG] preemption completion mask: ",
-                  __atomic_load_n(&long_duration_worker_mask, __ATOMIC_ACQUIRE));
-        return 27;
-    }
-    for (uint32_t i = 0u; i < 2u; ++i) {
-        thread_status = -1;
-        joined = lion_thread_join(preempt_tids[i], &thread_status);
-        if (joined != (int32_t)preempt_tids[i] || thread_status != 0) {
-            puts("[FAIL] long-duration preemption worker join");
-            return 27;
-        }
-    }
-    puts("[PASS] timer preemption runs CPU-bound peers");
-
-    /* Repeated timed waits cross many scheduler ticks and verify that each
-       timeout is delivered once, without a stale completion on the next wait. */
-    for (uint32_t i = 0u; i < 8u; ++i) {
-        if (lion_futex_wait_timeout(&timeout_word, 1u, 4u) !=
-            LIONOS_FUTEX_TIMED_OUT) {
-            puts("[FAIL] repeated scheduler timer timeout");
-            print_u32("[DIAG] timeout iteration: ", i);
-            return 27;
-        }
-    }
-    puts("[PASS] repeated timer timeout and scheduler wakeup");
 
     tid = lion_thread_create(thread_worker_blocking);
     if (tid == 0u || tid == LIONOS_SYSCALL_ERR) {

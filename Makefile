@@ -4,7 +4,7 @@ DISK := $(BUILD)/lionos-disk.img
 KERNEL := $(BUILD)/lionos.bin
 USER_COMMON_OBJS := $(BUILD)/crt0.o $(BUILD)/libc.o $(BUILD)/posix_compat.o
 
-USER_PROGRAMS := hello meminfo process_test futex_test migration_test ipc_test pipe_test signal_test sigint_test signal_handler_test tty_job_control_test net_test vfs_test cow_test nx_test echo cat ls pwd uname rm stat ping env grep find cp mv userland_test
+USER_PROGRAMS := hello meminfo process_test scheduler_stress_test futex_test migration_test ipc_test pipe_test signal_test sigint_test signal_handler_test tty_job_control_test net_test vfs_test cow_test nx_test echo cat ls pwd uname rm stat ping env grep find cp mv userland_test
 USER_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_PROGRAMS)))
 USER_EMBEDS := $(addprefix $(BUILD)/,$(addsuffix _elf.o,$(USER_PROGRAMS)))
 
@@ -159,6 +159,8 @@ $(BUILD)/meminfo.o: user/bin/meminfo.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/process_test.o: user/process_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
+$(BUILD)/scheduler_stress_test.o: user/scheduler_stress_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
 $(BUILD)/futex_test.o: user/futex_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
 $(BUILD)/migration_test.o: user/migration_test.c | $(BUILD)
@@ -220,6 +222,8 @@ $(BUILD)/meminfo.elf: $(USER_COMMON_OBJS) $(BUILD)/meminfo.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(USER_COMMON_OBJS) $(BUILD)/meminfo.o
 $(BUILD)/process_test.elf: $(USER_COMMON_OBJS) $(BUILD)/process_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -s -o $@ $(USER_COMMON_OBJS) $(BUILD)/process_test.o
+$(BUILD)/scheduler_stress_test.elf: $(USER_COMMON_OBJS) $(BUILD)/scheduler_stress_test.o user/user.ld
+	$(LD) $(USER_LDFLAGS) -s -o $@ $(USER_COMMON_OBJS) $(BUILD)/scheduler_stress_test.o
 $(BUILD)/futex_test.elf: $(USER_COMMON_OBJS) $(BUILD)/futex_test.o user/user.ld
 	$(LD) $(USER_LDFLAGS) -s -o $@ $(USER_COMMON_OBJS) $(BUILD)/futex_test.o
 $(BUILD)/migration_test.elf: $(USER_COMMON_OBJS) $(BUILD)/migration_test.o user/user.ld

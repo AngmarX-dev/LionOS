@@ -588,8 +588,6 @@ void lionos_user_integration_step(void){
             debug_write(integration_process_ok
                 ? "LIONOS:PROCESS-WAITPID-TEST-OK\n"
                 : "LIONOS:PROCESS-WAITPID-TEST-FAIL\n");
-            if(integration_process_ok)
-                debug_write("LIONOS:LONG-DURATION-SCHEDULER-TEST-OK\n");
             if(!integration_process_ok){
                 integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
@@ -605,10 +603,51 @@ void lionos_user_integration_step(void){
     }
 
     if(integration_stage==12){
+        integration_pid=exec_run_file("scheduler_stress_test.elf");
+        if(integration_pid>0){
+            debug_write("LIONOS:LONG-DURATION-SCHEDULER-TEST-LAUNCHED\n");
+            integration_stage=13;
+        }else{
+            integration_done=1;
+            debug_write("LIONOS:LONG-DURATION-SCHEDULER-TEST-LAUNCH-FAIL\n");
+            debug_write("LIONOS:LONG-DURATION-SCHEDULER-TEST-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==13){
+        int32_t s=process_get_state((uint32_t)integration_pid);
+        if(s==PROCESS_ZOMBIE){
+            uint32_t code=0xFFFFFFFFu;
+            int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
+            int stress_ok=valid&&code==0u;
+            if(process_reap_pid((uint32_t)integration_pid)!=0)
+                stress_ok=0;
+            integration_pid=-1;
+            debug_write(stress_ok
+                ? "LIONOS:LONG-DURATION-SCHEDULER-TEST-OK\n"
+                : "LIONOS:LONG-DURATION-SCHEDULER-TEST-FAIL\n");
+            if(!stress_ok){
+                integration_done=1;
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            }else{
+                integration_stage=14;
+            }
+        }else if(s<0){
+            integration_done=1;
+            debug_write("LIONOS:LONG-DURATION-SCHEDULER-TEST-STATE-FAIL\n");
+            debug_write("LIONOS:LONG-DURATION-SCHEDULER-TEST-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        }
+        return;
+    }
+
+    if(integration_stage==14){
         integration_pid=exec_run_file("signal_test.elf");
         if(integration_pid>0){
             debug_write("LIONOS:USER-SIGNAL-TEST-LAUNCHED\n");
-            integration_stage=13;
+            integration_stage=15;
         }else{
             integration_done=1;
             debug_write("LIONOS:USER-SIGNAL-TEST-LAUNCH-FAIL\n");
@@ -617,7 +656,7 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage==13){
+    if(integration_stage==15){
         int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
@@ -633,7 +672,7 @@ void lionos_user_integration_step(void){
                 integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             }else{
-                integration_stage=14;
+                integration_stage=16;
             }
         }else if(s<0){
             integration_done=1;
@@ -643,11 +682,11 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage==14){
+    if(integration_stage==16){
         integration_pid=exec_run_file("tty_job_control_test.elf");
         if(integration_pid>0){
             debug_write("LIONOS:TTY-JOB-CONTROL-TEST-LAUNCHED\n");
-            integration_stage=15;
+            integration_stage=17;
         }else{
             integration_done=1;
             debug_write("LIONOS:TTY-JOB-CONTROL-TEST-LAUNCH-FAIL\n");
@@ -656,7 +695,7 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage==15){
+    if(integration_stage==17){
         int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
@@ -670,7 +709,7 @@ void lionos_user_integration_step(void){
             integration_pid=-1;
             if(job_control_ok){
                 debug_write("LIONOS:TTY-JOB-CONTROL-TEST-OK\n");
-                integration_stage=16;
+                integration_stage=18;
             }else{
                 integration_done=1;
                 debug_write("LIONOS:TTY-JOB-CONTROL-TEST-FAIL\n");
@@ -684,11 +723,11 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage==16){
+    if(integration_stage==18){
         integration_pid=exec_run_file("sigint_test.elf");
         if(integration_pid>0){
             debug_write("LIONOS:SIGINT-DEFAULT-TEST-LAUNCHED\n");
-            integration_stage=17;
+            integration_stage=19;
         }else{
             integration_done=1;
             debug_write("LIONOS:SIGINT-DEFAULT-TEST-LAUNCH-FAIL\n");
@@ -697,7 +736,7 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage==17){
+    if(integration_stage==19){
         int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
@@ -713,7 +752,7 @@ void lionos_user_integration_step(void){
                 integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             }else{
-                integration_stage=18;
+                integration_stage=20;
             }
         }else if(s<0){
             integration_done=1;
@@ -723,11 +762,11 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage==18){
+    if(integration_stage==20){
         integration_pid=exec_run_file("signal_handler_test.elf");
         if(integration_pid>0){
             debug_write("LIONOS:SIGNAL-HANDLER-TEST-LAUNCHED\n");
-            integration_stage=19;
+            integration_stage=21;
         }else{
             integration_done=1;
             debug_write("LIONOS:SIGNAL-HANDLER-TEST-LAUNCH-FAIL\n");
@@ -736,7 +775,7 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage==19){
+    if(integration_stage==21){
         int32_t s=process_get_state((uint32_t)integration_pid);
         if(s==PROCESS_ZOMBIE){
             uint32_t code=0xFFFFFFFFu;
@@ -755,7 +794,7 @@ void lionos_user_integration_step(void){
                 integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             }else{
-                integration_stage=20;
+                integration_stage=22;
             }
         }else if(s<0){
             integration_done=1;
@@ -765,7 +804,7 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage==20){
+    if(integration_stage==22){
         uint32_t online=smp_online_count();
         if(online<=1u){
             debug_write("LIONOS:SMP-AP-USER-FORK-SKIP\n");
@@ -783,11 +822,11 @@ void lionos_user_integration_step(void){
             return;
         }
         debug_write("LIONOS:SMP-AP-USER-FORK-LAUNCHED\n");
-        integration_stage=21;
+        integration_stage=23;
         return;
     }
 
-    if(integration_stage==21){
+    if(integration_stage==23){
         uint32_t launch_status =
             __atomic_load_n(&integration_ap_user_status, __ATOMIC_ACQUIRE);
         if(launch_status == 0u) return;
@@ -906,7 +945,7 @@ void lionos_user_integration_step(void){
         for(uint32_t cpu=1u;cpu<online;++cpu)
             process_request_reschedule_cpu(cpu);
         debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-LAUNCHED\n");
-        integration_stage=23;
+        integration_stage=25;
         return;
     }
 
