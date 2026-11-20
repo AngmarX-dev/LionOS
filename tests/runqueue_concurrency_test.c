@@ -7,7 +7,7 @@
 #define WORKER_COUNT (TEST_CPU_COUNT * WORKERS_PER_CPU)
 #define NODES_PER_WORKER 8u
 #define NODE_COUNT (WORKER_COUNT * NODES_PER_WORKER)
-#define ITERATIONS 2000u
+#define ITERATIONS 20000u
 
 struct worker_argument {
     uint32_t cpu;
@@ -85,7 +85,7 @@ static void *run_worker(void *opaque) {
     return 0;
 }
 
-#define TRANSFER_ITERATIONS 1000u
+#define TRANSFER_ITERATIONS 10000u
 #define TRANSFER_NODES_PER_WORKER (NODE_COUNT / 2u)
 
 struct transfer_argument { uint32_t worker; };
