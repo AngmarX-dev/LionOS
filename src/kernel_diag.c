@@ -7,7 +7,6 @@
 #include "interrupt_stats.h"
 
 #define KLOG_LEVELS 5u
-#define KLOG_VECTORS 256u
 
 static volatile uint32_t log_counts[KLOG_LEVELS];
 static volatile uint32_t panic_active;

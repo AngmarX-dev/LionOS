@@ -26,7 +26,7 @@ int main(void)
 
     for (uint32_t i = 0u; i < WORKER_COUNT; ++i) {
         args[i].cpu = i % 4u;
-        args[i].vector = 64u + i;
+        args[i].vector = 64u + args[i].cpu;
         if (pthread_create(&threads[i], 0, record_worker, &args[i]) != 0) {
             fputs("interrupt stats: pthread_create failed\n", stderr);
             return 1;
@@ -39,7 +39,7 @@ int main(void)
             return 2;
         }
         if (interrupt_stats_count(args[i].cpu, args[i].vector) !=
-            ITERATIONS) {
+            (2u * ITERATIONS)) {
             fputs("interrupt stats: concurrent count mismatch\n", stderr);
             return 3;
         }
@@ -54,6 +54,14 @@ int main(void)
             fputs("interrupt stats: per-CPU total mismatch\n", stderr);
             return 4;
         }
+    }
+
+    /* A different vector on the same CPU must remain independently countable. */
+    interrupt_stats_record(0u, 128u);
+    if (interrupt_stats_count(0u, 128u) != 1u ||
+        interrupt_stats_total(0u) != (2u * ITERATIONS + 1u)) {
+        fputs("interrupt stats: vector isolation failed\\n", stderr);
+        return 7;
     }
 
     /* Invalid CPU/vector indices must not access the counter array. */
