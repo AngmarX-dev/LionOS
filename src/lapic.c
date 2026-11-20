@@ -40,6 +40,13 @@ static volatile uint32_t frame_timer_enabled;
 static uint64_t rdmsr(uint32_t msr) { uint32_t lo,hi; __asm__ volatile("rdmsr":"=a"(lo),"=d"(hi):"c"(msr)); return ((uint64_t)hi<<32)|lo; }
 static void wrmsr(uint32_t msr,uint64_t value) { uint32_t lo=(uint32_t)value,hi=(uint32_t)(value>>32); __asm__ volatile("wrmsr"::"c"(msr),"a"(lo),"d"(hi):"memory"); }
 static int cpu_has_apic(void) { uint32_t a,b,c,d; __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(1u),"c"(0u)); (void)a;(void)b;(void)c; return (d&(CPUID_APIC_BIT|(1u<<5)))==(CPUID_APIC_BIT|(1u<<5)); }
+static uint32_t cpu_initial_apic_id(void)
+{
+    uint32_t a,b,c,d;
+    __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d)
+                     :"a"(1u),"c"(0u));
+    return (b>>24)&0xFFu;
+}
 static uint32_t cpu_physical_address_bits(void)
 {
     uint32_t a,b,c,d;
@@ -103,6 +110,9 @@ int lapic_enable(void)
        (prepared_msr&(msr_address_mask|
                       LIONOS_IA32_APIC_BASE_ENABLE|
                       LIONOS_IA32_APIC_BASE_X2APIC)))
+        return -1;
+
+    if((read_reg(LAPIC_REG_ID)>>24)!=cpu_initial_apic_id())
         return -1;
 
     write_reg(LAPIC_REG_SIVR,
