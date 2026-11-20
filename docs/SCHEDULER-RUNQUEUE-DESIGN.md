@@ -23,7 +23,7 @@ run-queue probe places one short-lived kernel task on every online AP queue,
 blocks each task, and has the BSP wake it through the normal wait-channel path.
 Each AP uses its own probe wait lock so a simultaneous wake does not create an
 unfair shared test-lock convoy with interrupts disabled. The resumed task then performs a bounded wait on its own AP-local timer and checks that the timeout result is delivered exactly once. Each AP probe next stops itself through the normal process-state transition; the BSP waits until every AP is running its idle context, continues the probes, changes each AP probe's READY-task priority through the shared process-layer helper, validates the resulting owner-queue lane metadata, and sends owner-local reschedule IPIs. Each probe verifies that it resumed on its original AP before exiting through deferred reclamation. Before freeing the probe's kernel stack, the reaper verifies that the task is no longer current on any CPU, its run-queue node is fully detached, and the stack top is page-aligned. After slot cleanup it verifies UNUSED state and reset queue links before counting the probe as reaped. The QEMU stability suite requires AP lifecycle, cross-CPU wakeup, AP-local timeout, AP-local stop/continue, AP-owned READY-task priority-requeue, and AP reclamation-validation markers for multi-CPU boots.
-Fork and process-group stop/continue userland regressions execute during the same SMP boot suite. An additional AP-owned kernel worker launches the full `process_test.elf` lifecycle suite from CPU 1; because new user processes are pinned to their creator CPU and migration is disabled, its forked children, blocking/zombie `waitpid`, thread cleanup, and final `exec` run on that AP. The BSP observes the top-level exit status and reaps the AP-launched test process. A second QEMU integration pass launches the same lifecycle program from CPU 0, kicks an idle AP, and requires it to steal that READY process; the test verifies its migration counter and final AP owner before reaping. Kernel threads, user threads, and leaders with unreaped sibling threads remain pinned, and each process is limited to one migration. Broader SMP coverage and physical hardware verification remain outstanding.
+Fork and process-group stop/continue userland regressions execute during the same SMP boot suite. An additional AP-owned kernel worker launches the full `process_test.elf` lifecycle suite from CPU 1; the process is initially queued on CPU 1 and may be stolen once by another idle AP before or during its lifecycle test; forked children inherit the executing CPU as their initial owner. The BSP observes the top-level exit status and reaps the AP-launched test process. A second QEMU integration pass launches the same lifecycle program from CPU 0, kicks an idle AP, and requires it to steal that READY process; the test verifies its migration counter and final AP owner before reaping. Kernel threads, user threads, and leaders with unreaped sibling threads remain pinned, and each process is limited to one migration. Broader SMP coverage and physical hardware verification remain outstanding.
 
 
 ## Current implementation
@@ -35,7 +35,7 @@ The current scheduler has these relevant properties:
 - Each CPU has a small scheduler state record (scan cursor, schedule count, steal count, and timer ticks). The local timer count advances atomically before the timeout scan tries `process_lock`, so lock contention may defer a scan but cannot discard elapsed local ticks or indefinitely postpone an AP-local timeout.
 - Runnable selection dequeues from the current CPU's highest-priority non-empty FIFO run-queue lane; process-table scans are retained only for lifecycle and relationship operations.
 - New processes and threads are initially assigned to the creating CPU. An idle CPU may steal an eligible READY user process once; kernel threads, user threads, and process leaders with unreaped sibling threads remain pinned.
-- APs complete CPU-local initialization and receive a dedicated kernel idle context during `process_init()`. Their Local APIC timer enters `process_schedule()`, which switches an AP with no current task into that idle context. APs still do not receive ordinary tasks through migration or work stealing.
+- APs complete CPU-local initialization and receive a dedicated kernel idle context during `process_init()`. Their Local APIC timer enters `process_schedule()`, which switches an AP with no current task into that idle context. APs can receive eligible READY user processes through the restricted one-time work-stealing path; other task types remain pinned.
 - Process state transitions, wakeups, creation, exit, reaping, and priority changes are currently serialized by `process_lock`.
 
 Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue contains a READY task. The per-CPU scan cursor remains only as diagnostic/compatibility state; it no longer selects runnable tasks.
@@ -47,14 +47,14 @@ Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue con
 3. Avoid unbounded spinning in timer/interrupt context.
 4. Make enqueue, dequeue, wakeup, and priority-change operations have a single documented synchronization contract.
 5. Prevent a task from being runnable on two CPUs or running concurrently on two CPUs.
-6. Prepare for migration without enabling migration before AP scheduling, idle contexts, and task retirement are safe.
+6. Keep migration restricted to READY user processes until thread-group, address-space, and retirement synchronization support broader movement.
 
 ## Non-goals for this milestone
 
 - Do not migrate a running task.
 - Do not migrate kernel threads, user threads, or a process group with unreaped sibling threads in this initial slice.
 - Do not migrate the same process more than once.
-- Do not enable cross-CPU migration or work stealing. An AP may select only tasks already assigned to its own local queue; this local AP task-execution path still requires QEMU SMP verification.
+- Do not enable unrestricted cross-CPU migration. The initial path may transfer only eligible READY user processes once; broader migration requires separate thread-group, address-space, and lifetime verification.
 - Do not remove `process_lock` in the first queue conversion. Process-table lifetime and complex process-group/parent-child operations still require a stable serialization mechanism.
 - Do not change xHCI, interrupt routing, or unrelated driver code.
 
@@ -129,7 +129,7 @@ The process layer always acquires `process_lock` before queue locks. The primiti
 
 For the first implementation, the preferred CPU is the process's current owner when that CPU is online; otherwise use the creating/current CPU if online, then CPU 0 as a final valid fallback. The policy must never select an offline or out-of-range CPU.
 
-Creation and wakeup must not silently migrate a RUNNING task. A WAITING task may be re-enqueued on its previous owner because it is no longer executing. Any later load-balancing policy must be a separate change with explicit migration tests.
+Creation and wakeup must not migrate a RUNNING task. A WAITING task is re-enqueued on its previous owner. The current one-time stealing policy is the only permitted migration path; broader load balancing requires a separate change with explicit migration tests.
 
 ## Scheduler algorithm
 
@@ -156,9 +156,9 @@ The remaining prerequisites are:
 - Safe task exit/reap on APs, including deferred reclamation only after a task stack is no longer current on any CPU.
 - SMP tests proving two CPUs never execute the same task simultaneously.
 - Explicit queue membership and synchronized enqueue/dequeue before any task migration.
-- A tested two-queue transfer primitive with fixed CPU-index lock ordering; scheduler integration and process-level migration remain outstanding.
+- A tested two-queue transfer primitive with fixed CPU-index lock ordering; restricted user-process migration is integrated, while broader process/thread migration remains outstanding.
 
-Until these prerequisites pass, normal tasks remain pinned to their current owner and work stealing remains disabled.
+Until the broader prerequisites pass, only the restricted one-time READY user-process stealing path is enabled; kernel threads, user threads, and process groups with unreaped sibling threads remain pinned.
 
 ## Validation and acceptance criteria
 

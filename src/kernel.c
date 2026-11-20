@@ -778,65 +778,88 @@ void lionos_user_integration_step(void){
     }
 
     if(integration_stage==21){
-        uint32_t launch_status=__atomic_load_n(&integration_ap_user_status,__ATOMIC_ACQUIRE);
-        if(launch_status==0u)return;
-        if(launch_status!=1u){
-            integration_done=1;
-            debug_write(launch_status==2u?"LIONOS:SMP-AP-USER-WORKER-CPU-MISMATCH\\n":"LIONOS:SMP-AP-USER-EXEC-LAUNCH-FAIL\\n");
-            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");return;
+        uint32_t launch_status =
+            __atomic_load_n(&integration_ap_user_status, __ATOMIC_ACQUIRE);
+        if(launch_status == 0u) return;
+        if(launch_status != 1u){
+            integration_done = 1;
+            debug_write(launch_status == 2u
+                ? "LIONOS:SMP-AP-USER-WORKER-CPU-MISMATCH\n"
+                : "LIONOS:SMP-AP-USER-EXEC-LAUNCH-FAIL\n");
+            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            return;
         }
-        uint32_t pid=__atomic_load_n(&integration_ap_user_pid,__ATOMIC_ACQUIRE);
-        if(pid==0u){
-            integration_done=1;
-            debug_write("LIONOS:SMP-AP-USER-PID-MISSING\\n");
-            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");return;
+        uint32_t pid =
+            __atomic_load_n(&integration_ap_user_pid, __ATOMIC_ACQUIRE);
+        if(pid == 0u){
+            integration_done = 1;
+            debug_write("LIONOS:SMP-AP-USER-PID-MISSING\n");
+            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            return;
         }
-        int32_t state=process_get_state(pid);
-        if(state==PROCESS_ZOMBIE){
-            uint32_t code=0xFFFFFFFFu;
-            int ok=process_get_exit_code(pid,&code)==0&&code==0u;
-            if(process_reap_pid(pid)!=0)ok=0;
-            if(ok){debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-OK\\n");integration_stage=22;}
-            else{integration_done=1;debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");}
-        }else if(state<0){
-            integration_done=1;debug_write("LIONOS:SMP-AP-USER-PROCESS-STATE-FAIL\\n");
-            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\\n");debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+        int32_t state = process_get_state(pid);
+        if(state == PROCESS_ZOMBIE){
+            uint32_t code = 0xFFFFFFFFu;
+            int ok = process_get_exit_code(pid, &code) == 0 && code == 0u;
+            if(process_reap_pid(pid) != 0) ok = 0;
+            if(ok){
+                debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-OK\n");
+                integration_stage = 22;
+            }else{
+                integration_done = 1;
+                debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            }
+        }else if(state < 0){
+            integration_done = 1;
+            debug_write("LIONOS:SMP-AP-USER-PROCESS-STATE-FAIL\n");
+            debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
 
     /* Launch a BSP-owned user process; an idle AP must steal it from CPU 0. */
-    if(integration_stage==22){
-        integration_pid=exec_run_file("process_test.elf");
-        if(integration_pid>0){
+    if(integration_stage == 22){
+        integration_pid = exec_run_file("process_test.elf");
+        if(integration_pid > 0){
             process_request_reschedule_cpu(1u);
-            debug_write("LIONOS:SMP-WORK-STEAL-USER-LAUNCHED\\n");
-            integration_stage=23;
+            debug_write("LIONOS:SMP-WORK-STEAL-USER-LAUNCHED\n");
+            integration_stage = 23;
         }else{
-            integration_done=1;debug_write("LIONOS:SMP-WORK-STEAL-USER-LAUNCH-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            integration_done = 1;
+            debug_write("LIONOS:SMP-WORK-STEAL-USER-LAUNCH-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
 
-    if(integration_stage==23){
-        int32_t state=process_get_state((uint32_t)integration_pid);
-        if(state==PROCESS_ZOMBIE){
-            uint32_t code=0xFFFFFFFFu,owner=0xFFFFFFFFu,migrations=0u;
-            int valid=process_get_exit_code((uint32_t)integration_pid,&code)==0;
-            int info=process_get_migration_info((uint32_t)integration_pid,&owner,&migrations)==0;
-            uint32_t online=smp_online_count();
-            int ok=valid&&code==0u&&info&&owner>0u&&owner<online&&migrations==1u;
-            if(process_reap_pid((uint32_t)integration_pid)!=0)ok=0;
-            integration_pid=-1;
-            debug_write(ok?"LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK\\n":"LIONOS:SMP-WORK-STEAL-USER-PROCESS-FAIL\\n");
-            if(!ok)debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
-            integration_done=1;
-        }else if(state<0){
-            integration_done=1;debug_write("LIONOS:SMP-WORK-STEAL-USER-STATE-FAIL\\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+    if(integration_stage == 23){
+        int32_t state = process_get_state((uint32_t)integration_pid);
+        if(state == PROCESS_ZOMBIE){
+            uint32_t code = 0xFFFFFFFFu;
+            uint32_t owner = 0xFFFFFFFFu;
+            uint32_t migrations = 0u;
+            int valid =
+                process_get_exit_code((uint32_t)integration_pid, &code) == 0;
+            int info = process_get_migration_info((uint32_t)integration_pid,
+                                                   &owner, &migrations) == 0;
+            uint32_t online = smp_online_count();
+            int ok = valid && code == 0u && info && owner > 0u &&
+                     owner < online && migrations == 1u;
+            if(process_reap_pid((uint32_t)integration_pid) != 0) ok = 0;
+            integration_pid = -1;
+            debug_write(ok
+                ? "LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK\n"
+                : "LIONOS:SMP-WORK-STEAL-USER-PROCESS-FAIL\n");
+            if(!ok) debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            integration_done = 1;
+        }else if(state < 0){
+            integration_done = 1;
+            debug_write("LIONOS:SMP-WORK-STEAL-USER-STATE-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
         }
         return;
     }
