@@ -52,7 +52,6 @@
 #define COL_GOLD_DIM 0x7D6726u
 #define COL_DANGER 0xC94B4Bu
 #define COL_OK 0x61C58Au
-#define COL_CYAN 0x63D6D0u
 #define COL_INPUT 0x050A12u
 
 struct ui_window {
@@ -989,60 +988,37 @@ static void draw_glass_icon(uint32_t x,uint32_t y,const uint32_t *icon){
 }
 static void draw_top_menu(void){
     uint32_t w=framebuffer_width();
-    uint32_t bar_w=w>20u?w-20u:1u;
-    framebuffer_blend_round_rect(10u,6u,bar_w,38u,18u,COL_GROUND,62u);
-    framebuffer_blend_round_rect(11u,7u,bar_w>2u?bar_w-2u:1u,18u,12u,0xFFFFFFu,13u);
-    border(10u,6u,bar_w,38u,0x56758Du);
-    framebuffer_blit_rgba32(lion_icon_wordmark,LION_ICON_SIZE,LION_ICON_SIZE,17u,6u,34u);
-    text_line("LIONOS",57u,17u,COL_TEXT,COL_GROUND);
-    fill(132u,14u,1u,20u,0x56758Du);
-    text_line("WORKSPACE",148u,17u,COL_GOLD,COL_GROUND);
-    text_line("File   Edit   View   Window   Help",260u,17u,COL_DIM,COL_GROUND);
+    framebuffer_blend_round_rect(10u,6u,w>20u?w-20u:1u,34u,17u,COL_GROUND,54u);
+    framebuffer_blend_round_rect(11u,7u,w>22u?w-22u:1u,18u,12u,0xFFFFFFu,12u);
+    border(10u,6u,w>20u?w-20u:1u,34u,0x56758Du);
+    framebuffer_blit_rgba32(lion_icon_wordmark,LION_ICON_SIZE,LION_ICON_SIZE,18u,4u,34u);
+    text_line("File   Edit   View   Window   Help",80u,15u,COL_DIM,COL_GROUND);
     if(w>760u){
-        framebuffer_blit_rgba32(lion_icon_wifi,LION_ICON_SIZE,LION_ICON_SIZE,w-206u,13u,22u);
-        framebuffer_blit_rgba32(lion_icon_volume,LION_ICON_SIZE,LION_ICON_SIZE,w-174u,13u,22u);
-        framebuffer_blit_rgba32(lion_icon_battery,LION_ICON_SIZE,LION_ICON_SIZE,w-142u,13u,22u);
-        text_line("USB",w-104u,17u,COL_DIM,COL_GROUND);
-        text_line(mouse_usb_status_text(),w-68u,17u,
+        text_line("LIQUID GLASS",w-340u,15u,COL_GOLD,COL_GROUND);
+        framebuffer_blit_rgba32(lion_icon_wifi,LION_ICON_SIZE,LION_ICON_SIZE,w-196u,8u,22u);
+        framebuffer_blit_rgba32(lion_icon_volume,LION_ICON_SIZE,LION_ICON_SIZE,w-166u,8u,22u);
+        framebuffer_blit_rgba32(lion_icon_battery,LION_ICON_SIZE,LION_ICON_SIZE,w-136u,8u,22u);
+        text_line(mouse_usb_status_text(),w-96u,15u,
                   mouse_usb_status()==1u?COL_OK:COL_GOLD,COL_GROUND);
     }
 }
 
 static void draw_taskbar(void){
     uint32_t w=framebuffer_width(),h=framebuffer_height(),y=h-TASKBAR_H;
-    framebuffer_blend_rect(0u,y,w,TASKBAR_H,COL_GROUND,30u);
-    uint32_t dock_w=w>760u?620u:(w>600u?w-180u:(w>420u?w-40u:320u));
-    if(dock_w>w)dock_w=w;
+    framebuffer_blend_rect(0u,y,w,TASKBAR_H,COL_GROUND,22u);
+    uint32_t dock_w=w>720u?620u:(w>420u?w-40u:320u);
     uint32_t dock_h=72u;
     uint32_t dx=(w-dock_w)/2u,dy=y+8u;
-    glass_panel(dx,dy,dock_w,dock_h,28u,COL_PANEL,52u,1u);
+    glass_panel(dx,dy,dock_w,dock_h,36u,COL_PANEL,38u,1u);
     const uint32_t *icons[6]={
         lion_icon_terminal,lion_icon_documents,lion_icon_browser,
         lion_icon_tools,lion_icon_lionos,lion_icon_notepad
     };
-    uint32_t step=dock_w>=560u?92u:((dock_w-24u)/6u);
+    uint32_t step=dock_w>=360u?92u:((dock_w-24u)/6u);
     if(step<52u)step=52u;
     uint32_t start=dx+(dock_w-step*6u)/2u+4u;
-    for(uint32_t i=0u;i<6u;++i){
-        uint32_t ix=start+i*step;
-        draw_glass_icon(ix,dy+7u,icons[i]);
-        uint32_t active=0u;
-        if(i==0u)active=windows[WIN_TERMINAL-1u].visible&&!windows[WIN_TERMINAL-1u].minimized;
-        else if(i==1u)active=windows[WIN_FILES-1u].visible&&!windows[WIN_FILES-1u].minimized;
-        else if(i==2u)active=(uint32_t)browser_is_active();
-        else if(i==3u)active=windows[WIN_SETTINGS-1u].visible&&!windows[WIN_SETTINGS-1u].minimized;
-        else if(i==4u)active=windows[WIN_ABOUT-1u].visible&&!windows[WIN_ABOUT-1u].minimized;
-        else if(i==5u)active=windows[WIN_NOTEPAD-1u].visible&&!windows[WIN_NOTEPAD-1u].minimized;
-        if(active)framebuffer_blend_round_rect(ix+20u,dy+62u,12u,3u,2u,COL_CYAN,220u);
-    }
-    if(w>600u){
-        glass_panel(18u,y+24u,48u,48u,14u,COL_PANEL,58u,0u);
-        framebuffer_blit_rgba32(lion_icon_lionos,LION_ICON_SIZE,LION_ICON_SIZE,27u,y+33u,30u);
-        text_line("START",76u,y+41u,COL_TEXT,COL_GROUND);
-    }
-    if(w>1100u){
-        text_line("LIQUID GLASS",w-160u,y+40u,COL_GOLD,COL_GROUND);
-    }
+    for(uint32_t i=0u;i<6u;++i)
+        draw_glass_icon(start+i*step,dy+9u,icons[i]);
     draw_top_menu();
 }
 
@@ -1676,7 +1652,7 @@ static void handle_click(void){
     uint32_t x=mouse_px_x,y=mouse_px_y,h=framebuffer_height(),sw=framebuffer_width();
     if(browser_is_active()){browser_mouse_click(x,y);return;}
     if(y>=h-TASKBAR_H){
-        uint32_t dock_w=sw>760u?620u:(sw>600u?sw-180u:(sw>420u?sw-40u:320u));if(dock_w>sw)dock_w=sw;
+        uint32_t dock_w=sw>720u?620u:(sw>420u?sw-40u:320u);
         uint32_t dock_x=(sw-dock_w)/2u;
         uint32_t step=dock_w>=360u?92u:((dock_w-24u)/6u);
         if(step<52u)step=52u;
