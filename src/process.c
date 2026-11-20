@@ -565,6 +565,7 @@ static void process_scheduler_ap_probe_report(void){
         debug_write("LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK\n");
         debug_write("LIONOS:SMP-AP-RUNQUEUE-TIMEOUT-OK\n");
         debug_write("LIONOS:SMP-AP-RUNQUEUE-STOP-CONT-OK\n");
+        debug_write("LIONOS:SMP-AP-RUNQUEUE-PRIORITY-REQUEUE-OK\n");
     }
     debug_write(fault?"LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL\n":
                       "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK\n");
