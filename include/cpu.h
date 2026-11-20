@@ -2,6 +2,7 @@
 #define LIONOS_CPU_H
 
 #include <stdint.h>
+#include "acpi_madt.h"
 
 #define LIONOS_MAX_CPUS 16u
 
@@ -80,6 +81,7 @@ struct cpu_info {
 };
 
 void cpu_init(uint32_t multiboot_info);
+void cpu_acpi_madt_get_info(acpi_madt_info_t *out);
 uint32_t cpu_count_hint(void);
 uint32_t cpu_current_index(void);
 const struct cpu_info *cpu_get(uint32_t index);

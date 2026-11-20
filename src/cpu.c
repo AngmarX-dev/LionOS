@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "cpu.h"
+#include "acpi_madt.h"
 #include "lapic.h"
 #include "paging.h"
 #include "debug.h"
@@ -17,9 +18,9 @@
 struct mb2_tag { uint32_t type,size; };
 struct acpi_rsdp20 { char sig[8]; uint8_t checksum; char oem[6]; uint8_t revision; uint32_t rsdt; uint32_t length; uint64_t xsdt; uint8_t ext_checksum; uint8_t reserved[3]; } __attribute__((packed));
 struct acpi_sdt { char sig[4]; uint32_t length; uint8_t revision,checksum; char oem_id[6]; char oem_table[8]; uint32_t oem_revision,creator_id,creator_revision; } __attribute__((packed));
-struct acpi_madt { struct acpi_sdt h; uint32_t lapic_address,flags; } __attribute__((packed));
 
 static struct cpu_info cpus[LIONOS_MAX_CPUS];
+static acpi_madt_info_t cpu_madt_info;
 static uint32_t cpu_hint=1u;
 static uint32_t cpu_features;
 static volatile uint32_t nx_enabled;
@@ -491,23 +492,23 @@ static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
     }
     if(!madt)return 0u;
 
-    const struct acpi_madt*m=(const struct acpi_madt*)(uintptr_t)madt;
-    if(m->h.length<44u)return 0u;
+    const uint8_t *m=(const uint8_t *)(uintptr_t)madt;
+    if(acpi_madt_parse(m,((const struct acpi_sdt *)m)->length,
+                       &cpu_madt_info)!=0){
+        cpu_madt_info=(acpi_madt_info_t){0};
+        return 0u;
+    }
 
     uint32_t found=0u,bsp_index=0xFFFFFFFFu;
-    const uint8_t*p=(const uint8_t*)m+44u;
-    const uint8_t*endm=(const uint8_t*)m+m->h.length;
-    while(p+2u<=endm){
-        uint8_t type=p[0],len=p[1];
-        if(len<2u||p+len>endm)break;
-        if(type==0u&&len>=8u){
-            uint32_t apic=p[3],flags=*(const uint32_t*)(const void*)(p+4u);
-            if((flags&1u)&&found<ACPI_MAX_CPUS){cpus[found].apic_id=apic;cpus[found].logical_per_package=1u;if(apic==bsp_apic)bsp_index=found;++found;}
-        }else if(type==9u&&len>=16u){
-            uint32_t apic=*(const uint32_t*)(const void*)(p+4u),flags=*(const uint32_t*)(const void*)(p+8u);
-            if((flags&1u)&&found<ACPI_MAX_CPUS){cpus[found].apic_id=apic;cpus[found].logical_per_package=1u;if(apic==bsp_apic)bsp_index=found;++found;}
-        }
-        p+=len;
+    for(uint32_t i=0u;i<cpu_madt_info.cpu_count;++i){
+        const acpi_madt_cpu_t *entry=&cpu_madt_info.cpus[i];
+        /* The current startup path uses xAPIC's 8-bit destination field. */
+        if(entry->apic_id>0xFFu)continue;
+        if(found>=ACPI_MAX_CPUS){reset_cpus();return 0u;}
+        cpus[found].apic_id=entry->apic_id;
+        cpus[found].logical_per_package=1u;
+        if(entry->apic_id==bsp_apic)bsp_index=found;
+        ++found;
     }
     if(!found||bsp_index==0xFFFFFFFFu){reset_cpus();return 0u;}
     if(bsp_index!=0u){struct cpu_info tmp=cpus[0];cpus[0]=cpus[bsp_index];cpus[bsp_index]=tmp;}
@@ -516,6 +517,7 @@ static uint32_t acpi_enumerate(uint32_t mb2,uint32_t bsp_apic){
 }
 void cpu_init(uint32_t multiboot_info){
     reset_cpus();
+    cpu_madt_info=(acpi_madt_info_t){0};
     nx_enabled=0u;
     uint32_t a,b,c,d;
     cpuid_count(0u,0u,&a,&b,&c,&d);
@@ -678,6 +680,7 @@ void cpu_init(uint32_t multiboot_info){
     }
 }
 uint32_t cpu_count_hint(void){return cpu_hint;}
+void cpu_acpi_madt_get_info(acpi_madt_info_t *out){if(out)*out=cpu_madt_info;}
 /*
  * APIC identity is established by MADT before AP startup. Resolve the CPU
  * even while its online flag is still clear: AP initialization selects its
