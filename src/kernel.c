@@ -23,6 +23,7 @@
 #include "debug.h"
 #include "cpu.h"
 #include "lapic.h"
+#include "ioapic.h"
 #include "smp.h"
 #include "mouse.h"
 #include "xhci.h"
@@ -1314,6 +1315,11 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     if(lapic_init() == 0){
         lapic_ready = 1;
         console_write("[ OK ] Local APIC / BSP enabled\n");
+        if (ioapic_init() == 0) {
+            console_write("[ OK ] IOAPIC MMIO discovery (read-only); PIC remains active\n");
+        } else {
+            console_write("[ -- ] IOAPIC probe unavailable; PIC remains active\n");
+        }
         BOOT_STAGE(50u, "PROCESSORS STARTING");
 
         smp_init();
