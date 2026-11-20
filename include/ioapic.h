@@ -50,6 +50,9 @@ int ioapic_isa_routes_build(const ioapic_probe_info_t *controllers,
 
 /* Maps/probes IOAPICs and prepares ISA redirections in the masked state only. */
 int ioapic_init(void);
+/* Requires local interrupts disabled; performs the BSP PIC-to-IOAPIC handoff. */
+int ioapic_activate_isa_routes(void);
+int ioapic_isa_routes_active(void);
 uint32_t ioapic_count(void);
 int ioapic_get_info(uint32_t index, ioapic_probe_info_t *out);
 

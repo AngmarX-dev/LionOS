@@ -6,17 +6,22 @@
 #include "memory.h"
 #include "debug.h"
 #include "lapic.h"
+#include "pic.h"
 
 #define IOAPIC_REG_ID 0x00u
 #define IOAPIC_REG_VERSION 0x01u
 #define IOAPIC_REG_REDIR_BASE 0x10u
 #define IOAPIC_IOWIN_DWORD 4u
 #define IOAPIC_REDIR_LOW_VERIFY_MASK 0x0001AFFFu
+#define IOAPIC_REDIR_LOW_FIELDS_MASK \
+    (IOAPIC_REDIR_LOW_VERIFY_MASK & ~LIONOS_IOAPIC_REDIR_MASK)
 #define IOAPIC_REDIR_HIGH_DEST_MASK 0xFF000000u
 
 static ioapic_probe_info_t controllers[LIONOS_IOAPIC_MAX_CONTROLLERS];
+static ioapic_isa_route_t isa_routes[LIONOS_IOAPIC_ISA_ROUTE_COUNT];
 static volatile uint32_t controller_count;
 static volatile uint32_t probe_complete;
+static volatile uint32_t isa_routes_active;
 
 static uint32_t ioapic_read_register(volatile uint32_t *mmio,
                                      uint32_t register_index)
@@ -79,6 +84,106 @@ static int ioapic_program_route_masked(
         return -1;
 
     return 0;
+}
+
+static int ioapic_route_set_mask(const ioapic_isa_route_t *route,
+                                 uint32_t masked)
+{
+    uint32_t count = __atomic_load_n(&controller_count, __ATOMIC_ACQUIRE);
+    volatile uint32_t *mmio;
+    uint32_t low_register;
+    uint32_t high_register;
+    uint32_t low_word;
+    uint32_t read_low;
+    uint32_t read_high;
+
+    if (!route || route->controller_index >= count ||
+        route->redirection_index >= LIONOS_IOAPIC_MAX_REDIRECTIONS)
+        return -1;
+
+    mmio = (volatile uint32_t *)(uintptr_t)
+        controllers[route->controller_index].virtual_address;
+    low_register = IOAPIC_REG_REDIR_BASE + route->redirection_index * 2u;
+    high_register = low_register + 1u;
+    if (high_register > 0xFFu)
+        return -1;
+
+    low_word = ioapic_read_register(mmio, low_register);
+    if (masked)
+        low_word |= LIONOS_IOAPIC_REDIR_MASK;
+    else
+        low_word &= ~LIONOS_IOAPIC_REDIR_MASK;
+    ioapic_write_register(mmio, low_register, low_word);
+
+    read_low = ioapic_read_register(mmio, low_register);
+    read_high = ioapic_read_register(mmio, high_register);
+    if ((read_low & IOAPIC_REDIR_LOW_FIELDS_MASK) !=
+            (route->low_word & IOAPIC_REDIR_LOW_FIELDS_MASK) ||
+        ((read_low & LIONOS_IOAPIC_REDIR_MASK) != 0u) != (masked != 0u) ||
+        (read_high & IOAPIC_REDIR_HIGH_DEST_MASK) !=
+            (route->high_word & IOAPIC_REDIR_HIGH_DEST_MASK))
+        return -1;
+
+    return 0;
+}
+
+static int ioapic_mask_all_isa_routes(void)
+{
+    int result = 0;
+    for (uint32_t i = 0u; i < LIONOS_IOAPIC_ISA_ROUTE_COUNT; ++i)
+        if (ioapic_route_set_mask(&isa_routes[i], 1u) != 0)
+            result = -1;
+    return result;
+}
+
+int ioapic_activate_isa_routes(void)
+{
+    uint32_t flags;
+    uint32_t bsp_apic_id;
+
+    if (__atomic_load_n(&isa_routes_active, __ATOMIC_ACQUIRE) != 0u)
+        return 0;
+    if (cpu_current_index() != 0u ||
+        !__atomic_load_n(&probe_complete, __ATOMIC_ACQUIRE))
+        return -1;
+
+    bsp_apic_id = lapic_id();
+    if (bsp_apic_id == 0xFFFFFFFFu || bsp_apic_id > 0xFFu)
+        return -1;
+    for (uint32_t i = 0u; i < LIONOS_IOAPIC_ISA_ROUTE_COUNT; ++i)
+        if ((isa_routes[i].high_word >> 24) != bsp_apic_id)
+            return -1;
+
+    /* The BSP must not accept either PIC or IOAPIC interrupts mid-handoff. */
+    __asm__ volatile("pushfl; popl %0" : "=r"(flags) : : "memory");
+    if ((flags & (1u << 9)) != 0u)
+        return -1;
+
+    for (uint32_t i = 0u; i < LIONOS_IOAPIC_ISA_ROUTE_COUNT; ++i) {
+        if (ioapic_route_set_mask(&isa_routes[i], 0u) != 0)
+            return ioapic_mask_all_isa_routes() == 0 ? -1 : -2;
+    }
+
+    /*
+     * All ISA routes target the BSP. With BSP IF clear, enabling them before
+     * masking the PIC cannot run an ISR from either controller. If PIC masking
+     * fails, restore the masked IOAPIC state before returning to PIC mode.
+     */
+    int pic_result = pic_mask_all();
+    if (pic_result != 0) {
+        if (ioapic_mask_all_isa_routes() != 0)
+            return -2;
+        return pic_result == -2 ? -2 : -1;
+    }
+
+    __atomic_store_n(&isa_routes_active, 1u, __ATOMIC_RELEASE);
+    debug_write("LIONOS:IOAPIC-ISA-ROUTES-ACTIVE\n");
+    return 0;
+}
+
+int ioapic_isa_routes_active(void)
+{
+    return __atomic_load_n(&isa_routes_active, __ATOMIC_ACQUIRE) != 0u;
 }
 
 int ioapic_init(void)
@@ -169,6 +274,8 @@ int ioapic_init(void)
 
     for (uint32_t i = 0u; i < madt.ioapic_count; ++i)
         controllers[i] = discovered[i];
+    for (uint32_t i = 0u; i < LIONOS_IOAPIC_ISA_ROUTE_COUNT; ++i)
+        isa_routes[i] = planned_routes[i];
 
     __atomic_store_n(&controller_count, madt.ioapic_count, __ATOMIC_RELEASE);
     __atomic_store_n(&probe_complete, 1u, __ATOMIC_RELEASE);

@@ -24,6 +24,7 @@
 #include "cpu.h"
 #include "lapic.h"
 #include "ioapic.h"
+#include "pic.h"
 #include "smp.h"
 #include "mouse.h"
 #include "xhci.h"
@@ -40,7 +41,6 @@
 #include "ext2_vfs.h"
 #include "tty.h"
 
-void pic_init(void);
 void keyboard_init(void);
 void syscall_init(void);
 
@@ -1329,6 +1329,17 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         console_write(smp_lock_selftest()
             ? "[ OK ] SMP spinlock / IRQ-save synchronization\n"
             : "[ERR] SMP spinlock self-test\n");
+        if (ioapic_count() != 0u) {
+            int route_status = ioapic_activate_isa_routes();
+            if (route_status == 0) {
+                console_write("[ OK ] IOAPIC ISA IRQ0/1/12 active; legacy PIC masked\n");
+            } else if (route_status == -2) {
+                debug_write("LIONOS:IOAPIC-HANDOFF-ROLLBACK-FAILED\n");
+                for (;;) __asm__ volatile("cli; hlt");
+            } else {
+                console_write("[ -- ] IOAPIC ISA handoff unavailable; legacy PIC remains active\n");
+            }
+        }
         if(lapic_frame_timer_init(120u)==0)
             console_write("[ OK ] Calibrated 120 Hz BSP frame timer\n");
         else

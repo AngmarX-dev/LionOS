@@ -130,6 +130,7 @@ run_gui_smoke() {
     done
 
     grep -q 'LIONOS:READY' "$log_file"
+    grep -q 'LIONOS:IOAPIC-ISA-ROUTES-ACTIVE' "$log_file"
     grep -q 'LIONOS:SMP-LOCK-STRESS-OK' "$log_file"
     grep -q 'LIONOS:SMP-AP-IDLE-CONTEXTS-READY' "$log_file"
     grep -q 'LIONOS:SMP-AP-IDLE-ALL-ENTERED' "$log_file"
@@ -263,6 +264,7 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-first.log;
 fi
 grep -q 'LIONOS:READY' build/qemu-first.log
 grep -q 'LIONOS:IOAPIC-ISA-ROUTES-PREPARED-MASKED' build/qemu-first.log
+grep -q 'LIONOS:IOAPIC-ISA-ROUTES-ACTIVE' build/qemu-first.log
 grep -q 'LIONOS:GFX-PCI-CLASSIFY-SELFTEST-OK' build/qemu-first.log
 grep -q 'LIONOS:GFX-PCI-DISCOVERY-OK' build/qemu-first.log
 grep -q 'LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-OK' build/qemu-first.log
