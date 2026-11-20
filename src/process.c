@@ -45,6 +45,8 @@ static struct spinlock scheduler_ap_probe_wait_locks[LIONOS_MAX_CPUS];
 static uint32_t scheduler_ap_probe_wait_token;
 static uint32_t scheduler_ap_probe_timeout_token;
 static volatile uint32_t scheduler_ap_probe_timeout_seen;
+static volatile uint32_t scheduler_ap_probe_stop_continue_issued;
+static volatile uint32_t scheduler_ap_probe_continue_seen;
 static volatile uint32_t smp_ap_schedule_enter_seen;
 static volatile uint32_t smp_ap_schedule_lock_contention_seen;
 
@@ -109,6 +111,24 @@ static void process_scheduler_ap_probe(uint32_t expected_cpu){
         __atomic_fetch_or(&scheduler_ap_probe_timeout_seen,bit,__ATOMIC_ACQ_REL);
         __atomic_fetch_or(&scheduler_ap_probe_seen,bit,__ATOMIC_ACQ_REL);
     }
+    /*
+     * Stop this AP-local kernel task through the normal process-state path.
+     * The BSP continues it only after every AP has switched to its idle
+     * context, proving remote queue removal and reinsertion.
+     */
+    if(process_scheduler_ap_probe_stop_current()!=0){
+        __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+        process_exit_current(3u);
+        for(;;)__asm__ volatile("sti; hlt");
+    }
+    __asm__ volatile("sti; hlt" ::: "memory");
+    actual_cpu=cpu_current_index();
+    if(actual_cpu!=expected_cpu||actual_cpu==0u||actual_cpu>=LIONOS_MAX_CPUS){
+        __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+    }else{
+        __atomic_fetch_or(&scheduler_ap_probe_continue_seen,1u<<actual_cpu,
+                          __ATOMIC_ACQ_REL);
+    }
     process_exit_current(0u);
     for(;;)__asm__ volatile("sti; hlt");
 }
@@ -133,6 +153,8 @@ static volatile uint32_t reschedule_blocked[LIONOS_MAX_CPUS];
 static uint32_t fpu_enabled;
 
 static void reap_process(struct process *p);
+static void continue_process_locked(struct process *process);
+static int process_scheduler_ap_probe_stop_current(void);
 static struct process *find_pid(uint32_t pid);
 static int process_group_orphaned_locked(uint32_t pgid,uint32_t sid);
 static int process_group_has_stopped_locked(uint32_t pgid,uint32_t sid);
@@ -324,6 +346,78 @@ static void process_scheduler_ap_probe_report(void){
         process_wakeup((uintptr_t)&scheduler_ap_probe_wait_token);
 
     /*
+     * Wait until each AP-local probe has stopped and its CPU has switched to
+     * the idle context. Continue all probes under process_lock, validate
+     * READY queue membership, then kick the owners after releasing the lock.
+     */
+    uint32_t timeout_seen_for_continue=
+        __atomic_load_n(&scheduler_ap_probe_timeout_seen,__ATOMIC_ACQUIRE);
+    uint32_t continue_issued=
+        __atomic_load_n(&scheduler_ap_probe_stop_continue_issued,__ATOMIC_ACQUIRE);
+    if((timeout_seen_for_continue&expected)==expected&&!continue_issued){
+        struct process *targets[LIONOS_MAX_CPUS]={0};
+        uint32_t all_stopped=1u,missing_target=0u;
+        if(spinlock_try_acquire(&process_lock)){
+            uint32_t online=smp_online_count();
+            if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+            for(uint32_t cpu=1u;cpu<online;++cpu){
+                if(!(expected&(1u<<cpu)))continue;
+                struct process *probe=0;
+                for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+                    struct process *candidate=&processes[i];
+                    if(candidate->state!=PROCESS_UNUSED&&candidate->is_thread&&
+                       candidate->thread_group_pid==0u&&
+                       candidate->entry==(uint32_t)(uintptr_t)&process_scheduler_ap_probe&&
+                       candidate->cpu_owner==cpu){
+                        probe=candidate;
+                        break;
+                    }
+                }
+                if(!probe){
+                    missing_target=1u;
+                    all_stopped=0u;
+                    break;
+                }
+                targets[cpu]=probe;
+                if(probe->state!=PROCESS_STOPPED||
+                   current_cpu_load(cpu)!=&scheduler_idle_processes[cpu]){
+                    all_stopped=0u;
+                    break;
+                }
+            }
+            if(missing_target){
+                __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+            }else if(all_stopped){
+                __atomic_store_n(&scheduler_ap_probe_stop_continue_issued,1u,
+                                 __ATOMIC_RELEASE);
+                for(uint32_t cpu=1u;cpu<online;++cpu){
+                    if(!(expected&(1u<<cpu)))continue;
+                    continue_process_locked(targets[cpu]);
+                    if(targets[cpu]->state!=PROCESS_READY||
+                       runqueue_nodes[process_index(targets[cpu])].queued!=1u||
+                       runqueue_nodes[process_index(targets[cpu])].queue_cpu!=cpu)
+                        __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                         __ATOMIC_RELEASE);
+                }
+                for(uint32_t cpu=0u;cpu<online;++cpu)
+                    if(process_runqueue_validate_locked(cpu)!=0)
+                        __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                         __ATOMIC_RELEASE);
+            }
+            spinlock_release(&process_lock);
+        }
+        if(all_stopped&&!missing_target&&
+           __atomic_load_n(&scheduler_ap_probe_stop_continue_issued,
+                           __ATOMIC_ACQUIRE)&&
+           __atomic_load_n(&scheduler_ap_probe_fault,__ATOMIC_ACQUIRE)==0u){
+            uint32_t online=smp_online_count();
+            if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+            for(uint32_t cpu=1u;cpu<online;++cpu)
+                if(expected&(1u<<cpu))process_kick_cpu(cpu);
+        }
+    }
+
+    /*
      * If every AP has fallen back to idle but the probes are not all waiting,
      * capture one coherent scheduler snapshot. This is diagnostic-only: it
      * neither changes task state nor relaxes the 16-CPU acceptance checks.
@@ -405,11 +499,16 @@ static void process_scheduler_ap_probe_report(void){
     uint32_t seen=__atomic_load_n(&scheduler_ap_probe_seen,__ATOMIC_ACQUIRE);
     uint32_t timeout_seen=__atomic_load_n(&scheduler_ap_probe_timeout_seen,
                                            __ATOMIC_ACQUIRE);
+    uint32_t continue_seen=__atomic_load_n(&scheduler_ap_probe_continue_seen,
+                                            __ATOMIC_ACQUIRE);
     uint32_t expected_count=__atomic_load_n(&scheduler_ap_probe_expected_count,
                                              __ATOMIC_ACQUIRE);
     uint32_t reaped=__atomic_load_n(&scheduler_ap_probe_reaped,__ATOMIC_ACQUIRE);
     if(!fault&&((seen&expected)!=expected||
                 (timeout_seen&expected)!=expected||
+                (continue_seen&expected)!=expected||
+                __atomic_load_n(&scheduler_ap_probe_stop_continue_issued,
+                                __ATOMIC_ACQUIRE)==0u||
                 reaped!=expected_count))return;
 
     if(!fault){
@@ -432,6 +531,7 @@ static void process_scheduler_ap_probe_report(void){
     if(!fault){
         debug_write("LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK\n");
         debug_write("LIONOS:SMP-AP-RUNQUEUE-TIMEOUT-OK\n");
+        debug_write("LIONOS:SMP-AP-RUNQUEUE-STOP-CONT-OK\n");
     }
     debug_write(fault?"LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL\n":
                       "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK\n");
@@ -603,6 +703,8 @@ void process_init(void) {
     __atomic_store_n(&scheduler_ap_probe_expected_count,probe_count,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_seen,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_timeout_seen,0u,__ATOMIC_RELEASE);
+    __atomic_store_n(&scheduler_ap_probe_stop_continue_issued,0u,__ATOMIC_RELEASE);
+    __atomic_store_n(&scheduler_ap_probe_continue_seen,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_fault,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_reported,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_reaped,0u,__ATOMIC_RELEASE);
@@ -1484,6 +1586,22 @@ static void continue_process_locked(struct process *process){
     }
     if(was_stopped&&!process->is_thread)wake_waiting_parent_continued(process);
     if(resume_waitpid)wake_pending_waitpid_event(process);
+}
+
+static int process_scheduler_ap_probe_stop_current(void){
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process *current=current_local();
+    if(!current||!current->is_thread||current->thread_group_pid!=0u||
+       current->entry!=(uint32_t)(uintptr_t)&process_scheduler_ap_probe||
+       current->cpu_owner!=cpu_current_index()||current->state!=PROCESS_RUNNING){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
+    stop_process_locked(current,LIONOS_SIG_STOP);
+    int stopped=current->state==PROCESS_STOPPED&&
+        runqueue_nodes[process_index(current)].queued==0u;
+    spinlock_irqrestore_release(&process_lock,flags);
+    return stopped?0:-1;
 }
 
 static int process_group_orphaned_locked(uint32_t pgid,uint32_t sid){

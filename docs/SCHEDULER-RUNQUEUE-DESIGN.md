@@ -21,12 +21,8 @@ membership against process states during scheduler decisions. A boot-time AP
 run-queue probe places one short-lived kernel task on every online AP queue,
 blocks each task, and has the BSP wake it through the normal wait-channel path.
 Each AP uses its own probe wait lock so a simultaneous wake does not create an
-unfair shared test-lock convoy with interrupts disabled. The resumed task then
-performs a bounded wait on its own AP-local timer and checks that the timeout
-result is delivered exactly once before exiting through deferred reclamation. The QEMU stability suite requires AP lifecycle,
-cross-CPU wakeup, and AP-local timeout markers for multi-CPU boots.
-Cross-CPU stop/continue and fork lifecycle stress, broader SMP coverage, and
-physical hardware verification remain outstanding.
+unfair shared test-lock convoy with interrupts disabled. The resumed task then performs a bounded wait on its own AP-local timer and checks that the timeout result is delivered exactly once. Each AP probe next stops itself through the normal process-state transition; the BSP waits until every AP is running its idle context, continues the probes, validates READY queue membership, and sends owner-local reschedule IPIs. Each probe verifies that it resumed on its original AP before exiting through deferred reclamation. The QEMU stability suite requires AP lifecycle, cross-CPU wakeup, AP-local timeout, and AP-local stop/continue markers for multi-CPU boots.
+Fork and process-group stop/continue userland regressions execute during the same SMP boot suite, but user processes remain pinned to their creator CPU because migration is disabled. Cross-CPU user-process fork execution, broader SMP coverage, and physical hardware verification remain outstanding.
 
 
 ## Current implementation
