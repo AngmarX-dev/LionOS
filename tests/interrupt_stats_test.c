@@ -24,13 +24,17 @@ int main(void)
     pthread_t threads[WORKER_COUNT];
     struct worker_args args[WORKER_COUNT];
 
+    uint32_t created = 0u;
     for (uint32_t i = 0u; i < WORKER_COUNT; ++i) {
         args[i].cpu = i % 4u;
         args[i].vector = 64u + args[i].cpu;
         if (pthread_create(&threads[i], 0, record_worker, &args[i]) != 0) {
             fputs("interrupt stats: pthread_create failed\n", stderr);
+            for (uint32_t joined = 0u; joined < created; ++joined)
+                (void)pthread_join(threads[joined], 0);
             return 1;
         }
+        ++created;
     }
 
     for (uint32_t i = 0u; i < WORKER_COUNT; ++i) {

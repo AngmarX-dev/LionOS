@@ -80,6 +80,12 @@ run_qemu() {
         return 1
     fi
     if [ "$cpu_count" -gt 1 ]; then
+        for cpu in $(seq 0 $((cpu_count - 1))); do
+            if ! grep -q "LIONOS:IRQ-CPU cpu=$cpu " "$log_file"; then
+                echo "per-CPU interrupt statistics missing for online CPU $cpu: $log_file" >&2
+                return 1
+            fi
+        done
         grep -q "LIONOS:SMP-AP-IDLE-CONTEXTS-READY" "$log_file"
         grep -q "LIONOS:SMP-AP-IDLE-ALL-ENTERED" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK" "$log_file"

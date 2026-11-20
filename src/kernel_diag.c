@@ -147,7 +147,7 @@ void kernel_diag_print_interrupts(void) {
     debug_write("\n");
 
     /*
-     * Report a consistent per-CPU snapshot using atomic loads. Counters may
+     * Report per-CPU samples using atomic loads. Counters may
      * continue advancing on APs while this diagnostic is printed; each value
      * is therefore an individually valid sample, not a global stop-the-world
      * snapshot.
