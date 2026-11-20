@@ -4,13 +4,13 @@
 #include "debug.h"
 #include "cpu.h"
 #include "lapic.h"
+#include "interrupt_stats.h"
 
 #define KLOG_LEVELS 5u
 #define KLOG_VECTORS 256u
 
 static volatile uint32_t log_counts[KLOG_LEVELS];
 static volatile uint32_t panic_active;
-static volatile uint32_t interrupt_counts[LIONOS_MAX_CPUS][KLOG_VECTORS];
 
 static const char *level_name(enum kernel_log_level level) {
     switch(level) {
@@ -95,7 +95,7 @@ void kernel_diag_print(void) {
         console_write_dec(kernel_diag_log_count((enum kernel_log_level)i));
     }
     console_write("\n");
-    console_write("       interrupt counters: deferred until CPU interrupts are enabled\n");
+    console_write("       interrupt counters: atomic per-CPU vector accounting; detailed sample after STI\n");
     console_write("       online CPUs=");
     uint32_t online=0u;
     for (uint32_t i=0;i<LIONOS_MAX_CPUS;++i) {
@@ -146,15 +146,64 @@ void kernel_diag_print_interrupts(void) {
     debug_write(" lapic=");
     debug_dec32(lapic);
     debug_write("\n");
+
+    /*
+     * Report a consistent per-CPU snapshot using atomic loads. Counters may
+     * continue advancing on APs while this diagnostic is printed; each value
+     * is therefore an individually valid sample, not a global stop-the-world
+     * snapshot.
+     */
+    for (uint32_t cpu = 0u; cpu < LIONOS_MAX_CPUS; ++cpu) {
+        const struct cpu_info *info = cpu_get(cpu);
+        if (!info || !__atomic_load_n(&info->online, __ATOMIC_ACQUIRE))
+            continue;
+
+        uint32_t total = interrupt_stats_total(cpu);
+        uint32_t reschedule = kernel_diag_interrupt_count(cpu, 50u);
+        uint32_t tlb = kernel_diag_interrupt_count(cpu, 49u);
+        console_write("[IRQ] CPU ");
+        console_write_dec(cpu);
+        console_write(" total=");
+        console_write_dec(total);
+        console_write(" timer=");
+        console_write_dec(kernel_diag_interrupt_count(cpu, 32u));
+        console_write(" keyboard=");
+        console_write_dec(kernel_diag_interrupt_count(cpu, 33u));
+        console_write(" mouse=");
+        console_write_dec(kernel_diag_interrupt_count(cpu, 44u));
+        console_write(" LAPIC=");
+        console_write_dec(kernel_diag_interrupt_count(cpu, 48u));
+        console_write(" resched=");
+        console_write_dec(reschedule);
+        console_write(" TLB=");
+        console_write_dec(tlb);
+        console_write("\\n");
+
+        debug_write("LIONOS:IRQ-CPU cpu=");
+        debug_dec32(cpu);
+        debug_write(" total=");
+        debug_dec32(total);
+        debug_write(" timer=");
+        debug_dec32(kernel_diag_interrupt_count(cpu, 32u));
+        debug_write(" keyboard=");
+        debug_dec32(kernel_diag_interrupt_count(cpu, 33u));
+        debug_write(" mouse=");
+        debug_dec32(kernel_diag_interrupt_count(cpu, 44u));
+        debug_write(" lapic=");
+        debug_dec32(kernel_diag_interrupt_count(cpu, 48u));
+        debug_write(" resched=");
+        debug_dec32(reschedule);
+        debug_write(" tlb=");
+        debug_dec32(tlb);
+        debug_write("\\n");
+    }
 }
 
 void kernel_diag_record_interrupt(uint32_t cpu, uint32_t vector) {
-    if (cpu < LIONOS_MAX_CPUS && vector < KLOG_VECTORS)
-        __atomic_fetch_add(&interrupt_counts[cpu][vector], 1u, __ATOMIC_RELAXED);
+    interrupt_stats_record(cpu, vector);
 }
 uint32_t kernel_diag_interrupt_count(uint32_t cpu, uint32_t vector) {
-    if (cpu >= LIONOS_MAX_CPUS || vector >= KLOG_VECTORS) return 0u;
-    return __atomic_load_n(&interrupt_counts[cpu][vector], __ATOMIC_RELAXED);
+    return interrupt_stats_count(cpu, vector);
 }
 
 
