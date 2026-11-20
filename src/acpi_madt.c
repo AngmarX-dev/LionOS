@@ -167,7 +167,7 @@ int acpi_madt_parse(const uint8_t *table, uint32_t available,
                 return -1;
             break;
         case 5u: /* Local APIC Address Override */
-            if (entry_length < 12u || read_le32(entry + 2u) != 0u ||
+            if (entry_length < 12u || read_le16(entry + 2u) != 0u ||
                 parsed.lapic_address_overridden != 0u)
                 return -1;
             parsed.lapic_address = read_le64(entry + 4u);

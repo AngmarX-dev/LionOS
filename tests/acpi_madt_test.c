@@ -104,7 +104,7 @@ int main(void)
     put32(table + 4u, n);
     checksum(table, n);
     table[n - 1u] ^= 1u;
-    if (expect_failure(n) != 0) return 3;
+    if (acpi_madt_parse(table, n, &info) == 0) return 3;
 
     n = begin_table();
     n = add_entry(n, 0u, 8u);
@@ -153,6 +153,36 @@ int main(void)
     table[n - 6u] = 0u; table[n - 5u] = 1u;
     put32(table + n - 4u, 1u);
     if (finish_parse(n, 0) == 0) return 9;
+
+
+    /* An oversized declared table must not cause a read beyond the buffer. */
+    n = begin_table();
+    n = add_entry(n, 0u, 8u);
+    table[n - 6u] = 0u; table[n - 5u] = 1u;
+    put32(table + n - 4u, 1u);
+    put32(table + 4u, n + 1u);
+    checksum(table, n);
+    if (acpi_madt_parse(table, n, &info) == 0) return 10;
+
+    /* Duplicate IOAPIC identities, MMIO addresses, or GSI bases are rejected. */
+    n = begin_table();
+    n = add_entry(n, 0u, 8u);
+    table[n - 6u] = 0u; table[n - 5u] = 1u;
+    put32(table + n - 4u, 1u);
+    n = add_entry(n, 1u, 12u);
+    table[n - 10u] = 2u;
+    put32(table + n - 8u, 0xFEC00000u);
+    n = add_entry(n, 1u, 12u);
+    table[n - 10u] = 2u;
+    put32(table + n - 8u, 0xFEC01000u);
+    put32(table + n - 4u, 24u);
+    if (expect_failure(n) != 0) return 11;
+
+    /* The output object is not partially overwritten on malformed input. */
+    info.cpu_count = 0xA5A5A5A5u;
+    n = begin_table();
+    if (finish_parse(n, &info) == 0 || info.cpu_count != 0xA5A5A5A5u)
+        return 12;
 
     puts("ACPI MADT parser tests passed");
     return 0;
