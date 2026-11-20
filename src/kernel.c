@@ -1316,7 +1316,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
         lapic_ready = 1;
         console_write("[ OK ] Local APIC / BSP enabled\n");
         if (ioapic_init() == 0) {
-            console_write("[ OK ] IOAPIC MMIO discovery (read-only); PIC remains active\n");
+            console_write("[ OK ] IOAPIC discovery / masked ISA routes; PIC remains active\n");
         } else {
             console_write("[ -- ] IOAPIC probe unavailable; PIC remains active\n");
         }
