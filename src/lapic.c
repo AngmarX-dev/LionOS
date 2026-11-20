@@ -39,6 +39,17 @@ static volatile uint32_t frame_timer_enabled;
 static uint64_t rdmsr(uint32_t msr) { uint32_t lo,hi; __asm__ volatile("rdmsr":"=a"(lo),"=d"(hi):"c"(msr)); return ((uint64_t)hi<<32)|lo; }
 static void wrmsr(uint32_t msr,uint64_t value) { uint32_t lo=(uint32_t)value,hi=(uint32_t)(value>>32); __asm__ volatile("wrmsr"::"c"(msr),"a"(lo),"d"(hi):"memory"); }
 static int cpu_has_apic(void) { uint32_t a,b,c,d; __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(1u),"c"(0u)); (void)a;(void)b;(void)c; return (d&(CPUID_APIC_BIT|(1u<<5)))==(CPUID_APIC_BIT|(1u<<5)); }
+static uint32_t cpu_physical_address_bits(void)
+{
+    uint32_t a,b,c,d;
+    __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d)
+                     :"a"(0x80000000u),"c"(0u));
+    if(a<0x80000008u)
+        return 36u; /* Architectural fallback for older PAE-capable CPUs. */
+    __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d)
+                     :"a"(0x80000008u),"c"(0u));
+    return (a&0xFFu);
+}
 static uint32_t read_reg(uint32_t reg){return lapic[reg/4u];}
 static void write_reg(uint32_t reg,uint32_t value){lapic[reg/4u]=value;}
 static void wait_icr(void){for(uint32_t i=0;i<1000000u;++i){if((read_reg(0x300u)&ICR_DELIVERY_STATUS)==0u)return;__asm__ volatile("pause");}}
@@ -53,6 +64,7 @@ int lapic_init(void)
     uint64_t prepared_msr;
     uint64_t readback;
     uint32_t mmio_flags;
+    uint32_t physical_address_bits;
 
     if(!cpu_has_apic())
         return -1;
@@ -63,8 +75,10 @@ int lapic_init(void)
     if(physical_base==0u)
         physical_base=LIONOS_LAPIC_PHYS;
 
+    physical_address_bits=cpu_physical_address_bits();
     current_msr=rdmsr(IA32_APIC_BASE_MSR);
-    if(lapic_base_msr_prepare(current_msr,physical_base,&prepared_msr)!=0)
+    if(lapic_base_msr_prepare(current_msr,physical_base,
+                              physical_address_bits,&prepared_msr)!=0)
         return -1;
 
     cpu_memory_type_get_state(&memory_types);
