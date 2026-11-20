@@ -15,7 +15,8 @@ new state; scheduler selection removes the highest-priority head. The global
 The timer scheduler uses a non-blocking try-acquire for its local queue selection.
 Work stealing and task migration remain disabled.
 
-Host tests cover queue invariants, FIFO/priority ordering, and concurrent lock
+Host tests cover queue invariants, FIFO/priority ordering, destination-lane FIFO
+append semantics across multiple READY-task priority changes, and concurrent lock
 contention across two independent per-CPU queues. Runtime validation checks queue
 membership against process states during scheduler decisions. A boot-time AP
 run-queue probe places one short-lived kernel task on every online AP queue,
