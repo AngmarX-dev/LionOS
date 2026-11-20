@@ -43,6 +43,8 @@ static volatile uint32_t scheduler_ap_probe_reaped;
 static volatile uint32_t scheduler_ap_probe_expected_count;
 static struct spinlock scheduler_ap_probe_wait_lock;
 static uint32_t scheduler_ap_probe_wait_token;
+static uint32_t scheduler_ap_probe_timeout_token;
+static volatile uint32_t scheduler_ap_probe_timeout_seen;
 static volatile uint32_t smp_ap_schedule_enter_seen;
 static volatile uint32_t smp_ap_schedule_lock_contention_seen;
 
@@ -68,12 +70,32 @@ static void process_scheduler_ap_probe(uint32_t expected_cpu){
      * until its owner-local reschedule IPI selects this task again.
      */
     __asm__ volatile("sti; hlt" ::: "memory");
+    /*
+     * Exercise the AP-local timer timeout path after the remote wake. The
+     * scheduler arms the deadline when this task first switches out in
+     * WAITING; only that AP's Local APIC timer may expire it.
+     */
+    uint32_t timeout_flags=spinlock_irqsave_acquire(&scheduler_ap_probe_wait_lock);
+    int32_t timeout_wait=process_sleep_on_timeout(
+        (uintptr_t)&scheduler_ap_probe_timeout_token,
+        &scheduler_ap_probe_wait_lock,timeout_flags,2u);
+    if(timeout_wait!=PROCESS_WAIT_BLOCKED){
+        __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+        process_exit_current(2u);
+        for(;;)__asm__ volatile("sti; hlt");
+    }
+    __asm__ volatile("sti; hlt" ::: "memory");
+    int32_t timeout_result=process_consume_timeout();
+    int32_t timeout_consumed_twice=process_consume_timeout();
+
     uint32_t actual_cpu=cpu_current_index();
     if(actual_cpu!=expected_cpu||actual_cpu==0u||
-       actual_cpu>=LIONOS_MAX_CPUS){
+       actual_cpu>=LIONOS_MAX_CPUS||timeout_result!=1||
+       timeout_consumed_twice!=0){
         __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
     }else{
         uint32_t bit=1u<<actual_cpu;
+        __atomic_fetch_or(&scheduler_ap_probe_timeout_seen,bit,__ATOMIC_ACQ_REL);
         __atomic_fetch_or(&scheduler_ap_probe_seen,bit,__ATOMIC_ACQ_REL);
     }
     process_exit_current(0u);
@@ -271,10 +293,14 @@ static void process_scheduler_ap_probe_report(void){
 
     uint32_t fault=__atomic_load_n(&scheduler_ap_probe_fault,__ATOMIC_ACQUIRE);
     uint32_t seen=__atomic_load_n(&scheduler_ap_probe_seen,__ATOMIC_ACQUIRE);
+    uint32_t timeout_seen=__atomic_load_n(&scheduler_ap_probe_timeout_seen,
+                                           __ATOMIC_ACQUIRE);
     uint32_t expected_count=__atomic_load_n(&scheduler_ap_probe_expected_count,
                                              __ATOMIC_ACQUIRE);
     uint32_t reaped=__atomic_load_n(&scheduler_ap_probe_reaped,__ATOMIC_ACQUIRE);
-    if(!fault&&((seen&expected)!=expected||reaped!=expected_count))return;
+    if(!fault&&((seen&expected)!=expected||
+                (timeout_seen&expected)!=expected||
+                reaped!=expected_count))return;
 
     if(!fault){
         if(!spinlock_try_acquire(&process_lock))return;
@@ -293,8 +319,10 @@ static void process_scheduler_ap_probe_report(void){
     uint32_t reported=0u;
     if(!__atomic_compare_exchange_n(&scheduler_ap_probe_reported,&reported,1u,0,
             __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return;
-    if(!fault)
+    if(!fault){
         debug_write("LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK\n");
+        debug_write("LIONOS:SMP-AP-RUNQUEUE-TIMEOUT-OK\n");
+    }
     debug_write(fault?"LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL\n":
                       "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK\n");
 }
@@ -463,6 +491,7 @@ void process_init(void) {
     __atomic_store_n(&scheduler_ap_probe_expected,probe_mask,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_expected_count,probe_count,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_seen,0u,__ATOMIC_RELEASE);
+    __atomic_store_n(&scheduler_ap_probe_timeout_seen,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_fault,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_reported,0u,__ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_ap_probe_reaped,0u,__ATOMIC_RELEASE);

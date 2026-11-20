@@ -20,10 +20,12 @@ contention across two independent per-CPU queues. Runtime validation checks queu
 membership against process states during scheduler decisions. A boot-time AP
 run-queue probe places one short-lived kernel task on every online AP queue,
 blocks each task, and has the BSP wake it through the normal wait-channel path.
-The resumed task verifies its executing CPU and exits through deferred
-reclamation. The QEMU stability suite requires both the AP lifecycle and
-cross-CPU wakeup markers for multi-CPU boots; cross-CPU timeout, stop/continue,
-fork lifecycle stress, and physical hardware verification remain outstanding.
+The resumed task then performs a bounded wait on its own AP-local timer and
+checks that the timeout result is delivered exactly once before exiting through
+deferred reclamation. The QEMU stability suite requires AP lifecycle,
+cross-CPU wakeup, and AP-local timeout markers for multi-CPU boots.
+Cross-CPU stop/continue and fork lifecycle stress, broader SMP coverage, and
+physical hardware verification remain outstanding.
 
 
 ## Current implementation
