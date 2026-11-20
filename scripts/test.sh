@@ -231,7 +231,7 @@ if grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-1cpu.log; then
     echo "single-CPU regression: an application processor was unexpectedly marked online" >&2
     exit 1
 fi
-if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL|RUNQUEUE-WAKEUP-OK|RUNQUEUE-TIMEOUT-OK|RUNQUEUE-STOP-CONT-OK|RUNQUEUE-PRIORITY-REQUEUE-OK)' build/qemu-smp-1cpu.log; then
+if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL|RUNQUEUE-WAKEUP-OK|RUNQUEUE-TIMEOUT-OK|RUNQUEUE-STOP-CONT-OK|RUNQUEUE-PRIORITY-REQUEUE-OK|RUNQUEUE-REAP-VALIDATION-OK)' build/qemu-smp-1cpu.log; then
     echo "single-CPU regression: AP-only scheduler lifecycle marker appeared" >&2
     exit 1
 fi
