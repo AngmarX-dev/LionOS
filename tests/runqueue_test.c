@@ -80,6 +80,30 @@ int main(void) {
     if (runqueue_enqueue_locked(&source, nodes, NODE_COUNT, 0u, 2u) != 0) return 37;
     if (runqueue_enqueue_locked(&source, nodes, NODE_COUNT, 1u, 2u) != 0) return 38;
     if (runqueue_enqueue_locked(&destination, nodes, NODE_COUNT, 2u, 2u) != 0) return 39;
+
+    /*
+     * A malformed destination must reject the transfer before unlinking the
+     * source node. Restoring the damaged metadata must leave both queues valid.
+     */
+    destination.tail[2] = NODE_COUNT;
+    if (runqueue_move_locked(&source, &destination, nodes, NODE_COUNT, 0u) == 0)
+        return 52;
+    if (source.total != 2u || source.head[2] != 0u ||
+        source.tail[2] != 1u || source.count[2] != 2u ||
+        nodes[0].queued != 1u || nodes[0].queue_cpu != source.cpu ||
+        nodes[0].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        nodes[0].next != 1u || nodes[1].previous != 0u ||
+        nodes[1].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        destination.total != 1u || destination.head[2] != 2u ||
+        destination.count[2] != 1u)
+        return 53;
+    destination.tail[2] = 2u;
+    if (runqueue_validate_locked(&source, nodes, NODE_COUNT, &total) != 0 ||
+        total != 2u ||
+        runqueue_validate_locked(&destination, nodes, NODE_COUNT, &total) != 0 ||
+        total != 1u)
+        return 54;
+
     if (runqueue_move_locked(&source, &destination, nodes, NODE_COUNT, 0u) != 0) return 40;
     if (nodes[0].queue_cpu != 1u || nodes[0].priority != 2u ||
         nodes[0].queued != 1u || source.total != 1u ||
