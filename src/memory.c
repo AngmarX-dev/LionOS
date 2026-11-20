@@ -217,6 +217,17 @@ int memory_init(uint32_t mi){
         debug_write("LIONOS:MB2-MODULE-ITERATION-FAILED\\n");
         return -1;
     }
+
+    /*
+     * A structurally valid map can still describe no allocatable RAM (for
+     * example, an empty map or ranges fully covered by reservations). Do not
+     * report a usable memory manager when both allocator windows are empty.
+     */
+    if (free_pages == 0u && high_free_pages == 0u) {
+        memory_reset_unavailable();
+        debug_write("LIONOS:NO-USABLE-PHYSICAL-MEMORY\\n");
+        return -1;
+    }
     return 0;
 }
 

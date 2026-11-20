@@ -134,6 +134,22 @@ static void make_boot_info(void)
     put32(196u, 8u);
 }
 
+static void make_no_usable_memory_boot_info(void)
+{
+    for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
+        boot_info[i] = 0u;
+
+    put32(0u, 56u);
+    put32(4u, 0u);
+    put32(8u, MULTIBOOT2_TAG_MMAP);
+    put32(12u, 40u);
+    put32(16u, 24u);
+    put32(20u, 0u);
+    put_mmap_entry(24u, 1ULL * MIB, 16ULL * MIB, 2u);
+    put32(48u, MULTIBOOT2_TAG_END);
+    put32(52u, 8u);
+}
+
 static void make_boundary_boot_info(void)
 {
     for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
@@ -586,7 +602,21 @@ int main(void)
     if (memory_allocator_concurrency_test() != 0)
         return fail(55, "concurrent low/high allocations duplicated pages or leaked free-page accounting");
 
+    /*
+     * A valid Multiboot2 map containing only reserved memory is not a usable
+     * allocator configuration and must fail closed just like malformed data.
+     */
+    make_no_usable_memory_boot_info();
+    if (multiboot2_info_validate(boot_info) != 0)
+        return fail(57, "reserved-only Multiboot2 map was rejected structurally");
+    if (memory_init((uint32_t)(uintptr_t)boot_info) == 0 ||
+        page_alloc() != 0 || memory_free_pages() != 0u ||
+        memory_high_free_pages() != 0u || memory_total_pages() != 0u ||
+        memory_high_available_bytes() != 0u)
+        return fail(58, "reserved-only Multiboot2 map exposed unusable memory");
+
     /* Invalid boot metadata must fail closed and expose no physical pages. */
+    make_boot_info();
     put32(0u, 8u);
     if (memory_init((uint32_t)(uintptr_t)boot_info) == 0)
         return fail(53, "invalid Multiboot2 metadata reported successful initialization");
@@ -598,6 +628,6 @@ int main(void)
         memory_free_pages() != 0u || memory_high_free_pages() != 0u)
         return fail(56, "null Multiboot2 pointer did not fail closed");
 
-    puts("physical allocator low/high range, concurrency, and lifecycle tests passed");
+    puts("physical allocator low/high range, concurrency, lifecycle, and fail-closed tests passed");
     return 0;
 }
