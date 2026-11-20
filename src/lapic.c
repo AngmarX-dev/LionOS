@@ -62,6 +62,7 @@ int lapic_enable(void)
     uint64_t prepared_msr;
     uint64_t readback;
     uint32_t physical_address_bits;
+    uint64_t msr_address_mask;
 
     __asm__ volatile("" ::: "memory");
     physical_base=active_physical_base;
@@ -73,13 +74,14 @@ int lapic_enable(void)
     if(lapic_base_msr_prepare(current_msr,physical_base,
                               physical_address_bits,&prepared_msr)!=0)
         return -1;
+    msr_address_mask=((1ULL<<physical_address_bits)-1u)&~0xFFFULL;
 
     /*
      * Preserve an already-correct enabled APIC. Relocation is needed only
      * when firmware's per-CPU base differs; interrupts remain disabled here.
      */
-    if((current_msr&LIONOS_IA32_APIC_BASE_ADDRESS_MASK)!=
-       (prepared_msr&LIONOS_IA32_APIC_BASE_ADDRESS_MASK)){
+    if((current_msr&msr_address_mask)!=
+       (prepared_msr&msr_address_mask)){
         if(current_msr&LIONOS_IA32_APIC_BASE_ENABLE){
             wrmsr(IA32_APIC_BASE_MSR,
                   prepared_msr&~LIONOS_IA32_APIC_BASE_ENABLE);
@@ -87,7 +89,7 @@ int lapic_enable(void)
             if((readback&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
                           LIONOS_IA32_APIC_BASE_ENABLE|
                           LIONOS_IA32_APIC_BASE_X2APIC)) !=
-               (prepared_msr&LIONOS_IA32_APIC_BASE_ADDRESS_MASK))
+               (prepared_msr&msr_address_mask))
                 return -1;
         }
         wrmsr(IA32_APIC_BASE_MSR,prepared_msr);
@@ -95,10 +97,10 @@ int lapic_enable(void)
         wrmsr(IA32_APIC_BASE_MSR,prepared_msr);
     }
     readback=rdmsr(IA32_APIC_BASE_MSR);
-    if((readback&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
+    if((readback&(msr_address_mask|
                   LIONOS_IA32_APIC_BASE_ENABLE|
                   LIONOS_IA32_APIC_BASE_X2APIC)) !=
-       (prepared_msr&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
+       (prepared_msr&(msr_address_mask|
                       LIONOS_IA32_APIC_BASE_ENABLE|
                       LIONOS_IA32_APIC_BASE_X2APIC)))
         return -1;

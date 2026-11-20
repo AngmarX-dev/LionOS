@@ -5,19 +5,20 @@ int lapic_base_msr_prepare(uint64_t current_msr, uint64_t physical_address,
                            uint64_t *prepared_msr)
 {
     if (!prepared_msr || physical_address_bits < 32u ||
-        physical_address_bits > 52u ||
+        physical_address_bits > 57u ||
         (current_msr & LIONOS_IA32_APIC_BASE_X2APIC) != 0u)
         return -1;
 
+    uint64_t msr_field_mask =
+        ((1ULL << physical_address_bits) - 1u) & ~0xFFFULL;
     uint64_t physical_mask =
-        ((1ULL << physical_address_bits) - 1u) &
-        LIONOS_IA32_APIC_BASE_ADDRESS_MASK;
+        msr_field_mask & LIONOS_IA32_APIC_BASE_ADDRESS_MASK;
     if (physical_address == 0u ||
         (physical_address & ~physical_mask) != 0u)
         return -1;
 
     *prepared_msr = (current_msr &
-                     ~LIONOS_IA32_APIC_BASE_ADDRESS_MASK) |
+                     ~msr_field_mask) |
                     physical_address |
                     LIONOS_IA32_APIC_BASE_ENABLE;
     return 0;

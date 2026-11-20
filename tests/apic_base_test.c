@@ -24,8 +24,13 @@ int main(void)
         return 4;
     if (lapic_base_msr_prepare(current, 0x1000000000ULL, 48u, &prepared) != 0)
         return 5;
+    if (lapic_base_msr_prepare(current, 0x0008000000000000ULL, 57u,
+                               &prepared) != 0 ||
+        lapic_base_msr_prepare(current, 0x0010000000000000ULL, 57u,
+                               &prepared) == 0)
+        return 14;
     if (lapic_base_msr_prepare(current, 0xFEE00000ULL, 31u, &prepared) == 0 ||
-        lapic_base_msr_prepare(current, 0xFEE00000ULL, 53u, &prepared) == 0)
+        lapic_base_msr_prepare(current, 0xFEE00000ULL, 58u, &prepared) == 0)
         return 6;
     if (lapic_base_msr_prepare(current | LIONOS_IA32_APIC_BASE_X2APIC,
                                0xFEE00000ULL, 36u, &prepared) == 0)
