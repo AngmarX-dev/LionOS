@@ -2333,6 +2333,24 @@ uint32_t *process_schedule(uint32_t *frame){
             if(frame)
                 __atomic_store_n(&contended_prev->wait_frame_saved,1u,
                                  __ATOMIC_RELEASE);
+            /*
+             * The normal scheduler path arms a timeout after acquiring
+             * process_lock. This blocked-task fallback cannot enter that path,
+             * so publish the same AP-local deadline before switching to idle.
+             * Only the owning CPU expires this wait.
+             */
+            if(contended_prev->state==PROCESS_WAITING&&
+               (contended_prev->wait_kind==1u||
+                contended_prev->wait_kind==2u)&&
+               contended_prev->wait_timeout_active==2u&&
+               contended_prev->wait_cpu==cpu){
+                uint32_t now=__atomic_load_n(&scheduler_cpu[cpu].timer_ticks,
+                                               __ATOMIC_ACQUIRE);
+                __atomic_store_n(&contended_prev->wait_deadline,
+                    now+contended_prev->wait_timeout_ticks,__ATOMIC_RELAXED);
+                __atomic_store_n(&contended_prev->wait_timeout_active,1u,
+                                 __ATOMIC_RELEASE);
+            }
             if(cpu==0u){
                 struct process *bootstrap=&processes[0];
                 fpu_save(contended_prev);
