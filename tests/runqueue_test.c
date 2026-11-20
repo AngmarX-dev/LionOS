@@ -27,58 +27,66 @@ int main(void) {
     if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == 3u, 6u))) return result;
 
     if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) == 0 && picked == 4u, 7u))) return result;
+
+    /* Multiple priority changes must append to the destination lane in FIFO order. */
     if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 3u, 0u) == 0, 8u))) return result;
-    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) == 0 && picked == 3u, 9u))) return result;
-    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) == 0 && picked == 2u, 10u))) return result;
-    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) == 1 && picked == LIONOS_RUNQUEUE_INVALID_INDEX, 11u))) return result;
+    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 2u, 0u) == 0, 9u))) return result;
+    /* Reapplying the current priority must preserve the existing FIFO position. */
+    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 2u, 0u) == 0, 10u))) return result;
+    if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 &&
+                        total == 2u && queue.count[0] == 2u &&
+                        queue.head[0] == 3u && queue.tail[0] == 2u, 11u))) return result;
+    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) == 0 && picked == 3u, 12u))) return result;
+    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) == 0 && picked == 2u, 13u))) return result;
+    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) == 1 && picked == LIONOS_RUNQUEUE_INVALID_INDEX, 14u))) return result;
 
     for (uint32_t i = 0u; i < NODE_COUNT; ++i) {
         uint32_t priority = (NODE_COUNT - i) % LIONOS_RUNQUEUE_PRIORITY_LEVELS;
-        if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, i, priority) != 0) return 12;
+        if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, i, priority) != 0) return 15;
     }
-    if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == NODE_COUNT, 13u))) return result;
-    if ((result = check(runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 0u) < 0, 14u))) return result;
-    if ((result = check(runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 7u) == 0, 15u))) return result;
-    if ((result = check(runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 7u) < 0, 16u))) return result;
+    if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == NODE_COUNT, 16u))) return result;
+    if ((result = check(runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 0u) < 0, 17u))) return result;
+    if ((result = check(runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 7u) == 0, 18u))) return result;
+    if ((result = check(runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 7u) < 0, 19u))) return result;
 
     for (uint32_t i = 0u; i < NODE_COUNT; ++i) {
-        if (nodes[i].queued && runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, i) != 0) return 17;
+        if (nodes[i].queued && runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, i) != 0) return 20;
     }
-    if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == 0u, 18u))) return result;
+    if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == 0u, 21u))) return result;
 
     /* A foreign CPU cannot unlink a node owned by this queue. */
     struct runqueue wrong_cpu;
     runqueue_init(&wrong_cpu, 2u);
     wrong_cpu.lock.value = 1u;
-    if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 2u) != 0) return 23;
-    if (runqueue_enqueue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u, 2u) != 0) return 24;
-    if ((result = check(runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 0u) < 0, 25u))) return result;
-    if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == 1u, 32u))) return result;
-    if ((result = check(runqueue_validate_locked(&wrong_cpu, nodes, NODE_COUNT, &total) == 0 && total == 1u, 33u))) return result;
-    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 26;
-    if (runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u) != 0) return 27;
+    if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 2u) != 0) return 22;
+    if (runqueue_enqueue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u, 2u) != 0) return 23;
+    if ((result = check(runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 0u) < 0, 24u))) return result;
+    if ((result = check(runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) == 0 && total == 1u, 25u))) return result;
+    if ((result = check(runqueue_validate_locked(&wrong_cpu, nodes, NODE_COUNT, &total) == 0 && total == 1u, 26u))) return result;
+    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 27;
+    if (runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u) != 0) return 28;
 
     /* A malformed empty/non-empty lane must not be reported as an empty queue. */
-    if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 1u) != 0) return 28;
+    if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 1u) != 0) return 29;
     queue.head[1] = NODE_COUNT;
-    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) < 0, 29u))) return result;
-    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 0u, 1u) < 0, 30u))) return result;
+    if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) < 0, 30u))) return result;
+    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 0u, 1u) < 0, 31u))) return result;
     queue.head[1] = 0u;
-    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 31;
+    if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 32;
 
     /* Repeated FIFO cycles exercise link reuse and count restoration. */
     for (uint32_t round = 0u; round < 128u; ++round) {
         for (uint32_t i = 0u; i < NODE_COUNT; ++i)
-            if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, i, i % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0) return 19;
-        if (runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) != 0 || total != NODE_COUNT) return 20;
+            if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, i, i % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0) return 33;
+        if (runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) != 0 || total != NODE_COUNT) return 34;
         for (uint32_t priority = 0u; priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
             for (uint32_t i = 0u; i < NODE_COUNT; ++i) {
                 if (nodes[i].queued && nodes[i].priority == priority) {
-                    if (runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) != 0 || picked != i) return 21;
+                    if (runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) != 0 || picked != i) return 35;
                 }
             }
         }
-        if (runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) != 0 || total != 0u) return 22;
+        if (runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) != 0 || total != 0u) return 36;
     }
     return 0;
 }
