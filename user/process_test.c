@@ -12,6 +12,9 @@ static lion_condition_t sync_test_condition;
 static volatile uint32_t sync_test_counter;
 static volatile uint32_t sync_condition_ready;
 static volatile uint32_t sync_condition_state;
+static volatile uint32_t futex_wake_word;
+static volatile uint32_t futex_wake_ready;
+static volatile uint32_t futex_wake_done;
 
 static void thread_worker_mutex(void) {
     for (uint32_t i = 0u; i < 250u; ++i) {
@@ -36,6 +39,61 @@ static void thread_worker_condition(void) {
     }
     if (lion_mutex_unlock(&sync_test_mutex) != 0) lion_thread_exit(85u);
     lion_thread_exit(0u);
+}
+
+static void thread_worker_futex_wait(void) {
+    __atomic_add_fetch(&futex_wake_ready, 1u, __ATOMIC_RELEASE);
+    if (lion_futex_wait(&futex_wake_word, 0u) != 0)
+        lion_thread_exit(86u);
+    __atomic_add_fetch(&futex_wake_done, 1u, __ATOMIC_RELEASE);
+    lion_thread_exit(0u);
+}
+
+static int futex_wake_limit_test(void) {
+    uint32_t tids[2];
+    int32_t status = -1;
+    futex_wake_word = 0u;
+    futex_wake_ready = 0u;
+    futex_wake_done = 0u;
+
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        tids[i] = lion_thread_create(thread_worker_futex_wait);
+        if (tids[i] == LIONOS_SYSCALL_ERR)
+            return 1;
+    }
+
+    uint32_t spins = 0u;
+    while (__atomic_load_n(&futex_wake_ready, __ATOMIC_ACQUIRE) != 2u &&
+           spins++ < 100000u)
+        (void)lion_yield();
+    if (__atomic_load_n(&futex_wake_ready, __ATOMIC_ACQUIRE) != 2u)
+        return 2;
+
+    /* Exactly one waiter must be made READY by each maximum=1 wake. */
+    if (lion_futex_wake(&futex_wake_word, 1u) != 1)
+        return 3;
+    spins = 0u;
+    while (__atomic_load_n(&futex_wake_done, __ATOMIC_ACQUIRE) != 1u &&
+           spins++ < 100000u)
+        (void)lion_yield();
+    if (__atomic_load_n(&futex_wake_done, __ATOMIC_ACQUIRE) != 1u)
+        return 4;
+
+    if (lion_futex_wake(&futex_wake_word, 1u) != 1)
+        return 5;
+    spins = 0u;
+    while (__atomic_load_n(&futex_wake_done, __ATOMIC_ACQUIRE) != 2u &&
+           spins++ < 100000u)
+        (void)lion_yield();
+    if (__atomic_load_n(&futex_wake_done, __ATOMIC_ACQUIRE) != 2u)
+        return 6;
+
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        if (lion_thread_join(tids[i], &status) != (int32_t)tids[i] ||
+            status != 0)
+            return 7;
+    }
+    return 0;
 }
 
 static void thread_worker_semaphore(void) {
@@ -164,6 +222,14 @@ int main(int argc, char **argv) {
     }
     puts("[PASS] userspace mutex contention and exclusion");
     puts("[PASS] futex timeout and invalid-address handling");
+
+    int futex_wake_result = futex_wake_limit_test();
+    if (futex_wake_result != 0) {
+        puts("[FAIL] futex wake one-waiter limit");
+        print_u32("[FAIL] futex wake test code: ", (uint32_t)futex_wake_result);
+        return 49;
+    }
+    puts("[PASS] futex wake honors one-waiter limit");
 
     if (lion_semaphore_init(&sync_test_semaphore, 0u) != 0) {
         puts("[FAIL] sync test");

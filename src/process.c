@@ -1674,20 +1674,38 @@ void process_wakeup(uintptr_t channel){
 
 uint32_t process_futex_wakeup(uintptr_t channel,uint32_t maximum){
     if(!channel||!maximum)return 0u;
+    uint32_t wake_mask=0u;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock),woken=0u;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX&&woken<maximum;++i){
         struct process *p=&processes[i];
         if(p->state!=PROCESS_WAITING||p->wait_kind!=1u||
            p->wait_channel!=(uint32_t)channel)continue;
+
+        /*
+         * Publish READY only after the queue accepts the node. On failure,
+         * retain the WAITING metadata so the process is not stranded in a
+         * partially-cleared wait state.
+         */
+        if(process_transition_state_locked(p,PROCESS_READY)!=0)
+            continue;
+
         p->wait_channel=0u;
         p->wait_kind=0u;
         p->wait_timeout_active=0u;
-        (void)process_transition_state_locked(p,PROCESS_READY);
-        uint32_t *frame=(uint32_t *)(uintptr_t)__atomic_load_n(&p->saved_frame,__ATOMIC_ACQUIRE);
+        p->wait_timeout_result=0u;
+        uint32_t *frame=(uint32_t *)(uintptr_t)__atomic_load_n(
+            &p->saved_frame,__ATOMIC_ACQUIRE);
         if(frame)frame[11]=0u;
+
+        uint32_t owner=p->cpu_owner;
+        if(owner<LIONOS_MAX_CPUS)wake_mask|=1u<<owner;
         ++woken;
     }
     spinlock_irqrestore_release(&process_lock,flags);
+
+    /* Wake queue owners only after READY publication and lock release. */
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(wake_mask&(1u<<cpu))process_kick_cpu(cpu);
     return woken;
 }
 
