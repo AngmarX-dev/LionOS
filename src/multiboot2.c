@@ -72,8 +72,8 @@ static int mmap_tag_valid(const mb2_tag_view_t *tag)
     uint32_t entry_size=*(const uint32_t *)(const void *)tag->payload;
     uint32_t entry_version=*(const uint32_t *)(const void *)(tag->payload+4u);
     uint32_t entries_size=tag->size-MB2_MMAP_HEADER_SIZE;
-    if(entry_size<MB2_MMAP_ENTRY_MIN_SIZE||entry_version!=0u||
-       entries_size%entry_size!=0u)
+    if(entry_size<MB2_MMAP_ENTRY_MIN_SIZE||(entry_size&7u)!=0u||
+       entry_version!=0u||entries_size%entry_size!=0u)
         return 0;
 
     /*
@@ -105,10 +105,25 @@ int multiboot2_info_validate(const void *info)
         if(tag.type==MULTIBOOT2_TAG_MMAP){
             if(!mmap_tag_valid(&tag)||++mmap_count!=1u)return -1;
         }else if(tag.type==MULTIBOOT2_TAG_MODULE){
-            if(tag.size<16u)return -1;
+            if(tag.size<17u)return -1;
             uint32_t module_start=*(const uint32_t *)(const void *)tag.payload;
             uint32_t module_end=*(const uint32_t *)(const void *)(tag.payload+4u);
             if(module_end<=module_start)return -1;
+
+            /*
+             * The module command line is a bounded, NUL-terminated string.
+             * Never allow consumers to scan beyond the tag payload.
+             */
+            const uint8_t *command_line=tag.payload+8u;
+            uint32_t command_line_size=tag.size-16u;
+            int terminated=0;
+            for(uint32_t i=0u;i<command_line_size;++i){
+                if(command_line[i]==0u){
+                    terminated=1;
+                    break;
+                }
+            }
+            if(!terminated)return -1;
         }
     }
     return mmap_count==1u?0:-1;

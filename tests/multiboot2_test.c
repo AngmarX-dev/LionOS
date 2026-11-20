@@ -26,6 +26,20 @@ static void make_valid(void)
     put32(52u,8u);
 }
 
+static void make_valid_module(void)
+{
+    make_valid();
+    put32(0u,80u);
+    put32(48u,MULTIBOOT2_TAG_MODULE);
+    put32(52u,18u);
+    put32(56u,0x200000u);
+    put32(60u,0x201000u);
+    storage[64u]='m';
+    storage[65u]=0u;
+    put32(72u,MULTIBOOT2_TAG_END);
+    put32(76u,8u);
+}
+
 static int expect_invalid(int code)
 {
     if(multiboot2_info_validate(storage)==0){
@@ -74,9 +88,21 @@ int main(void)
     put32(0u,96u);
     if(expect_invalid(18))return 18;
 
-    make_valid();put32(8u,MULTIBOOT2_TAG_MODULE);put32(12u,16u);
-    put32(16u,0x200000u);put32(20u,0x100000u);
+    make_valid_module();
+    put32(56u,0x201000u);put32(60u,0x200000u);
     if(expect_invalid(19))return 19;
+
+    make_valid_module();
+    storage[65u]='x';
+    if(expect_invalid(23))return 23;
+
+    make_valid();
+    put32(16u,25u);
+    put32(12u,41u);
+    put32(56u,MULTIBOOT2_TAG_END);
+    put32(60u,8u);
+    put32(0u,64u);
+    if(expect_invalid(24))return 24;
 
     make_valid();
     *(uint64_t *)(void *)(storage+24u)=UINT64_MAX-0x7ffu;
