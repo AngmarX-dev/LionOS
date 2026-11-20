@@ -855,7 +855,7 @@ void lionos_user_integration_step(void){
             if(process_reap_pid(pid) != 0) ok = 0;
             if(ok){
                 debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-OK\n");
-                integration_stage = 22;
+                integration_stage = 24;
             }else{
                 integration_done = 1;
                 debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL\n");
@@ -875,7 +875,7 @@ void lionos_user_integration_step(void){
      * ordinary process that must retain BSP affinity. The migration test ELF
      * has no shared filesystem or console side effects between instances.
      */
-    if(integration_stage == 22){
+    if(integration_stage == 24){
         uint32_t online=smp_online_count();
         uint32_t launch_flags=0u;
 
@@ -949,7 +949,7 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    if(integration_stage == 23){
+    if(integration_stage == 25){
         uint32_t online=smp_online_count();
         uint32_t pending=0u;
         if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
