@@ -171,7 +171,10 @@ void smp_ap_main(void){
     debug_write("LIONOS:SMP-AP-TSS-OK\n");
     idt_load_current();
     debug_write("LIONOS:SMP-AP-IDT-OK\n");
-    lapic_enable();
+    if(lapic_enable()!=0){
+        debug_write("LIONOS:SMP-AP-LAPIC-ENABLE-FAIL\n");
+        for(;;)__asm__ volatile("cli; hlt");
+    }
     lapic_timer_init();
     debug_write("LIONOS:SMP-AP-TIMER-OK\n");
     __asm__ volatile("sti");

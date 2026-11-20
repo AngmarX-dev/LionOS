@@ -11,7 +11,7 @@
 int lapic_init(void);
 uint32_t lapic_id(void);
 void lapic_eoi(void);
-void lapic_enable(void);
+int lapic_enable(void);
 void lapic_send_init(uint32_t apic_id);
 void lapic_send_startup(uint32_t apic_id, uint32_t vector);
 void lapic_send_ipi(uint32_t apic_id, uint32_t vector);
