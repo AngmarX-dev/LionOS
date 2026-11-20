@@ -41,7 +41,7 @@ static volatile uint32_t scheduler_ap_probe_fault;
 static volatile uint32_t scheduler_ap_probe_reported;
 static volatile uint32_t scheduler_ap_probe_reaped;
 static volatile uint32_t scheduler_ap_probe_expected_count;
-static struct spinlock scheduler_ap_probe_wait_lock;
+static struct spinlock scheduler_ap_probe_wait_locks[LIONOS_MAX_CPUS];
 static uint32_t scheduler_ap_probe_wait_token;
 static uint32_t scheduler_ap_probe_timeout_token;
 static volatile uint32_t scheduler_ap_probe_timeout_seen;
@@ -54,10 +54,21 @@ static void process_kernel_thread_return_trap(void){
 }
 
 static void process_scheduler_ap_probe(uint32_t expected_cpu){
-    uint32_t wait_flags=spinlock_irqsave_acquire(&scheduler_ap_probe_wait_lock);
+    if(expected_cpu==0u||expected_cpu>=LIONOS_MAX_CPUS){
+        __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+        process_exit_current(1u);
+        for(;;)__asm__ volatile("sti; hlt");
+    }
+    /*
+     * Each AP owns its probe wait lock. Waking every AP at once must not make
+     * all probe tasks contend on one unfair test-only spinlock with interrupts
+     * disabled; that can starve some CPUs and hide scheduler progress.
+     */
+    struct spinlock *probe_wait_lock=&scheduler_ap_probe_wait_locks[expected_cpu];
+    uint32_t wait_flags=spinlock_irqsave_acquire(probe_wait_lock);
     int32_t wait_result=process_sleep_on(
         (uintptr_t)&scheduler_ap_probe_wait_token,
-        &scheduler_ap_probe_wait_lock,wait_flags);
+        probe_wait_lock,wait_flags);
     if(wait_result!=PROCESS_WAIT_BLOCKED){
         __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
         process_exit_current(1u);
@@ -75,10 +86,10 @@ static void process_scheduler_ap_probe(uint32_t expected_cpu){
      * scheduler arms the deadline when this task first switches out in
      * WAITING; only that AP's Local APIC timer may expire it.
      */
-    uint32_t timeout_flags=spinlock_irqsave_acquire(&scheduler_ap_probe_wait_lock);
+    uint32_t timeout_flags=spinlock_irqsave_acquire(probe_wait_lock);
     int32_t timeout_wait=process_sleep_on_timeout(
         (uintptr_t)&scheduler_ap_probe_timeout_token,
-        &scheduler_ap_probe_wait_lock,timeout_flags,2u);
+        probe_wait_lock,timeout_flags,2u);
     if(timeout_wait!=PROCESS_WAIT_BLOCKED){
         __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
         process_exit_current(2u);
@@ -444,7 +455,8 @@ void process_init(void) {
     fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u;
     if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");}
     spinlock_init(&process_lock);
-    spinlock_init(&scheduler_ap_probe_wait_lock);
+    for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i)
+        spinlock_init(&scheduler_ap_probe_wait_locks[i]);
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){runqueue_node_init(&runqueue_nodes[i]);clear_process(&processes[i]);}
     scheduler_idle_ready_mask=0u;
