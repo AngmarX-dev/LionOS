@@ -176,7 +176,7 @@ void kernel_diag_print_interrupts(void) {
         console_write_dec(reschedule);
         console_write(" TLB=");
         console_write_dec(tlb);
-        console_write("\\n");
+        console_write("\n");
 
         debug_write("LIONOS:IRQ-CPU cpu=");
         debug_dec32(cpu);
@@ -194,7 +194,7 @@ void kernel_diag_print_interrupts(void) {
         debug_dec32(reschedule);
         debug_write(" tlb=");
         debug_dec32(tlb);
-        debug_write("\\n");
+        debug_write("\n");
     }
 }
 

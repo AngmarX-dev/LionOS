@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "cpu.h"
 
+#define LIONOS_INTERRUPT_STATS_CPUS LIONOS_MAX_CPUS
 #define LIONOS_INTERRUPT_STATS_VECTORS 256u
 
 /* Lock-free counters: safe for interrupt context and concurrent CPUs. */
