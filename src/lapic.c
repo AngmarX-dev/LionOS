@@ -1,10 +1,12 @@
 #include <stdint.h>
 #include "lapic.h"
+#include "cpu.h"
+#include "apic_base.h"
 #include "paging.h"
 #include "io.h"
 
 #define IA32_APIC_BASE_MSR 0x1Bu
-#define APIC_BASE_ENABLE 0x800u
+#define APIC_BASE_ENABLE LIONOS_IA32_APIC_BASE_ENABLE
 #define CPUID_APIC_BIT (1u << 9)
 #define LAPIC_REG_ID 0x020u
 #define LAPIC_REG_EOI 0x0B0u
@@ -36,13 +38,74 @@ static volatile uint32_t frame_timer_enabled;
 
 static uint64_t rdmsr(uint32_t msr) { uint32_t lo,hi; __asm__ volatile("rdmsr":"=a"(lo),"=d"(hi):"c"(msr)); return ((uint64_t)hi<<32)|lo; }
 static void wrmsr(uint32_t msr,uint64_t value) { uint32_t lo=(uint32_t)value,hi=(uint32_t)(value>>32); __asm__ volatile("wrmsr"::"c"(msr),"a"(lo),"d"(hi):"memory"); }
-static int cpu_has_apic(void) { uint32_t a,b,c,d; __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(1u),"c"(0u)); (void)a;(void)b;(void)c; return (d&CPUID_APIC_BIT)!=0u; }
+static int cpu_has_apic(void) { uint32_t a,b,c,d; __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d):"a"(1u),"c"(0u)); (void)a;(void)b;(void)c; return (d&(CPUID_APIC_BIT|(1u<<5)))==(CPUID_APIC_BIT|(1u<<5)); }
 static uint32_t read_reg(uint32_t reg){return lapic[reg/4u];}
 static void write_reg(uint32_t reg,uint32_t value){lapic[reg/4u]=value;}
 static void wait_icr(void){for(uint32_t i=0;i<1000000u;++i){if((read_reg(0x300u)&ICR_DELIVERY_STATUS)==0u)return;__asm__ volatile("pause");}}
 
 void lapic_enable(void){uint64_t base=rdmsr(IA32_APIC_BASE_MSR);base|=APIC_BASE_ENABLE;wrmsr(IA32_APIC_BASE_MSR,base);write_reg(LAPIC_REG_SIVR,read_reg(LAPIC_REG_SIVR)|LAPIC_SIVR_ENABLE|0xFFu);initialized=1u;}
-int lapic_init(void){if(!cpu_has_apic())return-1;uint64_t base=rdmsr(IA32_APIC_BASE_MSR);if((base&APIC_BASE_ENABLE)==0u){base|=APIC_BASE_ENABLE;wrmsr(IA32_APIC_BASE_MSR,base);}if(paging_map_kernel_page(LIONOS_LAPIC_VIRT,LIONOS_LAPIC_PHYS,0x3u)!=0)return-1;lapic_enable();return 0;}
+int lapic_init(void)
+{
+    acpi_madt_info_t madt;
+    cpu_memory_type_state_t memory_types;
+    uint64_t physical_base;
+    uint64_t current_msr;
+    uint64_t prepared_msr;
+    uint64_t readback;
+    uint32_t mmio_flags;
+
+    if(!cpu_has_apic())
+        return -1;
+
+    cpu_acpi_madt_get_info(&madt);
+    physical_base=madt.lapic_address;
+    /* ACPI may be unavailable; use the architectural xAPIC default. */
+    if(physical_base==0u)
+        physical_base=LIONOS_LAPIC_PHYS;
+
+    current_msr=rdmsr(IA32_APIC_BASE_MSR);
+    if(lapic_base_msr_prepare(current_msr,physical_base,&prepared_msr)!=0)
+        return -1;
+
+    cpu_memory_type_get_state(&memory_types);
+    if(lapic_mmio_flags_from_pat(memory_types.pat_supported,
+                                 memory_types.pat,&mmio_flags)!=0)
+        return -1;
+
+    /*
+     * Map the firmware-selected APIC page as UC before changing IA32_APIC_BASE.
+     * The range mapper preflights collisions and updates all online CPUs.
+     */
+    if(paging_map_kernel_range(LIONOS_LAPIC_VIRT,physical_base,0x1000u,
+                               mmio_flags)!=0)
+        return -1;
+
+    /*
+     * APIC state is not yet used: interrupts remain disabled and AP startup
+     * has not begun. Disable xAPIC while relocating its physical base.
+     */
+    wrmsr(IA32_APIC_BASE_MSR,
+          prepared_msr&~LIONOS_IA32_APIC_BASE_ENABLE);
+    readback=rdmsr(IA32_APIC_BASE_MSR);
+    if((readback&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
+                  LIONOS_IA32_APIC_BASE_ENABLE|
+                  LIONOS_IA32_APIC_BASE_X2APIC)) !=
+       (prepared_msr&LIONOS_IA32_APIC_BASE_ADDRESS_MASK))
+        return -1;
+
+    wrmsr(IA32_APIC_BASE_MSR,prepared_msr);
+    readback=rdmsr(IA32_APIC_BASE_MSR);
+    if((readback&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
+                  LIONOS_IA32_APIC_BASE_ENABLE|
+                  LIONOS_IA32_APIC_BASE_X2APIC)) !=
+       (prepared_msr&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
+                      LIONOS_IA32_APIC_BASE_ENABLE|
+                      LIONOS_IA32_APIC_BASE_X2APIC)))
+        return -1;
+
+    lapic_enable();
+    return 0;
+}
 uint32_t lapic_id(void){return initialized?(read_reg(LAPIC_REG_ID)>>24):0xFFFFFFFFu;}
 void lapic_eoi(void){if(initialized)write_reg(LAPIC_REG_EOI,0u);}
 void lapic_send_init(uint32_t apic_id){
