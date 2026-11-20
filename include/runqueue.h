@@ -48,6 +48,14 @@ int runqueue_requeue_priority_locked(struct runqueue *queue,
                                      struct runqueue_node *nodes,
                                      uint32_t capacity, uint32_t index,
                                      uint32_t priority);
+/*
+ * Move one READY node between queues. The caller must hold both queue locks
+ * in ascending queue->cpu order (and release them in reverse order).
+ */
+int runqueue_move_locked(struct runqueue *source,
+                         struct runqueue *destination,
+                         struct runqueue_node *nodes,
+                         uint32_t capacity, uint32_t index);
 int runqueue_validate_locked(const struct runqueue *queue,
                              const struct runqueue_node *nodes,
                              uint32_t capacity, uint32_t *total_out);

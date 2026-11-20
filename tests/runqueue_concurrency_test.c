@@ -85,8 +85,55 @@ static void *run_worker(void *opaque) {
     return 0;
 }
 
+#define TRANSFER_ITERATIONS 1000u
+#define TRANSFER_NODES_PER_WORKER (NODE_COUNT / 2u)
+
+struct transfer_argument { uint32_t worker; };
+
+static void *run_transfer_worker(void *opaque) {
+    const struct transfer_argument *argument =
+        (const struct transfer_argument *)opaque;
+    uint32_t first = argument->worker * TRANSFER_NODES_PER_WORKER;
+
+    for (uint32_t round = 0u; round < TRANSFER_ITERATIONS; ++round) {
+        /* Fixed CPU-index lock order prevents opposite-direction deadlocks. */
+        spinlock_acquire(&queues[0].lock);
+        spinlock_acquire(&queues[1].lock);
+        for (uint32_t i = 0u; i < TRANSFER_NODES_PER_WORKER; ++i) {
+            uint32_t index = first + i;
+            uint32_t owner = nodes[index].queue_cpu;
+            struct runqueue *source;
+            struct runqueue *destination;
+            if (owner > 1u) {
+                fail_test();
+                spinlock_release(&queues[1].lock);
+                spinlock_release(&queues[0].lock);
+                return 0;
+            }
+            source = &queues[owner];
+            destination = &queues[owner ^ 1u];
+            if (runqueue_move_locked(source, destination, nodes,
+                                     NODE_COUNT, index) != 0 ||
+                runqueue_validate_locked(&queues[0], nodes,
+                                         NODE_COUNT, 0) != 0 ||
+                runqueue_validate_locked(&queues[1], nodes,
+                                         NODE_COUNT, 0) != 0) {
+                fail_test();
+                spinlock_release(&queues[1].lock);
+                spinlock_release(&queues[0].lock);
+                return 0;
+            }
+        }
+        spinlock_release(&queues[1].lock);
+        spinlock_release(&queues[0].lock);
+    }
+    return 0;
+}
+
 int main(void) {
     pthread_t threads[WORKER_COUNT];
+    pthread_t transfer_threads[2];
+    struct transfer_argument transfer_arguments[2];
 
     for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu)
         runqueue_init(&queues[cpu], cpu);
@@ -106,6 +153,39 @@ int main(void) {
     if (__atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
         return 3;
 
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+        if (runqueue_enqueue_locked(&queues[0], nodes, NODE_COUNT,
+                                    i, i % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0)
+            return 5;
+
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        transfer_arguments[i].worker = i;
+        if (pthread_create(&transfer_threads[i], 0, run_transfer_worker,
+                           &transfer_arguments[i]) != 0)
+            return 6;
+    }
+    for (uint32_t i = 0u; i < 2u; ++i)
+        if (pthread_join(transfer_threads[i], 0) != 0)
+            return 7;
+    if (__atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
+        return 8;
+
+    for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu) {
+        uint32_t total = 0u;
+        spinlock_acquire(&queues[cpu].lock);
+        int valid = runqueue_validate_locked(&queues[cpu], nodes,
+                                             NODE_COUNT, &total);
+        spinlock_release(&queues[cpu].lock);
+        if (valid != 0 || total > NODE_COUNT)
+            return 9;
+    }
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i) {
+        uint32_t owner = nodes[i].queue_cpu;
+        if (owner >= TEST_CPU_COUNT ||
+            runqueue_dequeue_locked(&queues[owner], nodes,
+                                    NODE_COUNT, i) != 0)
+            return 10;
+    }
     for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu) {
         uint32_t total = 1u;
         spinlock_acquire(&queues[cpu].lock);
@@ -113,7 +193,7 @@ int main(void) {
                                              NODE_COUNT, &total);
         spinlock_release(&queues[cpu].lock);
         if (valid != 0 || total != 0u)
-            return 4;
+            return 11;
     }
     return 0;
 }

@@ -66,6 +66,43 @@ int main(void) {
     if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 27;
     if (runqueue_dequeue_locked(&wrong_cpu, nodes, NODE_COUNT, 1u) != 0) return 28;
 
+    /*
+     * A cross-CPU move preserves priority, updates ownership exactly once,
+     * and appends at the destination lane's FIFO tail.
+     */
+    struct runqueue source, destination;
+    runqueue_init(&source, 0u);
+    runqueue_init(&destination, 1u);
+    source.lock.value = 1u;
+    destination.lock.value = 1u;
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+        runqueue_node_init(&nodes[i]);
+    if (runqueue_enqueue_locked(&source, nodes, NODE_COUNT, 0u, 2u) != 0) return 37;
+    if (runqueue_enqueue_locked(&source, nodes, NODE_COUNT, 1u, 2u) != 0) return 38;
+    if (runqueue_enqueue_locked(&destination, nodes, NODE_COUNT, 2u, 2u) != 0) return 39;
+    if (runqueue_move_locked(&source, &destination, nodes, NODE_COUNT, 0u) != 0) return 40;
+    if (nodes[0].queue_cpu != 1u || nodes[0].priority != 2u ||
+        nodes[0].queued != 1u || source.total != 1u ||
+        destination.total != 2u) return 41;
+    if (runqueue_validate_locked(&source, nodes, NODE_COUNT, &total) != 0 ||
+        total != 1u) return 42;
+    if (runqueue_validate_locked(&destination, nodes, NODE_COUNT, &total) != 0 ||
+        total != 2u || destination.head[2] != 2u ||
+        destination.tail[2] != 0u) return 43;
+    if (runqueue_move_locked(&source, &destination, nodes, NODE_COUNT, 1u) != 0) return 44;
+    if (runqueue_pick_next_locked(&destination, nodes, NODE_COUNT, &picked) != 0 ||
+        picked != 2u) return 45;
+    if (runqueue_pick_next_locked(&destination, nodes, NODE_COUNT, &picked) != 0 ||
+        picked != 0u) return 46;
+    if (runqueue_pick_next_locked(&destination, nodes, NODE_COUNT, &picked) != 0 ||
+        picked != 1u) return 47;
+    if (runqueue_move_locked(&source, &destination, nodes, NODE_COUNT, 1u) == 0) return 48;
+    if (runqueue_move_locked(&source, &source, nodes, NODE_COUNT, 1u) == 0) return 49;
+    if (runqueue_validate_locked(&source, nodes, NODE_COUNT, &total) != 0 ||
+        total != 0u) return 50;
+    if (runqueue_validate_locked(&destination, nodes, NODE_COUNT, &total) != 0 ||
+        total != 0u) return 51;
+
     /* A malformed empty/non-empty lane must not be reported as an empty queue. */
     if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 1u) != 0) return 29;
     queue.head[1] = NODE_COUNT;

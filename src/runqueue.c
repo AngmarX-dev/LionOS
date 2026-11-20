@@ -184,6 +184,75 @@ int runqueue_requeue_priority_locked(struct runqueue *queue,
     return -1;
 }
 
+int runqueue_move_locked(struct runqueue *source,
+                         struct runqueue *destination,
+                         struct runqueue_node *nodes,
+                         uint32_t capacity, uint32_t index) {
+    struct runqueue_node *node;
+    uint32_t priority, previous, next, tail;
+
+    if (!source || !destination || source == destination ||
+        source->cpu == destination->cpu || !nodes || !capacity ||
+        index >= capacity)
+        return -1;
+
+    /* Both complete queues are stable because the caller holds both locks. */
+    if (runqueue_validate_locked(source, nodes, capacity, 0) != 0 ||
+        runqueue_validate_locked(destination, nodes, capacity, 0) != 0)
+        return -1;
+
+    node = &nodes[index];
+    priority = node->priority;
+    if (node->queued != 1u || node->queue_cpu != source->cpu ||
+        priority >= LIONOS_RUNQUEUE_PRIORITY_LEVELS ||
+        source->total == 0u || destination->total >= capacity ||
+        destination->count[priority] >= capacity ||
+        !lane_valid(destination, nodes, capacity, priority))
+        return -1;
+
+    previous = node->previous;
+    next = node->next;
+    if (previous == LIONOS_RUNQUEUE_INVALID_INDEX) {
+        if (source->head[priority] != index) return -1;
+    } else if (previous >= capacity || nodes[previous].next != index) {
+        return -1;
+    }
+    if (next == LIONOS_RUNQUEUE_INVALID_INDEX) {
+        if (source->tail[priority] != index) return -1;
+    } else if (next >= capacity || nodes[next].previous != index) {
+        return -1;
+    }
+
+    /*
+     * All validation is complete. Unlink and append without an intermediate
+     * unqueued state; preserve priority and destination-lane FIFO order.
+     */
+    if (previous == LIONOS_RUNQUEUE_INVALID_INDEX)
+        source->head[priority] = next;
+    else
+        nodes[previous].next = next;
+    if (next == LIONOS_RUNQUEUE_INVALID_INDEX)
+        source->tail[priority] = previous;
+    else
+        nodes[next].previous = previous;
+    --source->count[priority];
+    --source->total;
+
+    tail = destination->tail[priority];
+    node->previous = tail;
+    node->next = LIONOS_RUNQUEUE_INVALID_INDEX;
+    node->queue_cpu = destination->cpu;
+    node->queued = 1u;
+    if (tail == LIONOS_RUNQUEUE_INVALID_INDEX)
+        destination->head[priority] = index;
+    else
+        nodes[tail].next = index;
+    destination->tail[priority] = index;
+    ++destination->count[priority];
+    ++destination->total;
+    return 0;
+}
+
 int runqueue_validate_locked(const struct runqueue *queue,
                              const struct runqueue_node *nodes,
                              uint32_t capacity, uint32_t *total_out) {

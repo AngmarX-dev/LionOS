@@ -98,7 +98,7 @@ Use the following global lock order:
 
 Code holding a run-queue lock must never acquire `process_lock`. Code that needs to inspect or mutate process lifetime/state and queue membership acquires `process_lock` first, then the owning run-queue lock.
 
-When an operation touches one queue, it holds only that queue lock. If an operation ever needs two queues (reserved for a future migration implementation), it must acquire them in ascending CPU-index order and release them in reverse order. It must never hold two queue locks while calling code that can acquire `process_lock`.
+When an operation touches one queue, it holds only that queue lock. A two-queue transfer holds `process_lock` first, then acquires both run-queue locks in ascending CPU-index order and releases them in reverse order. It must never hold two queue locks while calling code that can acquire `process_lock`. The low-level `runqueue_move_locked()` primitive assumes both queue locks are already held and performs a validated unlink/append while preserving priority and destination FIFO order.
 
 The scheduler's interrupt path must not spin indefinitely. It disables local interrupts and try-acquires `process_lock`, then try-acquires its local run-queue lock. If `process_lock` is contended, the existing process-lock fallback applies. If the local queue lock is contended, no queue/state mutation is committed and a reschedule is requested for the next tick. The current frame may continue only while its process remains RUNNING; any non-RUNNING current process (including a READY process already queued) must instead enter its CPU-local idle/bootstrap fallback. Every successful acquisition releases locks in reverse order and restores the original interrupt flags.
 
@@ -119,8 +119,9 @@ Queue mutation must be centralized. Direct writes to `PROCESS_READY` outside the
 - `runqueue_dequeue_locked(queue, nodes, capacity, index)`: requires the owning queue lock; validates owner and links before unlinking and resetting node metadata.
 - `runqueue_requeue_priority_locked(queue, nodes, capacity, index, priority)`: moves a queued node between priority lanes while preserving queue ownership.
 - `runqueue_pick_next_locked(queue, nodes, capacity, index)`: removes the head of the highest-priority non-empty lane.
+- `runqueue_move_locked(source, destination, nodes, capacity, index)`: transfers one READY node between distinct CPU queues. It requires both queue locks, preserves priority, appends to the destination lane tail, and rejects malformed queues or invalid ownership without modifying either queue.
 
-The process layer always acquires `process_lock` before a queue lock. Future migration helpers remain out of scope.
+The process layer always acquires `process_lock` before queue locks. This primitive is host-tested, but the scheduler does not yet invoke it; automatic work stealing and process-level migration remain disabled pending AP lifecycle, current-task exclusion, and cross-CPU execution/reaping tests.
 
 ## CPU selection policy
 
@@ -153,6 +154,7 @@ The remaining prerequisites are:
 - Safe task exit/reap on APs, including deferred reclamation only after a task stack is no longer current on any CPU.
 - SMP tests proving two CPUs never execute the same task simultaneously.
 - Explicit queue membership and synchronized enqueue/dequeue before any task migration.
+- A tested two-queue transfer primitive with fixed CPU-index lock ordering; scheduler integration and process-level migration remain outstanding.
 
 Until these prerequisites pass, normal tasks remain pinned to their current owner and work stealing remains disabled.
 
