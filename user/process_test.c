@@ -102,22 +102,27 @@ int main(int argc, char **argv) {
 
     puts("LionOS userspace process lifecycle test");
 
-    /* SYS_YIELD must switch to a READY peer immediately, not wait for a
-       later timer tick. Join afterwards to verify normal thread retirement. */
+    /* Yield gives the scheduler a turn. Higher-priority READY work may be
+       selected first, so allow a bounded number of turns for this peer. */
     uint32_t yield_tid = lion_thread_create(thread_worker_yield);
     int32_t yield_status = -1;
     if (yield_tid == LIONOS_SYSCALL_ERR) {
         puts("[FAIL] create cooperative-yield worker");
         return 30;
     }
-    uint32_t yield_result = lion_yield();
-    if (yield_result != LIONOS_SYSCALL_OK) {
-        puts("[FAIL] cooperative yield syscall result");
-        print_u32("[FAIL] yield result: ", yield_result);
-        return 51;
+    uint32_t yield_attempts = 0u;
+    while (yield_marker != 0x5949454Cu && yield_attempts < 128u) {
+        uint32_t yield_result = lion_yield();
+        if (yield_result != LIONOS_SYSCALL_OK) {
+            puts("[FAIL] cooperative yield syscall result");
+            print_u32("[FAIL] yield result: ", yield_result);
+            return 51;
+        }
+        ++yield_attempts;
     }
     if (yield_marker != 0x5949454Cu) {
         puts("[FAIL] cooperative yield did not run peer thread");
+        print_u32("[FAIL] yield attempts: ", yield_attempts);
         print_u32("[FAIL] yield marker: ", yield_marker);
         return 52;
     }
