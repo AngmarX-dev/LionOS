@@ -13,6 +13,8 @@
 #define LOW_RESERVED_END (72ULL * MIB)
 #define HIGH_AVAILABLE_START (512ULL * MIB)
 #define HIGH_AVAILABLE_END (520ULL * MIB)
+#define LOW_MEMORY_LIMIT (256ULL * MIB)
+#define HIGH_MEMORY_LIMIT (64ULL * 1024ULL * MIB)
 #define HIGH_RESERVED_START (514ULL * MIB)
 #define HIGH_RESERVED_END (515ULL * MIB)
 #define MODULE_START (74ULL * MIB)
@@ -124,6 +126,30 @@ static void make_boot_info(void)
     put32(188u, 8u);
 }
 
+static void make_boundary_boot_info(void)
+{
+    for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
+        boot_info[i] = 0u;
+
+    put32(0u, 80u);
+    put32(4u, 0u);
+    put32(8u, MULTIBOOT2_TAG_MMAP);
+    put32(12u, 64u);
+    put32(16u, 24u);
+    put32(20u, 0u);
+
+    /* One range crosses the 256 MiB low/high allocator seam. */
+    put_mmap_entry(24u, LOW_MEMORY_LIMIT - PAGE_SIZE,
+                   2u * PAGE_SIZE, MULTIBOOT2_MEMORY_AVAILABLE);
+
+    /* The second range crosses the exclusive 64 GiB high-map limit. */
+    put_mmap_entry(48u, HIGH_MEMORY_LIMIT - PAGE_SIZE,
+                   2u * PAGE_SIZE, MULTIBOOT2_MEMORY_AVAILABLE);
+
+    put32(72u, MULTIBOOT2_TAG_END);
+    put32(76u, 8u);
+}
+
 static int fail(int code, const char *message)
 {
     printf("physical allocator test failed (%d): %s\n", code, message);
@@ -213,12 +239,65 @@ int main(void)
         return fail(17, "high-page allocator did not preserve the scan after reservation");
     page_free_high(high_address);
 
+    /*
+     * Exercise both sides of the low/high allocator seam and the final page
+     * below the high allocator's exclusive 64 GiB limit.
+     */
+    make_boundary_boot_info();
+    memory_init((uint32_t)(uintptr_t)boot_info);
+
+    if (memory_total_pages() != LOW_MEMORY_LIMIT / PAGE_SIZE ||
+        memory_free_pages() != 1u ||
+        memory_high_free_pages() != 2u ||
+        memory_high_available_bytes() != 2u * PAGE_SIZE)
+        return fail(18, "low/high seam or upper-bound inventory was clipped incorrectly");
+
+    low_allocation = page_alloc();
+    if ((uintptr_t)low_allocation != LOW_MEMORY_LIMIT - PAGE_SIZE)
+        return fail(19, "low allocator did not expose the final page below 256 MiB");
+
+    if (page_alloc_high(&high_address) != 0 ||
+        high_address != LOW_MEMORY_LIMIT)
+        return fail(20, "high allocator did not expose the first page at 256 MiB");
+
+    if (page_alloc_high(&high_address) != 0 ||
+        high_address != HIGH_MEMORY_LIMIT - PAGE_SIZE)
+        return fail(21, "high allocator did not expose the final page below 64 GiB");
+
+    if (memory_range_contains_available_ram(HIGH_MEMORY_LIMIT - PAGE_SIZE,
+                                            HIGH_MEMORY_LIMIT) != 1 ||
+        memory_range_contains_available_ram(HIGH_MEMORY_LIMIT,
+                                            HIGH_MEMORY_LIMIT + PAGE_SIZE) != -1)
+        return fail(22, "high-memory range query mishandled the exclusive upper bound");
+
+    page_free(low_allocation);
+    page_free_high(LOW_MEMORY_LIMIT);
+    page_free_high(HIGH_MEMORY_LIMIT - PAGE_SIZE);
+    if (memory_free_pages() != 1u || memory_high_free_pages() != 2u)
+        return fail(23, "boundary-page release did not restore allocator counts");
+
+    memory_reserve_physical_range(HIGH_MEMORY_LIMIT - PAGE_SIZE,
+                                  HIGH_MEMORY_LIMIT);
+    if (memory_high_free_pages() != 1u ||
+        memory_high_available_bytes() != 2u * PAGE_SIZE ||
+        memory_range_contains_available_ram(HIGH_MEMORY_LIMIT - PAGE_SIZE,
+                                            HIGH_MEMORY_LIMIT) != 0)
+        return fail(24, "runtime reservation at the 64 GiB boundary is incorrect");
+
+    /* A byte range straddling 256 MiB must reserve one page in each map. */
+    memory_reserve_physical_range(LOW_MEMORY_LIMIT - PAGE_SIZE / 2u,
+                                  LOW_MEMORY_LIMIT + PAGE_SIZE / 2u);
+    if (memory_free_pages() != 0u || memory_high_free_pages() != 0u ||
+        memory_range_contains_available_ram(LOW_MEMORY_LIMIT,
+                                            LOW_MEMORY_LIMIT + PAGE_SIZE) != 0)
+        return fail(25, "cross-boundary reservation did not reach both allocators");
+
     /* Invalid boot metadata must fail closed and expose no physical pages. */
     put32(0u, 8u);
     memory_init((uint32_t)(uintptr_t)boot_info);
     if (memory_free_pages() != 0u || memory_high_free_pages() != 0u ||
         memory_total_pages() != 0u || memory_high_available_bytes() != 0u)
-        return fail(18, "invalid Multiboot2 metadata exposed allocator memory");
+        return fail(26, "invalid Multiboot2 metadata exposed allocator memory");
 
     puts("physical allocator low/high range and lifecycle tests passed");
     return 0;
