@@ -21,7 +21,7 @@ static volatile uint32_t probe_complete;
 static uint32_t ioapic_read_register(volatile uint32_t *mmio,
                                      uint32_t register_index)
 {
-    /* IOREGSEL is the only write performed by this read-only probe. */
+    /* Select an IOAPIC register through IOREGSEL before reading IOWIN. */
     mmio[0] = register_index & 0xFFu;
     __asm__ volatile("" ::: "memory");
     uint32_t value = mmio[IOAPIC_IOWIN_DWORD];

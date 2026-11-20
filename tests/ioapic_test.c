@@ -114,6 +114,13 @@ int main(void)
                                       8u, routes) != 0, 23) != 0)
         return 23;
     overrides[0].gsi = 2u;
+    acpi_madt_override_t duplicate_source[2] = {
+        { .gsi = 2u, .flags = 0u, .bus = 0u, .source = 0u },
+        { .gsi = 3u, .flags = 0u, .bus = 0u, .source = 0u }
+    };
+    if (check(ioapic_isa_routes_build(ranges, 2u, duplicate_source, 2u,
+                                      8u, routes) != 0, 29) != 0)
+        return 29;
     invalid.flags = 0x0Fu;
     invalid.gsi = 100u;
     if (check(ioapic_isa_routes_build(ranges, 2u, &invalid, 1u,
