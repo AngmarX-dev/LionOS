@@ -6,7 +6,6 @@
 #include "io.h"
 
 #define IA32_APIC_BASE_MSR 0x1Bu
-#define APIC_BASE_ENABLE LIONOS_IA32_APIC_BASE_ENABLE
 #define CPUID_APIC_BIT (1u << 9)
 #define LAPIC_REG_ID 0x020u
 #define LAPIC_REG_EOI 0x0B0u
@@ -84,25 +83,15 @@ int lapic_enable(void)
     msr_address_mask=((1ULL<<physical_address_bits)-1u)&~0xFFFULL;
 
     /*
-     * Preserve an already-correct enabled APIC. Relocation is needed only
-     * when firmware's per-CPU base differs; interrupts remain disabled here.
+     * IA32_APIC_BASE explicitly permits relocating the xAPIC MMIO base by
+     * changing its base field. Keep the global-enable bit set throughout;
+     * disabling the local APIC could discard state or prevent re-enable on
+     * older APIC-bus implementations.
      */
-    if((current_msr&msr_address_mask)!=
-       (prepared_msr&msr_address_mask)){
-        if(current_msr&LIONOS_IA32_APIC_BASE_ENABLE){
-            wrmsr(IA32_APIC_BASE_MSR,
-                  prepared_msr&~LIONOS_IA32_APIC_BASE_ENABLE);
-            readback=rdmsr(IA32_APIC_BASE_MSR);
-            if((readback&(msr_address_mask|
-                          LIONOS_IA32_APIC_BASE_ENABLE|
-                          LIONOS_IA32_APIC_BASE_X2APIC)) !=
-               (prepared_msr&msr_address_mask))
-                return -1;
-        }
+    if((current_msr&msr_address_mask)!=(prepared_msr&msr_address_mask) ||
+       (current_msr&LIONOS_IA32_APIC_BASE_ENABLE)==0u)
         wrmsr(IA32_APIC_BASE_MSR,prepared_msr);
-    }else if((current_msr&LIONOS_IA32_APIC_BASE_ENABLE)==0u){
-        wrmsr(IA32_APIC_BASE_MSR,prepared_msr);
-    }
+
     readback=rdmsr(IA32_APIC_BASE_MSR);
     if((readback&(msr_address_mask|
                   LIONOS_IA32_APIC_BASE_ENABLE|
