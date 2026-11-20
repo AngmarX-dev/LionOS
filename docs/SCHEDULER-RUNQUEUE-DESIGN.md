@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This document records the synchronization and ownership contract for the per-CPU run-queue scheduler. The first scheduler-integration slice is implemented: process lifecycle transitions maintain queue membership and `process_schedule()` selects from local priority lanes. The QEMU suite now exercises the single-CPU fallback and 2-, 4-, 8-, and 16-CPU topologies, including AP task execution and migration regressions. The milestone remains partial pending broader load-balancing stress and physical hardware verification.
+This document records the synchronization and ownership contract for the per-CPU run-queue scheduler. The first scheduler-integration slice is implemented: process lifecycle transitions maintain queue membership and `process_schedule()` selects from local priority lanes. The QEMU suite has been extended to exercise the single-CPU fallback, a dedicated 2-CPU AP lifecycle run, and 4-, 8-, and 16-CPU scheduler/migration runs. The new 2-CPU case is pending CI verification. The milestone remains partial pending broader load-balancing stress and physical hardware verification.
 
 A first controlled work-stealing slice is enabled only for explicitly opted-in READY user processes. Each opted-in process may migrate at most once; ordinary processes remain pinned by default, as do kernel threads, user threads, and leaders with unreaped sibling threads. Broader migration remains partial.
 
@@ -169,7 +169,7 @@ The queue conversion is not complete until tests demonstrate:
 3. Exactly-one queue membership through create, fork, thread creation, wakeup, timeout, stop/continue, exit, and reap paths.
 4. No queue entry for WAITING, STOPPED, ZOMBIE, UNUSED, or RUNNING tasks.
 5. Queue counts and head/tail/link consistency after every stress iteration.
-6. Host-side concurrent enqueue/dequeue stress across two per-CPU queues; the boot-time AP probe verifies one task create/enqueue/dispatch/exit/reap lifecycle and queue invariants on every online AP; QEMU coverage exercises cross-CPU wakeup, timeout, stop/continue, AP-owned priority requeue, fork/waitpid, and restricted user-process migration across 2-, 4-, 8-, and 16-CPU topologies. Longer-duration contention and load-distribution stress remain outstanding.
+6. Host-side concurrent enqueue/dequeue stress across two per-CPU queues; the boot-time AP probe verifies one task create/enqueue/dispatch/exit/reap lifecycle and queue invariants on every online AP; QEMU coverage exercises cross-CPU wakeup, timeout, stop/continue, AP-owned priority requeue, and fork/waitpid across 2-, 4-, 8-, and 16-CPU topologies; restricted multi-process migration is checked at 4, 8, and 16 CPUs. The dedicated 2-CPU case awaits CI verification. Longer-duration contention and load-distribution stress remain outstanding.
 7. Timer scheduling remains bounded when a lock is contended.
 8. Existing process, waitpid, futex, pipe, TTY, FPU/SSE, and xHCI regressions pass.
 9. QEMU tests cover one CPU, multiple CPUs, and the maximum supported CPU topology.

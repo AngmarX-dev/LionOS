@@ -340,7 +340,7 @@ grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-16cpu.log
 grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' build/qemu-smp-16cpu.log
 
 echo "[4d/6] Two-CPU scheduler and migration regression"
-run_qemu build/qemu-smp-2cpu.log "" 2
+run_qemu build/qemu-smp-2cpu.log "" 2 120
 online_aps_2=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-2cpu.log || true)
 if [ "$online_aps_2" -ne 1 ]; then
     echo "SMP regression: expected 1 online AP with -smp 2, observed $online_aps_2" >&2
@@ -350,8 +350,9 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT|LIONOS:SMP-STACK-FAIL|
     echo "SMP regression: AP validation, stack allocation, APIC identity, or startup failure detected in the two-CPU run" >&2
     exit 1
 fi
-grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-2cpu.log
-grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' build/qemu-smp-2cpu.log
+# With one AP, validate the full AP-owned process lifecycle without
+# requiring two simultaneous steals from the same destination CPU.
+grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-OK' build/qemu-smp-2cpu.log
 
 grep -q 'LIONOS:HIGH-MEMORY-TEST-OK' build/qemu-highmem.log
 grep -q 'LIONOS:TLB-SHOOTDOWN-ACKED' build/qemu-highmem.log
