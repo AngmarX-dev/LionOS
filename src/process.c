@@ -233,8 +233,41 @@ static void process_scheduler_ap_probe_report(void){
     uint32_t expected=__atomic_load_n(&scheduler_ap_probe_expected,__ATOMIC_ACQUIRE);
     if(!expected)return;
 
-    /* Retry because an AP may enter WAITING after an earlier BSP tick. */
-    process_wakeup((uintptr_t)&scheduler_ap_probe_wait_token);
+    /*
+     * Do not wake a probe merely because it published WAITING: first prove
+     * that every target AP has switched to its own idle context. This makes
+     * the test exercise a real remote wake from HLT, not a READY/RUNNING race.
+     */
+    uint32_t all_aps_idle=1u;
+    if(spinlock_try_acquire(&process_lock)){
+        uint32_t online=smp_online_count();
+        if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+        for(uint32_t cpu=1u;cpu<online;++cpu){
+            if(!(expected&(1u<<cpu)))continue;
+            struct process *probe=0;
+            for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+                struct process *candidate=&processes[i];
+                if(candidate->state!=PROCESS_UNUSED&&candidate->is_thread&&
+                   candidate->thread_group_pid==0u&&
+                   candidate->entry==(uint32_t)(uintptr_t)&process_scheduler_ap_probe&&
+                   candidate->cpu_owner==cpu){
+                    probe=candidate;
+                    break;
+                }
+            }
+            if(!probe||probe->state!=PROCESS_WAITING||
+               probe->wait_channel!=(uint32_t)(uintptr_t)&scheduler_ap_probe_wait_token||
+               current_by_cpu[cpu]!=&scheduler_idle_processes[cpu]){
+                all_aps_idle=0u;
+                break;
+            }
+        }
+        spinlock_release(&process_lock);
+    }else{
+        all_aps_idle=0u;
+    }
+    if(all_aps_idle)
+        process_wakeup((uintptr_t)&scheduler_ap_probe_wait_token);
 
     uint32_t fault=__atomic_load_n(&scheduler_ap_probe_fault,__ATOMIC_ACQUIRE);
     uint32_t seen=__atomic_load_n(&scheduler_ap_probe_seen,__ATOMIC_ACQUIRE);
@@ -1074,11 +1107,11 @@ void process_wakeup(uintptr_t channel){
         struct process *p=&processes[i];
         if(p->state==PROCESS_WAITING&&(p->wait_kind==0u||p->wait_kind==2u)&&
            p->wait_channel==(uint32_t)channel){
-            p->wait_channel=0u;
-            p->wait_timeout_active=0u;
-            p->wait_timeout_result=0u;
-            p->wait_kind=0u;
             if(process_transition_state_locked(p,PROCESS_READY)==0){
+                p->wait_channel=0u;
+                p->wait_timeout_active=0u;
+                p->wait_timeout_result=0u;
+                p->wait_kind=0u;
                 uint32_t owner=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
                 wake_mask|=1u<<owner;
             }
