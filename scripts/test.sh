@@ -213,6 +213,18 @@ for elf in build/*.elf; do
     fi
 done
 
+echo "[2b/6] Single-CPU scheduler and run-queue regression"
+run_qemu build/qemu-smp-1cpu.log "" 1
+grep -q 'LIONOS:SMP-CPU-COUNT-1' build/qemu-smp-1cpu.log
+if grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-1cpu.log; then
+    echo "single-CPU regression: an application processor was unexpectedly marked online" >&2
+    exit 1
+fi
+if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL)' build/qemu-smp-1cpu.log; then
+    echo "single-CPU regression: AP-only scheduler lifecycle marker appeared" >&2
+    exit 1
+fi
+
 echo "[3/6] First SMP boot / filesystem initialization"
 echo "SMP AP entry symbol:"
 nm -n build/lionos.bin | grep -E " smp_ap_main$| page_root$|kernel_pd|identity_pt| _kernel_end$" || true
