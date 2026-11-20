@@ -60,7 +60,7 @@ int main(void)
     interrupt_stats_record(0u, 128u);
     if (interrupt_stats_count(0u, 128u) != 1u ||
         interrupt_stats_total(0u) != (2u * ITERATIONS + 1u)) {
-        fputs("interrupt stats: vector isolation failed\\n", stderr);
+        fputs("interrupt stats: vector isolation failed\n", stderr);
         return 7;
     }
 
