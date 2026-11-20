@@ -81,7 +81,8 @@ static int mmap_tag_valid(const mb2_tag_view_t *tag)
      * allocator sees any firmware-provided interval.
      */
     for (uint32_t offset = 0u; offset < entries_size; offset += entry_size) {
-        const uint8_t *entry = tag->payload + MB2_MMAP_HEADER_SIZE + offset;
+        /* The tag payload starts after the 8-byte generic tag header. */
+        const uint8_t *entry = tag->payload + 8u + offset;
         uint64_t address = *(const uint64_t *)(const void *)entry;
         uint64_t length = *(const uint64_t *)(const void *)(entry + 8u);
         if (length > UINT64_MAX - address)
