@@ -41,6 +41,8 @@ static volatile uint32_t scheduler_ap_probe_fault;
 static volatile uint32_t scheduler_ap_probe_reported;
 static volatile uint32_t scheduler_ap_probe_reaped;
 static volatile uint32_t scheduler_ap_probe_expected_count;
+static struct spinlock scheduler_ap_probe_wait_lock;
+static uint32_t scheduler_ap_probe_wait_token;
 static volatile uint32_t smp_ap_schedule_enter_seen;
 static volatile uint32_t smp_ap_schedule_lock_contention_seen;
 
@@ -50,6 +52,22 @@ static void process_kernel_thread_return_trap(void){
 }
 
 static void process_scheduler_ap_probe(uint32_t expected_cpu){
+    uint32_t wait_flags=spinlock_irqsave_acquire(&scheduler_ap_probe_wait_lock);
+    int32_t wait_result=process_sleep_on(
+        (uintptr_t)&scheduler_ap_probe_wait_token,
+        &scheduler_ap_probe_wait_lock,wait_flags);
+    if(wait_result!=PROCESS_WAIT_BLOCKED){
+        __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+        process_exit_current(1u);
+        for(;;)__asm__ volatile("sti; hlt");
+    }
+
+    /*
+     * The BSP wakes this task after it has entered WAITING. STI followed by
+     * HLT is an atomic interruptible handoff on x86: the AP remains asleep
+     * until its owner-local reschedule IPI selects this task again.
+     */
+    __asm__ volatile("sti; hlt" ::: "memory");
     uint32_t actual_cpu=cpu_current_index();
     if(actual_cpu!=expected_cpu||actual_cpu==0u||
        actual_cpu>=LIONOS_MAX_CPUS){
@@ -214,6 +232,10 @@ static void process_scheduler_ap_probe_report(void){
     if(cpu_current_index()!=0u)return;
     uint32_t expected=__atomic_load_n(&scheduler_ap_probe_expected,__ATOMIC_ACQUIRE);
     if(!expected)return;
+
+    /* Retry because an AP may enter WAITING after an earlier BSP tick. */
+    process_wakeup((uintptr_t)&scheduler_ap_probe_wait_token);
+
     uint32_t fault=__atomic_load_n(&scheduler_ap_probe_fault,__ATOMIC_ACQUIRE);
     uint32_t seen=__atomic_load_n(&scheduler_ap_probe_seen,__ATOMIC_ACQUIRE);
     uint32_t expected_count=__atomic_load_n(&scheduler_ap_probe_expected_count,
@@ -238,6 +260,8 @@ static void process_scheduler_ap_probe_report(void){
     uint32_t reported=0u;
     if(!__atomic_compare_exchange_n(&scheduler_ap_probe_reported,&reported,1u,0,
             __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return;
+    if(!fault)
+        debug_write("LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK\n");
     debug_write(fault?"LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL\n":
                       "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK\n");
 }
@@ -359,6 +383,7 @@ void process_init(void) {
     fpu_enabled=(cpu_fpu_sse_init()==0u)?1u:0u;
     if(fpu_enabled){__asm__ volatile("fninit; fxsave %0":"=m"(fpu_initial_state)::"memory");}
     spinlock_init(&process_lock);
+    spinlock_init(&scheduler_ap_probe_wait_lock);
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){runqueue_node_init(&runqueue_nodes[i]);clear_process(&processes[i]);}
     scheduler_idle_ready_mask=0u;
@@ -1043,6 +1068,7 @@ void process_futex_tick(uint32_t cpu){
 
 void process_wakeup(uintptr_t channel){
     if(!channel)return;
+    uint32_t wake_mask=0u;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *p=&processes[i];
@@ -1052,10 +1078,17 @@ void process_wakeup(uintptr_t channel){
             p->wait_timeout_active=0u;
             p->wait_timeout_result=0u;
             p->wait_kind=0u;
-            (void)process_transition_state_locked(p,PROCESS_READY);
+            if(process_transition_state_locked(p,PROCESS_READY)==0){
+                uint32_t owner=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
+                wake_mask|=1u<<owner;
+            }
         }
     }
     spinlock_irqrestore_release(&process_lock,flags);
+
+    /* Kick remote owners only after READY is published and process_lock is released. */
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(wake_mask&(1u<<cpu))process_kick_cpu(cpu);
 }
 
 uint32_t process_futex_wakeup(uintptr_t channel,uint32_t maximum){

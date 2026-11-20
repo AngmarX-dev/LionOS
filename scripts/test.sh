@@ -78,6 +78,7 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-IDLE-CONTEXTS-READY" "$log_file"
         grep -q "LIONOS:SMP-AP-IDLE-ALL-ENTERED" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK" "$log_file"
+        grep -q "LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK" "$log_file"
     fi
     if grep -q "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL" "$log_file"; then
         echo "AP run-queue task execution self-test failed: $log_file" >&2
@@ -118,6 +119,7 @@ run_gui_smoke() {
     grep -q 'LIONOS:SMP-AP-IDLE-CONTEXTS-READY' "$log_file"
     grep -q 'LIONOS:SMP-AP-IDLE-ALL-ENTERED' "$log_file"
     grep -q 'LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-OK' "$log_file"
+    grep -q 'LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK' "$log_file"
     grep -q 'LIONOS:GUI-ENTER' "$log_file"
     grep -q 'LIONOS:GUI-READY' "$log_file"
     grep -q 'LIONOS:FRAMEBUFFER-ARGB-SELFTEST-OK' "$log_file"
@@ -220,7 +222,7 @@ if grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-1cpu.log; then
     echo "single-CPU regression: an application processor was unexpectedly marked online" >&2
     exit 1
 fi
-if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL)' build/qemu-smp-1cpu.log; then
+if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL|RUNQUEUE-WAKEUP-OK)' build/qemu-smp-1cpu.log; then
     echo "single-CPU regression: AP-only scheduler lifecycle marker appeared" >&2
     exit 1
 fi

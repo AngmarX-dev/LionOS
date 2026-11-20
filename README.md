@@ -370,7 +370,7 @@ The following sequence describes engineering priorities for the remaining work. 
 
 - ✅ Complete SMP and synchronization stress tests
 - ✅ Design per-CPU run queues with explicit ownership and locking ([design document](docs/SCHEDULER-RUNQUEUE-DESIGN.md))
-- 🟡 Integrate per-CPU priority FIFO run queues with process lifecycle and scheduler; concurrent host stress and a QEMU probe that creates, dispatches, exits, and reaps one short-lived kernel task per online AP is implemented, while broader cross-CPU wakeup/timeout/stop/continue/fork lifecycle verification remains pending
+- 🟡 Integrate per-CPU priority FIFO run queues with process lifecycle and scheduler; concurrent host stress and QEMU AP task create/dispatch/exit/reap plus BSP-to-AP blocked-task wakeup verification are implemented, while cross-CPU timeout/stop/continue/fork lifecycle stress and broader SMP coverage remain pending
 - ⬜ Implement safe task migration and work-stealing after the required infrastructure is ready
 - ⬜ Complete interrupt routing and per-CPU statistics
 - ⬜ Evaluate Lazy FPU alongside the current FPU/SSE path
