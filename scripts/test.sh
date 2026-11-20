@@ -30,11 +30,12 @@ run_qemu() {
     local log_file="$1"
     local cpu_model="${2:-}"
     local cpu_count="${3:-2}"
+    local timeout_seconds="${4:-$TIMEOUT_SECONDS}"
     local -a cpu_args=()
     if [ -n "$cpu_model" ]; then cpu_args=(-cpu "$cpu_model"); fi
     set +e
     rm -f "$log_file"
-    timeout "${TIMEOUT_SECONDS}s" qemu-system-i386 "${cpu_args[@]}" \
+    timeout "${timeout_seconds}s" qemu-system-i386 "${cpu_args[@]}" \
         -smp "$cpu_count" \
         -cdrom build/lionos.iso \
         -drive file=build/lionos-disk.img,format=raw,if=ide,index=0 \
@@ -300,7 +301,10 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-smp-8cpu.l
 fi
 
 echo "[4c/6] Maximum-supported 16-CPU SMP AP bring-up regression"
-run_qemu build/qemu-smp-16cpu.log "" 16
+# The 16-CPU boot must also schedule, wake, time out, and reap one probe task
+# per AP. Keep the normal timeout for all other boots; give this scalability
+# case a bounded extra minute rather than weakening any required marker.
+run_qemu build/qemu-smp-16cpu.log "" 16 120
 online_aps_16=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-16cpu.log || true)
 if [ "$online_aps_16" -ne 15 ]; then
     echo "SMP regression: expected 15 online APs with -smp 16, observed $online_aps_16" >&2
