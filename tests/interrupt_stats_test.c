@@ -42,6 +42,10 @@ int main(void)
             fputs("interrupt stats: pthread_join failed\n", stderr);
             return 2;
         }
+    }
+
+    /* Check shared counters only after every writer has stopped. */
+    for (uint32_t i = 0u; i < WORKER_COUNT; ++i) {
         if (interrupt_stats_count(args[i].cpu, args[i].vector) !=
             (2u * ITERATIONS)) {
             fputs("interrupt stats: concurrent count mismatch\n", stderr);
