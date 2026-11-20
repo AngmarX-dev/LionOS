@@ -433,7 +433,7 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked){
         if(pick_result!=0||selected!=candidate||!queues_valid){
             __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);return -1;
         }
-        ++scheduler_cpu[cpu].steal_count;
+        __atomic_fetch_add(&scheduler_cpu[cpu].steal_count,1u,__ATOMIC_RELAXED);
         *picked=selected;return 1;
     }
     return 0;
@@ -2613,7 +2613,11 @@ int process_set_priority(struct process*p,uint32_t priority){
     return result;
 }
 uint32_t process_scheduler_ticks(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?scheduler_cpu[cpu].schedule_count:0u;}
-uint32_t process_scheduler_steals(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?scheduler_cpu[cpu].steal_count:0u;}
+uint32_t process_scheduler_steals(uint32_t cpu){
+    return cpu<LIONOS_MAX_CPUS
+        ? __atomic_load_n(&scheduler_cpu[cpu].steal_count,__ATOMIC_ACQUIRE)
+        : 0u;
+}
 
 uint32_t *process_schedule(uint32_t *frame){
     process_scheduler_ap_probe_report();

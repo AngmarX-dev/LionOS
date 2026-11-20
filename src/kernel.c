@@ -853,8 +853,9 @@ void lionos_user_integration_step(void){
             int info = process_get_migration_info((uint32_t)integration_pid,
                                                    &owner, &migrations) == 0;
             uint32_t online = smp_online_count();
+            uint32_t steals = info ? process_scheduler_steals(owner) : 0u;
             int ok = valid && code == 0u && info && owner > 0u &&
-                     owner < online && migrations == 1u;
+                     owner < online && migrations == 1u && steals != 0u;
             if(process_reap_pid((uint32_t)integration_pid) != 0) ok = 0;
             integration_pid = -1;
             debug_write(ok
