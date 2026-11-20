@@ -46,17 +46,6 @@ static uint32_t cpu_physical_address_bits(void)
     __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d)
                      :"a"(0x80000000u),"c"(0u));
     if(a<0x80000008u)
-        return 36u;
-    __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d)
-                     :"a"(0x80000008u),"c"(0u));
-    return a&0xFFu;
-}
-static uint32_t cpu_physical_address_bits(void)
-{
-    uint32_t a,b,c,d;
-    __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d)
-                     :"a"(0x80000000u),"c"(0u));
-    if(a<0x80000008u)
         return 36u; /* Architectural fallback for older PAE-capable CPUs. */
     __asm__ volatile("cpuid":"=a"(a),"=b"(b),"=c"(c),"=d"(d)
                      :"a"(0x80000008u),"c"(0u));
@@ -85,17 +74,26 @@ int lapic_enable(void)
                               physical_address_bits,&prepared_msr)!=0)
         return -1;
 
-    /* AP startup is still disabled locally; relocate each CPU's own APIC MSR. */
-    wrmsr(IA32_APIC_BASE_MSR,
-          prepared_msr&~LIONOS_IA32_APIC_BASE_ENABLE);
-    readback=rdmsr(IA32_APIC_BASE_MSR);
-    if((readback&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
-                  LIONOS_IA32_APIC_BASE_ENABLE|
-                  LIONOS_IA32_APIC_BASE_X2APIC)) !=
-       (prepared_msr&LIONOS_IA32_APIC_BASE_ADDRESS_MASK))
-        return -1;
-
-    wrmsr(IA32_APIC_BASE_MSR,prepared_msr);
+    /*
+     * Preserve an already-correct enabled APIC. Relocation is needed only
+     * when firmware's per-CPU base differs; interrupts remain disabled here.
+     */
+    if((current_msr&LIONOS_IA32_APIC_BASE_ADDRESS_MASK)!=
+       (prepared_msr&LIONOS_IA32_APIC_BASE_ADDRESS_MASK)){
+        if(current_msr&LIONOS_IA32_APIC_BASE_ENABLE){
+            wrmsr(IA32_APIC_BASE_MSR,
+                  prepared_msr&~LIONOS_IA32_APIC_BASE_ENABLE);
+            readback=rdmsr(IA32_APIC_BASE_MSR);
+            if((readback&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
+                          LIONOS_IA32_APIC_BASE_ENABLE|
+                          LIONOS_IA32_APIC_BASE_X2APIC)) !=
+               (prepared_msr&LIONOS_IA32_APIC_BASE_ADDRESS_MASK))
+                return -1;
+        }
+        wrmsr(IA32_APIC_BASE_MSR,prepared_msr);
+    }else if((current_msr&LIONOS_IA32_APIC_BASE_ENABLE)==0u){
+        wrmsr(IA32_APIC_BASE_MSR,prepared_msr);
+    }
     readback=rdmsr(IA32_APIC_BASE_MSR);
     if((readback&(LIONOS_IA32_APIC_BASE_ADDRESS_MASK|
                   LIONOS_IA32_APIC_BASE_ENABLE|

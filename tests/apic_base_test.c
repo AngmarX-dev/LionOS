@@ -14,7 +14,9 @@ int main(void)
     if (lapic_base_msr_prepare(current, 0xFEE01000ULL, 36u, &prepared) != 0 ||
         prepared != expected)
         return 1;
-    if (lapic_base_msr_prepare(current, 0u, 36u, &prepared) == 0)
+    prepared = 0xA5A5A5A5A5A5A5A5ULL;
+    if (lapic_base_msr_prepare(current, 0u, 36u, &prepared) == 0 ||
+        prepared != 0xA5A5A5A5A5A5A5A5ULL)
         return 2;
     if (lapic_base_msr_prepare(current, 0xFEE01001ULL, 36u, &prepared) == 0)
         return 3;
