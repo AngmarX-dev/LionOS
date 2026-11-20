@@ -1943,7 +1943,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         p->exit_code=128u+signal;
         (void)process_transition_state_locked(p,PROCESS_STOPPED);
         uint32_t target_cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
-        if(current_by_cpu[target_cpu]==p)
+        if(current_cpu_load(target_cpu)==p)
             process_request_blocked_reschedule(target_cpu);
         uint32_t exiting_sid=p->sid;
         spinlock_irqrestore_release(&process_lock,flags);
