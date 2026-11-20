@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <pthread.h>
 #include "memory.h"
 #include "spinlock.h"
 #include "debug.h"
@@ -19,33 +20,39 @@
 #define HIGH_RESERVED_END (515ULL * MIB)
 #define MODULE_START (74ULL * MIB)
 #define MODULE_END (75ULL * MIB)
+#define MEMORY_STRESS_THREADS 8u
+#define MEMORY_STRESS_HELD_PAGES 4u
+#define MEMORY_STRESS_ITERATIONS 1000u
+#define LOW_OWNER_SLOTS ((LOW_AVAILABLE_END - LOW_AVAILABLE_START) / PAGE_SIZE)
+#define HIGH_OWNER_SLOTS ((HIGH_AVAILABLE_END - HIGH_AVAILABLE_START) / PAGE_SIZE)
 
 static uint8_t boot_info[200] __attribute__((aligned(8)));
 
 void spinlock_init(struct spinlock *lock)
 {
     if (lock)
-        lock->value = 0u;
+        __atomic_store_n(&lock->value, 0u, __ATOMIC_RELAXED);
 }
 
 void spinlock_acquire(struct spinlock *lock)
 {
-    if (lock)
-        lock->value = 1u;
+    if (!lock)
+        return;
+    while (__atomic_exchange_n(&lock->value, 1u, __ATOMIC_ACQUIRE) != 0u)
+        __asm__ volatile("pause" ::: "memory");
 }
 
 void spinlock_release(struct spinlock *lock)
 {
     if (lock)
-        lock->value = 0u;
+        __atomic_store_n(&lock->value, 0u, __ATOMIC_RELEASE);
 }
 
 uint32_t spinlock_try_acquire(struct spinlock *lock)
 {
-    if (!lock || lock->value)
-        return 0u;
-    lock->value = 1u;
-    return 1u;
+    uint32_t expected = 0u;
+    return lock && __atomic_compare_exchange_n(&lock->value, &expected, 1u,
+        0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
 }
 
 uint32_t spinlock_irqsave_acquire(struct spinlock *lock)
@@ -173,6 +180,145 @@ static int fail(int code, const char *message)
 {
     printf("physical allocator test failed (%d): %s\n", code, message);
     return code;
+}
+
+
+static volatile uint32_t low_owners[LOW_OWNER_SLOTS];
+static volatile uint32_t high_owners[HIGH_OWNER_SLOTS];
+static volatile uint32_t memory_stress_failed;
+
+struct memory_stress_argument { uint32_t worker; };
+
+static void memory_stress_fail(void)
+{
+    __atomic_store_n(&memory_stress_failed, 1u, __ATOMIC_RELEASE);
+}
+
+static void *memory_stress_worker(void *opaque)
+{
+    const struct memory_stress_argument *argument =
+        (const struct memory_stress_argument *)opaque;
+    const uint32_t owner = argument->worker + 1u;
+
+    for (uint32_t round = 0u; round < MEMORY_STRESS_ITERATIONS; ++round) {
+        void *low_pages[MEMORY_STRESS_HELD_PAGES];
+        uint64_t high_pages[MEMORY_STRESS_HELD_PAGES];
+        uint32_t low_slots[MEMORY_STRESS_HELD_PAGES];
+        uint32_t high_slots[MEMORY_STRESS_HELD_PAGES];
+        uint8_t low_registered[MEMORY_STRESS_HELD_PAGES] = {0u};
+        uint8_t high_registered[MEMORY_STRESS_HELD_PAGES] = {0u};
+        uint32_t low_count = 0u;
+        uint32_t high_count = 0u;
+        int failed = 0;
+
+        for (uint32_t i = 0u; i < MEMORY_STRESS_HELD_PAGES; ++i) {
+            low_pages[i] = page_alloc();
+            if (!low_pages[i]) { failed = 1; break; }
+            ++low_count;
+
+            uintptr_t address = (uintptr_t)low_pages[i];
+            if (address < LOW_AVAILABLE_START || address >= LOW_AVAILABLE_END ||
+                (address >= LOW_RESERVED_START && address < LOW_RESERVED_END) ||
+                (address >= MODULE_START && address < MODULE_END) ||
+                ((address - LOW_AVAILABLE_START) % PAGE_SIZE) != 0u) {
+                failed = 1;
+                break;
+            }
+            low_slots[i] =
+                (uint32_t)((address - LOW_AVAILABLE_START) / PAGE_SIZE);
+            uint32_t expected = 0u;
+            if (!__atomic_compare_exchange_n(&low_owners[low_slots[i]],
+                    &expected, owner, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                failed = 1;
+                break;
+            }
+            low_registered[i] = 1u;
+
+            if (page_alloc_high(&high_pages[i]) != 0) {
+                failed = 1;
+                break;
+            }
+            ++high_count;
+            address = (uintptr_t)high_pages[i];
+            if (high_pages[i] < HIGH_AVAILABLE_START ||
+                high_pages[i] >= HIGH_AVAILABLE_END ||
+                (high_pages[i] >= HIGH_RESERVED_START &&
+                 high_pages[i] < HIGH_RESERVED_END) ||
+                ((high_pages[i] - HIGH_AVAILABLE_START) % PAGE_SIZE) != 0u) {
+                failed = 1;
+                break;
+            }
+            high_slots[i] =
+                (uint32_t)((high_pages[i] - HIGH_AVAILABLE_START) / PAGE_SIZE);
+            expected = 0u;
+            if (!__atomic_compare_exchange_n(&high_owners[high_slots[i]],
+                    &expected, owner, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                failed = 1;
+                break;
+            }
+            high_registered[i] = 1u;
+        }
+
+        if (failed) memory_stress_fail();
+        else {
+            for (volatile uint32_t spin = 0u; spin < 256u; ++spin)
+                __asm__ volatile("pause" ::: "memory");
+        }
+
+        for (uint32_t i = 0u; i < low_count; ++i) {
+            if (low_registered[i]) {
+                __atomic_store_n(&low_owners[low_slots[i]], 0u, __ATOMIC_RELEASE);
+                page_free(low_pages[i]);
+            }
+        }
+        for (uint32_t i = 0u; i < high_count; ++i) {
+            if (high_registered[i]) {
+                __atomic_store_n(&high_owners[high_slots[i]], 0u, __ATOMIC_RELEASE);
+                page_free_high(high_pages[i]);
+            }
+        }
+        if (failed) return 0;
+    }
+    return 0;
+}
+
+static int memory_allocator_concurrency_test(void)
+{
+    pthread_t threads[MEMORY_STRESS_THREADS];
+    struct memory_stress_argument arguments[MEMORY_STRESS_THREADS];
+    uint32_t created = 0u;
+    uint32_t low_before = memory_free_pages();
+    uint32_t high_before = memory_high_free_pages();
+
+    __atomic_store_n(&memory_stress_failed, 0u, __ATOMIC_RELAXED);
+    for (uint32_t i = 0u; i < LOW_OWNER_SLOTS; ++i)
+        __atomic_store_n(&low_owners[i], 0u, __ATOMIC_RELAXED);
+    for (uint32_t i = 0u; i < HIGH_OWNER_SLOTS; ++i)
+        __atomic_store_n(&high_owners[i], 0u, __ATOMIC_RELAXED);
+
+    for (uint32_t i = 0u; i < MEMORY_STRESS_THREADS; ++i) {
+        arguments[i].worker = i;
+        if (pthread_create(&threads[i], 0, memory_stress_worker,
+                           &arguments[i]) != 0) {
+            memory_stress_fail();
+            break;
+        }
+        ++created;
+    }
+    for (uint32_t i = 0u; i < created; ++i)
+        if (pthread_join(threads[i], 0) != 0) memory_stress_fail();
+
+    if (created != MEMORY_STRESS_THREADS ||
+        __atomic_load_n(&memory_stress_failed, __ATOMIC_ACQUIRE) != 0u ||
+        memory_free_pages() != low_before ||
+        memory_high_free_pages() != high_before)
+        return -1;
+
+    for (uint32_t i = 0u; i < LOW_OWNER_SLOTS; ++i)
+        if (__atomic_load_n(&low_owners[i], __ATOMIC_ACQUIRE) != 0u) return -1;
+    for (uint32_t i = 0u; i < HIGH_OWNER_SLOTS; ++i)
+        if (__atomic_load_n(&high_owners[i], __ATOMIC_ACQUIRE) != 0u) return -1;
+    return 0;
 }
 
 int main(void)
@@ -433,6 +579,13 @@ int main(void)
     if (memory_high_free_pages() != full_high_pages - 1u)
         return fail(40, "invalid high contiguous release changed allocator state");
 
+    /* Exercise both allocator windows under real host-thread contention. */
+    make_boot_info();
+    if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(54, "concurrency map failed allocator initialization");
+    if (memory_allocator_concurrency_test() != 0)
+        return fail(55, "concurrent low/high allocations duplicated pages or leaked free-page accounting");
+
     /* Invalid boot metadata must fail closed and expose no physical pages. */
     put32(0u, 8u);
     if (memory_init((uint32_t)(uintptr_t)boot_info) == 0)
@@ -441,6 +594,10 @@ int main(void)
         memory_total_pages() != 0u || memory_high_available_bytes() != 0u)
         return fail(41, "invalid Multiboot2 metadata exposed allocator memory");
 
-    puts("physical allocator low/high range and lifecycle tests passed");
+    if (memory_init(0u) == 0 || page_alloc() != 0 ||
+        memory_free_pages() != 0u || memory_high_free_pages() != 0u)
+        return fail(56, "null Multiboot2 pointer did not fail closed");
+
+    puts("physical allocator low/high range, concurrency, and lifecycle tests passed");
     return 0;
 }

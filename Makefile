@@ -113,7 +113,7 @@ phys-range-check: | $(BUILD)
 	$(BUILD)/phys_range_test
 
 memory-allocator-check: | $(BUILD)
-	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -no-pie -Wl,--defsym,_kernel_start=0x01000000 -Wl,--defsym,_kernel_end=0x01000000 -Iinclude src/memory.c src/phys_range.c src/multiboot2.c tests/memory_test.c -o $(BUILD)/memory_test
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -pthread -no-pie -Wl,--defsym,_kernel_start=0x01000000 -Wl,--defsym,_kernel_end=0x01000000 -Iinclude src/memory.c src/phys_range.c src/multiboot2.c tests/memory_test.c -o $(BUILD)/memory_test
 	$(BUILD)/memory_test
 
 third-party-check:
