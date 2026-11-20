@@ -5,6 +5,8 @@
 
 int exec_validate_image(const uint8_t *image, uint32_t size, uint32_t *entry, uint32_t *stack_top);
 int exec_run_file(const char *name);
+/* Launch with migration enabled before the process is published READY. */
+int exec_run_file_migratable(const char *name);
 int exec_replace_current(const char *name);
 
 #endif

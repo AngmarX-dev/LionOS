@@ -848,16 +848,15 @@ void lionos_user_integration_step(void){
         integration_migration_count=0u;
         integration_migration_failed=0u;
         for(uint32_t i=0u;i<INTEGRATION_MIGRATION_PROCESS_COUNT;++i){
-            int pid=exec_run_file("migration_test.elf");
+            int pid=(i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT)
+                ?exec_run_file_migratable("migration_test.elf")
+                :exec_run_file("migration_test.elf");
             if(pid<=0){
                 integration_migration_failed=1u;
                 break;
             }
             integration_migration_pids[i]=pid;
             ++integration_migration_count;
-            if(i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT&&
-               process_set_migration_eligible((uint32_t)pid)!=0)
-                integration_migration_failed=1u;
         }
         if(integration_migration_count!=
            INTEGRATION_MIGRATION_PROCESS_COUNT)

@@ -182,8 +182,8 @@ fail:
     return -1;
 }
 
-int exec_run_file(const char *name) {
-    uint32_t entry=0,stack=0,pd=0;
+static int exec_run_file_internal(const char *name,uint32_t migration_eligible){
+    uint32_t entry=0,stack=0,pd=0,pid=0;
     uint32_t pages[MAX_EXEC_PAGES]={0},vas[MAX_EXEC_PAGES]={0},count=0;
     const uint8_t *image=(const uint8_t*)ramfs_data(name);
     uint32_t image_size=ramfs_size(name);
@@ -205,16 +205,25 @@ int exec_run_file(const char *name) {
         debug_write("\n");
         return -1;
     }
-    struct process *p=process_create_ex_vas(entry,stack,pd,pages,vas,count);
-    if(!p){
+    if(process_create_ex_vas_pid(entry,stack,pd,pages,vas,count,
+                                 migration_eligible,&pid)!=0){
         debug_write("LIONOS:EXEC-PROC-FAIL ");
         debug_write(name);
         debug_write("\n");
         paging_destroy_address_space(pd);
-        for(uint32_t i=0;i<count;++i)if(pages[i])page_free((void*)(uintptr_t)pages[i]);
+        for(uint32_t i=0;i<count;++i)
+            if(pages[i])page_free((void*)(uintptr_t)pages[i]);
         return -1;
     }
-    return (int)p->pid;
+    return (int)pid;
+}
+
+int exec_run_file(const char *name){
+    return exec_run_file_internal(name,0u);
+}
+
+int exec_run_file_migratable(const char *name){
+    return exec_run_file_internal(name,1u);
 }
 int exec_replace_current(const char *name) {
     uint32_t entry = 0, stack = 0, pd = 0;

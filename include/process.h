@@ -126,6 +126,11 @@ struct process *process_create_ex(uint32_t entry, uint32_t user_stack, uint32_t 
 struct process *process_create_ex_vas(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
                                       const uint32_t *user_pages, const uint32_t *user_page_vas,
                                       uint32_t user_page_count);
+/* Return the PID captured before the process becomes READY. */
+int process_create_ex_vas_pid(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
+                              const uint32_t *user_pages, const uint32_t *user_page_vas,
+                              uint32_t user_page_count, uint32_t migration_eligible,
+                              uint32_t *pid_out);
 int process_exec_replace_current(uint32_t entry, uint32_t user_stack, uint32_t page_directory,
                                  const uint32_t *user_pages, const uint32_t *user_page_vas,
                                  uint32_t user_page_count);
