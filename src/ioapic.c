@@ -5,10 +5,14 @@
 #include "paging.h"
 #include "memory.h"
 #include "debug.h"
+#include "lapic.h"
 
 #define IOAPIC_REG_ID 0x00u
 #define IOAPIC_REG_VERSION 0x01u
+#define IOAPIC_REG_REDIR_BASE 0x10u
 #define IOAPIC_IOWIN_DWORD 4u
+#define IOAPIC_REDIR_LOW_VERIFY_MASK 0x0001AFFFu
+#define IOAPIC_REDIR_HIGH_DEST_MASK 0xFF000000u
 
 static ioapic_probe_info_t controllers[LIONOS_IOAPIC_MAX_CONTROLLERS];
 static volatile uint32_t controller_count;
@@ -20,7 +24,61 @@ static uint32_t ioapic_read_register(volatile uint32_t *mmio,
     /* IOREGSEL is the only write performed by this read-only probe. */
     mmio[0] = register_index & 0xFFu;
     __asm__ volatile("" ::: "memory");
-    return mmio[IOAPIC_IOWIN_DWORD];
+    uint32_t value = mmio[IOAPIC_IOWIN_DWORD];
+    __asm__ volatile("" ::: "memory");
+    return value;
+}
+
+static void ioapic_write_register(volatile uint32_t *mmio,
+                                  uint32_t register_index, uint32_t value)
+{
+    mmio[0] = register_index & 0xFFu;
+    __asm__ volatile("" ::: "memory");
+    mmio[IOAPIC_IOWIN_DWORD] = value;
+    __asm__ volatile("" ::: "memory");
+}
+
+static int ioapic_program_route_masked(
+    const ioapic_probe_info_t *controllers,
+    uint32_t controller_count,
+    const ioapic_isa_route_t *route)
+{
+    volatile uint32_t *mmio;
+    uint32_t low_register;
+    uint32_t high_register;
+    uint32_t old_low;
+    uint32_t read_low;
+    uint32_t read_high;
+
+    if (!controllers || !route || route->controller_index >= controller_count ||
+        route->redirection_index >= LIONOS_IOAPIC_MAX_REDIRECTIONS)
+        return -1;
+
+    mmio = (volatile uint32_t *)(uintptr_t)
+        controllers[route->controller_index].virtual_address;
+    low_register = IOAPIC_REG_REDIR_BASE + route->redirection_index * 2u;
+    high_register = low_register + 1u;
+    if (high_register > 0xFFu)
+        return -1;
+
+    /* Mask the existing entry before changing its destination or vector. */
+    old_low = ioapic_read_register(mmio, low_register);
+    ioapic_write_register(mmio, low_register,
+                          old_low | LIONOS_IOAPIC_REDIR_MASK);
+    ioapic_write_register(mmio, high_register, route->high_word);
+    ioapic_write_register(mmio, low_register,
+                          route->low_word | LIONOS_IOAPIC_REDIR_MASK);
+
+    read_low = ioapic_read_register(mmio, low_register);
+    read_high = ioapic_read_register(mmio, high_register);
+    if ((read_low & IOAPIC_REDIR_LOW_VERIFY_MASK) !=
+        (route->low_word & IOAPIC_REDIR_LOW_VERIFY_MASK) ||
+        (read_low & LIONOS_IOAPIC_REDIR_MASK) == 0u ||
+        (read_high & IOAPIC_REDIR_HIGH_DEST_MASK) !=
+        (route->high_word & IOAPIC_REDIR_HIGH_DEST_MASK))
+        return -1;
+
+    return 0;
 }
 
 int ioapic_init(void)
@@ -28,7 +86,9 @@ int ioapic_init(void)
     acpi_madt_info_t madt;
     cpu_memory_type_state_t memory_types;
     ioapic_probe_info_t discovered[LIONOS_IOAPIC_MAX_CONTROLLERS] = {{0}};
+    ioapic_isa_route_t planned_routes[LIONOS_IOAPIC_ISA_ROUTE_COUNT] = {{0}};
     uint32_t mapping_flags;
+    uint32_t destination_apic_id;
 
     if (__atomic_load_n(&probe_complete, __ATOMIC_ACQUIRE))
         return __atomic_load_n(&controller_count, __ATOMIC_ACQUIRE) != 0u
@@ -90,13 +150,30 @@ int ioapic_init(void)
     if (ioapic_gsi_ranges_validate(discovered, madt.ioapic_count) != 0)
         return -1;
 
+    destination_apic_id = lapic_id();
+    if (destination_apic_id == 0xFFFFFFFFu ||
+        ioapic_isa_routes_build(discovered, madt.ioapic_count,
+                                madt.overrides, madt.override_count,
+                                destination_apic_id, planned_routes) != 0)
+        return -1;
+
+    /*
+     * Prepare only masked redirection entries. PIC remains the active
+     * interrupt source until a later, separately verified handoff.
+     */
+    for (uint32_t i = 0u; i < LIONOS_IOAPIC_ISA_ROUTE_COUNT; ++i) {
+        if (ioapic_program_route_masked(discovered, madt.ioapic_count,
+                                        &planned_routes[i]) != 0)
+            return -1;
+    }
+
     for (uint32_t i = 0u; i < madt.ioapic_count; ++i)
         controllers[i] = discovered[i];
 
     __atomic_store_n(&controller_count, madt.ioapic_count, __ATOMIC_RELEASE);
     __atomic_store_n(&probe_complete, 1u, __ATOMIC_RELEASE);
 
-    debug_write("LIONOS:IOAPIC-READONLY-PROBE-OK\n");
+    debug_write("LIONOS:IOAPIC-ISA-ROUTES-PREPARED-MASKED\n");
     return 0;
 }
 

@@ -262,6 +262,7 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-first.log;
     exit 1
 fi
 grep -q 'LIONOS:READY' build/qemu-first.log
+grep -q 'LIONOS:IOAPIC-ISA-ROUTES-PREPARED-MASKED' build/qemu-first.log
 grep -q 'LIONOS:GFX-PCI-CLASSIFY-SELFTEST-OK' build/qemu-first.log
 grep -q 'LIONOS:GFX-PCI-DISCOVERY-OK' build/qemu-first.log
 grep -q 'LIONOS:INTEL-BAR0-VALIDATION-SELFTEST-OK' build/qemu-first.log
