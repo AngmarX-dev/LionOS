@@ -322,6 +322,12 @@ static int integration_utility_ok;
 static int integration_pipe_ok;
 static int integration_nx_ok;
 static int integration_process_ok;
+#define INTEGRATION_MIGRATION_ELIGIBLE_COUNT 2u
+#define INTEGRATION_MIGRATION_PROCESS_COUNT 3u
+static int integration_migration_pids[INTEGRATION_MIGRATION_PROCESS_COUNT] = {-1,-1,-1};
+static uint32_t integration_migration_steals_before[LIONOS_MAX_CPUS];
+static uint32_t integration_migration_count;
+static uint32_t integration_migration_failed;
 static volatile uint32_t integration_ap_user_pid;
 static volatile uint32_t integration_ap_user_status;
 /*
@@ -821,52 +827,100 @@ void lionos_user_integration_step(void){
         return;
     }
 
-    /* Launch a BSP-owned user process; an idle AP must steal it from CPU 0. */
+    /*
+     * Launch two independent, explicitly migratable user processes and one
+     * ordinary process that must retain BSP affinity. The migration test ELF
+     * has no shared filesystem or console side effects between instances.
+     */
     if(integration_stage == 22){
-        integration_pid = exec_run_file("process_test.elf");
-        if(integration_pid > 0){
-            if(process_set_migration_eligible((uint32_t)integration_pid)!=0){
-                integration_done = 1;
-                debug_write("LIONOS:SMP-WORK-STEAL-USER-OPT-IN-FAIL\n");
-                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
-                return;
-            }
-            process_request_reschedule_cpu(1u);
-            debug_write("LIONOS:SMP-WORK-STEAL-USER-LAUNCHED\n");
-            integration_stage = 23;
-        }else{
-            integration_done = 1;
-            debug_write("LIONOS:SMP-WORK-STEAL-USER-LAUNCH-FAIL\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+        uint32_t online=smp_online_count();
+        if(online<=1u){
+            debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-SKIP\n");
+            integration_done=1;
+            return;
         }
+        if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+        for(uint32_t cpu=0u;cpu<online;++cpu)
+            integration_migration_steals_before[cpu]=
+                process_scheduler_steals(cpu);
+        for(uint32_t i=0u;i<INTEGRATION_MIGRATION_PROCESS_COUNT;++i)
+            integration_migration_pids[i]=-1;
+        integration_migration_count=0u;
+        integration_migration_failed=0u;
+        for(uint32_t i=0u;i<INTEGRATION_MIGRATION_PROCESS_COUNT;++i){
+            int pid=exec_run_file("migration_test.elf");
+            if(pid<=0){
+                integration_migration_failed=1u;
+                break;
+            }
+            integration_migration_pids[i]=pid;
+            ++integration_migration_count;
+            if(i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT&&
+               process_set_migration_eligible((uint32_t)pid)!=0)
+                integration_migration_failed=1u;
+        }
+        if(integration_migration_count!=
+           INTEGRATION_MIGRATION_PROCESS_COUNT)
+            integration_migration_failed=1u;
+        if(integration_migration_count==0u){
+            integration_done=1;
+            debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            return;
+        }
+        process_request_reschedule_cpu(1u);
+        debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-LAUNCHED\n");
+        integration_stage=23;
         return;
     }
 
     if(integration_stage == 23){
-        int32_t state = process_get_state((uint32_t)integration_pid);
-        if(state == PROCESS_ZOMBIE){
-            uint32_t code = 0xFFFFFFFFu;
-            uint32_t owner = 0xFFFFFFFFu;
-            uint32_t migrations = 0u;
-            int valid =
-                process_get_exit_code((uint32_t)integration_pid, &code) == 0;
-            int info = process_get_migration_info((uint32_t)integration_pid,
-                                                   &owner, &migrations) == 0;
-            uint32_t online = smp_online_count();
-            uint32_t steals = info ? process_scheduler_steals(owner) : 0u;
-            int ok = valid && code == 0u && info && owner > 0u &&
-                     owner < online && migrations == 1u && steals != 0u;
-            if(process_reap_pid((uint32_t)integration_pid) != 0) ok = 0;
-            integration_pid = -1;
+        uint32_t online=smp_online_count();
+        uint32_t pending=0u;
+        if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+        for(uint32_t i=0u;i<integration_migration_count;++i){
+            int pid=integration_migration_pids[i];
+            if(pid<=0)continue;
+            int32_t state=process_get_state((uint32_t)pid);
+            if(state==PROCESS_ZOMBIE){
+                uint32_t code=0xFFFFFFFFu;
+                uint32_t owner=0xFFFFFFFFu;
+                uint32_t migrations=0xFFFFFFFFu;
+                int valid=process_get_exit_code((uint32_t)pid,&code)==0&&
+                          code==0u;
+                int info=process_get_migration_info((uint32_t)pid,
+                                                     &owner,&migrations)==0;
+                if(!valid||!info){
+                    integration_migration_failed=1u;
+                }else if(i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT){
+                    if(owner==0u||owner>=online||migrations!=1u||
+                       process_scheduler_steals(owner)<=
+                           integration_migration_steals_before[owner])
+                        integration_migration_failed=1u;
+                }else if(owner!=0u||migrations!=0u){
+                    integration_migration_failed=1u;
+                }
+                if(process_reap_pid((uint32_t)pid)!=0)
+                    integration_migration_failed=1u;
+                integration_migration_pids[i]=-1;
+            }else if(state<0){
+                integration_migration_failed=1u;
+                integration_migration_pids[i]=-1;
+            }else{
+                pending=1u;
+            }
+        }
+        if(!pending){
+            int ok=integration_migration_failed==0u&&
+                   integration_migration_count==
+                       INTEGRATION_MIGRATION_PROCESS_COUNT;
+            debug_write(ok
+                ? "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK\n"
+                : "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");
             debug_write(ok
                 ? "LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK\n"
-                : "LIONOS:SMP-WORK-STEAL-USER-PROCESS-FAIL\n");
-            if(!ok) debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
-            integration_done = 1;
-        }else if(state < 0){
-            integration_done = 1;
-            debug_write("LIONOS:SMP-WORK-STEAL-USER-STATE-FAIL\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+                : "LIONOS:USER-INTEGRATION-FAIL\n");
+            integration_done=1;
         }
         return;
     }

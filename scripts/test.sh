@@ -280,6 +280,7 @@ grep -q 'LIONOS:PIPE-LIFECYCLE-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PROCESS-WAITPID-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-OK' build/qemu-first.log
 grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-first.log
+grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-first.log
 grep -q 'LIONOS:SIGNAL-CONTROL-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:SIGINT-DEFAULT-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:SIGNAL-HANDLER-TEST-OK' build/qemu-first.log
@@ -313,6 +314,7 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-smp-8cpu.l
     exit 1
 fi
 grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-8cpu.log
+grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-8cpu.log
 
 echo "[4c/6] Maximum-supported 16-CPU SMP AP bring-up regression"
 # The 16-CPU boot must also schedule, wake, time out, and reap one probe task
@@ -329,6 +331,7 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT|LIONOS:SMP-STACK-FAIL|
     exit 1
 fi
 grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-16cpu.log
+grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-16cpu.log
 
 grep -q 'LIONOS:HIGH-MEMORY-TEST-OK' build/qemu-highmem.log
 grep -q 'LIONOS:TLB-SHOOTDOWN-ACKED' build/qemu-highmem.log
