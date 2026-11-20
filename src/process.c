@@ -1106,7 +1106,8 @@ int32_t process_futex_sleep_on_timeout(uintptr_t channel, struct spinlock *held_
 }
 
 void process_futex_tick(uint32_t cpu){
-    if(cpu>=LIONOS_MAX_CPUS)return;
+    if(cpu>=LIONOS_MAX_CPUS||
+       __atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)return;
     /*
      * Account for every local timer interrupt even when process_lock is
      * contended. Dropping the timeout scan is safe; dropping elapsed AP-local
