@@ -227,7 +227,7 @@ int main(int argc, char **argv) {
     if (futex_wake_result != 0) {
         puts("[FAIL] futex wake one-waiter limit");
         print_u32("[FAIL] futex wake test code: ", (uint32_t)futex_wake_result);
-        return 49;
+        return 53;
     }
     puts("[PASS] futex wake honors one-waiter limit");
 
