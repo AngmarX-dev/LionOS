@@ -150,6 +150,24 @@ static void make_boundary_boot_info(void)
     put32(76u, 8u);
 }
 
+static void make_full_high_map_boot_info(void)
+{
+    for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
+        boot_info[i] = 0u;
+
+    put32(0u, 80u);
+    put32(4u, 0u);
+    put32(8u, MULTIBOOT2_TAG_MMAP);
+    put32(12u, 64u);
+    put32(16u, 24u);
+    put32(20u, 0u);
+    put_mmap_entry(24u, LOW_MEMORY_LIMIT,
+                   HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT,
+                   MULTIBOOT2_MEMORY_AVAILABLE);
+    put32(72u, MULTIBOOT2_TAG_END);
+    put32(76u, 8u);
+}
+
 static int fail(int code, const char *message)
 {
     printf("physical allocator test failed (%d): %s\n", code, message);
@@ -292,12 +310,49 @@ int main(void)
                                             LOW_MEMORY_LIMIT + PAGE_SIZE) != 0)
         return fail(25, "cross-boundary reservation did not reach both allocators");
 
+    /*
+     * Populate the complete supported high-memory window, then reserve its
+     * interior. This exercises every high-map bitmap page, not only samples.
+     */
+    make_full_high_map_boot_info();
+    if (multiboot2_info_validate(boot_info) != 0)
+        return fail(26, "full high-memory map metadata is invalid");
+    memory_init((uint32_t)(uintptr_t)boot_info);
+
+    if (memory_high_free_pages() !=
+            (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE) ||
+        memory_high_available_bytes() != HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT)
+        return fail(27, "complete high-memory window was not accounted");
+
+    if (page_alloc_high(&high_address) != 0 ||
+        high_address != LOW_MEMORY_LIMIT)
+        return fail(28, "full-window allocation did not begin at 256 MiB");
+
+    memory_reserve_physical_range(LOW_MEMORY_LIMIT + PAGE_SIZE,
+                                  HIGH_MEMORY_LIMIT - PAGE_SIZE);
+    if (memory_high_free_pages() != 1u ||
+        memory_range_contains_available_ram(LOW_MEMORY_LIMIT + PAGE_SIZE,
+                                            LOW_MEMORY_LIMIT + 2u * PAGE_SIZE) != 0 ||
+        memory_range_contains_available_ram(HIGH_MEMORY_LIMIT - PAGE_SIZE,
+                                            HIGH_MEMORY_LIMIT) != 1)
+        return fail(29, "full-window reservation did not preserve only the final page");
+
+    if (page_alloc_high(&high_address) != 0 ||
+        high_address != HIGH_MEMORY_LIMIT - PAGE_SIZE ||
+        memory_high_free_pages() != 0u)
+        return fail(30, "allocator failed to reach the final page after full-window reservation");
+
+    page_free_high(LOW_MEMORY_LIMIT);
+    page_free_high(HIGH_MEMORY_LIMIT - PAGE_SIZE);
+    if (memory_high_free_pages() != 2u)
+        return fail(31, "full-window allocated pages were not returned correctly");
+
     /* Invalid boot metadata must fail closed and expose no physical pages. */
     put32(0u, 8u);
     memory_init((uint32_t)(uintptr_t)boot_info);
     if (memory_free_pages() != 0u || memory_high_free_pages() != 0u ||
         memory_total_pages() != 0u || memory_high_available_bytes() != 0u)
-        return fail(26, "invalid Multiboot2 metadata exposed allocator memory");
+        return fail(32, "invalid Multiboot2 metadata exposed allocator memory");
 
     puts("physical allocator low/high range and lifecycle tests passed");
     return 0;
