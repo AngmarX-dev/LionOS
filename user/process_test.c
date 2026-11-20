@@ -448,7 +448,7 @@ int main(int argc, char **argv) {
         return 28;
     }
     print_u32("[parent] PID before exec: ", parent_pid);
-    puts("[parent] exec hello.elf; PID must remain unchanged and sibling threads must be retired");
+    puts("[parent] exec futex_test.elf; PID must remain unchanged and sibling threads must be retired");
 
     uint32_t exec_result = lion_exec("futex_test.elf");
     if (exec_result != parent_pid) {
