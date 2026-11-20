@@ -153,10 +153,15 @@ int main(void) {
     if (__atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
         return 3;
 
-    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+    spinlock_acquire(&queues[0].lock);
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i) {
         if (runqueue_enqueue_locked(&queues[0], nodes, NODE_COUNT,
-                                    i, i % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0)
+                                    i, i % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0) {
+            spinlock_release(&queues[0].lock);
             return 5;
+        }
+    }
+    spinlock_release(&queues[0].lock);
 
     for (uint32_t i = 0u; i < 2u; ++i) {
         transfer_arguments[i].worker = i;
@@ -179,13 +184,20 @@ int main(void) {
         if (valid != 0 || total > NODE_COUNT)
             return 9;
     }
+    spinlock_acquire(&queues[0].lock);
+    spinlock_acquire(&queues[1].lock);
     for (uint32_t i = 0u; i < NODE_COUNT; ++i) {
         uint32_t owner = nodes[i].queue_cpu;
         if (owner >= TEST_CPU_COUNT ||
             runqueue_dequeue_locked(&queues[owner], nodes,
-                                    NODE_COUNT, i) != 0)
+                                    NODE_COUNT, i) != 0) {
+            spinlock_release(&queues[1].lock);
+            spinlock_release(&queues[0].lock);
             return 10;
+        }
     }
+    spinlock_release(&queues[1].lock);
+    spinlock_release(&queues[0].lock);
     for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu) {
         uint32_t total = 1u;
         spinlock_acquire(&queues[cpu].lock);
