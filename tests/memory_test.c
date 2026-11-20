@@ -1,0 +1,225 @@
+#include <stdint.h>
+#include <stdio.h>
+#include "memory.h"
+#include "spinlock.h"
+#include "debug.h"
+#include "multiboot2.h"
+
+#define PAGE_SIZE 4096ULL
+#define MIB (1024ULL * 1024ULL)
+#define LOW_AVAILABLE_START (64ULL * MIB)
+#define LOW_AVAILABLE_END (80ULL * MIB)
+#define LOW_RESERVED_START (68ULL * MIB)
+#define LOW_RESERVED_END (72ULL * MIB)
+#define HIGH_AVAILABLE_START (512ULL * MIB)
+#define HIGH_AVAILABLE_END (520ULL * MIB)
+#define HIGH_RESERVED_START (514ULL * MIB)
+#define HIGH_RESERVED_END (515ULL * MIB)
+#define MODULE_START (74ULL * MIB)
+#define MODULE_END (75ULL * MIB)
+
+static uint8_t boot_info[192] __attribute__((aligned(8)));
+
+void spinlock_init(struct spinlock *lock)
+{
+    if (lock)
+        lock->value = 0u;
+}
+
+void spinlock_acquire(struct spinlock *lock)
+{
+    if (lock)
+        lock->value = 1u;
+}
+
+void spinlock_release(struct spinlock *lock)
+{
+    if (lock)
+        lock->value = 0u;
+}
+
+uint32_t spinlock_try_acquire(struct spinlock *lock)
+{
+    if (!lock || lock->value)
+        return 0u;
+    lock->value = 1u;
+    return 1u;
+}
+
+uint32_t spinlock_irqsave_acquire(struct spinlock *lock)
+{
+    spinlock_acquire(lock);
+    return 0u;
+}
+
+void spinlock_irqrestore_release(struct spinlock *lock, uint32_t flags)
+{
+    (void)flags;
+    spinlock_release(lock);
+}
+
+void debug_putc(char c)
+{
+    (void)c;
+}
+
+void debug_write(const char *s)
+{
+    (void)s;
+}
+
+static void put32(uint32_t offset, uint32_t value)
+{
+    *(uint32_t *)(void *)(boot_info + offset) = value;
+}
+
+static void put64(uint32_t offset, uint64_t value)
+{
+    *(uint64_t *)(void *)(boot_info + offset) = value;
+}
+
+static void put_mmap_entry(uint32_t offset, uint64_t start,
+                           uint64_t length, uint32_t type)
+{
+    put64(offset, start);
+    put64(offset + 8u, length);
+    put32(offset + 16u, type);
+    put32(offset + 20u, 0u);
+}
+
+static void make_boot_info(void)
+{
+    for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
+        boot_info[i] = 0u;
+
+    put32(0u, sizeof(boot_info));
+    put32(4u, 0u);
+
+    /* Six entries deliberately put reserved ranges before available ranges. */
+    put32(8u, MULTIBOOT2_TAG_MMAP);
+    put32(12u, 160u);
+    put32(16u, 24u);
+    put32(20u, 0u);
+    put_mmap_entry(24u, LOW_RESERVED_START,
+                   LOW_RESERVED_END - LOW_RESERVED_START, 2u);
+    put_mmap_entry(48u, HIGH_RESERVED_START,
+                   HIGH_RESERVED_END - HIGH_RESERVED_START, 2u);
+    put_mmap_entry(72u, LOW_AVAILABLE_START,
+                   LOW_AVAILABLE_END - LOW_AVAILABLE_START,
+                   MULTIBOOT2_MEMORY_AVAILABLE);
+    put_mmap_entry(96u, LOW_AVAILABLE_START,
+                   8ULL * MIB, MULTIBOOT2_MEMORY_AVAILABLE);
+    put_mmap_entry(120u, HIGH_AVAILABLE_START,
+                   HIGH_AVAILABLE_END - HIGH_AVAILABLE_START,
+                   MULTIBOOT2_MEMORY_AVAILABLE);
+    put_mmap_entry(144u, HIGH_AVAILABLE_START,
+                   4ULL * MIB, MULTIBOOT2_MEMORY_AVAILABLE);
+
+    put32(168u, MULTIBOOT2_TAG_MODULE);
+    put32(172u, 16u);
+    put32(176u, (uint32_t)MODULE_START);
+    put32(180u, (uint32_t)MODULE_END);
+
+    put32(184u, MULTIBOOT2_TAG_END);
+    put32(188u, 8u);
+}
+
+static int fail(int code, const char *message)
+{
+    printf("physical allocator test failed (%d): %s\n", code, message);
+    return code;
+}
+
+int main(void)
+{
+    uint64_t high_address = 0u;
+    void *low_allocation;
+
+    if (((uintptr_t)boot_info & 7u) != 0u ||
+        (uintptr_t)boot_info > UINT32_MAX)
+        return fail(1, "Multiboot2 test buffer is not addressable by the 32-bit API");
+
+    make_boot_info();
+    if (multiboot2_info_validate(boot_info) != 0)
+        return fail(2, "test Multiboot2 information is invalid");
+
+    memory_init((uint32_t)(uintptr_t)boot_info);
+
+    if (memory_total_pages() !=
+        (uint32_t)(LOW_AVAILABLE_END / PAGE_SIZE))
+        return fail(3, "low-memory managed-page ceiling is incorrect");
+
+    if (memory_free_pages() != 2816u)
+        return fail(4, "low-memory count did not deduplicate and reserve overlaps");
+
+    if (memory_high_available_bytes() != 8ULL * MIB)
+        return fail(5, "high-memory inventory did not deduplicate overlapping ranges");
+
+    if (memory_high_free_pages() != 1792u)
+        return fail(6, "high-memory free count did not apply reserved ranges");
+
+    if (page_refcount((void *)(uintptr_t)LOW_RESERVED_START) != 0u)
+        return fail(7, "reserved low-memory page unexpectedly has a reference");
+
+    low_allocation = page_alloc_contiguous(3u);
+    if ((uintptr_t)low_allocation != LOW_AVAILABLE_START)
+        return fail(8, "contiguous low-page allocation returned an unexpected base");
+
+    if (memory_free_pages() != 2813u ||
+        page_refcount(low_allocation) != 1u ||
+        page_refcount((void *)((uintptr_t)low_allocation + PAGE_SIZE)) != 1u ||
+        page_refcount((void *)((uintptr_t)low_allocation + 2u * PAGE_SIZE)) != 1u)
+        return fail(9, "low-page allocation accounting or initial references are incorrect");
+
+    page_retain(low_allocation);
+    if (page_refcount(low_allocation) != 2u)
+        return fail(10, "page_retain did not increment the reference count");
+
+    page_free(low_allocation);
+    if (page_refcount(low_allocation) != 1u)
+        return fail(11, "page_free did not decrement a retained page");
+
+    page_free((void *)((uintptr_t)low_allocation + PAGE_SIZE));
+    page_free((void *)((uintptr_t)low_allocation + 2u * PAGE_SIZE));
+    page_free(low_allocation);
+    if (memory_free_pages() != 2816u ||
+        page_refcount(low_allocation) != 0u)
+        return fail(12, "low-page release or double-free protection is incorrect");
+
+    if (page_alloc_high(&high_address) != 0 ||
+        high_address != HIGH_AVAILABLE_START)
+        return fail(13, "high-page allocator did not return the first available page");
+
+    if (memory_high_free_pages() != 1791u ||
+        memory_range_contains_available_ram(HIGH_RESERVED_START,
+                                            HIGH_RESERVED_END) != 0 ||
+        memory_range_contains_available_ram(HIGH_AVAILABLE_START,
+                                            HIGH_AVAILABLE_START + PAGE_SIZE) != 1)
+        return fail(14, "high-page availability query or allocation accounting failed");
+
+    page_free_high(high_address);
+    if (memory_high_free_pages() != 1792u)
+        return fail(15, "high-page release did not restore the free count");
+
+    memory_reserve_physical_range(516ULL * MIB, 517ULL * MIB);
+    if (memory_high_free_pages() != 1536u ||
+        memory_range_contains_available_ram(516ULL * MIB,
+                                            517ULL * MIB) != 0 ||
+        memory_high_available_bytes() != 8ULL * MIB)
+        return fail(16, "runtime high-memory reservation changed the wrong accounting");
+
+    if (page_alloc_high(&high_address) != 0 ||
+        high_address != HIGH_AVAILABLE_START)
+        return fail(17, "high-page allocator did not preserve the scan after reservation");
+    page_free_high(high_address);
+
+    /* Invalid boot metadata must fail closed and expose no physical pages. */
+    put32(0u, 8u);
+    memory_init((uint32_t)(uintptr_t)boot_info);
+    if (memory_free_pages() != 0u || memory_high_free_pages() != 0u ||
+        memory_total_pages() != 0u || memory_high_available_bytes() != 0u)
+        return fail(18, "invalid Multiboot2 metadata exposed allocator memory");
+
+    puts("physical allocator low/high range and lifecycle tests passed");
+    return 0;
+}
