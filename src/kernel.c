@@ -835,6 +835,10 @@ void lionos_user_integration_step(void){
      */
     if(integration_stage == 22){
         uint32_t online=smp_online_count();
+        uint32_t launch_flags=0u;
+
+        /* This integration test is owned by the BSP. */
+        if(cpu_current_index()!=0u)return;
         if(online<=1u){
             debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-SKIP\n");
             integration_done=1;
@@ -851,10 +855,15 @@ void lionos_user_integration_step(void){
             integration_migration_pids[i]=-1;
         integration_migration_count=0u;
         integration_migration_failed=0u;
+
+        /*
+         * Prevent BSP preemption while the READY batch is constructed.
+         * Every process remains pinned until the atomic eligibility publish.
+         */
+        __asm__ volatile("pushfl; popl %0; cli"
+                         : "=r"(launch_flags) : : "memory");
         for(uint32_t i=0u;i<INTEGRATION_MIGRATION_PROCESS_COUNT;++i){
-            int pid=(i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT)
-                ?exec_run_file_migratable("migration_test.elf")
-                :exec_run_file("migration_test.elf");
+            int pid=exec_run_file("migration_test.elf");
             if(pid<=0){
                 integration_migration_failed=1u;
                 break;
@@ -865,13 +874,32 @@ void lionos_user_integration_step(void){
         if(integration_migration_count!=
            INTEGRATION_MIGRATION_PROCESS_COUNT)
             integration_migration_failed=1u;
+
+        /*
+         * Publish the complete eligible set under process_lock. AP schedulers
+         * also take process_lock before checking candidates, so they cannot
+         * observe or steal a partially opted-in batch.
+         */
+        if(integration_migration_count==
+           INTEGRATION_MIGRATION_PROCESS_COUNT){
+            uint32_t eligible_pids[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
+            for(uint32_t i=0u;i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT;++i)
+                eligible_pids[i]=(uint32_t)integration_migration_pids[i];
+            if(process_set_migration_eligible_batch(
+                   eligible_pids,INTEGRATION_MIGRATION_ELIGIBLE_COUNT)!=0)
+                integration_migration_failed=1u;
+        }
+
+        /* Restore the exact incoming EFLAGS, including the prior IF state. */
+        __asm__ volatile("pushl %0; popfl"
+                         : : "r"(launch_flags) : "memory","cc");
+
         if(integration_migration_count==0u){
             integration_done=1;
             debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");
             debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             return;
         }
-        /* Wake every online AP after publishing the BSP-owned work batch. */
         for(uint32_t cpu=1u;cpu<online;++cpu)
             process_request_reschedule_cpu(cpu);
         debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-LAUNCHED\n");

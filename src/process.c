@@ -1341,6 +1341,44 @@ int process_set_migration_eligible(uint32_t pid){
     return 0;
 }
 
+/*
+ * Atomically opt in a complete batch of READY user processes. The scheduler
+ * takes process_lock before inspecting migration eligibility, so no AP can
+ * steal a prefix of the batch while the remaining entries are being checked.
+ */
+int process_set_migration_eligible_batch(const uint32_t *pids,uint32_t count){
+    if(!pids||count==0u||count>LIONOS_PROCESS_MAX)return -1;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    for(uint32_t i=0u;i<count;++i){
+        if(!pids[i]){
+            spinlock_irqrestore_release(&process_lock,flags);
+            return -1;
+        }
+        for(uint32_t j=0u;j<i;++j){
+            if(pids[j]==pids[i]){
+                spinlock_irqrestore_release(&process_lock,flags);
+                return -1;
+            }
+        }
+        struct process *p=find_pid(pids[i]);
+        if(!p||p->state!=PROCESS_READY||p->pid<=1u||p->is_thread||
+           p->owns_address_space!=1u||p->thread_group_pid!=p->pid||
+           p->cpu_owner!=0u||p->migration_count!=0u||
+           p->migration_eligible!=0u){
+            spinlock_irqrestore_release(&process_lock,flags);
+            return -1;
+        }
+    }
+    for(uint32_t i=0u;i<count;++i){
+        struct process *p=find_pid(pids[i]);
+        /* The validation pass above guarantees every slot remains valid
+           while process_lock is held. */
+        p->migration_eligible=1u;
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+    return 0;
+}
+
 int process_get_exit_code(uint32_t pid,uint32_t*code){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     struct process*p=0;
