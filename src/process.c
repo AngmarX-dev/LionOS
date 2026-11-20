@@ -55,6 +55,8 @@ static void process_kernel_thread_return_trap(void){
     for(;;)__asm__ volatile("sti; hlt");
 }
 
+static int process_scheduler_ap_probe_stop_current(void);
+
 static void process_scheduler_ap_probe(uint32_t expected_cpu){
     if(expected_cpu==0u||expected_cpu>=LIONOS_MAX_CPUS){
         __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
