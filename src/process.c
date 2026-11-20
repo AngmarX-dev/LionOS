@@ -268,7 +268,7 @@ static void process_scheduler_ap_probe_diag_hex(uint32_t value){
     char text[9];
     for(uint32_t i=0u;i<8u;++i)
         text[i]=digits[(value>>(28u-i*4u))&0xFu];
-    text[8]='\\0';
+    text[8]='\0';
     debug_write(text);
 }
 
@@ -354,12 +354,12 @@ static void process_scheduler_ap_probe_report(void){
                     snapshot[snapshot_count][3]=probe?runqueue_nodes[process_index(probe)].queued:0xFFFFFFFFu;
                     snapshot[snapshot_count][4]=queue_locked?queue_total:0xFFFFFFFFu;
                     snapshot[snapshot_count][5]=__atomic_load_n(&scheduler_cpu[cpu].timer_ticks,__ATOMIC_ACQUIRE);
-                    snapshot[snapshot_count][6]=__atomic_load_n(&scheduler_cpu[cpu].schedule_count,__ATOMIC_ACQUIRE);
+                    snapshot[snapshot_count][6]=scheduler_cpu[cpu].schedule_count;
                     snapshot[snapshot_count][7]=__atomic_load_n(&reschedule_requested[cpu],__ATOMIC_ACQUIRE);
                     ++snapshot_count;
                 }
                 spinlock_release(&process_lock);
-                debug_write("LIONOS:SMP-AP-RUNQUEUE-DIAG-BEGIN\\n");
+                debug_write("LIONOS:SMP-AP-RUNQUEUE-DIAG-BEGIN\n");
                 for(uint32_t i=0u;i<snapshot_count;++i){
                     debug_write("CPU=");process_scheduler_ap_probe_diag_hex(snapshot[i][0]);
                     debug_write(" STATE=");process_scheduler_ap_probe_diag_hex(snapshot[i][1]);
@@ -369,9 +369,9 @@ static void process_scheduler_ap_probe_report(void){
                     debug_write(" TICKS=");process_scheduler_ap_probe_diag_hex(snapshot[i][5]);
                     debug_write(" SCHEDULES=");process_scheduler_ap_probe_diag_hex(snapshot[i][6]);
                     debug_write(" RESCHED=");process_scheduler_ap_probe_diag_hex(snapshot[i][7]);
-                    debug_write("\\n");
+                    debug_write("\n");
                 }
-                debug_write("LIONOS:SMP-AP-RUNQUEUE-DIAG-END\\n");
+                debug_write("LIONOS:SMP-AP-RUNQUEUE-DIAG-END\n");
             }else{
                 __atomic_store_n(&scheduler_ap_probe_diag_reported,0u,__ATOMIC_RELEASE);
             }
