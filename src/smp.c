@@ -196,7 +196,11 @@ void smp_init(void){
     ap_online_mask=0u;
     spinlock_init(&smp_lock);
     debug_write("LIONOS:SMP-ENTER\n");
-    if(cpu_count_hint()<=1u){debug_write("LIONOS:SMP-CPU-COUNT-1\n");return;}
+    if(cpu_count_hint()<=1u){
+        debug_write("LIONOS:SMP-CPU-COUNT-1\n");
+        smp_lock_stress_selftest();
+        return;
+    }
     uint32_t bsp_id=lapic_id();
     if(bsp_id==0xFFFFFFFFu){debug_write("LIONOS:SMP-NO-BSP-APIC\n");return;}
     debug_write("LIONOS:SMP-BSP-APIC-OK\n");
