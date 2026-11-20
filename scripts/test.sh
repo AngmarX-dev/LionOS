@@ -321,6 +321,7 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT' build/qemu-smp-8cpu.l
 fi
 grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-8cpu.log
 grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' build/qemu-smp-8cpu.log
+grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-OK' build/qemu-smp-8cpu.log
 
 echo "[4c/6] Maximum-supported 16-CPU SMP AP bring-up regression"
 # The 16-CPU boot must also schedule, wake, time out, and reap one probe task
@@ -338,8 +339,9 @@ if grep -Eq 'LIONOS:SMP-AP-MEMTYPE-|LIONOS:SMP-AP-TIMEOUT|LIONOS:SMP-STACK-FAIL|
 fi
 grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-16cpu.log
 grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' build/qemu-smp-16cpu.log
+grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-OK' build/qemu-smp-16cpu.log
 
-echo "[4d/6] Two-CPU scheduler and migration regression"
+echo "[4d/6] Two-CPU scheduler and AP lifecycle regression"
 run_qemu build/qemu-smp-2cpu.log "" 2 120
 online_aps_2=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-2cpu.log || true)
 if [ "$online_aps_2" -ne 1 ]; then
