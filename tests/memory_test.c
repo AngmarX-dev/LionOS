@@ -193,6 +193,9 @@ int main(void)
         (uint32_t)(LOW_AVAILABLE_END / PAGE_SIZE))
         return fail(3, "low-memory managed-page ceiling is incorrect");
 
+    if (memory_managed_limit_bytes() != HIGH_MEMORY_LIMIT)
+        return fail(42, "managed physical-address limit does not include the high-memory window");
+
     if (memory_free_pages() != 2816u)
         return fail(4, "low-memory count did not deduplicate and reserve overlaps");
 
@@ -229,6 +232,33 @@ int main(void)
     if (memory_free_pages() != 2816u ||
         page_refcount(low_allocation) != 0u)
         return fail(12, "low-page release or double-free protection is incorrect");
+
+    /*
+     * A runtime reservation must revoke an allocated low page, and a
+     * zero-reference reserved page must not be resurrected by page_retain.
+     */
+    low_allocation = page_alloc();
+    if ((uintptr_t)low_allocation != LOW_AVAILABLE_START)
+        return fail(43, "low allocator did not reuse the first released page");
+    uint32_t low_free_before_reserve = memory_free_pages();
+    memory_reserve_physical_range((uint64_t)(uintptr_t)low_allocation,
+                                  (uint64_t)(uintptr_t)low_allocation + PAGE_SIZE);
+    if (memory_free_pages() != low_free_before_reserve ||
+        page_refcount(low_allocation) != 0u)
+        return fail(44, "reserving an allocated low page did not revoke its reference");
+    page_retain(low_allocation);
+    if (page_refcount(low_allocation) != 0u)
+        return fail(45, "page_retain resurrected a reserved low page");
+    page_free(low_allocation);
+    if (memory_free_pages() != low_free_before_reserve)
+        return fail(46, "freeing a revoked low page changed allocator accounting");
+
+    low_allocation = page_alloc();
+    if ((uintptr_t)low_allocation != LOW_AVAILABLE_START + PAGE_SIZE)
+        return fail(47, "low allocator returned a page that was reserved at runtime");
+    page_free(low_allocation);
+    if (memory_free_pages() != low_free_before_reserve)
+        return fail(48, "low-page allocation after reservation did not release cleanly");
 
     if (page_alloc_high(&high_address) != 0 ||
         high_address != HIGH_AVAILABLE_START)
