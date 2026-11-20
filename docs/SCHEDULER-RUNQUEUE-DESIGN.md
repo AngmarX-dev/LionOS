@@ -34,7 +34,7 @@ The current scheduler has these relevant properties:
 
 - The process table is a fixed array protected by the global `process_lock`.
 - `process_schedule()` disables local interrupts and uses `spinlock_try_acquire()` on `process_lock`. If another CPU owns the lock, the timer scheduling attempt is dropped rather than spinning in interrupt context.
-- Each CPU has a small scheduler state record (scan cursor, schedule count, steal count, and timer ticks).
+- Each CPU has a small scheduler state record (scan cursor, schedule count, steal count, and timer ticks). The local timer count advances atomically before the timeout scan tries `process_lock`, so lock contention may defer a scan but cannot discard elapsed local ticks or indefinitely postpone an AP-local timeout.
 - Runnable selection dequeues from the current CPU's highest-priority non-empty FIFO run-queue lane; process-table scans are retained only for lifecycle and relationship operations.
 - New processes and threads are initially assigned to the CPU that creates them. The scheduler keeps them pinned to that CPU; no work stealing or migration is enabled.
 - APs complete CPU-local initialization and receive a dedicated kernel idle context during `process_init()`. Their Local APIC timer enters `process_schedule()`, which switches an AP with no current task into that idle context. APs still do not receive ordinary tasks through migration or work stealing.

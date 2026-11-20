@@ -1107,8 +1107,14 @@ int32_t process_futex_sleep_on_timeout(uintptr_t channel, struct spinlock *held_
 
 void process_futex_tick(uint32_t cpu){
     if(cpu>=LIONOS_MAX_CPUS)return;
+    /*
+     * Account for every local timer interrupt even when process_lock is
+     * contended. Dropping the timeout scan is safe; dropping elapsed AP-local
+     * ticks can indefinitely postpone a timeout on a repeatedly contended CPU.
+     */
+    uint32_t now=__atomic_add_fetch(&scheduler_cpu[cpu].timer_ticks,1u,
+                                    __ATOMIC_RELAXED);
     if(!spinlock_try_acquire(&process_lock))return;
-    uint32_t now=++scheduler_cpu[cpu].timer_ticks;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *p=&processes[i];
         if(p->state!=PROCESS_WAITING||(p->wait_kind!=1u&&p->wait_kind!=2u)||
