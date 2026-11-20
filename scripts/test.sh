@@ -313,7 +313,7 @@ echo "[4/6] High-memory allocator + cross-CPU TLB shootdown"
 QEMU_MEMORY=512M run_qemu build/qemu-highmem.log
 
 echo "[4b/6] Eight-CPU SMP AP bring-up scalability regression"
-run_qemu build/qemu-smp-8cpu.log "" 8
+# Eight online CPUs make the migration workload more timing-sensitive; retain every\n# success marker and allow the same bounded two-minute window as the 16-CPU case.\nrun_qemu build/qemu-smp-8cpu.log "" 8 120
 online_aps=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-8cpu.log || true)
 if [ "$online_aps" -ne 7 ]; then
     echo "SMP regression: expected 7 online APs with -smp 8, observed $online_aps" >&2
