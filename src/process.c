@@ -160,8 +160,18 @@ static uint32_t quantum_for_priority(uint32_t priority){
 static void fpu_save(struct process *p){if(!fpu_enabled||!p)return;__asm__ volatile("fxsave %0":"=m"(p->fpu_state)::"memory");p->fpu_valid=1u;}
 static void fpu_restore(struct process *p){if(!fpu_enabled||!p)return;if(p->fpu_valid)__asm__ volatile("fxrstor %0"::"m"(p->fpu_state):"memory");else __asm__ volatile("fxrstor %0"::"m"(fpu_initial_state):"memory");}
 
-static struct process *current_local(void) { uint32_t cpu = cpu_current_index(); return cpu < LIONOS_MAX_CPUS ? current_by_cpu[cpu] : 0; }
-static void set_current_local(struct process *p) { uint32_t cpu = cpu_current_index(); if (cpu < LIONOS_MAX_CPUS) current_by_cpu[cpu] = p; }
+static struct process *current_cpu_load(uint32_t cpu){
+    return cpu<LIONOS_MAX_CPUS?
+        __atomic_load_n(&current_by_cpu[cpu],__ATOMIC_ACQUIRE):0;
+}
+static struct process *current_local(void){
+    return current_cpu_load(cpu_current_index());
+}
+static void set_current_local(struct process *p){
+    uint32_t cpu=cpu_current_index();
+    if(cpu<LIONOS_MAX_CPUS)
+        __atomic_store_n(&current_by_cpu[cpu],p,__ATOMIC_RELEASE);
+}
 static void process_request_blocked_reschedule(uint32_t cpu){
     if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
     __atomic_store_n(&reschedule_blocked[cpu],1u,__ATOMIC_RELEASE);
@@ -301,7 +311,7 @@ static void process_scheduler_ap_probe_report(void){
             }
             if(!probe||probe->state!=PROCESS_WAITING||
                probe->wait_channel!=(uint32_t)(uintptr_t)&scheduler_ap_probe_wait_token||
-               current_by_cpu[cpu]!=&scheduler_idle_processes[cpu]){
+               current_cpu_load(cpu)!=&scheduler_idle_processes[cpu]){
                 all_aps_idle=0u;
                 break;
             }
@@ -355,7 +365,7 @@ static void process_scheduler_ap_probe_report(void){
                     snapshot[snapshot_count][4]=queue_locked?queue_total:0xFFFFFFFFu;
                     snapshot[snapshot_count][5]=__atomic_load_n(&scheduler_cpu[cpu].timer_ticks,__ATOMIC_ACQUIRE);
                     snapshot[snapshot_count][6]=scheduler_cpu[cpu].schedule_count;
-                    struct process *current=current_by_cpu[cpu];
+                    struct process *current=current_cpu_load(cpu);
                     snapshot[snapshot_count][7]=__atomic_load_n(&reschedule_requested[cpu],__ATOMIC_ACQUIRE);
                     snapshot[snapshot_count][8]=probe?probe->wait_channel:0xFFFFFFFFu;
                     snapshot[snapshot_count][9]=probe?probe->wait_kind:0xFFFFFFFFu;
@@ -556,7 +566,7 @@ void process_init(void) {
     __atomic_store_n(&runqueue_fault_reported,0u,__ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i){
         runqueue_init(&runqueues[i],i);
-        current_by_cpu[i]=0;
+        __atomic_store_n(&current_by_cpu[i],(struct process *)0,__ATOMIC_RELAXED);
         scheduler_cpu[i].cursor=0u;
         scheduler_cpu[i].schedule_count=0u;
         scheduler_cpu[i].steal_count=0u;
@@ -1410,7 +1420,7 @@ static void stop_process_locked(struct process *process,uint32_t signal){
                               process->parent_pid,signal);
     (void)process_transition_state_locked(process,PROCESS_STOPPED);
     uint32_t cpu=process->cpu_owner<LIONOS_MAX_CPUS?process->cpu_owner:0u;
-    if(current_by_cpu[cpu]==process)
+    if(current_cpu_load(cpu)==process)
         process_request_blocked_reschedule(cpu);
     else
         __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
@@ -1428,7 +1438,7 @@ static void stop_process_locked(struct process *process,uint32_t signal){
             }
             (void)process_transition_state_locked(thread,PROCESS_STOPPED);
             cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
-            if(current_by_cpu[cpu]==thread)
+            if(current_cpu_load(cpu)==thread)
                 process_request_blocked_reschedule(cpu);
             else
                 __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
@@ -1924,7 +1934,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
             p->exit_code=128u+signal;
             (void)process_transition_state_locked(p,PROCESS_ZOMBIE);
             uint32_t target_cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
-            if(current_by_cpu[target_cpu]==p)
+            if(current_cpu_load(target_cpu)==p)
                 process_request_blocked_reschedule(target_cpu);
             spinlock_irqrestore_release(&process_lock,flags);
             return LIONOS_SIGNAL_OK;
@@ -2381,7 +2391,7 @@ uint32_t *process_schedule(uint32_t *frame){
            (!zombie->adopted_by_init&&!zombie->reap_pending))continue;
         int current_on_cpu=0;
         for(uint32_t c=0u;c<LIONOS_MAX_CPUS;++c)
-            if(current_by_cpu[c]==zombie){current_on_cpu=1;break;}
+            if(current_cpu_load(c)==zombie){current_on_cpu=1;break;}
         if(!current_on_cpu)reap_process(zombie);
     }
 
