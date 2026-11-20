@@ -893,12 +893,28 @@ void lionos_user_integration_step(void){
                 if(!valid||!info){
                     integration_migration_failed=1u;
                 }else if(i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT){
+                    uint32_t steals=owner<LIONOS_MAX_CPUS
+                        ?process_scheduler_steals(owner):0u;
+                    uint32_t before=owner<LIONOS_MAX_CPUS
+                        ?integration_migration_steals_before[owner]:0u;
                     if(owner==0u||owner>=online||migrations!=1u||
-                       process_scheduler_steals(owner)<=
-                           integration_migration_steals_before[owner])
+                       steals<=before){
                         integration_migration_failed=1u;
+                        debug_write("LIONOS:SMP-WORK-STEAL-PROCESS-DIAG pid=");
+                        debug_write_u32_hex((uint32_t)pid);
+                        debug_write(" owner=");debug_write_u32_hex(owner);
+                        debug_write(" migrations=");debug_write_u32_hex(migrations);
+                        debug_write(" steals=");debug_write_u32_hex(steals);
+                        debug_write(" before=");debug_write_u32_hex(before);
+                        debug_write("\\n");
+                    }
                 }else if(owner!=0u||migrations!=0u){
                     integration_migration_failed=1u;
+                    debug_write("LIONOS:SMP-WORK-STEAL-PINNED-DIAG pid=");
+                    debug_write_u32_hex((uint32_t)pid);
+                    debug_write(" owner=");debug_write_u32_hex(owner);
+                    debug_write(" migrations=");debug_write_u32_hex(migrations);
+                    debug_write("\\n");
                 }
                 if(process_reap_pid((uint32_t)pid)!=0)
                     integration_migration_failed=1u;
