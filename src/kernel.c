@@ -906,7 +906,7 @@ void lionos_user_integration_step(void){
                         debug_write(" migrations=");debug_write_u32_hex(migrations);
                         debug_write(" steals=");debug_write_u32_hex(steals);
                         debug_write(" before=");debug_write_u32_hex(before);
-                        debug_write("\\n");
+                        debug_write("\n");
                     }
                 }else if(owner!=0u||migrations!=0u){
                     integration_migration_failed=1u;
@@ -914,7 +914,7 @@ void lionos_user_integration_step(void){
                     debug_write_u32_hex((uint32_t)pid);
                     debug_write(" owner=");debug_write_u32_hex(owner);
                     debug_write(" migrations=");debug_write_u32_hex(migrations);
-                    debug_write("\\n");
+                    debug_write("\n");
                 }
                 if(process_reap_pid((uint32_t)pid)!=0)
                     integration_migration_failed=1u;
