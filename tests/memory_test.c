@@ -20,7 +20,7 @@
 #define MODULE_START (74ULL * MIB)
 #define MODULE_END (75ULL * MIB)
 
-static uint8_t boot_info[192] __attribute__((aligned(8)));
+static uint8_t boot_info[200] __attribute__((aligned(8)));
 
 void spinlock_init(struct spinlock *lock)
 {
@@ -118,12 +118,13 @@ static void make_boot_info(void)
                    4ULL * MIB, MULTIBOOT2_MEMORY_AVAILABLE);
 
     put32(168u, MULTIBOOT2_TAG_MODULE);
-    put32(172u, 16u);
+    put32(172u, 17u);
     put32(176u, (uint32_t)MODULE_START);
     put32(180u, (uint32_t)MODULE_END);
 
-    put32(184u, MULTIBOOT2_TAG_END);
-    put32(188u, 8u);
+    put32(184u, 0u); /* Empty module command line, including its NUL terminator. */
+    put32(192u, MULTIBOOT2_TAG_END);
+    put32(196u, 8u);
 }
 
 static void make_boundary_boot_info(void)
