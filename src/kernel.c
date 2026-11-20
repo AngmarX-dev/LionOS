@@ -588,6 +588,8 @@ void lionos_user_integration_step(void){
             debug_write(integration_process_ok
                 ? "LIONOS:PROCESS-WAITPID-TEST-OK\n"
                 : "LIONOS:PROCESS-WAITPID-TEST-FAIL\n");
+            if(integration_process_ok)
+                debug_write("LIONOS:LONG-DURATION-SCHEDULER-TEST-OK\n");
             if(!integration_process_ok){
                 integration_done=1;
                 debug_write("LIONOS:USER-INTEGRATION-FAIL\n");

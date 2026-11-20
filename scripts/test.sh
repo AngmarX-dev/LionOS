@@ -287,6 +287,7 @@ grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PIPE-LIFECYCLE-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PROCESS-WAITPID-TEST-OK' build/qemu-first.log
+grep -q 'LIONOS:LONG-DURATION-SCHEDULER-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-OK' build/qemu-first.log
 grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-first.log
 grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' build/qemu-first.log
