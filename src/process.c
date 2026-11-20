@@ -1104,17 +1104,49 @@ static int has_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS
 static void reap_process(struct process*p){
     if(!p||p->state!=PROCESS_ZOMBIE)return;
     if(p->is_thread){
+        uint32_t is_ap_probe=(p->pid==0u&&p->thread_group_pid==0u&&
+            p->entry==(uint32_t)(uintptr_t)&process_scheduler_ap_probe);
+        uint32_t probe_index=LIONOS_PROCESS_MAX;
+        if(is_ap_probe){
+            for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i)
+                if(&processes[i]==p){probe_index=i;break;}
+            if(probe_index>=LIONOS_PROCESS_MAX||
+               runqueue_nodes[probe_index].queued!=0u||
+               runqueue_nodes[probe_index].next!=LIONOS_RUNQUEUE_INVALID_INDEX||
+               runqueue_nodes[probe_index].previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
+               runqueue_nodes[probe_index].queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX||
+               !p->kernel_stack_top||
+               p->kernel_stack_top<PAGE_SIZE||
+               (p->kernel_stack_top&(PAGE_SIZE-1u))!=0u){
+                __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+                return;
+            }
+            for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
+                if(current_cpu_load(cpu)==p){
+                    __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+                    return;
+                }
+            }
+        }
         if(p->thread_stack_page){
             if(paging_unmap_user_page_in(p->page_directory,p->thread_stack_va,
                                          p->thread_stack_page)!=0)return;
             page_free((void *)(uintptr_t)p->thread_stack_page);
         }
         if(p->kernel_stack_top)
-            page_free((void *)(uintptr_t)(p->kernel_stack_top-4096u));
-        if(p->pid==0u&&p->thread_group_pid==0u&&
-           p->entry==(uint32_t)(uintptr_t)&process_scheduler_ap_probe)
-            __atomic_fetch_add(&scheduler_ap_probe_reaped,1u,__ATOMIC_ACQ_REL);
+            page_free((void *)(uintptr_t)(p->kernel_stack_top-PAGE_SIZE));
         clear_process(p);
+        if(is_ap_probe){
+            if(p->state!=PROCESS_UNUSED||
+               runqueue_nodes[probe_index].queued!=0u||
+               runqueue_nodes[probe_index].next!=LIONOS_RUNQUEUE_INVALID_INDEX||
+               runqueue_nodes[probe_index].previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
+               runqueue_nodes[probe_index].queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX){
+                __atomic_store_n(&scheduler_ap_probe_fault,1u,__ATOMIC_RELEASE);
+                return;
+            }
+            __atomic_fetch_add(&scheduler_ap_probe_reaped,1u,__ATOMIC_ACQ_REL);
+        }
         return;
     }
     for(uint32_t i=0;i<p->user_page_count;++i)
