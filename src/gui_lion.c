@@ -52,6 +52,7 @@
 #define COL_GOLD_DIM 0x7D6726u
 #define COL_DANGER 0xC94B4Bu
 #define COL_OK 0x61C58Au
+#define COL_CYAN 0x63D6D0u
 #define COL_INPUT 0x050A12u
 
 struct ui_window {
