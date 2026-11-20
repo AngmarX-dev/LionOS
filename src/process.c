@@ -325,7 +325,7 @@ static void process_scheduler_ap_probe_report(void){
         uint32_t expected_diag=0u;
         if(__atomic_compare_exchange_n(&scheduler_ap_probe_diag_reported,
                 &expected_diag,1u,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)){
-            uint32_t snapshot[LIONOS_MAX_CPUS][8];
+            uint32_t snapshot[LIONOS_MAX_CPUS][13];
             uint32_t snapshot_count=0u;
             if(spinlock_try_acquire(&process_lock)){
                 uint32_t online=smp_online_count();
@@ -355,7 +355,13 @@ static void process_scheduler_ap_probe_report(void){
                     snapshot[snapshot_count][4]=queue_locked?queue_total:0xFFFFFFFFu;
                     snapshot[snapshot_count][5]=__atomic_load_n(&scheduler_cpu[cpu].timer_ticks,__ATOMIC_ACQUIRE);
                     snapshot[snapshot_count][6]=scheduler_cpu[cpu].schedule_count;
+                    struct process *current=current_by_cpu[cpu];
                     snapshot[snapshot_count][7]=__atomic_load_n(&reschedule_requested[cpu],__ATOMIC_ACQUIRE);
+                    snapshot[snapshot_count][8]=probe?probe->wait_channel:0xFFFFFFFFu;
+                    snapshot[snapshot_count][9]=probe?probe->wait_kind:0xFFFFFFFFu;
+                    snapshot[snapshot_count][10]=(current==&scheduler_idle_processes[cpu])?1u:0u;
+                    snapshot[snapshot_count][11]=current?current->pid:0xFFFFFFFFu;
+                    snapshot[snapshot_count][12]=current?current->state:0xFFFFFFFFu;
                     ++snapshot_count;
                 }
                 spinlock_release(&process_lock);
@@ -369,9 +375,16 @@ static void process_scheduler_ap_probe_report(void){
                     debug_write(" TICKS=");process_scheduler_ap_probe_diag_hex(snapshot[i][5]);
                     debug_write(" SCHEDULES=");process_scheduler_ap_probe_diag_hex(snapshot[i][6]);
                     debug_write(" RESCHED=");process_scheduler_ap_probe_diag_hex(snapshot[i][7]);
+                    debug_write(" WAIT=");process_scheduler_ap_probe_diag_hex(snapshot[i][8]);
+                    debug_write(" WKIND=");process_scheduler_ap_probe_diag_hex(snapshot[i][9]);
+                    debug_write(" CURIDLE=");process_scheduler_ap_probe_diag_hex(snapshot[i][10]);
+                    debug_write(" CURPID=");process_scheduler_ap_probe_diag_hex(snapshot[i][11]);
+                    debug_write(" CURSTATE=");process_scheduler_ap_probe_diag_hex(snapshot[i][12]);
                     debug_write("\n");
                 }
-                debug_write("LIONOS:SMP-AP-RUNQUEUE-DIAG-END\n");
+                debug_write(" EXPECTED-WAIT=");
+                process_scheduler_ap_probe_diag_hex((uint32_t)(uintptr_t)&scheduler_ap_probe_wait_token);
+                debug_write("\nLIONOS:SMP-AP-RUNQUEUE-DIAG-END\n");
             }else{
                 __atomic_store_n(&scheduler_ap_probe_diag_reported,0u,__ATOMIC_RELEASE);
             }
