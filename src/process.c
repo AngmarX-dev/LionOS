@@ -2878,7 +2878,7 @@ uint32_t *process_schedule(uint32_t *frame){
          * lock is contended. Leave state unchanged and retry next tick; the
          * common idle fallback below handles blocked/stopped/zombie contexts.
          */
-        __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+        /* Lock contention is transient, not a run-queue invariant failure. */
         __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
     }
     /*
