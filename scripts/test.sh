@@ -59,6 +59,10 @@ run_qemu() {
             echo "scheduler run-queue invariant failure detected: $log_file" >&2
             return 1
         fi
+        if grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL' "$log_file"; then
+            echo "AP-local user-process fork/waitpid regression failed: $log_file" >&2
+            return 1
+        fi
         if grep -q 'LIONOS:PANIC' "$log_file"; then
             panic_eip=$(sed -nE 's/.*LIONOS:PANIC.*eip=(0x[[:xdigit:]]+).*/\1/p' "$log_file" | head -n 1)
             if [ -n "$panic_eip" ]; then
@@ -231,10 +235,11 @@ if grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-1cpu.log; then
     echo "single-CPU regression: an application processor was unexpectedly marked online" >&2
     exit 1
 fi
-if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL|RUNQUEUE-WAKEUP-OK|RUNQUEUE-TIMEOUT-OK|RUNQUEUE-STOP-CONT-OK|RUNQUEUE-PRIORITY-REQUEUE-OK|RUNQUEUE-REAP-VALIDATION-OK)' build/qemu-smp-1cpu.log; then
+if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL|RUNQUEUE-WAKEUP-OK|RUNQUEUE-TIMEOUT-OK|RUNQUEUE-STOP-CONT-OK|RUNQUEUE-PRIORITY-REQUEUE-OK|RUNQUEUE-REAP-VALIDATION-OK|USER-FORK-WAITPID-OK|USER-FORK-WAITPID-FAIL)' build/qemu-smp-1cpu.log; then
     echo "single-CPU regression: AP-only scheduler lifecycle marker appeared" >&2
     exit 1
 fi
+grep -q 'LIONOS:SMP-AP-USER-FORK-SKIP' build/qemu-smp-1cpu.log
 
 echo "[3/6] First SMP boot / filesystem initialization"
 echo "SMP AP entry symbol:"
@@ -273,6 +278,7 @@ grep -q 'LIONOS:COW-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:USERLAND-UTILITY-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PIPE-LIFECYCLE-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:PROCESS-WAITPID-TEST-OK' build/qemu-first.log
+grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-OK' build/qemu-first.log
 grep -q 'LIONOS:SIGNAL-CONTROL-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:SIGINT-DEFAULT-TEST-OK' build/qemu-first.log
 grep -q 'LIONOS:SIGNAL-HANDLER-TEST-OK' build/qemu-first.log
