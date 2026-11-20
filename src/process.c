@@ -295,6 +295,33 @@ static int process_runqueue_validate_locked(uint32_t cpu){
     return queue_total==ready_total?0:-1;
 }
 
+/* process_lock must be held. Reposition READY tasks atomically on their owner queue. */
+static int process_set_priority_locked(struct process *p,uint32_t priority){
+    uint32_t index;
+    if(priority>=PROCESS_PRIORITY_LEVELS||process_slot_index(p,&index)!=0)
+        return -1;
+    if(p->state==PROCESS_READY){
+        uint32_t owner=runqueue_nodes[index].queue_cpu;
+        if(owner>=LIONOS_MAX_CPUS||owner!=p->cpu_owner){
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+            return -1;
+        }
+        spinlock_acquire(&runqueues[owner].lock);
+        int queued=runqueue_requeue_priority_locked(&runqueues[owner],
+            runqueue_nodes,LIONOS_PROCESS_MAX,index,priority);
+        spinlock_release(&runqueues[owner].lock);
+        if(queued!=0){
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+            return -1;
+        }
+    }
+    p->priority=priority;
+    p->base_priority=priority;
+    p->time_slice=quantum_for_priority(priority);
+    p->ticks_used=0u;
+    return 0;
+}
+
 static volatile uint32_t scheduler_ap_probe_diag_reported;
 
 static void process_scheduler_ap_probe_diag_hex(uint32_t value){
@@ -395,9 +422,13 @@ static void process_scheduler_ap_probe_report(void){
                 for(uint32_t cpu=1u;cpu<online;++cpu){
                     if(!(expected&(1u<<cpu)))continue;
                     continue_process_locked(targets[cpu]);
-                    if(targets[cpu]->state!=PROCESS_READY||
+                    uint32_t next_priority=
+                        (targets[cpu]->priority+1u)%PROCESS_PRIORITY_LEVELS;
+                    if(process_set_priority_locked(targets[cpu],next_priority)!=0||
+                       targets[cpu]->state!=PROCESS_READY||
                        runqueue_nodes[process_index(targets[cpu])].queued!=1u||
-                       runqueue_nodes[process_index(targets[cpu])].queue_cpu!=cpu)
+                       runqueue_nodes[process_index(targets[cpu])].queue_cpu!=cpu||
+                       runqueue_nodes[process_index(targets[cpu])].priority!=next_priority)
                         __atomic_store_n(&scheduler_ap_probe_fault,1u,
                                          __ATOMIC_RELEASE);
                 }
@@ -2398,25 +2429,10 @@ void process_request_reschedule(void){
 }
 
 int process_set_priority(struct process*p,uint32_t priority){
-    uint32_t index;
-    if(priority>=PROCESS_PRIORITY_LEVELS||
-       process_slot_index(p,&index)!=0)return -1;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
-    if(p->state==PROCESS_READY){
-        uint32_t owner=runqueue_nodes[index].queue_cpu;
-        if(owner>=LIONOS_MAX_CPUS){
-            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
-            spinlock_irqrestore_release(&process_lock,flags);return -1;
-        }
-        spinlock_acquire(&runqueues[owner].lock);
-        int queued=runqueue_requeue_priority_locked(&runqueues[owner],
-            runqueue_nodes,LIONOS_PROCESS_MAX,index,priority);
-        spinlock_release(&runqueues[owner].lock);
-        if(queued!=0){__atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);spinlock_irqrestore_release(&process_lock,flags);return -1;}
-    }
-    p->priority=priority;p->base_priority=priority;p->time_slice=quantum_for_priority(priority);p->ticks_used=0;
+    int result=process_set_priority_locked(p,priority);
     spinlock_irqrestore_release(&process_lock,flags);
-    return 0;
+    return result;
 }
 uint32_t process_scheduler_ticks(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?scheduler_cpu[cpu].schedule_count:0u;}
 uint32_t process_scheduler_steals(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?scheduler_cpu[cpu].steal_count:0u;}
