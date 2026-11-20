@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include "memory.h"
+#include "multiboot2.h"
+#include "debug.h"
 #include "spinlock.h"
 
 #define PAGE_SIZE 4096u
@@ -67,59 +69,86 @@ void memory_init(uint32_t mi){
     high_free_pages=0u;
     high_scan_hint=0u;
     high_available_bytes=0u;
-    uint8_t*info=(uint8_t*)(uintptr_t)mi;
-    uint32_t ts=*(uint32_t*)(uintptr_t)mi;
-    uint8_t*tags=info+8u,*end=info+ts;
-    while(tags+sizeof(struct mb2_tag)<=end){
-        struct mb2_tag*t=(struct mb2_tag*)tags;
-        if(t->type==MULTIBOOT2_TAG_END)break;
-        if(t->type==MULTIBOOT2_TAG_MMAP){
-            struct mb2_mmap_tag*m=(struct mb2_mmap_tag*)t;
-            uint8_t*p=tags+sizeof(struct mb2_mmap_tag),*me=tags+m->size;
-            while(p+m->entry_size<=me){
-                struct mb2_mmap_entry*e=(struct mb2_mmap_entry*)p;
-                uint64_t region_end=e->addr+e->len;
-                if(region_end>=e->addr){
-                    if(e->type==MULTIBOOT2_MEMORY_AVAILABLE){
-                        if(region_end>0x10000000ULL){
-                            uint64_t hs=e->addr>0x10000000ULL?e->addr:0x10000000ULL;
-                            hs=(hs+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
-                            uint64_t he=region_end&~(uint64_t)(PAGE_SIZE-1u);
-                            if(he>hs&&UINT64_MAX-high_available_bytes>=he-hs)high_available_bytes+=he-hs;
-                        }
-                        high_mark_available(e->addr,region_end);
-                        uint64_t s=(e->addr+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
-                        uint64_t f=region_end&~(uint64_t)(PAGE_SIZE-1u);
-                        for(uint64_t a=s;a<f;a+=PAGE_SIZE){
-                            uint32_t pg=(uint32_t)(a/PAGE_SIZE);
-                            if(pg<MAX_PAGES&&!is_free(pg)){
-                                mark_free(pg);page_refs[pg]=0u;++free_pages;
-                                if(pg+1u>total_pages)total_pages=pg+1u;
-                            }
-                        }
-                    }else{
-                        high_reserve_range(e->addr,region_end);
+
+    /*
+     * Validate the complete Multiboot2 tag stream before consuming any
+     * memory-map or module records. A malformed boot handoff must leave every
+     * allocator page reserved rather than exposing partially parsed RAM.
+     */
+    if(multiboot2_info_validate((const void *)(uintptr_t)mi)!=0){
+        debug_write("LIONOS:MB2-INFO-INVALID-MEMORY-UNAVAILABLE\\n");
+        return;
+    }
+
+    uint32_t ts=*(const uint32_t *)(uintptr_t)mi;
+    mb2_info_iterator_t iterator;
+    mb2_tag_view_t tag;
+    if(multiboot2_info_iterator_init((const void *)(uintptr_t)mi,&iterator)!=0)
+        return;
+
+    int next;
+    while((next=multiboot2_info_iterator_next(&iterator,&tag))>0){
+        if(tag.type!=MULTIBOOT2_TAG_MMAP)continue;
+        const uint8_t *entries=tag.payload+8u;
+        uint32_t entries_bytes=tag.size-16u;
+        uint32_t entry_size=*(const uint32_t *)(const void *)tag.payload;
+        for(uint32_t offset=0u;offset<entries_bytes;offset+=entry_size){
+            const struct mb2_mmap_entry *e=
+                (const struct mb2_mmap_entry *)(const void *)(entries+offset);
+            uint64_t region_end=e->addr+e->len;
+            if(region_end<e->addr)continue;
+            if(e->type==MULTIBOOT2_MEMORY_AVAILABLE){
+                if(region_end>HIGH_MEMORY_BASE){
+                    uint64_t hs=e->addr>HIGH_MEMORY_BASE?e->addr:HIGH_MEMORY_BASE;
+                    hs=(hs+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
+                    uint64_t he=region_end&~(uint64_t)(PAGE_SIZE-1u);
+                    if(he>hs&&UINT64_MAX-high_available_bytes>=he-hs)
+                        high_available_bytes+=he-hs;
+                }
+                high_mark_available(e->addr,region_end);
+                uint64_t s=(e->addr+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
+                uint64_t f=region_end&~(uint64_t)(PAGE_SIZE-1u);
+                for(uint64_t a=s;a<f;a+=PAGE_SIZE){
+                    uint32_t pg=(uint32_t)(a/PAGE_SIZE);
+                    if(pg<MAX_PAGES&&!is_free(pg)){
+                        mark_free(pg);page_refs[pg]=0u;++free_pages;
+                        if(pg+1u>total_pages)total_pages=pg+1u;
                     }
                 }
-                p+=m->entry_size;
+            }else{
+                high_reserve_range(e->addr,region_end);
             }
         }
-        tags+=(t->size+7u)&~7u;
     }
+    if(next<0){
+        for(uint32_t i=0u;i<MAX_PAGES/32u;++i)bitmap[i]=0xFFFFFFFFu;
+        for(uint32_t i=0u;i<MAX_PAGES;++i)page_refs[i]=0u;
+        for(uint32_t i=0u;i<HIGH_BITMAP_WORDS;++i){high_available[i]=0u;high_allocated[i]=0u;}
+        total_pages=free_pages=high_free_pages=high_scan_hint=0u;
+        high_available_bytes=0u;
+        debug_write("LIONOS:MB2-INFO-ITERATION-FAILED-MEMORY-UNAVAILABLE\\n");
+        return;
+    }
+
     reserve_range(0,RESERVED_PAGES*PAGE_SIZE);
     reserve_range((uint32_t)(uintptr_t)&_kernel_start,(uint32_t)(uintptr_t)&_kernel_end);
     reserve_range(mi,(uint64_t)mi+ts);
     high_reserve_range(mi,(uint64_t)mi+ts);
-    tags=info+8u;
-    while(tags+sizeof(struct mb2_tag)<=end){
-        struct mb2_tag*t=(struct mb2_tag*)tags;
-        if(t->type==MULTIBOOT2_TAG_END)break;
-        if(t->type==MULTIBOOT2_TAG_MODULE&&t->size>=16u){
-            struct mb2_module_tag*m=(struct mb2_module_tag*)t;
-            reserve_range(m->mod_start,m->mod_end);
-            high_reserve_range(m->mod_start,m->mod_end);
+
+    /* Reserve every module only after all available regions were discovered. */
+    if(multiboot2_info_iterator_init((const void *)(uintptr_t)mi,&iterator)!=0)
+        return;
+    while((next=multiboot2_info_iterator_next(&iterator,&tag))>0){
+        if(tag.type==MULTIBOOT2_TAG_MODULE){
+            uint32_t module_start=*(const uint32_t *)(const void *)tag.payload;
+            uint32_t module_end=*(const uint32_t *)(const void *)(tag.payload+4u);
+            reserve_range(module_start,module_end);
+            high_reserve_range(module_start,module_end);
         }
-        tags+=(t->size+7u)&~7u;
+    }
+    if(next<0){
+        debug_write("LIONOS:MB2-MODULE-ITERATION-FAILED\\n");
+        return;
     }
 }
 

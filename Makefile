@@ -43,7 +43,7 @@ ipc-test: $(BUILD)/ipc_test.elf
 signal-test: $(BUILD)/signal_test.elf
 net-test: $(BUILD)/net_test.elf
 
-test: third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check keyboard-tty-check memory-type-check runqueue-check interrupt-stats-check acpi-madt-check lapic-base-check ioapic-check
+test: third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check keyboard-tty-check memory-type-check runqueue-check interrupt-stats-check acpi-madt-check lapic-base-check ioapic-check multiboot2-check
 	bash scripts/test.sh
 
 block-device-check: | $(BUILD)
@@ -103,6 +103,10 @@ lapic-base-check: | $(BUILD)
 ioapic-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/ioapic_probe.c tests/ioapic_test.c -o $(BUILD)/ioapic_test
 	$(BUILD)/ioapic_test
+
+multiboot2-check: | $(BUILD)
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/multiboot2.c tests/multiboot2_test.c -o $(BUILD)/multiboot2_test
+	$(BUILD)/multiboot2_test
 
 third-party-check:
 	python3 scripts/check_third_party_manifest.py
