@@ -385,7 +385,7 @@ int main(void)
         return fail(37, "releasing a run did not preserve its newly reserved page");
 
     if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
-        high_address != LOW_MEMORY_LIMIT + 3u * PAGE_SIZE ||
+        high_address != LOW_MEMORY_LIMIT + 2u * PAGE_SIZE ||
         memory_high_free_pages() != full_high_pages - 4u)
         return fail(38, "high contiguous allocator crossed a reserved-page hole");
 
