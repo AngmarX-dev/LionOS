@@ -34,7 +34,7 @@ int main(void)
         flags != 0x1Bu)
         return 7;
     /* A custom PAT may place UC at index 2 instead. */
-    if (lapic_mmio_flags_from_pat(1u, 0x0007040605070006ULL, &flags) != 0 ||
+    if (lapic_mmio_flags_from_pat(1u, 0x0007040605000406ULL, &flags) != 0 ||
         flags != 0x13u)
         return 8;
     if (lapic_mmio_flags_from_pat(1u, 0x0007040600070406ULL, 0) == 0)
