@@ -193,4 +193,21 @@ uint32_t page_refcount(void*ptr){uint32_t a=(uint32_t)(uintptr_t)ptr;if((a&(PAGE
 void page_free(void*ptr){uint32_t a=(uint32_t)(uintptr_t)ptr;if((a&(PAGE_SIZE-1u))!=0)return;uint32_t p=a/PAGE_SIZE;if(p<RESERVED_PAGES||p>=MAX_PAGES)return;uint32_t irq=spinlock_irqsave_acquire(&memory_lock);if(!is_free(p)&&page_refs[p]){if(--page_refs[p]==0u){mark_free(p);++free_pages;}}spinlock_irqrestore_release(&memory_lock,irq);}
 uint32_t memory_total_pages(void){return total_pages;}uint32_t memory_free_pages(void){uint32_t irq=spinlock_irqsave_acquire(&memory_lock);uint32_t n=free_pages;spinlock_irqrestore_release(&memory_lock,irq);return n;}uint64_t memory_managed_limit_bytes(void){return (uint64_t)MAX_PAGES*PAGE_SIZE;}
 
+int memory_range_contains_available_ram(uint64_t start, uint64_t end){
+    if(end<=start || (start&(PAGE_SIZE-1u)) || (end&(PAGE_SIZE-1u)) ||
+       start<HIGH_MEMORY_BASE || end>HIGH_MEMORY_LIMIT)
+        return -1;
+    uint32_t irq=spinlock_irqsave_acquire(&memory_lock);
+    int contains_ram=0;
+    for(uint64_t address=start;address<end;address+=PAGE_SIZE){
+        uint32_t page=(uint32_t)((address-HIGH_MEMORY_BASE)/PAGE_SIZE);
+        if(high_bit_get(high_available,page)){
+            contains_ram=1;
+            break;
+        }
+    }
+    spinlock_irqrestore_release(&memory_lock,irq);
+    return contains_ram;
+}
+
 uint64_t memory_high_available_bytes(void){return high_available_bytes;}

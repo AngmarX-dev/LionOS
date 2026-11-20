@@ -3,6 +3,7 @@
 #include "apic_base.h"
 #include "cpu.h"
 #include "paging.h"
+#include "memory.h"
 #include "debug.h"
 
 #define IOAPIC_REG_ID 0x00u
@@ -54,6 +55,16 @@ int ioapic_init(void)
             virtual_address > 0xFFFFF000ULL)
             return -1;
 
+        /*
+         * Refuse to touch an address that overlaps any RAM reported by the
+         * boot memory map. Unknown/low ranges fail closed as well.
+         */
+        uint64_t physical_end =
+            (uint64_t)firmware->address + LIONOS_IOAPIC_PAGE_SIZE;
+        if (memory_range_contains_available_ram(firmware->address,
+                                                physical_end) != 0)
+            return -1;
+
         uint32_t virtual_page = (uint32_t)virtual_address;
         if (paging_map_kernel_range(virtual_page, firmware->address,
                                     LIONOS_IOAPIC_PAGE_SIZE,
@@ -85,9 +96,7 @@ int ioapic_init(void)
     __atomic_store_n(&controller_count, madt.ioapic_count, __ATOMIC_RELEASE);
     __atomic_store_n(&probe_complete, 1u, __ATOMIC_RELEASE);
 
-    debug_write("LIONOS:IOAPIC-READONLY-PROBE-OK count=");
-    debug_write_u32_hex(madt.ioapic_count);
-    debug_write("\n");
+    debug_write("LIONOS:IOAPIC-READONLY-PROBE-OK\n");
     return 0;
 }
 

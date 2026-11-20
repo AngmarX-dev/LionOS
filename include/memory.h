@@ -19,6 +19,9 @@ uint32_t memory_total_pages(void);
 uint32_t memory_free_pages(void);
 /* Upper physical-address boundary tracked by the current PMM bitmap. */
 uint64_t memory_managed_limit_bytes(void);
+/* Returns 1 if any page in the aligned range is available RAM, 0 if none,
+ * and -1 when the range is invalid or outside the tracked high-memory map. */
+int memory_range_contains_available_ram(uint64_t start, uint64_t end);
 /* Raw Multiboot2 available-memory inventory above 256 MiB; allocator free pages are reported separately. */
 uint64_t memory_high_available_bytes(void);
 
