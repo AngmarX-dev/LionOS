@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "memory.h"
+#include "phys_range.h"
 #include "multiboot2.h"
 #include "debug.h"
 #include "spinlock.h"
@@ -15,7 +16,43 @@ static struct spinlock memory_lock;
 static void mark_used(uint32_t p){if(p<MAX_PAGES)bitmap[p>>5]|=1u<<(p&31u);}
 static void mark_free(uint32_t p){if(p<MAX_PAGES)bitmap[p>>5]&=~(1u<<(p&31u));}
 static int is_free(uint32_t p){return p<MAX_PAGES&&!(bitmap[p>>5]&(1u<<(p&31u)));}
-static void reserve_range(uint64_t s,uint64_t e){if(e<=s)return;s&=~(uint64_t)(PAGE_SIZE-1u);e=(e+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);for(uint64_t a=s;a<e;a+=PAGE_SIZE){uint32_t p=(uint32_t)(a/PAGE_SIZE);if(p<MAX_PAGES&&is_free(p)){mark_used(p);if(free_pages)--free_pages;}}}
+static void reserve_low_range(uint64_t start,uint64_t end)
+{
+    uint64_t first, last;
+    int result = phys_range_page_bounds(start, end, 0ULL,
+                                         (uint64_t)MAX_PAGES * PAGE_SIZE,
+                                         1, &first, &last);
+    if (result != 1)
+        return;
+    for (uint64_t address = first; address < last; address += PAGE_SIZE) {
+        uint32_t page = (uint32_t)(address / PAGE_SIZE);
+        if (is_free(page)) {
+            mark_used(page);
+            if (free_pages)
+                --free_pages;
+        }
+    }
+}
+
+static void mark_low_available(uint64_t start,uint64_t end)
+{
+    uint64_t first, last;
+    int result = phys_range_page_bounds(start, end, 0ULL,
+                                         (uint64_t)MAX_PAGES * PAGE_SIZE,
+                                         0, &first, &last);
+    if (result != 1)
+        return;
+    for (uint64_t address = first; address < last; address += PAGE_SIZE) {
+        uint32_t page = (uint32_t)(address / PAGE_SIZE);
+        if (!is_free(page)) {
+            mark_free(page);
+            page_refs[page] = 0u;
+            ++free_pages;
+            if (page + 1u > total_pages)
+                total_pages = page + 1u;
+        }
+    }
+}
 #define HIGH_MEMORY_BASE 0x10000000ULL
 #define HIGH_MEMORY_LIMIT 0x1000000000ULL
 #define HIGH_MEMORY_PAGES ((uint32_t)((HIGH_MEMORY_LIMIT-HIGH_MEMORY_BASE)/PAGE_SIZE))
@@ -28,27 +65,39 @@ static uint32_t high_free_pages;
 static int high_bit_get(const uint32_t *map,uint32_t page){return (map[page>>5]&(1u<<(page&31u)))!=0u;}
 static void high_bit_set(uint32_t *map,uint32_t page){map[page>>5]|=1u<<(page&31u);}
 static void high_bit_clear(uint32_t *map,uint32_t page){map[page>>5]&=~(1u<<(page&31u));}
-static void high_mark_available(uint64_t start,uint64_t end){
-    if(end<=start||end<=HIGH_MEMORY_BASE||start>=HIGH_MEMORY_LIMIT)return;
-    if(start<HIGH_MEMORY_BASE)start=HIGH_MEMORY_BASE;
-    if(end>HIGH_MEMORY_LIMIT)end=HIGH_MEMORY_LIMIT;
-    start=(start+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
-    end&=~(uint64_t)(PAGE_SIZE-1u);
-    for(uint64_t a=start;a<end;a+=PAGE_SIZE){
-        uint32_t page=(uint32_t)((a-HIGH_MEMORY_BASE)/PAGE_SIZE);
-        if(!high_bit_get(high_available,page)){high_bit_set(high_available,page);++high_free_pages;}
+static void high_mark_available(uint64_t start,uint64_t end)
+{
+    uint64_t first, last;
+    int result = phys_range_page_bounds(start, end, HIGH_MEMORY_BASE,
+                                         HIGH_MEMORY_LIMIT, 0,
+                                         &first, &last);
+    if (result != 1)
+        return;
+    for (uint64_t address = first; address < last; address += PAGE_SIZE) {
+        uint32_t page = (uint32_t)((address - HIGH_MEMORY_BASE) / PAGE_SIZE);
+        if (!high_bit_get(high_available, page)) {
+            high_bit_set(high_available, page);
+            ++high_free_pages;
+        }
     }
 }
-static void high_reserve_range(uint64_t start,uint64_t end){
-    if(end<=start||end<=HIGH_MEMORY_BASE||start>=HIGH_MEMORY_LIMIT)return;
-    if(start<HIGH_MEMORY_BASE)start=HIGH_MEMORY_BASE;
-    if(end>HIGH_MEMORY_LIMIT)end=HIGH_MEMORY_LIMIT;
-    start&=~(uint64_t)(PAGE_SIZE-1u);
-    end=(end+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
-    if(end>HIGH_MEMORY_LIMIT)end=HIGH_MEMORY_LIMIT;
-    for(uint64_t a=start;a<end;a+=PAGE_SIZE){
-        uint32_t page=(uint32_t)((a-HIGH_MEMORY_BASE)/PAGE_SIZE);
-        if(high_bit_get(high_available,page)){high_bit_clear(high_available,page);if(high_free_pages)--high_free_pages;}
+
+static void high_reserve_range(uint64_t start,uint64_t end)
+{
+    uint64_t first, last;
+    int result = phys_range_page_bounds(start, end, HIGH_MEMORY_BASE,
+                                         HIGH_MEMORY_LIMIT, 1,
+                                         &first, &last);
+    if (result != 1)
+        return;
+    for (uint64_t address = first; address < last; address += PAGE_SIZE) {
+        uint32_t page = (uint32_t)((address - HIGH_MEMORY_BASE) / PAGE_SIZE);
+        if (high_bit_get(high_available, page)) {
+            high_bit_clear(high_available, page);
+            if (high_free_pages)
+                --high_free_pages;
+        }
+        high_bit_clear(high_allocated, page);
     }
 }
 
@@ -78,38 +127,48 @@ void memory_init(uint32_t mi){
     if(multiboot2_info_iterator_init((const void *)(uintptr_t)mi,&iterator)!=0)
         return;
 
-    int next;
-    while((next=multiboot2_info_iterator_next(&iterator,&tag))>0){
-        if(tag.type!=MULTIBOOT2_TAG_MMAP)continue;
-        const uint8_t *entries=tag.payload+8u;
-        uint32_t entries_bytes=tag.size-16u;
-        uint32_t entry_size=*(const uint32_t *)(const void *)tag.payload;
-        for(uint32_t offset=0u;offset<entries_bytes;offset+=entry_size){
-            const struct mb2_mmap_entry *e=
-                (const struct mb2_mmap_entry *)(const void *)(entries+offset);
-            uint64_t region_end=e->addr+e->len;
-            if(region_end<e->addr)continue;
-            if(e->type==MULTIBOOT2_MEMORY_AVAILABLE){
-                if(region_end>HIGH_MEMORY_BASE){
-                    uint64_t hs=e->addr>HIGH_MEMORY_BASE?e->addr:HIGH_MEMORY_BASE;
-                    hs=(hs+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
-                    uint64_t he=region_end&~(uint64_t)(PAGE_SIZE-1u);
-                    if(he>hs&&UINT64_MAX-high_available_bytes>=he-hs)
-                        high_available_bytes+=he-hs;
+    int next = 0;
+    /*
+     * First publish only firmware-available pages. The second pass applies
+     * every non-available descriptor, so reserved/MMIO ranges always win
+     * over overlapping available descriptors regardless of map ordering.
+     */
+    for (uint32_t pass = 0u; pass < 2u; ++pass) {
+        if (multiboot2_info_iterator_init((const void *)(uintptr_t)mi,
+                                          &iterator) != 0) {
+            next = -1;
+            break;
+        }
+        while ((next = multiboot2_info_iterator_next(&iterator, &tag)) > 0) {
+            if (tag.type != MULTIBOOT2_TAG_MMAP)
+                continue;
+            const uint8_t *entries = tag.payload + 8u;
+            uint32_t entries_bytes = tag.size - 16u;
+            uint32_t entry_size =
+                *(const uint32_t *)(const void *)tag.payload;
+            for (uint32_t offset = 0u; offset < entries_bytes;
+                 offset += entry_size) {
+                const struct mb2_mmap_entry *entry =
+                    (const struct mb2_mmap_entry *)(const void *)(entries + offset);
+                if (entry->len > UINT64_MAX - entry->addr)
+                    continue;
+                uint64_t region_end = entry->addr + entry->len;
+                if (pass == 0u) {
+                    if (entry->type != MULTIBOOT2_MEMORY_AVAILABLE)
+                        continue;
+                    mark_low_available(entry->addr, region_end);
+                    high_mark_available(entry->addr, region_end);
+                } else if (entry->type != MULTIBOOT2_MEMORY_AVAILABLE) {
+                    reserve_low_range(entry->addr, region_end);
+                    high_reserve_range(entry->addr, region_end);
                 }
-                high_mark_available(e->addr,region_end);
-                uint64_t s=(e->addr+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
-                uint64_t f=region_end&~(uint64_t)(PAGE_SIZE-1u);
-                for(uint64_t a=s;a<f;a+=PAGE_SIZE){
-                    uint32_t pg=(uint32_t)(a/PAGE_SIZE);
-                    if(pg<MAX_PAGES&&!is_free(pg)){
-                        mark_free(pg);page_refs[pg]=0u;++free_pages;
-                        if(pg+1u>total_pages)total_pages=pg+1u;
-                    }
-                }
-            }else{
-                high_reserve_range(e->addr,region_end);
             }
+        }
+        if (next < 0)
+            break;
+        if (pass == 0u) {
+            /* Count the unique firmware-available high pages, not raw sums. */
+            high_available_bytes = (uint64_t)high_free_pages * PAGE_SIZE;
         }
     }
     if(next<0){
@@ -122,9 +181,9 @@ void memory_init(uint32_t mi){
         return;
     }
 
-    reserve_range(0,RESERVED_PAGES*PAGE_SIZE);
-    reserve_range((uint32_t)(uintptr_t)&_kernel_start,(uint32_t)(uintptr_t)&_kernel_end);
-    reserve_range(mi,(uint64_t)mi+ts);
+    reserve_low_range(0,RESERVED_PAGES*PAGE_SIZE);
+    reserve_low_range((uint32_t)(uintptr_t)&_kernel_start,(uint32_t)(uintptr_t)&_kernel_end);
+    reserve_low_range(mi,(uint64_t)mi+ts);
     high_reserve_range(mi,(uint64_t)mi+ts);
 
     /* Reserve every module only after all available regions were discovered. */
@@ -134,7 +193,7 @@ void memory_init(uint32_t mi){
         if(tag.type==MULTIBOOT2_TAG_MODULE){
             uint32_t module_start=*(const uint32_t *)(const void *)tag.payload;
             uint32_t module_end=*(const uint32_t *)(const void *)(tag.payload+4u);
-            reserve_range(module_start,module_end);
+            reserve_low_range(module_start,module_end);
             high_reserve_range(module_start,module_end);
         }
     }
@@ -171,19 +230,7 @@ void memory_reserve_physical_range(uint64_t start,uint64_t end){
     if(end<=start)return;
     uint32_t irq=spinlock_irqsave_acquire(&memory_lock);
     high_reserve_range(start,end);
-    if(start<0x10000000ULL){
-        uint64_t low_end=end<0x10000000ULL?end:0x10000000ULL;
-        uint64_t low_start=start;
-        low_start&=~(uint64_t)(PAGE_SIZE-1u);
-        low_end=(low_end+PAGE_SIZE-1u)&~(uint64_t)(PAGE_SIZE-1u);
-        for(uint64_t a=low_start;a<low_end;a+=PAGE_SIZE){
-            uint32_t page=(uint32_t)(a/PAGE_SIZE);
-            if(page<MAX_PAGES&&is_free(page)){
-                mark_used(page);
-                if(free_pages)--free_pages;
-            }
-        }
-    }
+    reserve_low_range(start, end);
     spinlock_irqrestore_release(&memory_lock,irq);
 }
 

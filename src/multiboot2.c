@@ -75,6 +75,18 @@ static int mmap_tag_valid(const mb2_tag_view_t *tag)
     if(entry_size<MB2_MMAP_ENTRY_MIN_SIZE||entry_version!=0u||
        entries_size%entry_size!=0u)
         return 0;
+
+    /*
+     * Reject overflowing physical ranges during validation, before the
+     * allocator sees any firmware-provided interval.
+     */
+    for (uint32_t offset = 0u; offset < entries_size; offset += entry_size) {
+        const uint8_t *entry = tag->payload + MB2_MMAP_HEADER_SIZE + offset;
+        uint64_t address = *(const uint64_t *)(const void *)entry;
+        uint64_t length = *(const uint64_t *)(const void *)(entry + 8u);
+        if (length > UINT64_MAX - address)
+            return 0;
+    }
     return 1;
 }
 

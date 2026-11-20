@@ -79,6 +79,11 @@ int main(void)
     if(expect_invalid(19))return 19;
 
     make_valid();
+    *(uint64_t *)(void *)(storage+24u)=UINT64_MAX-0x7ffu;
+    *(uint64_t *)(void *)(storage+32u)=0x1000u;
+    if(expect_invalid(22))return 22;
+
+    make_valid();
     if(multiboot2_info_iterator_init(storage+1u,&iterator)==0)return 20;
     if(multiboot2_info_iterator_init(storage,0)==0)return 21;
     puts("Multiboot2 bounded tag and memory-map validation tests passed");

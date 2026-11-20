@@ -379,7 +379,7 @@ The following sequence describes engineering priorities for the remaining work. 
 
 ### Phase B — Memory and Reliability
 
-- 🟡 Harden Multiboot2 boot-information parsing: validate the complete tag stream, memory-map entry layout, module records, and end-tag boundaries before the physical allocator consumes firmware-provided ranges; expand allocator coverage across all supported physical ranges remains pending
+- 🟡 Harden Multiboot2 boot-information parsing and physical-range ingestion: validate the complete tag stream, memory-map entry layout and address arithmetic, module records, and end-tag boundaries; process available ranges before reserved ranges so reserved memory wins independently of firmware map ordering; clip low/high allocator operations to their managed windows with overflow-safe page alignment and deduplicated high-memory accounting; host tests cover physical-range boundary conversion, while full allocator behavior and all-range coverage remain pending
 - ⬜ Complete page management across all supported address ranges
 - ⬜ mmap and anonymous mappings
 - ⬜ Demand paging and lazy allocation

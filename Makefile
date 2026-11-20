@@ -35,7 +35,7 @@ C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/kernel_runtime.c src/gui.
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso usb disk ext2-disk run check test third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check keyboard-tty-check memory-type-check runqueue-check interrupt-stats-check acpi-madt-check lapic-base-check ioapic-check multiboot2-check userspace userland process-test ipc-test signal-test net-test
+.PHONY: all clean iso usb disk ext2-disk run check test third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check keyboard-tty-check memory-type-check runqueue-check interrupt-stats-check acpi-madt-check lapic-base-check ioapic-check multiboot2-check phys-range-check userspace userland process-test ipc-test signal-test net-test
 all: $(KERNEL)
 userspace userland: $(USER_ELFS)
 process-test: $(BUILD)/process_test.elf
@@ -43,7 +43,7 @@ ipc-test: $(BUILD)/ipc_test.elf
 signal-test: $(BUILD)/signal_test.elf
 net-test: $(BUILD)/net_test.elf
 
-test: third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check keyboard-tty-check memory-type-check runqueue-check interrupt-stats-check acpi-madt-check lapic-base-check ioapic-check multiboot2-check
+test: third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check keyboard-tty-check memory-type-check runqueue-check interrupt-stats-check acpi-madt-check lapic-base-check ioapic-check multiboot2-check phys-range-check
 	bash scripts/test.sh
 
 block-device-check: | $(BUILD)
@@ -107,6 +107,10 @@ ioapic-check: | $(BUILD)
 multiboot2-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/multiboot2.c tests/multiboot2_test.c -o $(BUILD)/multiboot2_test
 	$(BUILD)/multiboot2_test
+
+phys-range-check: | $(BUILD)
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/phys_range.c tests/phys_range_test.c -o $(BUILD)/phys_range_test
+	$(BUILD)/phys_range_test
 
 third-party-check:
 	python3 scripts/check_third_party_manifest.py
