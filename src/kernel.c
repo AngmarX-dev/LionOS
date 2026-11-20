@@ -825,6 +825,12 @@ void lionos_user_integration_step(void){
     if(integration_stage == 22){
         integration_pid = exec_run_file("process_test.elf");
         if(integration_pid > 0){
+            if(process_set_migration_eligible((uint32_t)integration_pid)!=0){
+                integration_done = 1;
+                debug_write("LIONOS:SMP-WORK-STEAL-USER-OPT-IN-FAIL\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+                return;
+            }
             process_request_reschedule_cpu(1u);
             debug_write("LIONOS:SMP-WORK-STEAL-USER-LAUNCHED\n");
             integration_stage = 23;

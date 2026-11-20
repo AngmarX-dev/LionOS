@@ -72,6 +72,7 @@ struct process {
     uint32_t capabilities;
     uint32_t cpu_owner;
     uint32_t migration_count;
+    uint32_t migration_eligible;
     uint32_t priority;
     uint32_t base_priority;
     uint32_t time_slice;
@@ -165,6 +166,7 @@ uint32_t process_kernel_stack_top(struct process *process);
 int process_is_descendant_or_child(uint32_t pid, uint32_t ancestor_pid);
 int process_get_exit_code(uint32_t pid, uint32_t *code);
 int process_get_migration_info(uint32_t pid, uint32_t *cpu_owner, uint32_t *migration_count);
+int process_set_migration_eligible(uint32_t pid);
 void process_request_reschedule_cpu(uint32_t cpu);
 int process_reap_pid(uint32_t pid);
 void scheduler_idle(void);
