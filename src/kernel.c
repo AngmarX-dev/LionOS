@@ -950,7 +950,7 @@ void lionos_user_integration_step(void){
                    eligible_pids,INTEGRATION_MIGRATION_ELIGIBLE_COUNT)!=0)
                 integration_migration_failed=1u;
             else if(invalid_result==-1&&duplicate_result==-1)
-                debug_write("LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK\\n");
+                debug_write("LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK\n");
         }
 
         /* Restore the exact incoming EFLAGS, including the prior IF state. */
