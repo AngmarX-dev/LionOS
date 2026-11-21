@@ -325,6 +325,8 @@ static int integration_nx_ok;
 static int integration_process_ok;
 #define INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT 4u
 #define INTEGRATION_MIGRATION_MAX_PROCESS_COUNT (INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT+1u)
+#define INTEGRATION_MIGRATION_ROUNDS 3u
+static uint32_t integration_migration_round;
 static int integration_migration_pids[INTEGRATION_MIGRATION_MAX_PROCESS_COUNT] = {-1,-1,-1,-1,-1};
 static uint32_t integration_migration_eligible_count;
 static uint32_t integration_migration_process_count;
@@ -1104,10 +1106,8 @@ void lionos_user_integration_step(void){
                    integration_migration_count==
                        integration_migration_process_count&&
                    execution_guard_ok&&multi_stealer_ok;
-            debug_write(ok
-                ? "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK\n"
-                : "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");
             if(!ok){
+                debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");
                 for(uint32_t cpu=1u;cpu<online;++cpu){
                     debug_write("LIONOS:SMP-WORK-STEAL-CPU-DIAG cpu=");
                     debug_write_u32_hex(cpu);
@@ -1121,11 +1121,21 @@ void lionos_user_integration_step(void){
                     debug_write_u32_hex(integration_migration_steals_before[cpu]);
                     debug_write("\n");
                 }
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+                integration_done=1;
+            }else{
+                debug_write("LIONOS:SMP-WORK-STEAL-ROUND-OK round=");
+                debug_write_u32_hex(integration_migration_round);
+                debug_write("\n");
+                if(integration_migration_round+1u<INTEGRATION_MIGRATION_ROUNDS){
+                    ++integration_migration_round;
+                    integration_stage=24;
+                }else{
+                    debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK\n");
+                    debug_write("LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK\n");
+                    integration_done=1;
+                }
             }
-            debug_write(ok
-                ? "LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK\n"
-                : "LIONOS:USER-INTEGRATION-FAIL\n");
-            integration_done=1;
         }
         return;
     }

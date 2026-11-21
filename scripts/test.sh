@@ -106,6 +106,11 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-RUNQUEUE-REAP-VALIDATION-OK" "$log_file"
         grep -q "LIONOS:SMP-EXECUTION-EXCLUSION-OK" "$log_file"
         grep -q "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK" "$log_file"
+        migration_rounds=$(grep -c '^LIONOS:SMP-WORK-STEAL-ROUND-OK round=' "$log_file" || true)
+        if [ "$migration_rounds" -ne 3 ]; then
+            echo "expected 3 completed SMP migration stress rounds, observed $migration_rounds: $log_file" >&2
+            return 1
+        fi
         if [ "$cpu_count" -ge 3 ]; then
             grep -q "LIONOS:SMP-MULTI-STEALER-OK" "$log_file"
         fi
