@@ -928,8 +928,8 @@ void lionos_user_integration_step(void){
             for(uint32_t i=0u;i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT;++i)
                 eligible_pids[i]=(uint32_t)integration_migration_pids[i];
             /*
-             * Rejected batches must be transactional: an invalid trailing PID
-             * or duplicate entry must not leave an earlier process opted in.
+             * Rejected batches must be transactional: zero, duplicate, or
+             * reserved trailing PIDs must not leave an earlier process opted in.
              * The valid batch immediately afterwards detects partial mutation.
              */
             uint32_t invalid_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
