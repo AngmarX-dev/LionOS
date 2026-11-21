@@ -61,35 +61,38 @@ Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue con
 
 ## Bounded general load-balancing policy (implemented; acceptance remains partial)
 
-The current one-time, empty-queue steal path is a correctness baseline, not a
-general load balancer. The next implementation must not silently broaden the
-existing eligibility contract. In particular, repeated migration, thread-group
-migration, and migration of a running context remain out of scope until their
-own lifetime and synchronization proofs exist.
+The implementation retains the original idle-CPU work-stealing path and
+adds a bounded busy-destination balancing path. Both are serialized by
+`process_lock`; queue ownership and membership are revalidated under the
+source and destination queue locks before a transfer. The policy deliberately
+does not broaden the migration eligibility contract: repeated migration,
+thread-group migration, and migration of a running context remain out of scope
+until their lifetime and synchronization guarantees are independently proven.
 
-The next bounded increment should introduce a measured imbalance policy over
-online CPUs:
+The implemented policy is:
 
-- Take queue-load snapshots only while holding `process_lock` and the relevant
-  queue locks; do not read mutable queue totals as an unsynchronized scheduling
-  decision.
-- Treat a destination as underloaded only when the source/destination runnable
-  count difference exceeds a documented minimum threshold. Do not move work
-  merely to make queue counts equal on every scheduling tick.
-- Select only a READY node whose process metadata still satisfies the existing
-  `process_steal_candidate_locked()` eligibility predicate. Revalidate the
-  candidate immediately before the transfer while both queues are locked.
+- Select a victim with the largest observed runnable backlog among online CPUs.
+  The process layer holds `process_lock` while reading queue totals, and
+  revalidates the chosen source/destination state after acquiring both queue
+  locks.
+- An idle destination is eligible only when its local queue is empty and a
+  victim queue is non-empty.
+- A busy destination is eligible only when the victim queue exceeds the
+  destination's remaining queued backlog by at least two tasks. The currently
+  selected local task is RUNNING and is not included in either queue count.
+- Select only a READY node whose process metadata still satisfies
+  `process_steal_candidate_locked()`. If a victim has no eligible node, inspect
+  another unvisited victim within the fixed online-CPU bound.
 - Preserve ascending CPU-index lock ordering, exact-one queue membership, and
   the existing process-lock-before-runqueue-lock hierarchy.
-- Bound work per scheduler invocation: at most one transfer, with no retry loop
-  that can spin in interrupt context. A failed try-lock is a deferred balancing
-  opportunity, not an invariant failure.
-- Publish `cpu_owner` and migration accounting only after a successful queue
-  transfer. Kick an affected idle destination only after releasing
-  `process_lock`; never send an IPI while holding queue locks.
-- Keep the current one-migration-per-process rule until tests explicitly prove
-  a safe re-migration protocol. A task that is RUNNING, WAITING, STOPPED, a
-  kernel thread, a user thread, or part of a live thread group must remain
+- Bound work per scheduler invocation: at most one successful transfer. A
+  failed try-lock defers the opportunity without spinning in interrupt context.
+- Publish `cpu_owner` and the one-time migration count only after the queue
+  transfer succeeds. The busy destination keeps its selected task running and
+  leaves the transferred READY task queued; an idle destination selects the
+  transferred task while both queue locks are still held.
+- Keep the one-migration-per-process rule. RUNNING, WAITING, STOPPED, kernel
+  threads, user threads, and processes belonging to a live thread group remain
   ineligible.
 
 Concrete policy for the first implementation:
@@ -97,7 +100,7 @@ Concrete policy for the first implementation:
 - Evaluate the destination's queued backlog after its current scheduling decision has removed the next local task. The currently running task is not part of either queue's runnable count.
 - Preserve idle-CPU progress: when the destination queue is empty, one eligible task on a victim queue is sufficient to justify a steal.
 - For a non-empty destination, require the victim queue to exceed the destination queue by at least two READY tasks. A single transfer then reduces that difference by two and cannot immediately reverse the imbalance.
-- Revalidate this threshold while holding both queue locks. If the threshold no longer holds, do not transfer. If the chosen victim has no eligible node, inspect another victim within the fixed online-CPU bound; never retry a contended lock.
+- Revalidate the threshold while holding both queue locks. If the threshold no longer holds, do not transfer. If the chosen victim has no eligible node, inspect another unvisited victim within the fixed online-CPU bound; never retry a contended lock.
 - Transfer at most one node per scheduler invocation. A successful move updates the node's owner and one-time migration count only after the queue primitive succeeds. The selected local task continues to run; a newly transferred task remains queued for a later scheduling decision unless the destination was idle and had no selected task.
 - If the destination was idle, select the newly transferred task only after reacquiring its local queue lock. If the lock cannot be reacquired, leave the READY task queued, request a later reschedule, and enter the normal CPU-local idle fallback rather than returning a READY task's stale frame.
 
@@ -214,7 +217,7 @@ The remaining prerequisites are:
 - FPU/SSE save/restore under real AP task switches.
 - Timer tick accounting and reschedule signaling under AP task load.
 - Safe task exit/reap on APs, including deferred reclamation only after a task stack is no longer current on any CPU.
-- The QEMU migration regression now enables a test-only atomic per-process execution-owner guard. A running task owns one CPU token from dispatch until the next scheduling decision; the outgoing token is released only after acquiring `process_lock`, and the selected task claims its token before that lock is released. The final audit compares every token with `current_by_cpu[]`, rejects duplicate CPU ownership, and verifies that each online CPU points either to a RUNNING process owned by that CPU or to its own RUNNING idle context. This catches stale current pointers that still reference WAITING, READY, STOPPED, or ZOMBIE tasks. This directly checks the no-double-dispatch invariant during the migration workload; longer-duration kernel scheduler contention remains outstanding.
+- The QEMU migration regression enables a test-only atomic per-process execution-owner guard. A running task owns one CPU token from dispatch until the next scheduling decision; the outgoing token is released only after acquiring `process_lock`, and the selected task claims its token before that lock is released. The final audit compares every token with `current_by_cpu[]`, rejects duplicate CPU ownership, and verifies that each online CPU points either to a RUNNING process owned by that CPU or to its own RUNNING idle context. This checks the no-double-dispatch invariant during the migration workload; it does not yet constitute a sustained busy-to-busy balancing contention test.
 - Explicit queue membership and synchronized enqueue/dequeue before any task migration.
 - Bounded busy-destination balancing is integrated after local task selection; the local selected task remains running while at most one eligible READY process is transferred into the destination backlog.
 - A tested two-queue transfer primitive with fixed CPU-index lock ordering; restricted user-process migration and bounded busy-queue balancing are integrated, while runtime acceptance of busy-to-busy transfers and broader process/thread migration remain outstanding.
