@@ -92,6 +92,17 @@ online CPUs:
   kernel thread, a user thread, or part of a live thread group must remain
   ineligible.
 
+Concrete policy for the first implementation:
+
+- Evaluate the destination's queued backlog after its current scheduling decision has removed the next local task. The currently running task is not part of either queue's runnable count.
+- Preserve idle-CPU progress: when the destination queue is empty, one eligible task on a victim queue is sufficient to justify a steal.
+- For a non-empty destination, require the victim queue to exceed the destination queue by at least two READY tasks. A single transfer then reduces that difference by two and cannot immediately reverse the imbalance.
+- Revalidate this threshold while holding both queue locks. If the threshold no longer holds, do not transfer. If the chosen victim has no eligible node, inspect another victim within the fixed online-CPU bound; never retry a contended lock.
+- Transfer at most one node per scheduler invocation. A successful move updates the node's owner and one-time migration count only after the queue primitive succeeds. The selected local task continues to run; a newly transferred task remains queued for a later scheduling decision unless the destination was idle and had no selected task.
+- If the destination was idle, select the newly transferred task only after reacquiring its local queue lock. If the lock cannot be reacquired, leave the READY task queued, request a later reschedule, and enter the normal CPU-local idle fallback rather than returning a READY task's stale frame.
+
+This deliberately distinguishes *idle stealing* from *backlog balancing*: the former has a one-task progress threshold, while the latter requires a two-task skew. The policy is bounded, avoids moving work on every equal-load tick, and leaves the existing one-migration eligibility guard intact.
+
 Acceptance tests for that increment must cover deterministic skewed queue
 populations on 2/4/8/16 CPUs, no transfer below the threshold, successful
 transfer above it, ineligible-node skipping, simultaneous stealers targeting
