@@ -177,6 +177,7 @@ int process_get_migration_info(uint32_t pid, uint32_t *cpu_owner, uint32_t *migr
 int process_set_migration_eligible(uint32_t pid);
 int process_set_migration_eligible_batch(const uint32_t *pids, uint32_t count);
 void process_request_reschedule_cpu(uint32_t cpu);
+/* 0=reaped, 1=still current on a CPU (retry), -1=invalid/not zombie. */
 int process_reap_pid(uint32_t pid);
 void scheduler_idle(void);
 
