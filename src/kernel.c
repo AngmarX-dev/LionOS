@@ -330,6 +330,7 @@ static uint32_t integration_migration_steals_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_ticks_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_count;
 static uint32_t integration_migration_failed;
+static uint32_t integration_migration_owner_mask;
 static volatile uint32_t integration_ap_user_pid;
 static volatile uint32_t integration_ap_user_status;
 /*
@@ -887,6 +888,14 @@ void lionos_user_integration_step(void){
             return;
         }
         if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+        if(process_scheduler_execution_guard_enable()!=0){
+            (void)process_scheduler_execution_guard_finish();
+            integration_done=1;
+            debug_write("LIONOS:SMP-EXECUTION-EXCLUSION-ENABLE-FAIL\n");
+            debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            return;
+        }
         for(uint32_t cpu=0u;cpu<online;++cpu){
             integration_migration_steals_before[cpu]=
                 process_scheduler_steals(cpu);
@@ -897,6 +906,7 @@ void lionos_user_integration_step(void){
             integration_migration_pids[i]=-1;
         integration_migration_count=0u;
         integration_migration_failed=0u;
+        integration_migration_owner_mask=0u;
 
         /*
          * Prevent BSP preemption while the READY batch is constructed.
@@ -970,6 +980,7 @@ void lionos_user_integration_step(void){
                          : : "r"(launch_flags) : "memory","cc");
 
         if(integration_migration_count==0u){
+            (void)process_scheduler_execution_guard_finish();
             integration_done=1;
             debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");
             debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
@@ -1008,6 +1019,11 @@ void lionos_user_integration_step(void){
                     if(owner==0u||owner>=online||migrations!=1u||
                        steals<=before){
                         integration_migration_failed=1u;
+                    }else{
+                        integration_migration_owner_mask|=1u<<owner;
+                    }
+                    if(owner==0u||owner>=online||migrations!=1u||
+                       steals<=before){
                         debug_write("LIONOS:SMP-WORK-STEAL-PROCESS-DIAG pid=");
                         debug_write_u32_hex((uint32_t)pid);
                         debug_write(" owner=");debug_write_u32_hex(owner);
@@ -1035,9 +1051,29 @@ void lionos_user_integration_step(void){
             }
         }
         if(!pending){
+            int execution_guard_ok=
+                process_scheduler_execution_guard_finish()==0;
+            if(execution_guard_ok)
+                debug_write("LIONOS:SMP-EXECUTION-EXCLUSION-OK\n");
+            else{
+                integration_migration_failed=1u;
+                debug_write("LIONOS:SMP-EXECUTION-EXCLUSION-FAIL\n");
+            }
+            uint32_t owner_count=0u;
+            for(uint32_t cpu=1u;cpu<online;++cpu)
+                if(integration_migration_owner_mask&(1u<<cpu))++owner_count;
+            uint32_t required_owners=online>2u?2u:1u;
+            int multi_stealer_ok=owner_count>=required_owners;
+            if(online>=3u&&multi_stealer_ok)
+                debug_write("LIONOS:SMP-MULTI-STEALER-OK\n");
+            else if(online>=3u){
+                integration_migration_failed=1u;
+                debug_write("LIONOS:SMP-MULTI-STEALER-FAIL\n");
+            }
             int ok=integration_migration_failed==0u&&
                    integration_migration_count==
-                       INTEGRATION_MIGRATION_PROCESS_COUNT;
+                       INTEGRATION_MIGRATION_PROCESS_COUNT&&
+                   execution_guard_ok&&multi_stealer_ok;
             debug_write(ok
                 ? "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK\n"
                 : "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL\n");

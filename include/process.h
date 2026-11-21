@@ -166,6 +166,9 @@ void process_request_reschedule(void);
 int process_set_priority(struct process *process, uint32_t priority);
 uint32_t process_scheduler_ticks(uint32_t cpu);
 uint32_t process_scheduler_steals(uint32_t cpu);
+/* Test-only scheduler instrumentation for cross-CPU execution exclusion. */
+int process_scheduler_execution_guard_enable(void);
+int process_scheduler_execution_guard_finish(void);
 uint32_t *process_saved_frame(struct process *process);
 uint32_t process_kernel_stack_top(struct process *process);
 int process_is_descendant_or_child(uint32_t pid, uint32_t ancestor_pid);

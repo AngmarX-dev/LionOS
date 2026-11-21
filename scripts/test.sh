@@ -95,6 +95,10 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-RUNQUEUE-STOP-CONT-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-PRIORITY-REQUEUE-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-REAP-VALIDATION-OK" "$log_file"
+        grep -q "LIONOS:SMP-EXECUTION-EXCLUSION-OK" "$log_file"
+        if [ "$cpu_count" -ge 3 ]; then
+            grep -q "LIONOS:SMP-MULTI-STEALER-OK" "$log_file"
+        fi
     fi
     if grep -q "LIONOS:SMP-AP-RUNQUEUE-LIFECYCLE-FAIL" "$log_file"; then
         echo "AP run-queue task execution self-test failed: $log_file" >&2

@@ -153,6 +153,10 @@ static volatile uint32_t reschedule_requested[LIONOS_MAX_CPUS];
 static volatile uint32_t reschedule_ipi_pending[LIONOS_MAX_CPUS];
 static volatile uint32_t reschedule_blocked[LIONOS_MAX_CPUS];
 static uint32_t fpu_enabled;
+/* Test-only proof that one process context is never dispatched on two CPUs. */
+static volatile uint32_t scheduler_execution_guard_enabled;
+static volatile uint32_t scheduler_execution_guard_fault;
+static volatile uint32_t scheduler_execution_cpu[LIONOS_PROCESS_MAX];
 
 static void reap_process(struct process *p);
 static void continue_process_locked(struct process *process);
@@ -231,6 +235,26 @@ static int process_slot_index(const struct process *p,uint32_t *index){
        (address-base)%sizeof(processes[0])!=0u)return -1;
     *index=(uint32_t)((address-base)/sizeof(processes[0]));
     return 0;
+}
+static void scheduler_execution_guard_leave(struct process *p,uint32_t cpu){
+    uint32_t index;
+    if(!p||cpu>=LIONOS_MAX_CPUS||
+       __atomic_load_n(&scheduler_execution_guard_enabled,__ATOMIC_ACQUIRE)==0u||
+       process_slot_index(p,&index)!=0)return;
+    uint32_t expected=cpu+1u;
+    if(!__atomic_compare_exchange_n(&scheduler_execution_cpu[index],&expected,
+            0u,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
+        __atomic_store_n(&scheduler_execution_guard_fault,1u,__ATOMIC_RELEASE);
+}
+static void scheduler_execution_guard_enter(struct process *p,uint32_t cpu){
+    uint32_t index;
+    if(!p||cpu>=LIONOS_MAX_CPUS||
+       __atomic_load_n(&scheduler_execution_guard_enabled,__ATOMIC_ACQUIRE)==0u||
+       process_slot_index(p,&index)!=0)return;
+    uint32_t expected=0u;
+    if(!__atomic_compare_exchange_n(&scheduler_execution_cpu[index],&expected,
+            cpu+1u,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
+        __atomic_store_n(&scheduler_execution_guard_fault,1u,__ATOMIC_RELEASE);
 }
 
 /* process_lock is always acquired before a per-CPU run-queue lock. */
@@ -748,7 +772,7 @@ static int write_user_u32(struct process *p,uint32_t ptr,uint32_t value) {
     *(uint32_t *)(uintptr_t)(physical+(ptr&(PAGE_SIZE-1u)))=value;
     return 0;
 }
-static void clear_process(struct process *p) { if(p){uintptr_t base=(uintptr_t)&processes[0],addr=(uintptr_t)p;uintptr_t span=sizeof(processes);if(addr>=base&&addr-base<span&&(addr-base)%sizeof(processes[0])==0u)runqueue_node_init(&runqueue_nodes[(addr-base)/sizeof(processes[0])]);} p->pid=0;p->state=PROCESS_UNUSED;p->parent_pid=0;p->adopted_by_init=0u;p->pgid=0;p->sid=0;p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->stop_event_pending=0;p->stop_signal=0;p->continued_event_pending=0;p->wait_channel=0;p->wait_kind=0;__atomic_store_n(&p->wait_frame_saved,0,__ATOMIC_RELEASE);p->wait_timeout_active=0;p->wait_timeout_ticks=0;p->wait_deadline=0;p->wait_cpu=0;p->wait_timeout_result=0; p->reap_pending=0;p->deferred_kernel_stack=0;p->page_directory=0;p->entry=0;p->user_stack=0; p->kernel_stack_top=0;__atomic_store_n(&p->saved_frame,0,__ATOMIC_RELEASE);p->user_code_page=0;p->user_stack_page=0;p->user_page_count=0;p->pending_signals=0;p->signal_active=0u;p->signal_active_restorer=0u;for(uint32_t i=0u;i<32u;++i){p->signal_handlers[i]=LIONOS_SIG_DFL;p->signal_restorers[i]=0u;}for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)p->signal_saved_frame[i]=0u;p->cpu_owner=0;p->migration_count=0;p->migration_eligible=0;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=0;p->ticks_used=0;p->fpu_valid=0;p->tid=0;p->thread_group_pid=0;p->is_thread=0;p->owns_address_space=0;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->pipe_read_mask=0;p->pipe_write_mask=0;p->fd_closing=0; for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_object[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} for(uint32_t i=0;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} }
+static void clear_process(struct process *p) { if(p){uint32_t index;if(process_slot_index(p,&index)==0){runqueue_node_init(&runqueue_nodes[index]);__atomic_store_n(&scheduler_execution_cpu[index],0u,__ATOMIC_RELEASE);}} p->pid=0;p->state=PROCESS_UNUSED;p->parent_pid=0;p->adopted_by_init=0u;p->pgid=0;p->sid=0;p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->stop_event_pending=0;p->stop_signal=0;p->continued_event_pending=0;p->wait_channel=0;p->wait_kind=0;__atomic_store_n(&p->wait_frame_saved,0,__ATOMIC_RELEASE);p->wait_timeout_active=0;p->wait_timeout_ticks=0;p->wait_deadline=0;p->wait_cpu=0;p->wait_timeout_result=0; p->reap_pending=0;p->deferred_kernel_stack=0;p->page_directory=0;p->entry=0;p->user_stack=0; p->kernel_stack_top=0;__atomic_store_n(&p->saved_frame,0,__ATOMIC_RELEASE);p->user_code_page=0;p->user_stack_page=0;p->user_page_count=0;p->pending_signals=0;p->signal_active=0u;p->signal_active_restorer=0u;for(uint32_t i=0u;i<32u;++i){p->signal_handlers[i]=LIONOS_SIG_DFL;p->signal_restorers[i]=0u;}for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)p->signal_saved_frame[i]=0u;p->cpu_owner=0;p->migration_count=0;p->migration_eligible=0;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=0;p->ticks_used=0;p->fpu_valid=0;p->tid=0;p->thread_group_pid=0;p->is_thread=0;p->owns_address_space=0;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->pipe_read_mask=0;p->pipe_write_mask=0;p->fd_closing=0; for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_object[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} for(uint32_t i=0;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} for(uint32_t i=0;i<PROCESS_FD_MAX;++i){p->fd_used[i]=0;p->fd_backend[i]=0;p->fd_flags[i]=0;p->fd_offset[i]=0;p->fd_path[i][0]=0;} }
 static void init_interrupt_frame(struct process *p) { uint32_t *f=(uint32_t *)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=USER_DATA_SEL;f[1]=USER_DATA_SEL;f[2]=USER_DATA_SEL;f[3]=USER_DATA_SEL; f[14]=p->entry;f[15]=USER_CODE_SEL;f[16]=0x202u;f[17]=p->user_stack;f[18]=USER_DATA_SEL; __atomic_store_n(&p->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE); }
 static void init_bootstrap_frame(void) { struct process *b=&processes[0]; void *s=page_alloc(); if(!s){b->kernel_stack_top=0;__atomic_store_n(&b->saved_frame,0,__ATOMIC_RELEASE);return;} b->kernel_stack_top=(uint32_t)(uintptr_t)s+4096u;b->page_directory=paging_kernel_directory(); b->entry=(uint32_t)(uintptr_t)&process_schedule;b->user_stack=b->kernel_stack_top; uint32_t *f=(uint32_t *)(uintptr_t)(b->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u); for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i) f[i]=0; f[0]=0x10u;f[1]=0x10u;f[2]=0x10u;f[3]=0x10u;f[14]=(uint32_t)(uintptr_t)&lionos_kernel_idle; f[15]=0x08u;f[16]=0x202u;f[17]=b->kernel_stack_top;f[18]=0x10u; __atomic_store_n(&b->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE); }
 static int scheduler_idle_context_init(uint32_t cpu){
@@ -809,7 +833,13 @@ void process_init(void) {
     for(uint32_t i=0u;i<LIONOS_MAX_CPUS;++i)
         spinlock_init(&scheduler_ap_probe_wait_locks[i]);
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
-    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){runqueue_node_init(&runqueue_nodes[i]);clear_process(&processes[i]);}
+    __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&scheduler_execution_guard_fault,0u,__ATOMIC_RELAXED);
+    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
+        __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
+        runqueue_node_init(&runqueue_nodes[i]);
+        clear_process(&processes[i]);
+    }
     scheduler_idle_ready_mask=0u;
     scheduler_idle_expected_mask=0u;
     __atomic_store_n(&scheduler_idle_entered_mask,0u,__ATOMIC_RELAXED);
@@ -2574,7 +2604,9 @@ int process_set_current(struct process*p){
             __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
         spinlock_irqrestore_release(&process_lock,flags);return -1;
     }
+    scheduler_execution_guard_leave(old,cpu);
     set_current_local(p);
+    scheduler_execution_guard_enter(p,cpu);
     p->cpu_owner=cpu;
     paging_switch_address_space(p->page_directory);
     tss_set_kernel_stack(p->kernel_stack_top);
@@ -2714,6 +2746,56 @@ uint32_t process_scheduler_steals(uint32_t cpu){
         : 0u;
 }
 
+int process_scheduler_execution_guard_enable(void){
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    if(__atomic_load_n(&scheduler_execution_guard_enabled,__ATOMIC_ACQUIRE)!=0u){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
+    __atomic_store_n(&scheduler_execution_guard_fault,0u,__ATOMIC_RELAXED);
+    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)
+        __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
+        struct process *current=current_cpu_load(cpu);
+        uint32_t index;
+        if(process_slot_index(current,&index)!=0)continue;
+        uint32_t expected=0u;
+        if(!__atomic_compare_exchange_n(&scheduler_execution_cpu[index],
+                &expected,cpu+1u,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
+            __atomic_store_n(&scheduler_execution_guard_fault,1u,__ATOMIC_RELEASE);
+    }
+    __atomic_store_n(&scheduler_execution_guard_enabled,1u,__ATOMIC_RELEASE);
+    int result=__atomic_load_n(&scheduler_execution_guard_fault,__ATOMIC_ACQUIRE)
+        ?-1:0;
+    spinlock_irqrestore_release(&process_lock,flags);
+    return result;
+}
+
+int process_scheduler_execution_guard_finish(void){
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    int result=0;
+    if(__atomic_load_n(&scheduler_execution_guard_enabled,__ATOMIC_ACQUIRE)==0u)
+        result=-1;
+    if(__atomic_load_n(&scheduler_execution_guard_fault,__ATOMIC_ACQUIRE)!=0u)
+        result=-1;
+    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
+        struct process *process=&processes[i];
+        uint32_t expected_owner=0u;
+        for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
+            if(current_cpu_load(cpu)!=process)continue;
+            if(expected_owner!=0u){result=-1;break;}
+            expected_owner=cpu+1u;
+        }
+        if(__atomic_load_n(&scheduler_execution_cpu[i],__ATOMIC_ACQUIRE)!=
+           expected_owner)result=-1;
+    }
+    __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELEASE);
+    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)
+        __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
+    spinlock_irqrestore_release(&process_lock,flags);
+    return result;
+}
+
 uint32_t *process_schedule(uint32_t *frame){
     process_scheduler_ap_probe_report();
     if(__atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)
@@ -2729,8 +2811,8 @@ uint32_t *process_schedule(uint32_t *frame){
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
     uint32_t cpu=cpu_current_index();
     if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
-    if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_enter_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-ENTER cpu=");process_debug_write_hex(cpu);debug_write("\n");}}
     struct process *contended_prev=current_local();
+    if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_enter_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-ENTER cpu=");process_debug_write_hex(cpu);debug_write("\n");}}
     if(!spinlock_try_acquire(&process_lock)){
         if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_lock_contention_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-LOCK-CONTENDED cpu=");process_debug_write_hex(cpu);debug_write("\n");}}
         /* An explicit reschedule must not be lost when another CPU briefly
@@ -2752,6 +2834,7 @@ uint32_t *process_schedule(uint32_t *frame){
          */
         if(contended_prev&&
            __atomic_load_n(&reschedule_blocked[cpu],__ATOMIC_ACQUIRE)!=0u){
+            scheduler_execution_guard_leave(contended_prev,cpu);
             __atomic_store_n(&contended_prev->saved_frame,
                              (uint32_t)(uintptr_t)frame,__ATOMIC_RELEASE);
             if(frame)
@@ -2768,6 +2851,7 @@ uint32_t *process_schedule(uint32_t *frame){
                 tss_set_kernel_stack(bootstrap->kernel_stack_top);
                 uint32_t *bootstrap_frame=process_saved_frame(bootstrap);
                 if(bootstrap_frame){
+                    scheduler_execution_guard_enter(bootstrap,cpu);
                     __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
                     return bootstrap_frame;
                 }
@@ -2800,6 +2884,7 @@ uint32_t *process_schedule(uint32_t *frame){
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
     ++sc->schedule_count;
     struct process*prev=current_local();
+    scheduler_execution_guard_leave(prev,cpu);
     int prev_is_idle=scheduler_is_idle_context(prev);
     if(prev){
         __atomic_store_n(&prev->saved_frame,(uint32_t)(uintptr_t)frame,
@@ -2830,6 +2915,7 @@ uint32_t *process_schedule(uint32_t *frame){
         if(__atomic_exchange_n(&reschedule_requested[cpu],0u,__ATOMIC_ACQ_REL)==0u){
             ++prev->ticks_used;
             if(prev->ticks_used < prev->time_slice){
+                scheduler_execution_guard_enter(prev,cpu);
                 spinlock_irqrestore_release(&process_lock,flags);
                 return frame;
             }
@@ -2855,6 +2941,7 @@ uint32_t *process_schedule(uint32_t *frame){
                    LIONOS_PROCESS_MAX,prev_index,prev->priority)!=0){
                 spinlock_release(&runqueues[cpu].lock);
                 __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+                scheduler_execution_guard_enter(prev,cpu);
                 spinlock_irqrestore_release(&process_lock,flags);
                 return frame;
             }
@@ -2917,6 +3004,7 @@ uint32_t *process_schedule(uint32_t *frame){
         tss_set_kernel_stack(next->kernel_stack_top);
 
         uint32_t*n=process_saved_frame(next);
+        scheduler_execution_guard_enter(next,cpu);
         spinlock_irqrestore_release(&process_lock,flags);
         return n;
     }
@@ -2933,6 +3021,7 @@ uint32_t *process_schedule(uint32_t *frame){
             tss_set_kernel_stack(b->kernel_stack_top);
 
             uint32_t*n=process_saved_frame(b);
+            scheduler_execution_guard_enter(b,cpu);
             spinlock_irqrestore_release(&process_lock,flags);
             return n;
         }
@@ -2985,6 +3074,8 @@ uint32_t *process_schedule(uint32_t *frame){
         paging_switch_address_space(processes[0].page_directory);
         tss_set_kernel_stack(processes[0].kernel_stack_top);
     }
+    scheduler_execution_guard_enter(
+        prev?prev:(cpu==0u?&processes[0]:0),cpu);
     spinlock_irqrestore_release(&process_lock,flags);
     return frame;
 }
