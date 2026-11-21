@@ -927,9 +927,30 @@ void lionos_user_integration_step(void){
             uint32_t eligible_pids[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
             for(uint32_t i=0u;i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT;++i)
                 eligible_pids[i]=(uint32_t)integration_migration_pids[i];
+            /*
+             * Rejected batches must be transactional: an invalid trailing PID
+             * or duplicate entry must not leave an earlier process opted in.
+             * The valid batch immediately afterwards detects partial mutation.
+             */
+            uint32_t invalid_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
+            uint32_t duplicate_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
+            for(uint32_t i=0u;i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT;++i){
+                invalid_batch[i]=eligible_pids[i];
+                duplicate_batch[i]=eligible_pids[0];
+            }
+            invalid_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT-1u]=0u;
+            int invalid_result=process_set_migration_eligible_batch(
+                invalid_batch,INTEGRATION_MIGRATION_ELIGIBLE_COUNT);
+            int duplicate_result=process_set_migration_eligible_batch(
+                duplicate_batch,INTEGRATION_MIGRATION_ELIGIBLE_COUNT);
+            if(invalid_result!=-1||duplicate_result!=-1)
+                integration_migration_failed=1u;
+
             if(process_set_migration_eligible_batch(
                    eligible_pids,INTEGRATION_MIGRATION_ELIGIBLE_COUNT)!=0)
                 integration_migration_failed=1u;
+            else if(invalid_result==-1&&duplicate_result==-1)
+                debug_write("LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK\\n");
         }
 
         /* Restore the exact incoming EFLAGS, including the prior IF state. */
