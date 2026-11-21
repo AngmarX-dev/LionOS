@@ -64,6 +64,10 @@ run_qemu() {
             echo "scheduler current-context state/owner invariant failure detected: $log_file" >&2
             return 1
         fi
+        if grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-FAIL' "$log_file"; then
+            echo "multi-process scheduler migration regression failed: $log_file" >&2
+            return 1
+        fi
         if grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL' "$log_file"; then
             echo "AP-local user-process fork/waitpid regression failed: $log_file" >&2
             return 1
@@ -101,6 +105,7 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-RUNQUEUE-PRIORITY-REQUEUE-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-REAP-VALIDATION-OK" "$log_file"
         grep -q "LIONOS:SMP-EXECUTION-EXCLUSION-OK" "$log_file"
+        grep -q "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK" "$log_file"
         if [ "$cpu_count" -ge 3 ]; then
             grep -q "LIONOS:SMP-MULTI-STEALER-OK" "$log_file"
         fi
