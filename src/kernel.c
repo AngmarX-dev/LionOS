@@ -1106,9 +1106,9 @@ void lionos_user_integration_step(void){
             if(busy_balance_mask!=0u){
                 debug_write("LIONOS:SMP-BUSY-BALANCE-OBSERVED mask=");
                 debug_write_u32_hex(busy_balance_mask);
-                debug_write("\\n");
+                debug_write("\n");
             }else{
-                debug_write("LIONOS:SMP-BUSY-BALANCE-NOT-OBSERVED\\n");
+                debug_write("LIONOS:SMP-BUSY-BALANCE-NOT-OBSERVED\n");
             }
             int execution_guard_ok=
                 process_scheduler_execution_guard_finish()==0;
