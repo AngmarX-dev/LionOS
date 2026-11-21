@@ -323,9 +323,9 @@ static int integration_utility_ok;
 static int integration_pipe_ok;
 static int integration_nx_ok;
 static int integration_process_ok;
-#define INTEGRATION_MIGRATION_ELIGIBLE_COUNT 2u
-#define INTEGRATION_MIGRATION_PROCESS_COUNT 3u
-static int integration_migration_pids[INTEGRATION_MIGRATION_PROCESS_COUNT] = {-1,-1,-1};
+#define INTEGRATION_MIGRATION_ELIGIBLE_COUNT 4u
+#define INTEGRATION_MIGRATION_PROCESS_COUNT 5u
+static int integration_migration_pids[INTEGRATION_MIGRATION_PROCESS_COUNT] = {-1,-1,-1,-1,-1};
 static uint32_t integration_migration_steals_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_ticks_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_count;
@@ -872,7 +872,7 @@ void lionos_user_integration_step(void){
     }
 
     /*
-     * Launch two independent, explicitly migratable user processes and one
+     * Launch four independent, explicitly migratable user processes and one
      * ordinary process that must retain BSP affinity. The migration test ELF
      * has no shared filesystem or console side effects between instances.
      */
