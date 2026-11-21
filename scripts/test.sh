@@ -35,7 +35,7 @@ run_qemu() {
     if [ -n "$cpu_model" ]; then cpu_args=(-cpu "$cpu_model"); fi
     set +e
     rm -f "$log_file"
-    timeout "${timeout_seconds}s" qemu-system-i386 "${cpu_args[@]}" \
+    timeout "${timeout_seconds}s" qemu-system-i386 -no-reboot "${cpu_args[@]}" \
         -smp "$cpu_count" \
         -cdrom build/lionos.iso \
         -drive file=build/lionos-disk.img,format=raw,if=ide,index=0 \
