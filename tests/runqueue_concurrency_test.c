@@ -156,62 +156,66 @@ struct busy_race_argument {
 static struct runqueue busy_race_queues[3];
 static struct runqueue_node busy_race_nodes[BUSY_RACE_NODE_COUNT];
 
+static int busy_race_try_transfer(uint32_t destination_cpu) {
+    const uint32_t source_cpu = 0u;
+    if (destination_cpu == source_cpu || destination_cpu >= 3u)
+        return -1;
+    struct runqueue *source = &busy_race_queues[source_cpu];
+    struct runqueue *destination = &busy_race_queues[destination_cpu];
+    uint32_t first = source_cpu < destination_cpu
+        ? source_cpu : destination_cpu;
+    uint32_t second = source_cpu < destination_cpu
+        ? destination_cpu : source_cpu;
+
+    if (!spinlock_try_acquire(&busy_race_queues[first].lock))
+        return 0;
+    if (!spinlock_try_acquire(&busy_race_queues[second].lock)) {
+        spinlock_release(&busy_race_queues[first].lock);
+        return 0;
+    }
+
+    int result = 0;
+    if (runqueue_validate_locked(source, busy_race_nodes,
+            BUSY_RACE_NODE_COUNT, 0) != 0 ||
+        runqueue_validate_locked(destination, busy_race_nodes,
+            BUSY_RACE_NODE_COUNT, 0) != 0) {
+        result = -1;
+    } else if (runqueue_should_balance(destination->total,
+                                        source->total, 0)) {
+        uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
+        for (uint32_t priority = 0u;
+             priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS;
+             ++priority) {
+            candidate = source->head[priority];
+            if (candidate != LIONOS_RUNQUEUE_INVALID_INDEX)
+                break;
+        }
+        if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
+            runqueue_move_locked(source, destination, busy_race_nodes,
+                BUSY_RACE_NODE_COUNT, candidate) != 0)
+            result = -1;
+        else
+            result = 1;
+    }
+
+    spinlock_release(&busy_race_queues[second].lock);
+    spinlock_release(&busy_race_queues[first].lock);
+    return result;
+}
+
 static void *run_busy_balance_racer(void *opaque) {
     struct busy_race_argument *argument =
         (struct busy_race_argument *)opaque;
-    const uint32_t source_cpu = 0u;
-    const uint32_t destination_cpu = argument->destination_cpu;
-    struct runqueue *source = &busy_race_queues[source_cpu];
-    struct runqueue *destination = &busy_race_queues[destination_cpu];
-
     while (__atomic_load_n(argument->start, __ATOMIC_ACQUIRE) == 0u)
         __asm__ volatile("pause");
 
     argument->result = 0;
     for (uint32_t attempt = 0u; attempt < 10000000u; ++attempt) {
-        uint32_t first = source_cpu < destination_cpu
-            ? source_cpu : destination_cpu;
-        uint32_t second = source_cpu < destination_cpu
-            ? destination_cpu : source_cpu;
-        if (!spinlock_try_acquire(&busy_race_queues[first].lock)) {
-            __asm__ volatile("pause");
-            continue;
-        }
-        if (!spinlock_try_acquire(&busy_race_queues[second].lock)) {
-            spinlock_release(&busy_race_queues[first].lock);
-            __asm__ volatile("pause");
-            continue;
-        }
-
-        if (runqueue_validate_locked(source, busy_race_nodes,
-                BUSY_RACE_NODE_COUNT, 0) != 0 ||
-            runqueue_validate_locked(destination, busy_race_nodes,
-                BUSY_RACE_NODE_COUNT, 0) != 0) {
-            argument->result = -1;
-        } else if (runqueue_should_balance(destination->total,
-                                            source->total, 0)) {
-            uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
-            for (uint32_t priority = 0u;
-                 priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS;
-                 ++priority) {
-                candidate = source->head[priority];
-                if (candidate != LIONOS_RUNQUEUE_INVALID_INDEX)
-                    break;
-            }
-            if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
-                runqueue_move_locked(source, destination,
-                    busy_race_nodes, BUSY_RACE_NODE_COUNT,
-                    candidate) != 0) {
-                argument->result = -1;
-            } else {
-                argument->result = 1;
-            }
-        }
-
-        spinlock_release(&busy_race_queues[second].lock);
-        spinlock_release(&busy_race_queues[first].lock);
-        if (argument->result != 0)
+        int result = busy_race_try_transfer(argument->destination_cpu);
+        if (result != 0) {
+            argument->result = result;
             return 0;
+        }
         __asm__ volatile("pause");
     }
     return 0;
@@ -273,11 +277,10 @@ static int simultaneous_busy_destination_test(void) {
 
     /* A held source lock must make a nonblocking stealer defer immediately. */
     spinlock_acquire(&busy_race_queues[0].lock);
-    if (spinlock_try_acquire(&busy_race_queues[0].lock) != 0) {
-        spinlock_release(&busy_race_queues[0].lock);
-        return 4;
-    }
+    int deferred = busy_race_try_transfer(1u);
     spinlock_release(&busy_race_queues[0].lock);
+    if (deferred != 0)
+        return 4;
 
     for (uint32_t i = 0u; i < 2u; ++i) {
         arguments[i].start = &start;
