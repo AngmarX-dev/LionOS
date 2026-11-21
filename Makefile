@@ -177,6 +177,8 @@ $(BUILD)/futex_test.o: user/futex_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
 $(BUILD)/migration_test.o: user/migration_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
+$(BUILD)/busy_balance_test.o: user/busy_balance_test.c | $(BUILD)
+	$(CC) $(USER_CFLAGS) -Os -c $< -o $@
 $(BUILD)/ipc_test.o: user/ipc_test.c | $(BUILD)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
 $(BUILD)/pipe_test.o: user/pipe_test.c | $(BUILD)
