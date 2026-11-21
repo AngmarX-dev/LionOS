@@ -217,6 +217,33 @@ static void *run_busy_balance_racer(void *opaque) {
     return 0;
 }
 
+static int busy_race_enqueue(uint32_t cpu, uint32_t index) {
+    struct runqueue *queue = &busy_race_queues[cpu];
+    spinlock_acquire(&queue->lock);
+    int result = runqueue_enqueue_locked(queue, busy_race_nodes,
+        BUSY_RACE_NODE_COUNT, index, 2u);
+    spinlock_release(&queue->lock);
+    return result;
+}
+
+static int busy_race_pick(uint32_t cpu, uint32_t *picked) {
+    struct runqueue *queue = &busy_race_queues[cpu];
+    spinlock_acquire(&queue->lock);
+    int result = runqueue_pick_next_locked(queue, busy_race_nodes,
+        BUSY_RACE_NODE_COUNT, picked);
+    spinlock_release(&queue->lock);
+    return result;
+}
+
+static int busy_race_validate(uint32_t cpu, uint32_t *total) {
+    struct runqueue *queue = &busy_race_queues[cpu];
+    spinlock_acquire(&queue->lock);
+    int result = runqueue_validate_locked(queue, busy_race_nodes,
+        BUSY_RACE_NODE_COUNT, total);
+    spinlock_release(&queue->lock);
+    return result;
+}
+
 static int simultaneous_busy_destination_test(void) {
     pthread_t threads[2];
     struct busy_race_argument arguments[2] = {
@@ -232,19 +259,15 @@ static int simultaneous_busy_destination_test(void) {
         runqueue_node_init(&busy_race_nodes[i]);
 
     for (uint32_t i = 0u; i < 4u; ++i)
-        if (runqueue_enqueue(&busy_race_queues[0], busy_race_nodes,
-                BUSY_RACE_NODE_COUNT, i, 2u) != 0)
+        if (busy_race_enqueue(0u, i) != 0)
             return 1;
-    if (runqueue_enqueue(&busy_race_queues[1], busy_race_nodes,
-            BUSY_RACE_NODE_COUNT, 4u, 2u) != 0 ||
-        runqueue_enqueue(&busy_race_queues[2], busy_race_nodes,
-            BUSY_RACE_NODE_COUNT, 5u, 2u) != 0)
+    if (busy_race_enqueue(1u, 4u) != 0 ||
+        busy_race_enqueue(2u, 5u) != 0)
         return 2;
 
     /* Each destination has a running task selected outside its READY queue. */
     for (uint32_t cpu = 1u; cpu <= 2u; ++cpu) {
-        if (runqueue_pick_next(&busy_race_queues[cpu], busy_race_nodes,
-                BUSY_RACE_NODE_COUNT, &picked) != 0 || picked != cpu + 3u)
+        if (busy_race_pick(cpu, &picked) != 0 || picked != cpu + 3u)
             return 3;
     }
 
@@ -275,12 +298,9 @@ static int simultaneous_busy_destination_test(void) {
     if (busy_race_queues[0].total != 2u ||
         busy_race_queues[1].total != 1u ||
         busy_race_queues[2].total != 1u ||
-        runqueue_validate(&busy_race_queues[0], busy_race_nodes,
-            BUSY_RACE_NODE_COUNT, &total) != 0 || total != 2u ||
-        runqueue_validate(&busy_race_queues[1], busy_race_nodes,
-            BUSY_RACE_NODE_COUNT, &total) != 0 || total != 1u ||
-        runqueue_validate(&busy_race_queues[2], busy_race_nodes,
-            BUSY_RACE_NODE_COUNT, &total) != 0 || total != 1u)
+        busy_race_validate(0u, &total) != 0 || total != 2u ||
+        busy_race_validate(1u, &total) != 0 || total != 1u ||
+        busy_race_validate(2u, &total) != 0 || total != 1u)
         return 7;
 
     for (uint32_t i = 0u; i < 4u; ++i) {
