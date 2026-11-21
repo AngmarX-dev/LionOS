@@ -139,7 +139,7 @@ static void make_available_before_reserved_boot_info(void)
     for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
         boot_info[i] = 0u;
 
-    put32(0u, 88u);
+    put32(0u, 80u);
     put32(4u, 0u);
     put32(8u, MULTIBOOT2_TAG_MMAP);
     put32(12u, 64u);
