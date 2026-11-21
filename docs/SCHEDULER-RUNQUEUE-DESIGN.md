@@ -17,8 +17,13 @@ The scheduler may steal one explicitly opted-in READY user process when its loca
 
 Host tests cover queue invariants, FIFO/priority ordering, destination-lane FIFO
 append semantics across multiple READY-task priority changes, and concurrent lock
-contention across two independent per-CPU queues. Runtime validation checks queue
-membership against process states during scheduler decisions. A boot-time AP
+contention across independent per-CPU queues. The run-queue concurrency regression
+also starts two busy destinations against one shared source queue, uses ordered
+non-blocking lock acquisition, verifies that a held source lock causes a deferred
+attempt, and checks that both destinations receive exactly one READY node with
+global membership preserved. This is a host-side queue-mechanics test: it does not
+execute process eligibility checks or the production SMP scheduler path. Runtime
+validation checks queue membership against process states during scheduler decisions. A boot-time AP
 run-queue probe places one short-lived kernel task on every online AP queue,
 blocks each task, and has the BSP wake it through the normal wait-channel path.
 Each AP uses its own probe wait lock so a simultaneous wake does not create an
