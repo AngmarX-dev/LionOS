@@ -1246,6 +1246,9 @@ void lionos_user_integration_step(void){
                     (uint32_t)(uintptr_t)&integration_ap_busy_balance_launch_worker,
                     cpu,cpu)){
                 integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-LAUNCH-FAIL cpu=");
+                debug_write_u32_hex(cpu);
+                debug_write("\n");
                 continue;
             }
             integration_busy_worker_launch_mask|=1u<<cpu;
@@ -1272,6 +1275,14 @@ void lionos_user_integration_step(void){
             }
             if(status!=1u){
                 integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-WORKER-LAUNCH-STATUS-FAIL cpu=");
+                debug_write_u32_hex(cpu);
+                debug_write(" status=");
+                debug_write_u32_hex(status);
+                debug_write(" pid=");
+                debug_write_u32_hex(__atomic_load_n(
+                    &integration_busy_worker_pids[cpu],__ATOMIC_ACQUIRE));
+                debug_write("\n");
                 continue;
             }
             uint32_t pid=__atomic_load_n(
@@ -1281,19 +1292,42 @@ void lionos_user_integration_step(void){
             int32_t state=pid?process_get_state(pid):-1;
             if(!pid||process_get_migration_info(pid,&owner,&migrations)!=0){
                 integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-WORKER-INFO-FAIL cpu=");
+                debug_write_u32_hex(cpu);
+                debug_write(" pid=");
+                debug_write_u32_hex(pid);
+                debug_write(" state=");
+                debug_write_u32_hex((uint32_t)state);
+                debug_write("\n");
             }else if(state==PROCESS_RUNNING&&owner==cpu&&migrations==0u){
                 active_mask|=bit;
             }else if(state==PROCESS_ZOMBIE||state<0){
                 integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-WORKER-ENDED-BEFORE-READY cpu=");
+                debug_write_u32_hex(cpu);
+                debug_write(" pid=");
+                debug_write_u32_hex(pid);
+                debug_write(" state=");
+                debug_write_u32_hex((uint32_t)state);
+                debug_write("\n");
             }else{
                 pending=1u;
             }
         }
 
-        if(integration_busy_balance_failed||
-           (process_scheduler_ticks(0u)-integration_busy_balance_start_tick)>
-                3000u){
+        uint32_t stage27_elapsed=
+            process_scheduler_ticks(0u)-integration_busy_balance_start_tick;
+        if(integration_busy_balance_failed||stage27_elapsed>3000u){
             integration_busy_balance_failed=1u;
+            debug_write("LIONOS:SMP-BUSY-WORKER-SETUP-FAIL launch=");
+            debug_write_u32_hex(integration_busy_worker_launch_mask);
+            debug_write(" active=");
+            debug_write_u32_hex(active_mask);
+            debug_write(" pending=");
+            debug_write_u32_hex(pending);
+            debug_write(" elapsed=");
+            debug_write_u32_hex(stage27_elapsed);
+            debug_write("\n");
             integration_stage=28;
             return;
         }
@@ -1397,6 +1431,11 @@ void lionos_user_integration_step(void){
                 }
             }else if(state<0){
                 integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-CANDIDATE-STATE-LOST pid=");
+                debug_write_u32_hex(pid);
+                debug_write(" index=");
+                debug_write_u32_hex(i);
+                debug_write("\n");
                 integration_busy_balance_pids[i]=0u;
             }else{
                 pending=1u;
@@ -1458,6 +1497,11 @@ void lionos_user_integration_step(void){
                 }
             }else if(state<0){
                 integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-WORKER-STATE-LOST cpu=");
+                debug_write_u32_hex(cpu);
+                debug_write(" pid=");
+                debug_write_u32_hex(pid);
+                debug_write("\n");
                 __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
                                  __ATOMIC_RELEASE);
             }else{
