@@ -22,7 +22,30 @@ also starts two busy destinations against one shared source queue, uses ordered
 non-blocking lock acquisition, verifies that a held source lock causes a deferred
 attempt, and checks that both destinations receive exactly one READY node with
 global membership preserved. This is a host-side queue-mechanics test: it does not
-execute process eligibility checks or the production SMP scheduler path. Runtime
+execute process eligibility checks or the production SMP scheduler path.
+
+### Production busy-destination acceptance
+
+A separate QEMU integration phase now starts a bounded, non-yielding user
+workload on every online AP through an AP-owned kernel launcher. It waits until
+each workload is RUNNING on its intended CPU, then creates three explicitly
+eligible READY user processes and one pinned control process on the BSP. The
+normal timer-driven process_schedule() path must perform at least one
+successful busy-destination transfer. Acceptance checks the production
+per-CPU busy-balance counter, the migrated process's owner and one-migration
+limit, the pinned process's unchanged BSP ownership, successful process exit
+and reaping, and the scheduler execution guard. The workload is finite and
+does not modify shared files or console state.
+
+The QEMU stability script requires the acceptance marker for every SMP
+configuration it runs. This proves a production busy-destination transfer in
+those virtual CPU configurations; it does not prove simultaneous execution
+inside the global process_lock critical section, nor physical-hardware
+behavior. The host pthread regression remains the separate test for competing
+queue-lock operations and non-blocking contention. Broader sustained-load
+balancing and physical hardware verification remain open.
+
+Runtime
 validation checks queue membership against process states during scheduler decisions. A boot-time AP
 run-queue probe places one short-lived kernel task on every online AP queue,
 blocks each task, and has the BSP wake it through the normal wait-channel path.
