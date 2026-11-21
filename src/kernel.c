@@ -332,6 +332,7 @@ static uint32_t integration_migration_eligible_count;
 static uint32_t integration_migration_process_count;
 static uint32_t integration_migration_steals_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_ticks_before[LIONOS_MAX_CPUS];
+static uint32_t integration_migration_busy_balances_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_count;
 static uint32_t integration_migration_failed;
 static uint32_t integration_migration_owner_mask;
@@ -915,6 +916,8 @@ void lionos_user_integration_step(void){
         for(uint32_t cpu=0u;cpu<online;++cpu){
             integration_migration_steals_before[cpu]=
                 process_scheduler_steals(cpu);
+            integration_migration_busy_balances_before[cpu]=
+                process_scheduler_busy_balances(cpu);
             integration_migration_ticks_before[cpu]=
                 process_scheduler_ticks(cpu);
         }
@@ -1093,6 +1096,20 @@ void lionos_user_integration_step(void){
             }
         }
         if(!pending){
+            uint32_t busy_balance_mask=0u;
+            for(uint32_t cpu=0u;cpu<online;++cpu){
+                uint32_t current=process_scheduler_busy_balances(cpu);
+                uint32_t delta=current-
+                    integration_migration_busy_balances_before[cpu];
+                if(delta!=0u)busy_balance_mask|=1u<<cpu;
+            }
+            if(busy_balance_mask!=0u){
+                debug_write("LIONOS:SMP-BUSY-BALANCE-OBSERVED mask=");
+                debug_write_u32_hex(busy_balance_mask);
+                debug_write("\\n");
+            }else{
+                debug_write("LIONOS:SMP-BUSY-BALANCE-NOT-OBSERVED\\n");
+            }
             int execution_guard_ok=
                 process_scheduler_execution_guard_finish()==0;
             if(execution_guard_ok)
