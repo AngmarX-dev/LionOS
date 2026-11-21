@@ -106,6 +106,11 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-RUNQUEUE-REAP-VALIDATION-OK" "$log_file"
         grep -q "LIONOS:SMP-EXECUTION-EXCLUSION-OK" "$log_file"
         grep -q "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK" "$log_file"
+        if grep -q "LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-FAIL" "$log_file"; then
+            echo "production busy-destination balancing regression failed: $log_file" >&2
+            return 1
+        fi
+        grep -q "LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-OK" "$log_file"
         migration_rounds=$(grep -c '^LIONOS:SMP-WORK-STEAL-ROUND-OK round=' "$log_file" || true)
         if [ "$migration_rounds" -ne 3 ]; then
             echo "expected 3 completed SMP migration stress rounds, observed $migration_rounds: $log_file" >&2
