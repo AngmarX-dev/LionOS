@@ -382,10 +382,15 @@ static int process_steal_candidate_locked(uint32_t index,uint32_t source_cpu){
 }
 
 /* process_lock is held; queue locks are acquired in ascending CPU order. */
-static int process_try_steal_locked(uint32_t cpu,uint32_t *picked){
+/* process_lock is held; queue locks are acquired in ascending CPU order. */
+static int process_try_steal_locked(uint32_t cpu,uint32_t *picked,
+                                    int idle_destination){
     uint32_t online=smp_online_count();
     if(online==0u||online>LIONOS_MAX_CPUS)online=1u;
-    if(!picked||cpu>=online)return 0;
+    if(!picked||cpu>=online||
+       (idle_destination!=0&&idle_destination!=1))return -1;
+    if(idle_destination&&runqueues[cpu].total!=0u)return 0;
+
     uint32_t visited=0u;
     for(uint32_t attempt=0u;attempt+1u<online;++attempt){
         uint32_t victim=LIONOS_RUNQUEUE_INVALID_INDEX,largest=0u;
@@ -396,30 +401,40 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked){
             }
         }
         if(victim==LIONOS_RUNQUEUE_INVALID_INDEX||largest==0u)return 0;
+        if(!runqueue_should_balance(runqueues[cpu].total,largest,
+                                    idle_destination))return 0;
         visited|=1u<<victim;
+
         uint32_t first=cpu<victim?cpu:victim;
         uint32_t second=cpu<victim?victim:cpu;
         if(!spinlock_try_acquire(&runqueues[first].lock))return 0;
         if(!spinlock_try_acquire(&runqueues[second].lock)){
             spinlock_release(&runqueues[first].lock);return 0;
         }
-        if(runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,LIONOS_PROCESS_MAX,0)!=0||
-           runqueue_validate_locked(&runqueues[victim],runqueue_nodes,LIONOS_PROCESS_MAX,0)!=0){
+        if(runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,
+                LIONOS_PROCESS_MAX,0)!=0||
+           runqueue_validate_locked(&runqueues[victim],runqueue_nodes,
+                LIONOS_PROCESS_MAX,0)!=0){
             __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
             spinlock_release(&runqueues[second].lock);
             spinlock_release(&runqueues[first].lock);return -1;
         }
-        if(runqueues[cpu].total!=0u){
+        if(!runqueue_should_balance(runqueues[cpu].total,
+                                    runqueues[victim].total,
+                                    idle_destination)){
             spinlock_release(&runqueues[second].lock);
             spinlock_release(&runqueues[first].lock);return 0;
         }
+
         uint32_t candidate=LIONOS_RUNQUEUE_INVALID_INDEX;
-        for(uint32_t priority=0u;priority<LIONOS_RUNQUEUE_PRIORITY_LEVELS&&
+        for(uint32_t priority=0u;
+            priority<LIONOS_RUNQUEUE_PRIORITY_LEVELS&&
             candidate==LIONOS_RUNQUEUE_INVALID_INDEX;++priority){
             uint32_t index=runqueues[victim].head[priority];
             while(index!=LIONOS_RUNQUEUE_INVALID_INDEX){
                 if(index>=LIONOS_PROCESS_MAX){
-                    __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);break;
+                    __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+                    break;
                 }
                 uint32_t next=runqueue_nodes[index].next;
                 if(process_steal_candidate_locked(index,victim)){
@@ -436,6 +451,7 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked){
             spinlock_release(&runqueues[second].lock);
             spinlock_release(&runqueues[first].lock);continue;
         }
+
         struct process *migrating=&processes[candidate];
         if(!process_steal_candidate_locked(candidate,victim)||
            runqueue_move_locked(&runqueues[victim],&runqueues[cpu],
@@ -446,19 +462,30 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked){
         }
         migrating->cpu_owner=cpu;
         migrating->migration_count=1u;
+
         uint32_t selected=LIONOS_RUNQUEUE_INVALID_INDEX;
-        int pick_result=runqueue_pick_next_locked(&runqueues[cpu],
-            runqueue_nodes,LIONOS_PROCESS_MAX,&selected);
+        int pick_result=0;
+        if(idle_destination)
+            pick_result=runqueue_pick_next_locked(&runqueues[cpu],
+                runqueue_nodes,LIONOS_PROCESS_MAX,&selected);
         int queues_valid=
-            runqueue_validate_locked(&runqueues[victim],runqueue_nodes,LIONOS_PROCESS_MAX,0)==0&&
-            runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,LIONOS_PROCESS_MAX,0)==0;
+            runqueue_validate_locked(&runqueues[victim],runqueue_nodes,
+                LIONOS_PROCESS_MAX,0)==0&&
+            runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,
+                LIONOS_PROCESS_MAX,0)==0;
         spinlock_release(&runqueues[second].lock);
         spinlock_release(&runqueues[first].lock);
-        if(pick_result!=0||selected!=candidate||!queues_valid){
-            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);return -1;
+
+        if(!queues_valid||
+           (idle_destination&&(pick_result!=0||selected!=candidate))){
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+            return -1;
         }
-        __atomic_fetch_add(&scheduler_cpu[cpu].steal_count,1u,__ATOMIC_RELAXED);
-        *picked=selected;return 1;
+        __atomic_fetch_add(&scheduler_cpu[cpu].steal_count,1u,
+                           __ATOMIC_RELAXED);
+        /* For a busy destination, leave the moved READY task queued. */
+        if(idle_destination)*picked=selected;
+        return 1;
     }
     return 0;
 }
@@ -3026,6 +3053,7 @@ uint32_t *process_schedule(uint32_t *frame){
     uint32_t picked=LIONOS_RUNQUEUE_INVALID_INDEX;
     uint32_t prev_index=LIONOS_RUNQUEUE_INVALID_INDEX;
     int prev_enqueued=0;
+    int steal_attempted=0;
     int queue_lock_acquired=spinlock_try_acquire(&runqueues[cpu].lock);
     int pick_result=-1;
     if(queue_lock_acquired){
@@ -3048,7 +3076,8 @@ uint32_t *process_schedule(uint32_t *frame){
         if(pick_result==1&&!prev_enqueued){
             spinlock_release(&runqueues[cpu].lock);
             queue_lock_acquired=0;
-            int steal_result=process_try_steal_locked(cpu,&picked);
+            steal_attempted=1;
+            int steal_result=process_try_steal_locked(cpu,&picked,1);
             if(steal_result>0)pick_result=0;
             else if(steal_result<0)pick_result=-1;
         }
@@ -3072,6 +3101,16 @@ uint32_t *process_schedule(uint32_t *frame){
         if(pick_result<0||(pick_result==0&&picked>=LIONOS_PROCESS_MAX)||
            process_runqueue_validate_locked(cpu)!=0)
             __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+        /*
+         * Once a local task has been selected, use the remaining queued
+         * backlog for bounded balancing. The selected task stays RUNNING;
+         * at most one eligible READY process is moved for this invocation.
+         */
+        if(next&&!steal_attempted){
+            int balance_result=process_try_steal_locked(cpu,&picked,0);
+            if(balance_result<0)
+                __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+        }
     }else{
         /*
          * Do not return a blocked task's frame merely because a local queue
@@ -3082,9 +3121,10 @@ uint32_t *process_schedule(uint32_t *frame){
         __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
     }
     /*
-     * Only an empty CPU queue may steal. The transfer is serialized by
-     * process_lock, uses ascending queue-lock order, and excludes current tasks,
-     * kernel threads, live thread groups, and already-migrated processes.
+     * Idle stealing and busy-queue balancing are both serialized by
+     * process_lock. Transfers use ascending queue-lock order and exclude
+     * current tasks, kernel threads, live thread groups, and already-migrated
+     * processes. A busy destination keeps its selected task running.
      */
     if(next){
         /* Preserve the outgoing CPU's FPU/SSE state on every real switch,

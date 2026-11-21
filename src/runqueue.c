@@ -21,6 +21,15 @@ void runqueue_init(struct runqueue *queue, uint32_t cpu) {
     }
 }
 
+int runqueue_should_balance(uint32_t destination_total,
+                            uint32_t source_total, int destination_idle) {
+    if (destination_idle != 0 && destination_idle != 1) return 0;
+    if (destination_idle)
+        return destination_total == 0u && source_total != 0u;
+    return source_total > destination_total &&
+           source_total - destination_total >= 2u;
+}
+
 static int lane_valid(const struct runqueue *queue,
                       const struct runqueue_node *nodes,
                       uint32_t capacity, uint32_t priority) {

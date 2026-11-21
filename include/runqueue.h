@@ -33,6 +33,9 @@ struct runqueue {
 };
 
 void runqueue_node_init(struct runqueue_node *node);
+/* Idle queues may steal one task; busy queues require a two-task backlog skew. */
+int runqueue_should_balance(uint32_t destination_total,
+                            uint32_t source_total, int destination_idle);
 void runqueue_init(struct runqueue *queue, uint32_t cpu);
 int runqueue_enqueue_locked(struct runqueue *queue,
                             struct runqueue_node *nodes,

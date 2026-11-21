@@ -149,5 +149,18 @@ int main(void) {
         }
         if (runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) != 0 || total != 0u) return 36;
     }
+    /* Bounded balancing policy: idle progress versus busy backlog skew. */
+    if (!runqueue_should_balance(0u, 1u, 1)) return 52;
+    if (runqueue_should_balance(1u, 1u, 1)) return 53;
+    if (runqueue_should_balance(1u, 2u, 1)) return 54;
+    if (runqueue_should_balance(0u, 0u, 1)) return 55;
+    if (runqueue_should_balance(0u, 1u, 0)) return 56;
+    if (!runqueue_should_balance(0u, 2u, 0)) return 57;
+    if (runqueue_should_balance(3u, 4u, 0)) return 58;
+    if (!runqueue_should_balance(3u, 5u, 0)) return 59;
+    if (runqueue_should_balance(5u, 3u, 0)) return 60;
+    if (runqueue_should_balance(UINT32_MAX - 1u, UINT32_MAX, 0)) return 61;
+    if (!runqueue_should_balance(UINT32_MAX - 2u, UINT32_MAX, 0)) return 62;
+    if (runqueue_should_balance(0u, 1u, 2)) return 63;
     return 0;
 }
