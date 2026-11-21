@@ -962,7 +962,14 @@ void lionos_user_integration_step(void){
                 reserved_batch[i]=eligible_pids[i];
             }
             invalid_batch[integration_migration_eligible_count-1u]=0u;
-            reserved_batch[integration_migration_eligible_count-1u]=1u;
+            uint32_t reserved_count=integration_migration_eligible_count;
+            if(reserved_count<2u){
+                reserved_batch[0]=eligible_pids[0];
+                reserved_batch[1]=1u;
+                reserved_count=2u;
+            }else{
+                reserved_batch[reserved_count-1u]=1u;
+            }
             int invalid_result=process_set_migration_eligible_batch(
                 invalid_batch,integration_migration_eligible_count);
             uint32_t duplicate_count=integration_migration_eligible_count;
@@ -978,7 +985,7 @@ void lionos_user_integration_step(void){
              * exercising rollback when lookup/policy validation fails late.
              */
             int reserved_result=process_set_migration_eligible_batch(
-                reserved_batch,integration_migration_eligible_count);
+                reserved_batch,reserved_count);
             if(invalid_result!=-1||duplicate_result!=-1||
                reserved_result!=-1)
                 integration_migration_failed=1u;
