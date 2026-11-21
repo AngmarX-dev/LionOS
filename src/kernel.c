@@ -1347,14 +1347,31 @@ void lionos_user_integration_step(void){
                 uint32_t code=0xFFFFFFFFu;
                 uint32_t owner=LIONOS_MAX_CPUS;
                 uint32_t migrations=0xFFFFFFFFu;
-                if(process_get_exit_code(pid,&code)!=0||code!=0u||
-                   process_get_migration_info(pid,&owner,&migrations)!=0){
+                int code_rc=process_get_exit_code(pid,&code);
+                int migration_rc=process_get_migration_info(pid,&owner,&migrations);
+                if(code_rc!=0||code!=0u||migration_rc!=0){
                     integration_busy_balance_failed=1u;
+                    debug_write("LIONOS:SMP-BUSY-CANDIDATE-STATUS-FAIL pid=");
+                    debug_write_u32_hex(pid);
+                    debug_write(" code=");
+                    debug_write_u32_hex(code);
+                    debug_write(" owner=");
+                    debug_write_u32_hex(owner);
+                    debug_write(" migrations=");
+                    debug_write_u32_hex(migrations);
+                    debug_write("\n");
                 }else if(i<INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT){
                     if(migrations>1u||
                        (migrations==0u&&owner!=0u)||
                        (migrations==1u&&(owner==0u||owner>=online))){
                         integration_busy_balance_failed=1u;
+                        debug_write("LIONOS:SMP-BUSY-CANDIDATE-MIGRATION-FAIL pid=");
+                        debug_write_u32_hex(pid);
+                        debug_write(" owner=");
+                        debug_write_u32_hex(owner);
+                        debug_write(" migrations=");
+                        debug_write_u32_hex(migrations);
+                        debug_write("\n");
                     }else if(migrations==1u&&
                        (integration_busy_balance_moved_mask&(1u<<i))==0u){
                         integration_busy_balance_moved_mask|=1u<<i;
@@ -1369,6 +1386,11 @@ void lionos_user_integration_step(void){
                     pending=1u;
                 }else if(reap!=0){
                     integration_busy_balance_failed=1u;
+                    debug_write("LIONOS:SMP-BUSY-CANDIDATE-REAP-FAIL pid=");
+                    debug_write_u32_hex(pid);
+                    debug_write(" result=");
+                    debug_write_u32_hex((uint32_t)reap);
+                    debug_write("\n");
                     integration_busy_balance_pids[i]=0u;
                 }else{
                     integration_busy_balance_pids[i]=0u;
@@ -1401,15 +1423,33 @@ void lionos_user_integration_step(void){
                 uint32_t code=0xFFFFFFFFu;
                 uint32_t owner=LIONOS_MAX_CPUS;
                 uint32_t migrations=0xFFFFFFFFu;
-                if(process_get_exit_code(pid,&code)!=0||code!=0u||
-                   process_get_migration_info(pid,&owner,&migrations)!=0||
-                   owner!=cpu||migrations!=0u)
+                int code_rc=process_get_exit_code(pid,&code);
+                int migration_rc=process_get_migration_info(pid,&owner,&migrations);
+                if(code_rc!=0||code!=0u||migration_rc!=0||
+                   owner!=cpu||migrations!=0u){
                     integration_busy_balance_failed=1u;
+                    debug_write("LIONOS:SMP-BUSY-WORKER-STATUS-FAIL cpu=");
+                    debug_write_u32_hex(cpu);
+                    debug_write(" pid=");
+                    debug_write_u32_hex(pid);
+                    debug_write(" code=");
+                    debug_write_u32_hex(code);
+                    debug_write(" owner=");
+                    debug_write_u32_hex(owner);
+                    debug_write(" migrations=");
+                    debug_write_u32_hex(migrations);
+                    debug_write("\n");
+                }
                 int reap=process_reap_pid(pid);
                 if(reap==1){
                     pending=1u;
                 }else if(reap!=0){
                     integration_busy_balance_failed=1u;
+                    debug_write("LIONOS:SMP-BUSY-WORKER-REAP-FAIL pid=");
+                    debug_write_u32_hex(pid);
+                    debug_write(" result=");
+                    debug_write_u32_hex((uint32_t)reap);
+                    debug_write("\n");
                     __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
                                      __ATOMIC_RELEASE);
                 }else{
@@ -1433,10 +1473,21 @@ void lionos_user_integration_step(void){
                     busy_mask|=1u<<cpu;
             }
             if(busy_mask==0u||integration_busy_balance_moved==0u||
-               (busy_mask&integration_busy_balance_owner_mask)==0u)
+               (busy_mask&integration_busy_balance_owner_mask)==0u){
                 integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-MASK-FAIL busy=");
+                debug_write_u32_hex(busy_mask);
+                debug_write(" owner=");
+                debug_write_u32_hex(integration_busy_balance_owner_mask);
+                debug_write(" moved=");
+                debug_write_u32_hex(integration_busy_balance_moved);
+                debug_write("\n");
+            }
             int guard_ok=process_scheduler_execution_guard_finish()==0;
-            if(!guard_ok)integration_busy_balance_failed=1u;
+            if(!guard_ok){
+                integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-GUARD-FAIL\n");
+            }
             if(integration_busy_balance_failed==0u){
                 debug_write("LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-OK mask=");
                 debug_write_u32_hex(busy_mask);
