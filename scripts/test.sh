@@ -361,6 +361,8 @@ fi
 # With one AP, validate the full AP-owned process lifecycle without
 # requiring two simultaneous steals from the same destination CPU.
 grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-OK' build/qemu-smp-2cpu.log
+grep -q 'LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK' build/qemu-smp-2cpu.log
+grep -q 'LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK' build/qemu-smp-2cpu.log
 
 grep -q 'LIONOS:HIGH-MEMORY-TEST-OK' build/qemu-highmem.log
 grep -q 'LIONOS:TLB-SHOOTDOWN-ACKED' build/qemu-highmem.log
