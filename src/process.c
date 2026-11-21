@@ -1288,8 +1288,22 @@ fail:
 static int is_child_of(const struct process*c,uint32_t parent_pid,uint32_t pid){return c->state!=PROCESS_UNUSED&&c->parent_pid==parent_pid&&(pid==PROCESS_WAIT_ANY||c->pid==pid);}
 static struct process*find_zombie_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i)if(is_child_of(&processes[i],parent_pid,pid)&&processes[i].state==PROCESS_ZOMBIE&&!processes[i].reap_pending)return &processes[i];return 0;}
 static int has_child(uint32_t parent_pid,uint32_t pid){for(uint32_t i=1;i<LIONOS_PROCESS_MAX;++i){struct process *child=&processes[i];if(is_child_of(child,parent_pid,pid)&&!(child->state==PROCESS_ZOMBIE&&child->reap_pending))return 1;}return 0;}
+/* process_lock must be held. A zombie's stack/address space cannot be
+   released until every CPU has stopped using that process context. */
+static int process_is_current_locked(const struct process *p){
+    if(!p)return 0;
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(current_cpu_load(cpu)==p)return 1;
+    return 0;
+}
+
 static void reap_process(struct process*p){
     if(!p||p->state!=PROCESS_ZOMBIE)return;
+    if(process_is_current_locked(p)){
+        /* The scheduler reaper retries after the current CPU switches away. */
+        p->reap_pending=1u;
+        return;
+    }
     if(p->is_thread){
         uint32_t is_ap_probe=(p->pid==0u&&p->thread_group_pid==0u&&
             p->entry==(uint32_t)(uintptr_t)&process_scheduler_ap_probe);
@@ -1423,9 +1437,16 @@ int process_reap_pid(uint32_t pid){
     struct process*p=0;
     for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED&&processes[i].pid==pid){p=&processes[i];break;}
     if(!p||p->state!=PROCESS_ZOMBIE){spinlock_irqrestore_release(&process_lock,flags);return -1;}
+    /* Return 1 while the process is still a CPU's live execution context.
+       The caller may retry after the scheduler has switched that CPU away. */
+    if(process_is_current_locked(p)){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return 1;
+    }
     reap_process(p);
+    int result=p->state==PROCESS_UNUSED?0:-1;
     spinlock_irqrestore_release(&process_lock,flags);
-    return 0;
+    return result;
 }
 
 static struct process *find_stopped_child(uint32_t parent_pid,uint32_t pid){

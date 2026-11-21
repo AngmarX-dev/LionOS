@@ -1063,9 +1063,16 @@ void lionos_user_integration_step(void){
                     debug_write(" migrations=");debug_write_u32_hex(migrations);
                     debug_write("\n");
                 }
-                if(process_reap_pid((uint32_t)pid)!=0)
+                int reap_result=process_reap_pid((uint32_t)pid);
+                if(reap_result==1){
+                    /* The zombie is still executing its exit path on a CPU. */
+                    pending=1u;
+                }else if(reap_result!=0){
                     integration_migration_failed=1u;
-                integration_migration_pids[i]=-1;
+                    integration_migration_pids[i]=-1;
+                }else{
+                    integration_migration_pids[i]=-1;
+                }
             }else if(state<0){
                 integration_migration_failed=1u;
                 integration_migration_pids[i]=-1;
