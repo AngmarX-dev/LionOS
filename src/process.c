@@ -882,6 +882,7 @@ void process_init(void) {
         scheduler_cpu[i].cursor=0u;
         scheduler_cpu[i].schedule_count=0u;
         scheduler_cpu[i].steal_count=0u;
+        scheduler_cpu[i].busy_balance_count=0u;
         scheduler_cpu[i].timer_ticks=0u;
         reschedule_requested[i]=0u;
         reschedule_ipi_pending[i]=0u;
