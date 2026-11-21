@@ -965,8 +965,13 @@ void lionos_user_integration_step(void){
             reserved_batch[integration_migration_eligible_count-1u]=1u;
             int invalid_result=process_set_migration_eligible_batch(
                 invalid_batch,integration_migration_eligible_count);
+            uint32_t duplicate_count=integration_migration_eligible_count;
+            if(duplicate_count<2u){
+                duplicate_batch[1]=eligible_pids[0];
+                duplicate_count=2u;
+            }
             int duplicate_result=process_set_migration_eligible_batch(
-                duplicate_batch,integration_migration_eligible_count);
+                duplicate_batch,duplicate_count);
             /*
              * PID 1 is reserved by the process policy (or absent on a
              * configuration without init). It is checked after a valid PID,
