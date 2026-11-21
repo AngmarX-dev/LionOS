@@ -26,8 +26,7 @@ execute process eligibility checks or the production SMP scheduler path.
 
 ### Production busy-destination acceptance
 
-A separate QEMU integration phase now starts a bounded, non-yielding user
-workload on every online AP through an AP-owned kernel launcher. It waits until
+A separate QEMU integration phase now starts a bounded CPU-bound user workload that periodically yields on every online AP through an AP-owned kernel launcher. It waits until
 each workload is RUNNING on its intended CPU, then creates three explicitly
 eligible READY user processes and one pinned control process on the BSP. The
 normal timer-driven process_schedule() path must perform at least one
