@@ -168,7 +168,7 @@ static void *run_busy_balance_racer(void *opaque) {
         __asm__ volatile("pause");
 
     argument->result = 0;
-    for (uint32_t attempt = 0u; attempt < 100000u; ++attempt) {
+    for (uint32_t attempt = 0u; attempt < 10000000u; ++attempt) {
         uint32_t first = source_cpu < destination_cpu
             ? source_cpu : destination_cpu;
         uint32_t second = source_cpu < destination_cpu
