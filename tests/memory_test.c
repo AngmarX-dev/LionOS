@@ -633,7 +633,7 @@ int main(void)
         return fail(59, "available-before-reserved map failed initialization");
     if (memory_free_pages() != 768u ||
         page_refcount((void *)(uintptr_t)(17ULL * MIB)) != 0u ||
-        page_alloc_contiguous(257u) != 0)
+        page_alloc_contiguous(513u) != 0)
         return fail(60, "available-before-reserved overlap exposed reserved pages");
     void *first_run = page_alloc_contiguous(256u);
     void *second_run = page_alloc_contiguous(256u);
