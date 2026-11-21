@@ -145,6 +145,167 @@ static void *run_transfer_worker(void *opaque) {
     return 0;
 }
 
+#define BUSY_RACE_NODE_COUNT 8u
+
+struct busy_race_argument {
+    uint32_t destination_cpu;
+    volatile uint32_t *start;
+    int result;
+};
+
+static struct runqueue busy_race_queues[3];
+static struct runqueue_node busy_race_nodes[BUSY_RACE_NODE_COUNT];
+
+static void *run_busy_balance_racer(void *opaque) {
+    struct busy_race_argument *argument =
+        (struct busy_race_argument *)opaque;
+    const uint32_t source_cpu = 0u;
+    const uint32_t destination_cpu = argument->destination_cpu;
+    struct runqueue *source = &busy_race_queues[source_cpu];
+    struct runqueue *destination = &busy_race_queues[destination_cpu];
+
+    while (__atomic_load_n(argument->start, __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile("pause");
+
+    argument->result = 0;
+    for (uint32_t attempt = 0u; attempt < 100000u; ++attempt) {
+        uint32_t first = source_cpu < destination_cpu
+            ? source_cpu : destination_cpu;
+        uint32_t second = source_cpu < destination_cpu
+            ? destination_cpu : source_cpu;
+        if (!spinlock_try_acquire(&busy_race_queues[first].lock)) {
+            __asm__ volatile("pause");
+            continue;
+        }
+        if (!spinlock_try_acquire(&busy_race_queues[second].lock)) {
+            spinlock_release(&busy_race_queues[first].lock);
+            __asm__ volatile("pause");
+            continue;
+        }
+
+        if (runqueue_validate_locked(source, busy_race_nodes,
+                BUSY_RACE_NODE_COUNT, 0) != 0 ||
+            runqueue_validate_locked(destination, busy_race_nodes,
+                BUSY_RACE_NODE_COUNT, 0) != 0) {
+            argument->result = -1;
+        } else if (runqueue_should_balance(destination->total,
+                                            source->total, 0)) {
+            uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
+            for (uint32_t priority = 0u;
+                 priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS;
+                 ++priority) {
+                candidate = source->head[priority];
+                if (candidate != LIONOS_RUNQUEUE_INVALID_INDEX)
+                    break;
+            }
+            if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
+                runqueue_move_locked(source, destination,
+                    busy_race_nodes, BUSY_RACE_NODE_COUNT,
+                    candidate) != 0) {
+                argument->result = -1;
+            } else {
+                argument->result = 1;
+            }
+        }
+
+        spinlock_release(&busy_race_queues[second].lock);
+        spinlock_release(&busy_race_queues[first].lock);
+        if (argument->result != 0)
+            return 0;
+        __asm__ volatile("pause");
+    }
+    return 0;
+}
+
+static int simultaneous_busy_destination_test(void) {
+    pthread_t threads[2];
+    struct busy_race_argument arguments[2] = {
+        {1u, 0, 0}, {2u, 0, 0}
+    };
+    volatile uint32_t start = 0u;
+    uint32_t created = 0u;
+    uint32_t picked = LIONOS_RUNQUEUE_INVALID_INDEX;
+
+    for (uint32_t cpu = 0u; cpu < 3u; ++cpu)
+        runqueue_init(&busy_race_queues[cpu], cpu);
+    for (uint32_t i = 0u; i < BUSY_RACE_NODE_COUNT; ++i)
+        runqueue_node_init(&busy_race_nodes[i]);
+
+    for (uint32_t i = 0u; i < 4u; ++i)
+        if (runqueue_enqueue(&busy_race_queues[0], busy_race_nodes,
+                BUSY_RACE_NODE_COUNT, i, 2u) != 0)
+            return 1;
+    if (runqueue_enqueue(&busy_race_queues[1], busy_race_nodes,
+            BUSY_RACE_NODE_COUNT, 4u, 2u) != 0 ||
+        runqueue_enqueue(&busy_race_queues[2], busy_race_nodes,
+            BUSY_RACE_NODE_COUNT, 5u, 2u) != 0)
+        return 2;
+
+    /* Each destination has a running task selected outside its READY queue. */
+    for (uint32_t cpu = 1u; cpu <= 2u; ++cpu) {
+        if (runqueue_pick_next(&busy_race_queues[cpu], busy_race_nodes,
+                BUSY_RACE_NODE_COUNT, &picked) != 0 || picked != cpu + 3u)
+            return 3;
+    }
+
+    /* A held source lock must make a nonblocking stealer defer immediately. */
+    spinlock_acquire(&busy_race_queues[0].lock);
+    if (spinlock_try_acquire(&busy_race_queues[0].lock) != 0) {
+        spinlock_release(&busy_race_queues[0].lock);
+        return 4;
+    }
+    spinlock_release(&busy_race_queues[0].lock);
+
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        arguments[i].start = &start;
+        if (pthread_create(&threads[i], 0, run_busy_balance_racer,
+                           &arguments[i]) != 0)
+            break;
+        ++created;
+    }
+    __atomic_store_n(&start, 1u, __ATOMIC_RELEASE);
+    for (uint32_t i = 0u; i < created; ++i)
+        if (pthread_join(threads[i], 0) != 0)
+            return 5;
+    if (created != 2u || arguments[0].result != 1 ||
+        arguments[1].result != 1)
+        return 6;
+
+    uint32_t total = 0u;
+    if (busy_race_queues[0].total != 2u ||
+        busy_race_queues[1].total != 1u ||
+        busy_race_queues[2].total != 1u ||
+        runqueue_validate(&busy_race_queues[0], busy_race_nodes,
+            BUSY_RACE_NODE_COUNT, &total) != 0 || total != 2u ||
+        runqueue_validate(&busy_race_queues[1], busy_race_nodes,
+            BUSY_RACE_NODE_COUNT, &total) != 0 || total != 1u ||
+        runqueue_validate(&busy_race_queues[2], busy_race_nodes,
+            BUSY_RACE_NODE_COUNT, &total) != 0 || total != 1u)
+        return 7;
+
+    for (uint32_t i = 0u; i < 4u; ++i) {
+        uint32_t memberships = 0u;
+        for (uint32_t cpu = 0u; cpu < 3u; ++cpu) {
+            for (uint32_t priority = 0u;
+                 priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+                uint32_t index = busy_race_queues[cpu].head[priority];
+                while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
+                    if (index == i)
+                        ++memberships;
+                    index = busy_race_nodes[index].next;
+                }
+            }
+        }
+        if (memberships != 1u || busy_race_nodes[i].queued != 1u)
+            return 8;
+    }
+    if (busy_race_nodes[4].queued != 0u ||
+        busy_race_nodes[5].queued != 0u ||
+        busy_race_queues[1].total + busy_race_queues[2].total != 2u)
+        return 9;
+    return 0;
+}
+
 int main(void) {
     pthread_t threads[WORKER_COUNT];
     pthread_t transfer_threads[WORKER_COUNT];
@@ -271,5 +432,7 @@ int main(void) {
     for (uint32_t cpu = TEST_CPU_COUNT; cpu > 0u; --cpu)
         spinlock_release(&queues[cpu - 1u].lock);
 
+    if (simultaneous_busy_destination_test() != 0)
+        return 5;
     return __atomic_load_n(&failed, __ATOMIC_ACQUIRE) == 0u ? 0 : 4;
 }
