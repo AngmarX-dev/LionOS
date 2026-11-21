@@ -2146,6 +2146,9 @@ void process_exit_current(uint32_t code){
     }
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:FD-CLOSE-DONE\n");
 
+    /* Keep a zombie from being preempted away before exit cleanup completes. */
+    uint32_t exit_flags;
+    __asm__ volatile("pushfl; popl %0; cli" : "=r"(exit_flags) : : "memory");
     flags=spinlock_irqsave_acquire(&process_lock);
     c=current_local();
     if(!c||c==&processes[0]||c->state==PROCESS_UNUSED||
@@ -2157,6 +2160,7 @@ void process_exit_current(uint32_t code){
                                   c->parent_pid,c->exit_code);
         }
         spinlock_irqrestore_release(&process_lock,flags);
+        __asm__ volatile("pushl %0; popfl" : : "r"(exit_flags) : "memory","cc");
         return;
     }
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:LOCK-ACQUIRED\n");
@@ -2185,6 +2189,7 @@ void process_exit_current(uint32_t code){
         spinlock_irqrestore_release(&process_lock,flags);
         uint32_t exit_cpu=cpu_current_index();
         process_request_blocked_reschedule(exit_cpu);
+        __asm__ volatile("pushl %0; popfl" : : "r"(exit_flags) : "memory","cc");
         process_kick_cpu(exit_cpu);
         return;
     }
@@ -2215,6 +2220,7 @@ void process_exit_current(uint32_t code){
        acquire process_lock; mirror the non-returning kernel-thread exit path. */
     uint32_t exit_cpu=cpu_current_index();
     process_request_blocked_reschedule(exit_cpu);
+    __asm__ volatile("pushl %0; popfl" : : "r"(exit_flags) : "memory","cc");
     process_kick_cpu(exit_cpu);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
     process_diag_status33("PROCESS-EXIT-STATUS",diagnostic_pid,
