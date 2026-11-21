@@ -2796,11 +2796,7 @@ int process_scheduler_execution_guard_finish(void){
         if(cpu>=online){
             if(current){
                 result=-1;
-                if(bad_cpu==LIONOS_MAX_CPUS){
-                    bad_cpu=cpu;
-                    bad_state=current->state;
-                    bad_owner=current->cpu_owner;
-                }
+                if(bad_cpu==LIONOS_MAX_CPUS)bad_cpu=cpu;
             }
             continue;
         }
@@ -2841,11 +2837,7 @@ int process_scheduler_execution_guard_finish(void){
             }
         }else{
             result=-1;
-            if(bad_cpu==LIONOS_MAX_CPUS){
-                bad_cpu=cpu;
-                bad_state=current->state;
-                bad_owner=current->cpu_owner;
-            }
+            if(bad_cpu==LIONOS_MAX_CPUS)bad_cpu=cpu;
         }
     }
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
