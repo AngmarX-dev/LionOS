@@ -2774,25 +2774,98 @@ int process_scheduler_execution_guard_enable(void){
 int process_scheduler_execution_guard_finish(void){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     int result=0;
+    uint32_t bad_cpu=LIONOS_MAX_CPUS;
+    uint32_t bad_state=0xFFFFFFFFu;
+    uint32_t bad_owner=0xFFFFFFFFu;
+    uint32_t online=smp_online_count();
+    uint32_t expected[LIONOS_PROCESS_MAX]={0u};
+    if(online==0u||online>LIONOS_MAX_CPUS)online=1u;
     if(__atomic_load_n(&scheduler_execution_guard_enabled,__ATOMIC_ACQUIRE)==0u)
         result=-1;
     if(__atomic_load_n(&scheduler_execution_guard_fault,__ATOMIC_ACQUIRE)!=0u)
         result=-1;
-    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
-        struct process *process=&processes[i];
-        uint32_t expected_owner=0u;
-        for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
-            if(current_cpu_load(cpu)!=process)continue;
-            if(expected_owner!=0u){result=-1;break;}
-            expected_owner=cpu+1u;
+
+    /*
+     * The execution token alone proves uniqueness, not that the current
+     * context is runnable. Audit every online CPU's current pointer as well:
+     * process contexts must be RUNNING and owned by that CPU; AP idle contexts
+     * must be the CPU-local idle object and remain RUNNING.
+     */
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
+        struct process *current=current_cpu_load(cpu);
+        if(cpu>=online){
+            if(current){
+                result=-1;
+                if(bad_cpu==LIONOS_MAX_CPUS){
+                    bad_cpu=cpu;
+                    bad_state=current->state;
+                    bad_owner=current->cpu_owner;
+                }
+            }
+            continue;
         }
+        if(!current){
+            result=-1;
+            if(bad_cpu==LIONOS_MAX_CPUS)bad_cpu=cpu;
+            continue;
+        }
+        uint32_t index;
+        if(process_slot_index(current,&index)==0){
+            if(expected[index]!=0u){
+                result=-1;
+                if(bad_cpu==LIONOS_MAX_CPUS){
+                    bad_cpu=cpu;
+                    bad_state=current->state;
+                    bad_owner=current->cpu_owner;
+                }
+            }else{
+                expected[index]=cpu+1u;
+            }
+            if(current->state!=PROCESS_RUNNING||current->cpu_owner!=cpu){
+                result=-1;
+                if(bad_cpu==LIONOS_MAX_CPUS){
+                    bad_cpu=cpu;
+                    bad_state=current->state;
+                    bad_owner=current->cpu_owner;
+                }
+            }
+        }else if(cpu!=0u&&current==&scheduler_idle_processes[cpu]){
+            if((scheduler_idle_ready_mask&(1u<<cpu))==0u||
+               current->state!=PROCESS_RUNNING||current->cpu_owner!=cpu){
+                result=-1;
+                if(bad_cpu==LIONOS_MAX_CPUS){
+                    bad_cpu=cpu;
+                    bad_state=current->state;
+                    bad_owner=current->cpu_owner;
+                }
+            }
+        }else{
+            result=-1;
+            if(bad_cpu==LIONOS_MAX_CPUS){
+                bad_cpu=cpu;
+                bad_state=current->state;
+                bad_owner=current->cpu_owner;
+            }
+        }
+    }
+    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
         if(__atomic_load_n(&scheduler_execution_cpu[i],__ATOMIC_ACQUIRE)!=
-           expected_owner)result=-1;
+           expected[i])result=-1;
     }
     __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELEASE);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)
         __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
     spinlock_irqrestore_release(&process_lock,flags);
+
+    if(bad_cpu!=LIONOS_MAX_CPUS){
+        debug_write("LIONOS:SMP-EXECUTION-CURRENT-STATE-FAIL cpu=");
+        process_scheduler_ap_probe_diag_hex(bad_cpu);
+        debug_write(" state=");
+        process_scheduler_ap_probe_diag_hex(bad_state);
+        debug_write(" owner=");
+        process_scheduler_ap_probe_diag_hex(bad_owner);
+        debug_write("\n");
+    }
     return result;
 }
 
