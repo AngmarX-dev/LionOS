@@ -2216,17 +2216,16 @@ void process_exit_current(uint32_t code){
     wake_waiting_parent(c);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
-    /* A zombie must leave the CPU even if a concurrent scheduler tick cannot
-       acquire process_lock; mirror the non-returning kernel-thread exit path. */
-    uint32_t exit_cpu=cpu_current_index();
-    process_request_blocked_reschedule(exit_cpu);
-    __asm__ volatile("pushl %0; popfl" : : "r"(exit_flags) : "memory","cc");
-    process_kick_cpu(exit_cpu);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
     process_diag_status33("PROCESS-EXIT-STATUS",diagnostic_pid,
                           diagnostic_parent_pid,code);
     process_release_tty_if_session_empty(exiting_sid);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\n");
+    /* Publish the non-runnable handoff only after all exit cleanup is done. */
+    uint32_t exit_cpu=cpu_current_index();
+    process_request_blocked_reschedule(exit_cpu);
+    __asm__ volatile("pushl %0; popfl" : : "r"(exit_flags) : "memory","cc");
+    process_kick_cpu(exit_cpu);
 }
 static struct process*find_pid(uint32_t pid){for(uint32_t i=0;i<LIONOS_PROCESS_MAX;++i)if(processes[i].state!=PROCESS_UNUSED&&processes[i].pid==pid)return &processes[i];return 0;}
 int process_is_descendant_or_child(uint32_t pid,uint32_t ancestor_pid){uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*p=find_pid(pid);if(!p||!ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 0;}if(p->parent_pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}for(uint32_t d=0;d<LIONOS_PROCESS_MAX&&p->parent_pid;++d){p=find_pid(p->parent_pid);if(!p)break;if(p->pid==ancestor_pid){spinlock_irqrestore_release(&process_lock,flags);return 1;}}spinlock_irqrestore_release(&process_lock,flags);return 0;}
