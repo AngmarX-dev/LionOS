@@ -348,6 +348,7 @@ static uint32_t integration_busy_balance_before[LIONOS_MAX_CPUS];
 static uint32_t integration_busy_balance_start_tick;
 static uint32_t integration_busy_balance_moved;
 static uint32_t integration_busy_balance_moved_mask;
+static uint32_t integration_busy_balance_owner_mask;
 static uint32_t integration_busy_balance_failed;
 /*
  * Run the full process lifecycle regression from an AP-owned kernel thread.
@@ -1227,6 +1228,7 @@ void lionos_user_integration_step(void){
         integration_busy_balance_failed=0u;
         integration_busy_balance_moved=0u;
         integration_busy_balance_moved_mask=0u;
+        integration_busy_balance_owner_mask=0u;
         integration_busy_balance_start_tick=process_scheduler_ticks(0u);
         for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
             __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
@@ -1349,9 +1351,14 @@ void lionos_user_integration_step(void){
                    process_get_migration_info(pid,&owner,&migrations)!=0){
                     integration_busy_balance_failed=1u;
                 }else if(i<INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT){
-                    if(migrations==1u&&owner>0u&&owner<online&&
+                    if(migrations>1u||
+                       (migrations==0u&&owner!=0u)||
+                       (migrations==1u&&(owner==0u||owner>=online))){
+                        integration_busy_balance_failed=1u;
+                    }else if(migrations==1u&&
                        (integration_busy_balance_moved_mask&(1u<<i))==0u){
                         integration_busy_balance_moved_mask|=1u<<i;
+                        integration_busy_balance_owner_mask|=1u<<owner;
                         ++integration_busy_balance_moved;
                     }
                 }else if(owner!=0u||migrations!=0u){
@@ -1425,7 +1432,8 @@ void lionos_user_integration_step(void){
                 if((current-integration_busy_balance_before[cpu])!=0u)
                     busy_mask|=1u<<cpu;
             }
-            if(busy_mask==0u||integration_busy_balance_moved==0u)
+            if(busy_mask==0u||integration_busy_balance_moved==0u||
+               (busy_mask&integration_busy_balance_owner_mask)==0u)
                 integration_busy_balance_failed=1u;
             int guard_ok=process_scheduler_execution_guard_finish()==0;
             if(!guard_ok)integration_busy_balance_failed=1u;
