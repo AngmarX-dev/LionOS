@@ -2848,8 +2848,14 @@ int process_scheduler_execution_guard_finish(void){
     if(online==0u||online>LIONOS_MAX_CPUS)online=1u;
     if(__atomic_load_n(&scheduler_execution_guard_enabled,__ATOMIC_ACQUIRE)==0u)
         result=-1;
-    if(__atomic_load_n(&scheduler_execution_guard_fault,__ATOMIC_ACQUIRE)!=0u)
+    uint32_t guard_fault=__atomic_load_n(
+        &scheduler_execution_guard_fault,__ATOMIC_ACQUIRE);
+    if(guard_fault!=0u){
         result=-1;
+        debug_write("LIONOS:SMP-EXECUTION-GUARD-FAULT value=");
+        process_scheduler_ap_probe_diag_hex(guard_fault);
+        debug_write("\\n");
+    }
 
     /*
      * The execution token alone proves uniqueness, not that the current
@@ -2907,8 +2913,24 @@ int process_scheduler_execution_guard_finish(void){
         }
     }
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
-        if(__atomic_load_n(&scheduler_execution_cpu[i],__ATOMIC_ACQUIRE)!=
-           expected[i])result=-1;
+        uint32_t actual=__atomic_load_n(&scheduler_execution_cpu[i],
+                                        __ATOMIC_ACQUIRE);
+        if(actual!=expected[i]){
+            result=-1;
+            debug_write("LIONOS:SMP-EXECUTION-GUARD-TOKEN-FAIL slot=");
+            process_scheduler_ap_probe_diag_hex(i);
+            debug_write(" pid=");
+            process_scheduler_ap_probe_diag_hex(processes[i].pid);
+            debug_write(" state=");
+            process_scheduler_ap_probe_diag_hex(processes[i].state);
+            debug_write(" owner=");
+            process_scheduler_ap_probe_diag_hex(processes[i].cpu_owner);
+            debug_write(" expected=");
+            process_scheduler_ap_probe_diag_hex(expected[i]);
+            debug_write(" actual=");
+            process_scheduler_ap_probe_diag_hex(actual);
+            debug_write("\\n");
+        }
     }
     __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELEASE);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)
