@@ -13,7 +13,7 @@ enqueue exactly once; transitions away from READY dequeue before publishing the
 new state; scheduler selection removes the highest-priority head. The global
 `process_lock` remains in place and is always acquired before a queue lock.
 The timer scheduler uses a non-blocking try-acquire for its local queue selection.
-The scheduler may steal one explicitly opted-in READY user process when its local queue is empty; ordinary processes are not migratable by default, and the initial policy permits at most one migration per process.
+The scheduler may steal one explicitly opted-in READY user process when its local queue is empty, or move one eligible READY process from a sufficiently heavier victim queue after selecting a local task. Busy-destination balancing requires a victim backlog at least two tasks larger than the destination's remaining queue. Ordinary processes are not migratable by default, and the policy permits at most one migration per process.
 
 Host tests cover queue invariants, FIFO/priority ordering, destination-lane FIFO
 append semantics across multiple READY-task priority changes, and concurrent lock
@@ -34,8 +34,8 @@ The current scheduler has these relevant properties:
 - `process_schedule()` disables local interrupts and uses `spinlock_try_acquire()` on `process_lock`. If another CPU owns the lock, the timer scheduling attempt is dropped rather than spinning in interrupt context.
 - Each CPU has a small scheduler state record (scan cursor, schedule count, steal count, and timer ticks). The local timer count advances atomically before the timeout scan tries `process_lock`, so lock contention may defer a scan but cannot discard elapsed local ticks or indefinitely postpone an AP-local timeout.
 - Runnable selection dequeues from the current CPU's highest-priority non-empty FIFO run-queue lane; process-table scans are retained only for lifecycle and relationship operations.
-- New processes and threads are initially assigned to the creating CPU. An idle CPU may steal an explicitly opted-in READY user process once; ordinary processes remain pinned by default, as do kernel threads, user threads, and process leaders with unreaped sibling threads.
-- APs complete CPU-local initialization and receive a dedicated kernel idle context during `process_init()`. Their Local APIC timer enters `process_schedule()`, which switches an AP with no current task into that idle context. APs can receive explicitly opted-in READY user processes through the restricted one-time work-stealing path; ordinary processes and other task types remain pinned by default.
+- New processes and threads are initially assigned to the creating CPU. An idle CPU may steal an explicitly opted-in READY user process once; a busy CPU may receive one eligible READY process when a victim has at least two more queued tasks than its remaining local backlog. Ordinary processes remain pinned by default, as do kernel threads, user threads, and process leaders with unreaped sibling threads.
+- APs complete CPU-local initialization and receive a dedicated kernel idle context during `process_init()`. Their Local APIC timer enters `process_schedule()`, which switches an AP with no current task into that idle context. APs can receive explicitly opted-in READY user processes through idle stealing or bounded busy-queue balancing; ordinary processes and other task types remain pinned by default.
 - Process state transitions, wakeups, creation, exit, reaping, and priority changes are currently serialized by `process_lock`.
 
 Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue contains a READY task. The per-CPU scan cursor remains only as diagnostic/compatibility state; it no longer selects runnable tasks.
@@ -59,7 +59,7 @@ Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue con
 - Do not change xHCI, interrupt routing, or unrelated driver code.
 
 
-## Next stage: general load-balancing design (not yet implemented)
+## Bounded general load-balancing policy (implemented; acceptance remains partial)
 
 The current one-time, empty-queue steal path is a correctness baseline, not a
 general load balancer. The next implementation must not silently broaden the
@@ -101,7 +101,7 @@ Concrete policy for the first implementation:
 - Transfer at most one node per scheduler invocation. A successful move updates the node's owner and one-time migration count only after the queue primitive succeeds. The selected local task continues to run; a newly transferred task remains queued for a later scheduling decision unless the destination was idle and had no selected task.
 - If the destination was idle, select the newly transferred task only after reacquiring its local queue lock. If the lock cannot be reacquired, leave the READY task queued, request a later reschedule, and enter the normal CPU-local idle fallback rather than returning a READY task's stale frame.
 
-This deliberately distinguishes *idle stealing* from *backlog balancing*: the former has a one-task progress threshold, while the latter requires a two-task skew. The policy is bounded, avoids moving work on every equal-load tick, and leaves the existing one-migration eligibility guard intact.
+This deliberately distinguishes *idle stealing* from *backlog balancing*: the former has a one-task progress threshold, while the latter requires a two-task skew. The scheduler implementation now applies this policy, avoids moving work on every equal-load tick, and leaves the existing one-migration eligibility guard intact. The host unit test covers the threshold helper and arithmetic boundaries; it does not yet prove end-to-end busy-to-busy transfer or simultaneous scheduler contention.
 
 Acceptance tests for that increment must cover deterministic skewed queue
 populations on 2/4/8/16 CPUs, no transfer below the threshold, successful
@@ -183,7 +183,7 @@ Queue mutation must be centralized. Direct writes to `PROCESS_READY` outside the
 - `runqueue_pick_next_locked(queue, nodes, capacity, index)`: removes the head of the highest-priority non-empty lane.
 - `runqueue_move_locked(source, destination, nodes, capacity, index)`: transfers one READY node between distinct CPU queues. It requires both queue locks, preserves priority, appends to the destination lane tail, and rejects malformed queues or invalid ownership without modifying either queue.
 
-The process layer always acquires `process_lock` before queue locks. The primitive is used by the scheduler's initial work-stealing path. The QEMU acceptance test transfers independent READY user processes created on CPU 0 to AP queues and verifies their execution/reaping while a non-opted-in control process remains pinned. The expanded topology-aware scenario (up to four migratable READY user processes, capped by online AP count, plus one pinned process) passed Build, Phase 26, and xHCI CI on exact commit `b8829f4a7ea2d919e24b4d9d5f6c6bdb1f646452`. A three-round repeat of that bounded batch is being added to stress repeated queue transfer and process retirement; each individual process still migrates at most once. The policy excludes current tasks, kernel threads, user threads, and process groups with unreaped sibling threads. This is not general process/thread migration or sustained load balancing; those remain outstanding.
+The process layer always acquires `process_lock` before queue locks. The transfer primitive is used by both idle stealing and bounded busy-queue balancing. The QEMU acceptance test transfers independent READY user processes created on CPU 0 to AP queues and verifies their execution/reaping while a non-opted-in control process remains pinned. The expanded topology-aware scenario (up to four migratable READY user processes, capped by online AP count, plus one pinned process) passed Build, Phase 26, and xHCI CI on exact commit `b8829f4a7ea2d919e24b4d9d5f6c6bdb1f646452`. A three-round repeat of that bounded batch is being added to stress repeated queue transfer and process retirement; each individual process still migrates at most once. The policy excludes current tasks, kernel threads, user threads, and process groups with unreaped sibling threads. This is not general process/thread migration or sustained load balancing; those remain outstanding.
 
 ## CPU selection policy
 
@@ -216,7 +216,8 @@ The remaining prerequisites are:
 - Safe task exit/reap on APs, including deferred reclamation only after a task stack is no longer current on any CPU.
 - The QEMU migration regression now enables a test-only atomic per-process execution-owner guard. A running task owns one CPU token from dispatch until the next scheduling decision; the outgoing token is released only after acquiring `process_lock`, and the selected task claims its token before that lock is released. The final audit compares every token with `current_by_cpu[]`, rejects duplicate CPU ownership, and verifies that each online CPU points either to a RUNNING process owned by that CPU or to its own RUNNING idle context. This catches stale current pointers that still reference WAITING, READY, STOPPED, or ZOMBIE tasks. This directly checks the no-double-dispatch invariant during the migration workload; longer-duration kernel scheduler contention remains outstanding.
 - Explicit queue membership and synchronized enqueue/dequeue before any task migration.
-- A tested two-queue transfer primitive with fixed CPU-index lock ordering; restricted user-process migration is integrated, while broader process/thread migration remains outstanding.
+- Bounded busy-destination balancing is integrated after local task selection; the local selected task remains running while at most one eligible READY process is transferred into the destination backlog.
+- A tested two-queue transfer primitive with fixed CPU-index lock ordering; restricted user-process migration and bounded busy-queue balancing are integrated, while runtime acceptance of busy-to-busy transfers and broader process/thread migration remain outstanding.
 
 Until the broader prerequisites pass, only the restricted one-time READY user-process stealing path is enabled for explicitly opted-in processes; ordinary processes, kernel threads, user threads, and process groups with unreaped sibling threads remain pinned by default.
 
