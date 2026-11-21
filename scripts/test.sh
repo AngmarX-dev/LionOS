@@ -60,6 +60,10 @@ run_qemu() {
             echo "scheduler run-queue invariant failure detected: $log_file" >&2
             return 1
         fi
+        if grep -q 'LIONOS:SMP-EXECUTION-CURRENT-STATE-FAIL' "$log_file"; then
+            echo "scheduler current-context state/owner invariant failure detected: $log_file" >&2
+            return 1
+        fi
         if grep -q 'LIONOS:SMP-AP-USER-FORK-WAITPID-FAIL' "$log_file"; then
             echo "AP-local user-process fork/waitpid regression failed: $log_file" >&2
             return 1
