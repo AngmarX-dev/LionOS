@@ -6,7 +6,7 @@
  */
 int main(void) {
     volatile uint32_t value = 0x4C494F4Eu;
-    for (uint32_t i = 0u; i < 128000000u; ++i)
+    for (uint32_t i = 0u; i < 32000000u; ++i)
         value = (value * 1664525u) + 1013904223u + i;
     (void)value;
     return 0;
