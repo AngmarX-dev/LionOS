@@ -338,6 +338,16 @@ static uint32_t integration_migration_failed;
 static uint32_t integration_migration_owner_mask;
 static volatile uint32_t integration_ap_user_pid;
 static volatile uint32_t integration_ap_user_status;
+#define INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT 3u
+#define INTEGRATION_BUSY_BALANCE_PROCESS_COUNT 4u
+static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_COUNT];
+static volatile uint32_t integration_busy_worker_pids[LIONOS_MAX_CPUS];
+static volatile uint32_t integration_busy_worker_status[LIONOS_MAX_CPUS];
+static uint32_t integration_busy_worker_launch_mask;
+static uint32_t integration_busy_balance_before[LIONOS_MAX_CPUS];
+static uint32_t integration_busy_balance_start_tick;
+static uint32_t integration_busy_balance_moved;
+static uint32_t integration_busy_balance_failed;
 /*
  * Run the full process lifecycle regression from an AP-owned kernel thread.
  * exec_run_file() creates the user process on the caller's CPU; the AP-local
@@ -355,6 +365,30 @@ static void integration_ap_user_launch_worker(uint32_t expected_cpu){
     }
     __atomic_store_n(&integration_ap_user_pid,(uint32_t)pid,__ATOMIC_RELAXED);
     __atomic_store_n(&integration_ap_user_status,1u,__ATOMIC_RELEASE);
+}
+/*
+ * Start a bounded, non-yielding user workload on each AP. Its timer
+ * preemptions keep the destination non-idle while the BSP publishes READY
+ * migration candidates into CPU 0's queue.
+ */
+static void integration_ap_busy_balance_launch_worker(uint32_t expected_cpu){
+    if(expected_cpu==0u||expected_cpu>=LIONOS_MAX_CPUS)
+        return;
+    if(cpu_current_index()!=expected_cpu){
+        __atomic_store_n(&integration_busy_worker_status[expected_cpu],2u,
+                         __ATOMIC_RELEASE);
+        return;
+    }
+    int32_t pid=exec_run_file("busy_balance_test.elf");
+    if(pid<=0){
+        __atomic_store_n(&integration_busy_worker_status[expected_cpu],3u,
+                         __ATOMIC_RELEASE);
+        return;
+    }
+    __atomic_store_n(&integration_busy_worker_pids[expected_cpu],
+                     (uint32_t)pid,__ATOMIC_RELAXED);
+    __atomic_store_n(&integration_busy_worker_status[expected_cpu],1u,
+                     __ATOMIC_RELEASE);
 }
 static void debug_write_u32_hex(uint32_t value){
     static const char digits[]="0123456789ABCDEF";
@@ -1160,9 +1194,251 @@ void lionos_user_integration_step(void){
                 }else{
                     debug_write("LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK\n");
                     debug_write("LIONOS:SMP-WORK-STEAL-USER-PROCESS-OK\n");
-                    integration_done=1;
+                    integration_stage=26;
                 }
             }
+        }
+        return;
+    }
+
+    /*
+     * Separate production-path busy-destination acceptance. First keep every
+     * AP occupied with a pinned user workload, then publish three eligible
+     * READY processes on CPU 0. Successful busy transfers are counted by the
+     * production scheduler, not simulated by the host queue test.
+     */
+    if(integration_stage==26){
+        uint32_t online=smp_online_count();
+        if(online<=1u){
+            debug_write("LIONOS:SMP-BUSY-BALANCE-SKIP\n");
+            integration_done=1;
+            return;
+        }
+        if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+        if(process_scheduler_execution_guard_enable()!=0){
+            (void)process_scheduler_execution_guard_finish();
+            integration_done=1;
+            debug_write("LIONOS:SMP-BUSY-BALANCE-GUARD-FAIL\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            return;
+        }
+        integration_busy_worker_launch_mask=0u;
+        integration_busy_balance_failed=0u;
+        integration_busy_balance_moved=0u;
+        integration_busy_balance_start_tick=process_scheduler_ticks(0u);
+        for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
+            __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
+                             __ATOMIC_RELAXED);
+            __atomic_store_n(&integration_busy_worker_status[cpu],0u,
+                             __ATOMIC_RELAXED);
+            integration_busy_balance_before[cpu]=
+                process_scheduler_busy_balances(cpu);
+        }
+        for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i)
+            integration_busy_balance_pids[i]=0u;
+
+        for(uint32_t cpu=1u;cpu<online;++cpu){
+            if(!process_create_kernel_thread_on_cpu(
+                    (uint32_t)(uintptr_t)&integration_ap_busy_balance_launch_worker,
+                    cpu,cpu)){
+                integration_busy_balance_failed=1u;
+                continue;
+            }
+            integration_busy_worker_launch_mask|=1u<<cpu;
+        }
+        if(integration_busy_worker_launch_mask==0u)
+            integration_busy_balance_failed=1u;
+        integration_stage=27;
+        return;
+    }
+
+    if(integration_stage==27){
+        uint32_t online=smp_online_count();
+        uint32_t active_mask=0u;
+        uint32_t pending=0u;
+        if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+        for(uint32_t cpu=1u;cpu<online;++cpu){
+            uint32_t bit=1u<<cpu;
+            if((integration_busy_worker_launch_mask&bit)==0u)continue;
+            uint32_t status=__atomic_load_n(
+                &integration_busy_worker_status[cpu],__ATOMIC_ACQUIRE);
+            if(status==0u){
+                pending=1u;
+                continue;
+            }
+            if(status!=1u){
+                integration_busy_balance_failed=1u;
+                continue;
+            }
+            uint32_t pid=__atomic_load_n(
+                &integration_busy_worker_pids[cpu],__ATOMIC_ACQUIRE);
+            uint32_t owner=LIONOS_MAX_CPUS;
+            uint32_t migrations=0xFFFFFFFFu;
+            int32_t state=pid?process_get_state(pid):-1;
+            if(!pid||process_get_migration_info(pid,&owner,&migrations)!=0){
+                integration_busy_balance_failed=1u;
+            }else if(state==PROCESS_RUNNING&&owner==cpu&&migrations==0u){
+                active_mask|=bit;
+            }else if(state==PROCESS_ZOMBIE||state<0){
+                integration_busy_balance_failed=1u;
+            }else{
+                pending=1u;
+            }
+        }
+
+        if(integration_busy_balance_failed||
+           (process_scheduler_ticks(0u)-integration_busy_balance_start_tick)>
+                3000u){
+            integration_busy_balance_failed=1u;
+            integration_stage=28;
+            return;
+        }
+        if(pending||active_mask!=integration_busy_worker_launch_mask)
+            return;
+
+        uint32_t launch_flags=0u;
+        __asm__ volatile("pushfl; popl %0; cli"
+                         : "=r"(launch_flags) : : "memory");
+        uint32_t created=0u;
+        for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i){
+            int pid=exec_run_file("migration_test.elf");
+            if(pid<=0){
+                integration_busy_balance_failed=1u;
+                break;
+            }
+            integration_busy_balance_pids[i]=(uint32_t)pid;
+            ++created;
+        }
+        if(created==INTEGRATION_BUSY_BALANCE_PROCESS_COUNT){
+            uint32_t eligible[INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT];
+            for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT;++i)
+                eligible[i]=integration_busy_balance_pids[i];
+            if(process_set_migration_eligible_batch(
+                    eligible,INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT)!=0)
+                integration_busy_balance_failed=1u;
+        }else{
+            integration_busy_balance_failed=1u;
+        }
+        __asm__ volatile("pushl %0; popfl"
+                         : : "r"(launch_flags) : "memory","cc");
+        for(uint32_t cpu=1u;cpu<online;++cpu)
+            process_request_reschedule_cpu(cpu);
+        integration_stage=28;
+        return;
+    }
+
+    if(integration_stage==28){
+        uint32_t online=smp_online_count();
+        uint32_t pending=0u;
+        if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+        if((process_scheduler_ticks(0u)-
+            integration_busy_balance_start_tick)>10000u)
+            integration_busy_balance_failed=1u;
+
+        for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i){
+            uint32_t pid=integration_busy_balance_pids[i];
+            if(!pid)continue;
+            int32_t state=process_get_state(pid);
+            if(state==PROCESS_ZOMBIE){
+                uint32_t code=0xFFFFFFFFu;
+                uint32_t owner=LIONOS_MAX_CPUS;
+                uint32_t migrations=0xFFFFFFFFu;
+                if(process_get_exit_code(pid,&code)!=0||code!=0u||
+                   process_get_migration_info(pid,&owner,&migrations)!=0){
+                    integration_busy_balance_failed=1u;
+                }else if(i<INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT){
+                    if(migrations==1u&&owner>0u&&owner<online)
+                        ++integration_busy_balance_moved;
+                }else if(owner!=0u||migrations!=0u){
+                    integration_busy_balance_failed=1u;
+                }
+                int reap=process_reap_pid(pid);
+                if(reap==1){
+                    pending=1u;
+                }else if(reap!=0){
+                    integration_busy_balance_failed=1u;
+                    integration_busy_balance_pids[i]=0u;
+                }else{
+                    integration_busy_balance_pids[i]=0u;
+                }
+            }else if(state<0){
+                integration_busy_balance_failed=1u;
+                integration_busy_balance_pids[i]=0u;
+            }else{
+                pending=1u;
+            }
+        }
+
+        for(uint32_t cpu=1u;cpu<online;++cpu){
+            if((integration_busy_worker_launch_mask&(1u<<cpu))==0u)
+                continue;
+            uint32_t status=__atomic_load_n(
+                &integration_busy_worker_status[cpu],__ATOMIC_ACQUIRE);
+            uint32_t pid=__atomic_load_n(
+                &integration_busy_worker_pids[cpu],__ATOMIC_ACQUIRE);
+            if(status!=1u||!pid){
+                if(status==0u){
+                    pending=1u;
+                }else{
+                    integration_busy_balance_failed=1u;
+                }
+                continue;
+            }
+            int32_t state=process_get_state(pid);
+            if(state==PROCESS_ZOMBIE){
+                uint32_t code=0xFFFFFFFFu;
+                uint32_t owner=LIONOS_MAX_CPUS;
+                uint32_t migrations=0xFFFFFFFFu;
+                if(process_get_exit_code(pid,&code)!=0||code!=0u||
+                   process_get_migration_info(pid,&owner,&migrations)!=0||
+                   owner!=cpu||migrations!=0u)
+                    integration_busy_balance_failed=1u;
+                int reap=process_reap_pid(pid);
+                if(reap==1){
+                    pending=1u;
+                }else if(reap!=0){
+                    integration_busy_balance_failed=1u;
+                    __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
+                                     __ATOMIC_RELEASE);
+                }else{
+                    __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
+                                     __ATOMIC_RELEASE);
+                }
+            }else if(state<0){
+                integration_busy_balance_failed=1u;
+                __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
+                                 __ATOMIC_RELEASE);
+            }else{
+                pending=1u;
+            }
+        }
+
+        if(!pending){
+            uint32_t busy_mask=0u;
+            for(uint32_t cpu=1u;cpu<online;++cpu){
+                uint32_t current=process_scheduler_busy_balances(cpu);
+                if((current-integration_busy_balance_before[cpu])!=0u)
+                    busy_mask|=1u<<cpu;
+            }
+            if(busy_mask==0u||integration_busy_balance_moved==0u)
+                integration_busy_balance_failed=1u;
+            int guard_ok=process_scheduler_execution_guard_finish()==0;
+            if(!guard_ok)integration_busy_balance_failed=1u;
+            if(integration_busy_balance_failed==0u){
+                debug_write("LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-OK mask=");
+                debug_write_u32_hex(busy_mask);
+                debug_write(" moved=");
+                debug_write_u32_hex(integration_busy_balance_moved);
+                debug_write("\n");
+            }else{
+                debug_write("LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-FAIL mask=");
+                debug_write_u32_hex(busy_mask);
+                debug_write(" moved=");
+                debug_write_u32_hex(integration_busy_balance_moved);
+                debug_write("\n");
+                debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
+            }
+            integration_done=1;
         }
         return;
     }
