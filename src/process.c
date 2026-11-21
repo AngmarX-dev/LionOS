@@ -2211,7 +2211,11 @@ void process_exit_current(uint32_t code){
     wake_waiting_parent(c);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
-    process_request_reschedule();
+    /* A zombie must leave the CPU even if a concurrent scheduler tick cannot
+       acquire process_lock; mirror the non-returning kernel-thread exit path. */
+    uint32_t exit_cpu=cpu_current_index();
+    process_request_blocked_reschedule(exit_cpu);
+    process_kick_cpu(exit_cpu);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
     process_diag_status33("PROCESS-EXIT-STATUS",diagnostic_pid,
                           diagnostic_parent_pid,code);
