@@ -64,7 +64,7 @@ A passing CI run alone does not guarantee operation on every physical hardware c
 | Complete interrupt routing across diverse hardware | ⬜ |
 | Lazy FPU | ⬜ |
 
-**SMP limitation:** AP startup and per-CPU infrastructure are present. However, the scheduler should not yet be considered a fully concurrent scheduler with unrestricted process migration across all CPUs. Work-stealing and safe task migration are not complete.
+**SMP limitation:** AP startup and per-CPU infrastructure are present. The scheduler currently supports a restricted migration path for explicitly opted-in, independent READY user processes, with at most one migration per process, plus bounded busy-queue balancing. This is not unrestricted process or thread migration, and runtime busy-to-busy acceptance under simultaneous stealers and queue-lock contention remains pending.
 
 ### Memory Management
 
