@@ -369,8 +369,8 @@ static void integration_ap_user_launch_worker(uint32_t expected_cpu){
     __atomic_store_n(&integration_ap_user_status,1u,__ATOMIC_RELEASE);
 }
 /*
- * Start a bounded CPU-bound user workload on each AP. Its timer
- * preemptions keep the destination non-idle while the BSP publishes READY
+ * Start a bounded CPU-bound user workload on each AP. Its timer preemptions and voluntary
+ * yields keep the destination non-idle while the BSP publishes READY
  * migration candidates into CPU 0's queue.
  */
 static void integration_ap_busy_balance_launch_worker(uint32_t expected_cpu){
