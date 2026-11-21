@@ -368,7 +368,7 @@ static void integration_ap_user_launch_worker(uint32_t expected_cpu){
     __atomic_store_n(&integration_ap_user_status,1u,__ATOMIC_RELEASE);
 }
 /*
- * Start a bounded, non-yielding user workload on each AP. Its timer
+ * Start a bounded CPU-bound user workload on each AP. Its timer
  * preemptions keep the destination non-idle while the BSP publishes READY
  * migration candidates into CPU 0's queue.
  */
@@ -1204,7 +1204,7 @@ void lionos_user_integration_step(void){
 
     /*
      * Separate production-path busy-destination acceptance. First keep every
-     * AP occupied with a pinned user workload, then publish three eligible
+     * AP running a pinned CPU-bound user workload, then publish three eligible
      * READY processes on CPU 0. Successful busy transfers are counted by the
      * production scheduler, not simulated by the host queue test.
      */
