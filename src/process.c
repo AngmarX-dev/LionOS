@@ -144,7 +144,7 @@ static volatile uint32_t scheduler_idle_entered_mask;
 static volatile uint32_t scheduler_idle_reported;
 static uint32_t scheduler_idle_ready_mask;
 static uint32_t scheduler_idle_expected_mask;
-struct scheduler_cpu_state{uint32_t cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t timer_ticks;};
+struct scheduler_cpu_state{uint32_t cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t busy_balance_count;uint32_t timer_ticks;};
 static struct scheduler_cpu_state scheduler_cpu[LIONOS_MAX_CPUS];
 static uint32_t next_pid;
 static uint32_t next_tid;
@@ -483,6 +483,9 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked,
         }
         __atomic_fetch_add(&scheduler_cpu[cpu].steal_count,1u,
                            __ATOMIC_RELAXED);
+        if(!idle_destination)
+            __atomic_fetch_add(&scheduler_cpu[cpu].busy_balance_count,1u,
+                               __ATOMIC_RELAXED);
         /* For a busy destination, leave the moved READY task queued. */
         if(idle_destination)*picked=selected;
         return 1;
@@ -2800,6 +2803,11 @@ uint32_t process_scheduler_ticks(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?schedu
 uint32_t process_scheduler_steals(uint32_t cpu){
     return cpu<LIONOS_MAX_CPUS
         ? __atomic_load_n(&scheduler_cpu[cpu].steal_count,__ATOMIC_ACQUIRE)
+        : 0u;
+}
+uint32_t process_scheduler_busy_balances(uint32_t cpu){
+    return cpu<LIONOS_MAX_CPUS
+        ? __atomic_load_n(&scheduler_cpu[cpu].busy_balance_count,__ATOMIC_ACQUIRE)
         : 0u;
 }
 
