@@ -80,6 +80,7 @@ run_qemu() {
         return 1
     fi
     if [ "$cpu_count" -gt 1 ]; then
+        grep -q 'LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK' "$log_file"
         for cpu in $(seq 0 $((cpu_count - 1))); do
             if ! grep -q "LIONOS:IRQ-CPU cpu=$cpu " "$log_file"; then
                 echo "per-CPU interrupt statistics missing for online CPU $cpu: $log_file" >&2
