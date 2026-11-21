@@ -857,7 +857,17 @@ void lionos_user_integration_step(void){
         if(state == PROCESS_ZOMBIE){
             uint32_t code = 0xFFFFFFFFu;
             int ok = process_get_exit_code(pid, &code) == 0 && code == 0u;
-            if(process_reap_pid(pid) != 0) ok = 0;
+            if(ok){
+                /*
+                 * process_reap_pid() returns 1 when this zombie is still
+                 * published as a CPU's current execution context. That is a
+                 * deferred-reap condition, not a test failure. Keep the PID
+                 * and retry from the next BSP integration step.
+                 */
+                int reap_result = process_reap_pid(pid);
+                if(reap_result == 1) return;
+                if(reap_result != 0) ok = 0;
+            }
             if(ok){
                 debug_write("LIONOS:SMP-AP-USER-FORK-WAITPID-OK\n");
                 integration_stage = 24;
