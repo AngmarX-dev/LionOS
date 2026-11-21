@@ -2854,7 +2854,7 @@ int process_scheduler_execution_guard_finish(void){
         result=-1;
         debug_write("LIONOS:SMP-EXECUTION-GUARD-FAULT value=");
         process_scheduler_ap_probe_diag_hex(guard_fault);
-        debug_write("\\n");
+        debug_write("\n");
     }
 
     /*
@@ -2929,7 +2929,7 @@ int process_scheduler_execution_guard_finish(void){
             process_scheduler_ap_probe_diag_hex(expected[i]);
             debug_write(" actual=");
             process_scheduler_ap_probe_diag_hex(actual);
-            debug_write("\\n");
+            debug_write("\n");
         }
     }
     __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELEASE);
