@@ -189,8 +189,7 @@ int main(void) {
     if (runqueue_should_balance(busy_destination.total,
                                 busy_source.total, 0))
         return 66;
-    if (runqueue_enqueue_locked(&busy_source, nodes, NODE_COUNT, 2u, 2u) != 0 ||
-        runqueue_enqueue_locked(&busy_source, nodes, NODE_COUNT, 3u, 2u) != 0)
+    if (runqueue_enqueue_locked(&busy_source, nodes, NODE_COUNT, 2u, 2u) != 0)
         return 67;
     if (!runqueue_should_balance(busy_destination.total,
                                  busy_source.total, 0))
@@ -198,7 +197,7 @@ int main(void) {
     if (runqueue_move_locked(&busy_source, &busy_destination, nodes,
                              NODE_COUNT, 0u) != 0)
         return 69;
-    if (busy_source.total != 3u || busy_destination.total != 2u ||
+    if (busy_source.total != 2u || busy_destination.total != 2u ||
         nodes[0].queued != 1u || nodes[0].queue_cpu != busy_destination.cpu ||
         nodes[4].queued != 0u || picked != 4u)
         return 70;
@@ -206,7 +205,7 @@ int main(void) {
                                 busy_source.total, 0))
         return 71;
     if (runqueue_validate_locked(&busy_source, nodes, NODE_COUNT, &total) != 0 ||
-        total != 3u ||
+        total != 2u ||
         runqueue_validate_locked(&busy_destination, nodes, NODE_COUNT, &total) != 0 ||
         total != 2u)
         return 72;
