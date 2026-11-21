@@ -162,5 +162,67 @@ int main(void) {
     if (runqueue_should_balance(UINT32_MAX - 1u, UINT32_MAX, 0)) return 61;
     if (!runqueue_should_balance(UINT32_MAX - 2u, UINT32_MAX, 0)) return 62;
     if (runqueue_should_balance(0u, 1u, 2)) return 63;
+
+    /*
+     * Busy-to-busy queue acceptance: the destination has already selected
+     * one task (which must remain RUNNING and outside every queue). A source
+     * backlog skew of one must not move work; after the skew reaches two,
+     * exactly one READY node may move and the remaining skew must be below
+     * the threshold. This tests queue mechanics, not process eligibility or
+     * end-to-end SMP scheduling.
+     */
+    struct runqueue busy_source, busy_destination;
+    runqueue_init(&busy_source, 2u);
+    runqueue_init(&busy_destination, 3u);
+    busy_source.lock.value = 1u;
+    busy_destination.lock.value = 1u;
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+        runqueue_node_init(&nodes[i]);
+    if (runqueue_enqueue_locked(&busy_source, nodes, NODE_COUNT, 0u, 2u) != 0 ||
+        runqueue_enqueue_locked(&busy_source, nodes, NODE_COUNT, 1u, 2u) != 0 ||
+        runqueue_enqueue_locked(&busy_destination, nodes, NODE_COUNT, 4u, 2u) != 0 ||
+        runqueue_enqueue_locked(&busy_destination, nodes, NODE_COUNT, 5u, 2u) != 0)
+        return 64;
+    if (runqueue_pick_next_locked(&busy_destination, nodes, NODE_COUNT,
+                                  &picked) != 0 || picked != 4u)
+        return 65;
+    if (runqueue_should_balance(busy_destination.total,
+                                busy_source.total, 0))
+        return 66;
+    if (runqueue_enqueue_locked(&busy_source, nodes, NODE_COUNT, 2u, 2u) != 0 ||
+        runqueue_enqueue_locked(&busy_source, nodes, NODE_COUNT, 3u, 2u) != 0)
+        return 67;
+    if (!runqueue_should_balance(busy_destination.total,
+                                 busy_source.total, 0))
+        return 68;
+    if (runqueue_move_locked(&busy_source, &busy_destination, nodes,
+                             NODE_COUNT, 0u) != 0)
+        return 69;
+    if (busy_source.total != 3u || busy_destination.total != 2u ||
+        nodes[0].queued != 1u || nodes[0].queue_cpu != busy_destination.cpu ||
+        nodes[4].queued != 0u || picked != 4u)
+        return 70;
+    if (runqueue_should_balance(busy_destination.total,
+                                busy_source.total, 0))
+        return 71;
+    if (runqueue_validate_locked(&busy_source, nodes, NODE_COUNT, &total) != 0 ||
+        total != 3u ||
+        runqueue_validate_locked(&busy_destination, nodes, NODE_COUNT, &total) != 0 ||
+        total != 2u)
+        return 72;
+    uint32_t busy_memberships = 0u;
+    for (uint32_t cpu = 0u; cpu < 2u; ++cpu) {
+        struct runqueue *owner = cpu == 0u ? &busy_source : &busy_destination;
+        for (uint32_t priority = 0u;
+             priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+            uint32_t index = owner->head[priority];
+            while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
+                if (index == 0u) ++busy_memberships;
+                index = nodes[index].next;
+            }
+        }
+    }
+    if (busy_memberships != 1u)
+        return 73;
     return 0;
 }
