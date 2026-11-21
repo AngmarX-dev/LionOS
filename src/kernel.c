@@ -323,9 +323,11 @@ static int integration_utility_ok;
 static int integration_pipe_ok;
 static int integration_nx_ok;
 static int integration_process_ok;
-#define INTEGRATION_MIGRATION_ELIGIBLE_COUNT 4u
-#define INTEGRATION_MIGRATION_PROCESS_COUNT 5u
-static int integration_migration_pids[INTEGRATION_MIGRATION_PROCESS_COUNT] = {-1,-1,-1,-1,-1};
+#define INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT 4u
+#define INTEGRATION_MIGRATION_MAX_PROCESS_COUNT (INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT+1u)
+static int integration_migration_pids[INTEGRATION_MIGRATION_MAX_PROCESS_COUNT] = {-1,-1,-1,-1,-1};
+static uint32_t integration_migration_eligible_count;
+static uint32_t integration_migration_process_count;
 static uint32_t integration_migration_steals_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_ticks_before[LIONOS_MAX_CPUS];
 static uint32_t integration_migration_count;
@@ -872,9 +874,11 @@ void lionos_user_integration_step(void){
     }
 
     /*
-     * Launch four independent, explicitly migratable user processes and one
-     * ordinary process that must retain BSP affinity. The migration test ELF
-     * has no shared filesystem or console side effects between instances.
+     * Launch up to four independent, explicitly migratable user processes,
+     * bounded by the number of online APs, plus one ordinary process that
+     * must retain BSP affinity. This gives each AP one eligible task without
+     * incorrectly requiring a migratable task to leave the BSP when there
+     * are fewer APs than test processes. The test ELF has no shared side effects.
      */
     if(integration_stage == 24){
         uint32_t online=smp_online_count();
@@ -902,7 +906,14 @@ void lionos_user_integration_step(void){
             integration_migration_ticks_before[cpu]=
                 process_scheduler_ticks(cpu);
         }
-        for(uint32_t i=0u;i<INTEGRATION_MIGRATION_PROCESS_COUNT;++i)
+        integration_migration_eligible_count=online-1u;
+        if(integration_migration_eligible_count>
+           INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT)
+            integration_migration_eligible_count=
+                INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT;
+        integration_migration_process_count=
+            integration_migration_eligible_count+1u;
+        for(uint32_t i=0u;i<INTEGRATION_MIGRATION_MAX_PROCESS_COUNT;++i)
             integration_migration_pids[i]=-1;
         integration_migration_count=0u;
         integration_migration_failed=0u;
@@ -914,7 +925,7 @@ void lionos_user_integration_step(void){
          */
         __asm__ volatile("pushfl; popl %0; cli"
                          : "=r"(launch_flags) : : "memory");
-        for(uint32_t i=0u;i<INTEGRATION_MIGRATION_PROCESS_COUNT;++i){
+        for(uint32_t i=0u;i<integration_migration_process_count;++i){
             int pid=exec_run_file("migration_test.elf");
             if(pid<=0){
                 integration_migration_failed=1u;
@@ -924,7 +935,7 @@ void lionos_user_integration_step(void){
             ++integration_migration_count;
         }
         if(integration_migration_count!=
-           INTEGRATION_MIGRATION_PROCESS_COUNT)
+           integration_migration_process_count)
             integration_migration_failed=1u;
 
         /*
@@ -933,42 +944,42 @@ void lionos_user_integration_step(void){
          * observe or steal a partially opted-in batch.
          */
         if(integration_migration_count==
-           INTEGRATION_MIGRATION_PROCESS_COUNT){
-            uint32_t eligible_pids[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
-            for(uint32_t i=0u;i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT;++i)
+           integration_migration_process_count){
+            uint32_t eligible_pids[INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT];
+            for(uint32_t i=0u;i<integration_migration_eligible_count;++i)
                 eligible_pids[i]=(uint32_t)integration_migration_pids[i];
             /*
              * Rejected batches must be transactional: zero, duplicate, or
              * reserved trailing PIDs must not leave an earlier process opted in.
              * The valid batch immediately afterwards detects partial mutation.
              */
-            uint32_t invalid_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
-            uint32_t duplicate_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
-            uint32_t reserved_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT];
-            for(uint32_t i=0u;i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT;++i){
+            uint32_t invalid_batch[INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT];
+            uint32_t duplicate_batch[INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT];
+            uint32_t reserved_batch[INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT];
+            for(uint32_t i=0u;i<integration_migration_eligible_count;++i){
                 invalid_batch[i]=eligible_pids[i];
                 duplicate_batch[i]=eligible_pids[0];
                 reserved_batch[i]=eligible_pids[i];
             }
-            invalid_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT-1u]=0u;
-            reserved_batch[INTEGRATION_MIGRATION_ELIGIBLE_COUNT-1u]=1u;
+            invalid_batch[integration_migration_eligible_count-1u]=0u;
+            reserved_batch[integration_migration_eligible_count-1u]=1u;
             int invalid_result=process_set_migration_eligible_batch(
-                invalid_batch,INTEGRATION_MIGRATION_ELIGIBLE_COUNT);
+                invalid_batch,integration_migration_eligible_count);
             int duplicate_result=process_set_migration_eligible_batch(
-                duplicate_batch,INTEGRATION_MIGRATION_ELIGIBLE_COUNT);
+                duplicate_batch,integration_migration_eligible_count);
             /*
              * PID 1 is reserved by the process policy (or absent on a
              * configuration without init). It is checked after a valid PID,
              * exercising rollback when lookup/policy validation fails late.
              */
             int reserved_result=process_set_migration_eligible_batch(
-                reserved_batch,INTEGRATION_MIGRATION_ELIGIBLE_COUNT);
+                reserved_batch,integration_migration_eligible_count);
             if(invalid_result!=-1||duplicate_result!=-1||
                reserved_result!=-1)
                 integration_migration_failed=1u;
 
             if(process_set_migration_eligible_batch(
-                   eligible_pids,INTEGRATION_MIGRATION_ELIGIBLE_COUNT)!=0)
+                   eligible_pids,integration_migration_eligible_count)!=0)
                 integration_migration_failed=1u;
             else if(invalid_result==-1&&duplicate_result==-1&&
                     reserved_result==-1)
@@ -1011,7 +1022,7 @@ void lionos_user_integration_step(void){
                                                      &owner,&migrations)==0;
                 if(!valid||!info){
                     integration_migration_failed=1u;
-                }else if(i<INTEGRATION_MIGRATION_ELIGIBLE_COUNT){
+                }else if(i<integration_migration_eligible_count){
                     uint32_t steals=owner<LIONOS_MAX_CPUS
                         ?process_scheduler_steals(owner):0u;
                     uint32_t before=owner<LIONOS_MAX_CPUS
@@ -1072,7 +1083,7 @@ void lionos_user_integration_step(void){
             }
             int ok=integration_migration_failed==0u&&
                    integration_migration_count==
-                       INTEGRATION_MIGRATION_PROCESS_COUNT&&
+                       integration_migration_process_count&&
                    execution_guard_ok&&multi_stealer_ok;
             debug_write(ok
                 ? "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK\n"
