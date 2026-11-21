@@ -58,6 +58,55 @@ Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue con
 - Do not remove `process_lock` in the first queue conversion. Process-table lifetime and complex process-group/parent-child operations still require a stable serialization mechanism.
 - Do not change xHCI, interrupt routing, or unrelated driver code.
 
+
+## Next stage: general load-balancing design (not yet implemented)
+
+The current one-time, empty-queue steal path is a correctness baseline, not a
+general load balancer. The next implementation must not silently broaden the
+existing eligibility contract. In particular, repeated migration, thread-group
+migration, and migration of a running context remain out of scope until their
+own lifetime and synchronization proofs exist.
+
+The next bounded increment should introduce a measured imbalance policy over
+online CPUs:
+
+- Take queue-load snapshots only while holding `process_lock` and the relevant
+  queue locks; do not read mutable queue totals as an unsynchronized scheduling
+  decision.
+- Treat a destination as underloaded only when the source/destination runnable
+  count difference exceeds a documented minimum threshold. Do not move work
+  merely to make queue counts equal on every scheduling tick.
+- Select only a READY node whose process metadata still satisfies the existing
+  `process_steal_candidate_locked()` eligibility predicate. Revalidate the
+  candidate immediately before the transfer while both queues are locked.
+- Preserve ascending CPU-index lock ordering, exact-one queue membership, and
+  the existing process-lock-before-runqueue-lock hierarchy.
+- Bound work per scheduler invocation: at most one transfer, with no retry loop
+  that can spin in interrupt context. A failed try-lock is a deferred balancing
+  opportunity, not an invariant failure.
+- Publish `cpu_owner` and migration accounting only after a successful queue
+  transfer. Kick an affected idle destination only after releasing
+  `process_lock`; never send an IPI while holding queue locks.
+- Keep the current one-migration-per-process rule until tests explicitly prove
+  a safe re-migration protocol. A task that is RUNNING, WAITING, STOPPED, a
+  kernel thread, a user thread, or part of a live thread group must remain
+  ineligible.
+
+Acceptance tests for that increment must cover deterministic skewed queue
+populations on 2/4/8/16 CPUs, no transfer below the threshold, successful
+transfer above it, ineligible-node skipping, simultaneous stealers targeting
+one victim, queue-lock contention, and exact-one membership after every
+operation. Runtime tests must also prove that all runnable test processes make
+progress, that pinned control tasks retain affinity, that no process executes
+on two CPUs, and that the queue totals converge without oscillation. The
+existing single-CPU, AP lifecycle, process/waitpid, three-round migration,
+GUI, VFS, and xHCI regressions remain mandatory.
+
+Do not mark the load-balancing roadmap item complete until the full build,
+host tests, QEMU topology matrix, both code reviews, and all required workflows
+pass on the exact same commit. Physical hardware claims still require physical
+hardware evidence.
+
 ## Data model
 
 Each CPU owns one `struct runqueue` in `runqueues[LIONOS_MAX_CPUS]`, containing four FIFO priority lanes. Each lane stores head/tail process-table indices and a runnable count. Intrusive links use a typed invalid-index sentinel rather than raw pointers, so process-slot reuse cannot leave dangling references.
