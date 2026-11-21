@@ -2148,7 +2148,7 @@ void process_exit_current(uint32_t code){
 
     /* Keep a zombie from being preempted away before exit cleanup completes. */
     uint32_t exit_flags;
-    __asm__ volatile("pushfl; popl %0; cli" : "=r"(exit_flags) : : "memory");
+    __asm__ volatile("pushfl; popl %0; cli" : "=r"(exit_flags) : : "memory","cc");
     flags=spinlock_irqsave_acquire(&process_lock);
     c=current_local();
     if(!c||c==&processes[0]||c->state==PROCESS_UNUSED||
