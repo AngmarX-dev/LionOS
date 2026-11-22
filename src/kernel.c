@@ -340,6 +340,8 @@ static volatile uint32_t integration_ap_user_pid;
 static volatile uint32_t integration_ap_user_status;
 #define INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT 3u
 #define INTEGRATION_BUSY_BALANCE_PROCESS_COUNT 4u
+/* Keep the QEMU stress fixture within the 16-slot process table. */
+#define INTEGRATION_BUSY_BALANCE_MAX_WORKERS 3u
 static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_COUNT];
 static volatile uint32_t integration_busy_worker_pids[LIONOS_MAX_CPUS];
 static volatile uint32_t integration_busy_worker_status[LIONOS_MAX_CPUS];
@@ -1241,7 +1243,17 @@ void lionos_user_integration_step(void){
         for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i)
             integration_busy_balance_pids[i]=0u;
 
-        for(uint32_t cpu=1u;cpu<online;++cpu){
+        /*
+         * Each busy worker consumes one process slot after exec. Launching
+         * one on every AP leaves no slots for the four migration candidates
+         * when QEMU exposes 16 CPUs (LIONOS_PROCESS_MAX is 16). Three busy
+         * destinations still exercise production busy-to-busy balancing
+         * while preserving room for the candidate set and transient threads.
+         */
+        uint32_t worker_limit=online;
+        if(worker_limit>INTEGRATION_BUSY_BALANCE_MAX_WORKERS+1u)
+            worker_limit=INTEGRATION_BUSY_BALANCE_MAX_WORKERS+1u;
+        for(uint32_t cpu=1u;cpu<worker_limit;++cpu){
             if(!process_create_kernel_thread_on_cpu(
                     (uint32_t)(uintptr_t)&integration_ap_busy_balance_launch_worker,
                     cpu,cpu)){
