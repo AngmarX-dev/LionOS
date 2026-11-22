@@ -540,6 +540,308 @@ static int simultaneous_busy_destination_test(void) {
     return 0;
 }
 
+
+/*
+ * Concurrent production of READY nodes, local dispatch, and bounded
+ * busy-destination transfers. This validates run-queue mechanics under
+ * overlapping host threads; process_lock and production scheduler execution
+ * are intentionally outside this host-side test.
+ */
+#define SUSTAINED_CPU_COUNT 3u
+#define SUSTAINED_INITIAL_BURST 96u
+#define SUSTAINED_ARRIVAL_ROUNDS 2048u
+#define SUSTAINED_NODES (SUSTAINED_INITIAL_BURST + 3u * SUSTAINED_ARRIVAL_ROUNDS)
+
+struct sustained_test_state {
+    struct runqueue queues[SUSTAINED_CPU_COUNT];
+    struct runqueue_node nodes[SUSTAINED_NODES];
+    uint8_t completed_seen[SUSTAINED_NODES];
+    volatile uint32_t producer_done;
+    volatile uint32_t balancer_done;
+    volatile uint32_t abort;
+    volatile uint32_t failed;
+    volatile uint32_t completed;
+    volatile uint32_t transfers;
+};
+
+struct sustained_worker_argument {
+    struct sustained_test_state *state;
+    uint32_t cpu;
+};
+
+static struct sustained_test_state sustained_state;
+
+static int sustained_lock_pair(struct sustained_test_state *state,
+                               uint32_t a, uint32_t b) {
+    uint32_t first = a < b ? a : b;
+    uint32_t second = a < b ? b : a;
+    if (!spinlock_try_acquire(&state->queues[first].lock))
+        return 0;
+    if (!spinlock_try_acquire(&state->queues[second].lock)) {
+        spinlock_release(&state->queues[first].lock);
+        return 0;
+    }
+    return 1;
+}
+
+static void sustained_unlock_pair(struct sustained_test_state *state,
+                                  uint32_t a, uint32_t b) {
+    uint32_t first = a < b ? a : b;
+    uint32_t second = a < b ? b : a;
+    spinlock_release(&state->queues[second].lock);
+    spinlock_release(&state->queues[first].lock);
+}
+
+static void *sustained_producer(void *opaque) {
+    struct sustained_test_state *state =
+        (struct sustained_test_state *)opaque;
+    struct runqueue *source = &state->queues[0];
+
+    for (uint32_t round = 0u; round < SUSTAINED_ARRIVAL_ROUNDS; ++round) {
+        if (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) != 0u)
+            break;
+        spinlock_acquire(&source->lock);
+        for (uint32_t item = 0u; item < 3u; ++item) {
+            uint32_t index = SUSTAINED_INITIAL_BURST + round * 3u + item;
+            if (runqueue_enqueue_locked(source, state->nodes,
+                    SUSTAINED_NODES, index,
+                    (round + item) % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0) {
+                __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
+                break;
+            }
+        }
+        spinlock_release(&source->lock);
+        if (__atomic_load_n(&state->failed, __ATOMIC_ACQUIRE) != 0u)
+            break;
+    }
+    __atomic_store_n(&state->producer_done, 1u, __ATOMIC_RELEASE);
+    return 0;
+}
+
+static void *sustained_balancer(void *opaque) {
+    struct sustained_test_state *state =
+        (struct sustained_test_state *)opaque;
+    uint32_t attempts = 0u;
+
+    while (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u &&
+           attempts++ < 100000000u) {
+        int progress = 0;
+        for (uint32_t destination = 1u;
+             destination < SUSTAINED_CPU_COUNT; ++destination) {
+            if (!sustained_lock_pair(state, 0u, destination))
+                continue;
+            struct runqueue *source = &state->queues[0];
+            struct runqueue *target = &state->queues[destination];
+            if (runqueue_validate_locked(source, state->nodes,
+                    SUSTAINED_NODES, 0) != 0 ||
+                runqueue_validate_locked(target, state->nodes,
+                    SUSTAINED_NODES, 0) != 0) {
+                __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
+                sustained_unlock_pair(state, 0u, destination);
+                __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+                break;
+            }
+            if (runqueue_should_balance(target->total, source->total, 0)) {
+                uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
+                for (uint32_t priority = 0u;
+                     priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+                    candidate = source->head[priority];
+                    if (candidate != LIONOS_RUNQUEUE_INVALID_INDEX)
+                        break;
+                }
+                if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
+                    runqueue_move_locked(source, target, state->nodes,
+                        SUSTAINED_NODES, candidate) != 0) {
+                    __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
+                    sustained_unlock_pair(state, 0u, destination);
+                    __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+                    break;
+                }
+                __atomic_fetch_add(&state->transfers, 1u, __ATOMIC_RELAXED);
+                progress = 1;
+            }
+            sustained_unlock_pair(state, 0u, destination);
+        }
+
+        if (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) != 0u)
+            break;
+
+        if (__atomic_load_n(&state->producer_done, __ATOMIC_ACQUIRE) != 0u) {
+            spinlock_acquire(&state->queues[0].lock);
+            int source_empty = state->queues[0].total == 0u;
+            spinlock_release(&state->queues[0].lock);
+            if (source_empty) {
+                __atomic_store_n(&state->balancer_done, 1u, __ATOMIC_RELEASE);
+                return 0;
+            }
+        }
+        if (!progress)
+            __asm__ volatile("pause");
+    }
+
+    if (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u) {
+        __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
+        __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+    }
+    return 0;
+}
+
+static void *sustained_service_worker(void *opaque) {
+    const struct sustained_worker_argument *argument =
+        (const struct sustained_worker_argument *)opaque;
+    struct sustained_test_state *state = argument->state;
+    struct runqueue *queue = &state->queues[argument->cpu];
+
+    while (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u) {
+        uint32_t index = LIONOS_RUNQUEUE_INVALID_INDEX;
+        spinlock_acquire(&queue->lock);
+        int picked = runqueue_pick_next_locked(queue, state->nodes,
+                                               SUSTAINED_NODES, &index);
+        spinlock_release(&queue->lock);
+        if (picked < 0) {
+            __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
+            __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+            return 0;
+        }
+        if (picked == 0) {
+            if (index >= SUSTAINED_NODES) {
+                __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
+                __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+                return 0;
+            }
+            uint8_t expected = 0u;
+            if (!__atomic_compare_exchange_n(&state->completed_seen[index],
+                    &expected, 1u, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
+                __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+                return 0;
+            }
+            __atomic_fetch_add(&state->completed, 1u, __ATOMIC_RELAXED);
+            continue;
+        }
+
+        if (__atomic_load_n(&state->producer_done, __ATOMIC_ACQUIRE) != 0u &&
+            __atomic_load_n(&state->balancer_done, __ATOMIC_ACQUIRE) != 0u)
+            return 0;
+        __asm__ volatile("pause");
+    }
+    return 0;
+}
+
+static int sustained_concurrent_arrival_test(void) {
+    pthread_t balancer_thread;
+    pthread_t producer_thread;
+    pthread_t service_threads[SUSTAINED_CPU_COUNT];
+    struct sustained_worker_argument arguments[SUSTAINED_CPU_COUNT];
+    struct sustained_test_state *state = &sustained_state;
+    uint32_t service_created = 0u;
+    uint32_t service_joined = 0u;
+    int balancer_created = 0;
+    int producer_created = 0;
+
+    __atomic_store_n(&failed, 0u, __ATOMIC_RELAXED);
+    for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
+        runqueue_init(&state->queues[cpu], cpu);
+    for (uint32_t i = 0u; i < SUSTAINED_NODES; ++i) {
+        runqueue_node_init(&state->nodes[i]);
+        __atomic_store_n(&state->completed_seen[i], 0u, __ATOMIC_RELAXED);
+    }
+    state->producer_done = 0u;
+    state->balancer_done = 0u;
+    state->abort = 0u;
+    state->failed = 0u;
+    state->completed = 0u;
+    state->transfers = 0u;
+
+    /* Preload a finite burst so both busy destinations must accept work. */
+    spinlock_acquire(&state->queues[0].lock);
+    for (uint32_t i = 0u; i < SUSTAINED_INITIAL_BURST; ++i) {
+        if (runqueue_enqueue_locked(&state->queues[0], state->nodes,
+                SUSTAINED_NODES, i,
+                i % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0) {
+            spinlock_release(&state->queues[0].lock);
+            return 1;
+        }
+    }
+    spinlock_release(&state->queues[0].lock);
+
+    if (pthread_create(&balancer_thread, 0, sustained_balancer, state) != 0)
+        return 2;
+    balancer_created = 1;
+
+    /* Wait for both destinations to receive at least one node before service. */
+    for (uint32_t wait = 0u; wait < 10000000u; ++wait) {
+        if (__atomic_load_n(&state->transfers, __ATOMIC_ACQUIRE) >= 2u)
+            break;
+        if (__atomic_load_n(&state->failed, __ATOMIC_ACQUIRE) != 0u)
+            break;
+        __asm__ volatile("pause");
+    }
+    if (__atomic_load_n(&state->transfers, __ATOMIC_ACQUIRE) < 2u ||
+        __atomic_load_n(&state->failed, __ATOMIC_ACQUIRE) != 0u) {
+        __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+        __atomic_store_n(&state->producer_done, 1u, __ATOMIC_RELEASE);
+        pthread_join(balancer_thread, 0);
+        return 3;
+    }
+
+    for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu) {
+        arguments[cpu].state = state;
+        arguments[cpu].cpu = cpu;
+        if (pthread_create(&service_threads[cpu], 0,
+                sustained_service_worker, &arguments[cpu]) != 0)
+            break;
+        ++service_created;
+    }
+    if (service_created == SUSTAINED_CPU_COUNT &&
+        pthread_create(&producer_thread, 0, sustained_producer, state) == 0) {
+        producer_created = 1;
+    } else {
+        __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+        __atomic_store_n(&state->producer_done, 1u, __ATOMIC_RELEASE);
+        __atomic_store_n(&state->balancer_done, 1u, __ATOMIC_RELEASE);
+    }
+
+    if (producer_created)
+        pthread_join(producer_thread, 0);
+    for (uint32_t cpu = 0u; cpu < service_created; ++cpu) {
+        pthread_join(service_threads[cpu], 0);
+        ++service_joined;
+    }
+    if (balancer_created)
+        pthread_join(balancer_thread, 0);
+
+    if (!producer_created || service_created != SUSTAINED_CPU_COUNT ||
+        service_joined != service_created ||
+        __atomic_load_n(&state->failed, __ATOMIC_ACQUIRE) != 0u ||
+        __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) != 0u ||
+        __atomic_load_n(&state->producer_done, __ATOMIC_ACQUIRE) == 0u ||
+        __atomic_load_n(&state->balancer_done, __ATOMIC_ACQUIRE) == 0u ||
+        __atomic_load_n(&state->completed, __ATOMIC_ACQUIRE) != SUSTAINED_NODES ||
+        __atomic_load_n(&state->transfers, __ATOMIC_ACQUIRE) < 2u)
+        return 4;
+
+    uint32_t global_total = 0u;
+    for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu) {
+        uint32_t total = 0u;
+        spinlock_acquire(&state->queues[cpu].lock);
+        int valid = runqueue_validate_locked(&state->queues[cpu], state->nodes,
+                                              SUSTAINED_NODES, &total);
+        spinlock_release(&state->queues[cpu].lock);
+        if (valid != 0 || total != 0u)
+            return 5;
+        global_total += total;
+    }
+    if (global_total != 0u)
+        return 6;
+    for (uint32_t i = 0u; i < SUSTAINED_NODES; ++i)
+        if (__atomic_load_n(&state->completed_seen[i], __ATOMIC_ACQUIRE) != 1u ||
+            state->nodes[i].queued != 0u ||
+            state->nodes[i].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
+            return 7;
+    return 0;
+}
+
 int main(void) {
     pthread_t threads[WORKER_COUNT];
     pthread_t transfer_threads[WORKER_COUNT];
@@ -695,6 +997,8 @@ int main(void) {
 
     if (simultaneous_busy_destination_test() != 0)
         return 5;
+    if (sustained_concurrent_arrival_test() != 0)
+        return 8;
     if (shared_node_transfer_race_test() != 0)
         return 7;
     return __atomic_load_n(&failed, __ATOMIC_ACQUIRE) == 0u ? 0 : 4;
