@@ -7,6 +7,121 @@ static int check(int condition, uint32_t code) {
     return condition ? 0 : (int)code;
 }
 
+
+/*
+ * Model repeated busy-destination scheduler opportunities across two CPUs.
+ * Each invocation may transfer at most one READY node; a selected local task
+ * is kept outside its queue. This validates the queue policy's bounded
+ * convergence mechanics, not production process eligibility or SMP timing.
+ */
+static int busy_balance_convergence_test(void) {
+    enum { CPU_COUNT = 3u, NODE_COUNT = 8u };
+    struct runqueue queues[CPU_COUNT];
+    struct runqueue_node nodes[NODE_COUNT];
+    uint32_t selected[2] = {
+        LIONOS_RUNQUEUE_INVALID_INDEX,
+        LIONOS_RUNQUEUE_INVALID_INDEX
+    };
+
+    for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+        runqueue_init(&queues[cpu], cpu);
+        queues[cpu].lock.value = 1u;
+    }
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+        runqueue_node_init(&nodes[i]);
+
+    for (uint32_t i = 0u; i < 6u; ++i)
+        if (runqueue_enqueue_locked(&queues[0], nodes, NODE_COUNT,
+                                    i, 2u) != 0)
+            return 1;
+    if (runqueue_enqueue_locked(&queues[1], nodes, NODE_COUNT, 6u, 2u) != 0 ||
+        runqueue_enqueue_locked(&queues[2], nodes, NODE_COUNT, 7u, 2u) != 0)
+        return 2;
+
+    for (uint32_t cpu = 1u; cpu < CPU_COUNT; ++cpu)
+        if (runqueue_pick_next_locked(&queues[cpu], nodes, NODE_COUNT,
+                                      &selected[cpu - 1u]) != 0 ||
+            selected[cpu - 1u] != cpu + 5u)
+            return 3;
+
+    uint32_t transfers = 0u;
+    for (uint32_t invocation = 0u; invocation < 16u; ++invocation) {
+        uint32_t destination = 1u + (invocation & 1u);
+        uint32_t victim = LIONOS_RUNQUEUE_INVALID_INDEX;
+        uint32_t largest = 0u;
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+            if (cpu != destination && queues[cpu].total > largest) {
+                largest = queues[cpu].total;
+                victim = cpu;
+            }
+        }
+
+        uint32_t moved_this_invocation = 0u;
+        if (victim != LIONOS_RUNQUEUE_INVALID_INDEX &&
+            runqueue_should_balance(queues[destination].total,
+                                    queues[victim].total, 0)) {
+            uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
+            for (uint32_t priority = 0u;
+                 priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+                if (queues[victim].head[priority] !=
+                    LIONOS_RUNQUEUE_INVALID_INDEX) {
+                    candidate = queues[victim].head[priority];
+                    break;
+                }
+            }
+            if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
+                runqueue_move_locked(&queues[victim], &queues[destination],
+                                     nodes, NODE_COUNT, candidate) != 0)
+                return 4;
+            moved_this_invocation = 1u;
+            ++transfers;
+        }
+        if (moved_this_invocation > 1u)
+            return 5;
+
+        uint32_t total_sum = 0u;
+        uint32_t minimum = NODE_COUNT;
+        uint32_t maximum = 0u;
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+            uint32_t total = 0u;
+            if (runqueue_validate_locked(&queues[cpu], nodes,
+                                         NODE_COUNT, &total) != 0 ||
+                total != queues[cpu].total)
+                return 6;
+            total_sum += total;
+            if (total < minimum) minimum = total;
+            if (total > maximum) maximum = total;
+        }
+        if (total_sum != 6u || maximum - minimum <= 1u)
+            break;
+    }
+
+    if (transfers != 4u || queues[0].total != 2u ||
+        queues[1].total != 2u || queues[2].total != 2u)
+        return 7;
+    for (uint32_t i = 0u; i < 6u; ++i) {
+        uint32_t memberships = 0u;
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+            for (uint32_t priority = 0u;
+                 priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+                uint32_t index = queues[cpu].head[priority];
+                while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
+                    if (index == i) ++memberships;
+                    index = nodes[index].next;
+                }
+            }
+        }
+        if (memberships != 1u || nodes[i].queued != 1u ||
+            nodes[i].queue_cpu >= CPU_COUNT)
+            return 8;
+    }
+    for (uint32_t i = 0u; i < 2u; ++i)
+        if (nodes[selected[i]].queued != 0u ||
+            nodes[selected[i]].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
+            return 9;
+    return 0;
+}
+
 int main(void) {
     struct runqueue queue;
     struct runqueue_node nodes[NODE_COUNT];
@@ -162,6 +277,8 @@ int main(void) {
     if (runqueue_should_balance(UINT32_MAX - 1u, UINT32_MAX, 0)) return 61;
     if (!runqueue_should_balance(UINT32_MAX - 2u, UINT32_MAX, 0)) return 62;
     if (runqueue_should_balance(0u, 1u, 2)) return 63;
+
+    if (busy_balance_convergence_test() != 0) return 74;
 
     /*
      * Busy-to-busy queue acceptance: the destination has already selected
