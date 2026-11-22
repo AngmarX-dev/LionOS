@@ -14,6 +14,9 @@ uint32_t scheduler_priority_quantum(uint32_t priority);
  */
 int scheduler_priority_demote(uint32_t *priority, uint32_t *time_slice);
 
+/* Relative deadlines must stay within the unambiguous unsigned half-range. */
+int scheduler_tick_delta_valid(uint32_t ticks);
+
 /* Wrap-safe for deadlines scheduled less than 2^31 ticks ahead. */
 int scheduler_tick_deadline_reached(uint32_t now, uint32_t deadline);
 

@@ -21,6 +21,10 @@ int scheduler_priority_demote(uint32_t *priority, uint32_t *time_slice) {
     return 0;
 }
 
+int scheduler_tick_delta_valid(uint32_t ticks) {
+    return ticks <= 0x7FFFFFFFu;
+}
+
 int scheduler_tick_deadline_reached(uint32_t now, uint32_t deadline) {
     /*
      * Unsigned subtraction is defined modulo 2^32. A result in the lower

@@ -1656,7 +1656,7 @@ int32_t process_waitpid(uint32_t pid,uint32_t status_ptr){
 static int32_t process_sleep_on_kind(uintptr_t channel, struct spinlock *held_lock,
                                       uint32_t irq_flags, uint32_t kind,
                                       uint32_t timeout_ticks){
-    if(!channel||!held_lock||timeout_ticks>0x7FFFFFFFu){
+    if(!channel||!held_lock||!scheduler_tick_delta_valid(timeout_ticks)){
         if(held_lock)spinlock_irqrestore_release(held_lock,irq_flags);
         return -1;
     }
