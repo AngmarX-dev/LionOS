@@ -20,6 +20,11 @@ struct transfer_argument {
     uint32_t worker;
 };
 
+struct priority_argument {
+    uint32_t worker;
+    volatile uint32_t *start;
+};
+
 static struct runqueue queues[TEST_CPU_COUNT];
 static struct runqueue_node nodes[NODE_COUNT];
 static struct worker_argument arguments[WORKER_COUNT];
@@ -148,9 +153,12 @@ static void *run_transfer_worker(void *opaque) {
 
 
 static void *run_priority_worker(void *opaque) {
-    const struct worker_argument *argument =
-        (const struct worker_argument *)opaque;
+    const struct priority_argument *argument =
+        (const struct priority_argument *)opaque;
     uint32_t first = argument->worker * NODES_PER_WORKER;
+
+    while (__atomic_load_n(argument->start, __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile("pause");
 
     for (uint32_t round = 0u; round < PRIORITY_ITERATIONS; ++round) {
         for (uint32_t i = 0u; i < NODES_PER_WORKER; ++i) {
@@ -428,15 +436,20 @@ int main(void) {
      * queue's lock while other workers operate on the same queues.
      */
     pthread_t priority_threads[WORKER_COUNT];
+    struct priority_argument priority_arguments[WORKER_COUNT];
+    volatile uint32_t priority_start = 0u;
     created = 0u;
     for (uint32_t worker = 0u; worker < WORKER_COUNT; ++worker) {
+        priority_arguments[worker].worker = worker;
+        priority_arguments[worker].start = &priority_start;
         if (pthread_create(&priority_threads[worker], 0,
-                run_priority_worker, &arguments[worker]) != 0) {
+                run_priority_worker, &priority_arguments[worker]) != 0) {
             fail_test();
             break;
         }
         ++created;
     }
+    __atomic_store_n(&priority_start, 1u, __ATOMIC_RELEASE);
     for (uint32_t i = 0u; i < created; ++i)
         if (pthread_join(priority_threads[i], 0) != 0)
             fail_test();

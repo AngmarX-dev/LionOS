@@ -17,8 +17,8 @@ The scheduler may steal one explicitly opted-in READY user process when its loca
 
 Host tests cover queue invariants, FIFO/priority ordering, destination-lane FIFO
 append semantics across multiple READY-task priority changes, concurrent lock
-contention across independent per-CPU queues, and 20,000 rounds per worker of
-concurrent priority requeueing after cross-CPU node transfers. The run-queue concurrency regression
+contention across independent per-CPU queues, and 20,000 barrier-synchronized
+priority requeue rounds per worker after cross-CPU node transfers. The run-queue concurrency regression
 also starts two busy destinations against one shared source queue, uses ordered
 non-blocking lock acquisition, verifies that a held source lock causes a deferred
 attempt, and checks that both destinations receive exactly one READY node with
