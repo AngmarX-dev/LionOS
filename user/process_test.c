@@ -424,14 +424,16 @@ int main(int argc, char **argv) {
     }
     puts("[PASS] thread blocking join, zombie join, invalid TID, and stack reuse");
 
-    /* Exiting a process must retire its unjoined READY threads. Repeating
-       this also detects leaked process slots and stale user-stack mappings. */
+    /* Exiting a process must retire multiple unjoined siblings, including
+       READY and already-zombie threads, before its address space is reaped. */
     for (uint32_t i = 0u; i < 64u; ++i) {
         uint32_t owner_pid = lion_fork();
         if (owner_pid == 0u) {
-            uint32_t orphan_tid = lion_thread_create(thread_worker_blocking);
-            if (orphan_tid == 0u || orphan_tid == LIONOS_SYSCALL_ERR)
-                lion_exit_code(101u);
+            for (uint32_t sibling = 0u; sibling < 3u; ++sibling) {
+                uint32_t orphan_tid = lion_thread_create(thread_worker_blocking);
+                if (orphan_tid == 0u || orphan_tid == LIONOS_SYSCALL_ERR)
+                    lion_exit_code(101u);
+            }
             lion_exit_code(55u);
         }
         if (owner_pid == LIONOS_SYSCALL_ERR) {

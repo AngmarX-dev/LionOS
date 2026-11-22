@@ -2342,6 +2342,66 @@ static void process_diag_status33(const char *kind,uint32_t pid,
     debug_write("\n");
 }
 
+static __attribute__((noreturn)) void process_lifecycle_fault(
+    const char *reason,uint32_t pid){
+    __asm__ volatile("cli" ::: "memory");
+    debug_write("LIONOS:PROCESS-LIFECYCLE-FAULT ");
+    debug_write(reason);
+    debug_write(" pid=0x");
+    process_diag_hex32(pid);
+    debug_write("\n");
+    for(;;)__asm__ volatile("hlt");
+}
+
+/* process_lock is held. A thread-group leader may not release its address
+ * space while any sibling remains runnable, current on a CPU, or unreaped. */
+static int process_validate_thread_retirement_locked(
+    const struct process *owner){
+    if(!owner||owner->is_thread||owner->thread_group_pid!=owner->pid)
+        return -1;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        const struct process *thread=&processes[i];
+        if(thread->state==PROCESS_UNUSED||!thread->is_thread||
+           thread->thread_group_pid!=owner->thread_group_pid)continue;
+        uint32_t index;
+        if(process_slot_index(thread,&index)!=0||
+           thread->cpu_owner!=owner->cpu_owner)return -1;
+        for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+            if(current_cpu_load(cpu)==thread)return -1;
+        const struct runqueue_node *node=&runqueue_nodes[index];
+        if(thread->state==PROCESS_READY){
+            if(node->queued!=1u||node->queue_cpu>=LIONOS_MAX_CPUS||
+               node->queue_cpu!=thread->cpu_owner||
+               process_runqueue_validate_locked(node->queue_cpu)!=0)
+                return -1;
+        }else if(thread->state==PROCESS_RUNNING||
+                 node->queued!=0u||
+                 node->next!=LIONOS_RUNQUEUE_INVALID_INDEX||
+                 node->previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
+                 node->queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX){
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static void process_retire_siblings_locked(struct process *owner){
+    if(process_validate_thread_retirement_locked(owner)!=0)
+        process_lifecycle_fault("thread-group-queue-validation",
+                                owner?owner->pid:0u);
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process *thread=&processes[i];
+        if(thread->state==PROCESS_UNUSED||!thread->is_thread||
+           thread->thread_group_pid!=owner->thread_group_pid)continue;
+        if(thread->state!=PROCESS_ZOMBIE&&
+           process_transition_state_locked(thread,PROCESS_ZOMBIE)!=0)
+            process_lifecycle_fault("thread-group-zombie-transition",owner->pid);
+        reap_process(thread);
+        if(thread->state!=PROCESS_UNUSED)
+            process_lifecycle_fault("thread-group-reap",owner->pid);
+    }
+}
+
 void process_exit_current(uint32_t code){
     /*
      * Exit may be reached from more than one return/exception path. Once a
@@ -2394,7 +2454,8 @@ void process_exit_current(uint32_t code){
         process_diag_status33("THREAD-EXIT",c->tid,c->thread_group_pid,code);
         c->exit_code=code;
         if(c->thread_group_pid==0u)c->reap_pending=1u;
-        (void)process_transition_state_locked(c,PROCESS_ZOMBIE);
+        if(process_transition_state_locked(c,PROCESS_ZOMBIE)!=0)
+            process_lifecycle_fault("current-thread-zombie-transition",c->pid);
         for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
             struct process*w=&processes[i];
             if(w->state!=PROCESS_WAITING||w->is_thread||
@@ -2406,9 +2467,10 @@ void process_exit_current(uint32_t code){
             process_diag_status33("THREAD-JOIN-WAKE",w->pid,c->tid,
                                   status_ok?code:PROCESS_SYSCALL_ERR);
             if(f)f[11]=status_ok?c->tid:PROCESS_SYSCALL_ERR;
+            if(process_transition_state_locked(w,PROCESS_READY)!=0)
+                process_lifecycle_fault("thread-joiner-wakeup",w->pid);
             w->join_tid=0u;
             w->join_status_ptr=0u;
-            (void)process_transition_state_locked(w,PROCESS_READY);
             c->reap_pending=1u;
             break;
         }
@@ -2420,24 +2482,16 @@ void process_exit_current(uint32_t code){
         return;
     }
 
-    /* A process owns its user threads. Retire all non-current siblings before
-       the address space can be reaped by waitpid. Threads share cpu_owner, so
-       none of these siblings can be executing concurrently on another CPU. */
-    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
-        struct process*t=&processes[i];
-        if(t!=c&&t->state!=PROCESS_UNUSED&&t->is_thread&&
-           t->thread_group_pid==c->thread_group_pid){
-            (void)process_transition_state_locked(t,PROCESS_ZOMBIE);
-            reap_process(t);
-        }
-    }
+    /* Retire every sibling before publishing the leader as a zombie. */
+    process_retire_siblings_locked(c);
     uint32_t exiting_sid=c->sid;
     uint32_t diagnostic_pid=c->pid;
     uint32_t diagnostic_parent_pid=c->parent_pid;
     c->exit_code=code;
     uint32_t orphan_wake_mask=process_reparent_children_locked(c);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:REPARENT-DONE\n");
-    (void)process_transition_state_locked(c,PROCESS_ZOMBIE);
+    if(process_transition_state_locked(c,PROCESS_ZOMBIE)!=0)
+        process_lifecycle_fault("process-zombie-transition",diagnostic_pid);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:ZOMBIE-SET\n");
     uint32_t parent_wake_cpu=wake_waiting_parent(c);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
