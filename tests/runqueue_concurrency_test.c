@@ -353,7 +353,11 @@ static int simultaneous_busy_destination_test(void) {
             for (uint32_t priority = 0u;
                  priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
                 uint32_t index = busy_race_queues[cpu].head[priority];
+                uint32_t visited = 0u;
                 while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
+                    if (index >= BUSY_RACE_NODE_COUNT ||
+                        visited++ >= BUSY_RACE_NODE_COUNT)
+                        return 8;
                     if (index == i)
                         ++memberships;
                     index = busy_race_nodes[index].next;
