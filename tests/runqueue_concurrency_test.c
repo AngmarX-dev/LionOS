@@ -142,38 +142,49 @@ static void *run_transfer_worker(void *opaque) {
     for (uint32_t round = 0u; round < TRANSFER_ITERATIONS; ++round) {
         for (uint32_t i = 0u; i < NODES_PER_WORKER; ++i) {
             uint32_t index = first + i;
-            uint32_t owner = node_owner_snapshot(index);
-            uint32_t destination_cpu =
-                transfer_random(&random_state) % TEST_CPU_COUNT;
+            uint32_t retries = 0u;
 
-            if (owner >= TEST_CPU_COUNT) {
-                fail_test();
-                return 0;
-            }
-            if (destination_cpu == owner)
-                destination_cpu = (destination_cpu + 1u) % TEST_CPU_COUNT;
+            for (;;) {
+                uint32_t owner = node_owner_snapshot(index);
+                if (owner >= TEST_CPU_COUNT) {
+                    fail_test();
+                    return 0;
+                }
 
-            lock_queue_pair(owner, destination_cpu);
-            /*
-             * Another worker may have moved the node after the snapshot.
-             * Revalidate under both locks and retry instead of treating this
-             * ordinary concurrent ownership change as a test failure.
-             */
-            if (nodes[index].queue_cpu != owner) {
+                uint32_t destination_cpu =
+                    transfer_random(&random_state) % TEST_CPU_COUNT;
+                if (destination_cpu == owner)
+                    destination_cpu = (destination_cpu + 1u) %
+                                      TEST_CPU_COUNT;
+
+                lock_queue_pair(owner, destination_cpu);
+                /*
+                 * A competing transfer may have changed the owner after the
+                 * stable snapshot. Retry this same transfer operation rather
+                 * than silently dropping it from the stress workload.
+                 */
+                if (nodes[index].queue_cpu != owner) {
+                    unlock_queue_pair(owner, destination_cpu);
+                    if (++retries >= 65536u) {
+                        fail_test();
+                        return 0;
+                    }
+                    continue;
+                }
+
+                if (runqueue_move_locked(&queues[owner],
+                        &queues[destination_cpu], nodes, NODE_COUNT, index) != 0 ||
+                    runqueue_validate_locked(&queues[owner], nodes,
+                        NODE_COUNT, 0) != 0 ||
+                    runqueue_validate_locked(&queues[destination_cpu], nodes,
+                        NODE_COUNT, 0) != 0) {
+                    fail_test();
+                    unlock_queue_pair(owner, destination_cpu);
+                    return 0;
+                }
                 unlock_queue_pair(owner, destination_cpu);
-                continue;
+                break;
             }
-            if (runqueue_move_locked(&queues[owner],
-                    &queues[destination_cpu], nodes, NODE_COUNT, index) != 0 ||
-                runqueue_validate_locked(&queues[owner], nodes,
-                    NODE_COUNT, 0) != 0 ||
-                runqueue_validate_locked(&queues[destination_cpu], nodes,
-                    NODE_COUNT, 0) != 0) {
-                fail_test();
-                unlock_queue_pair(owner, destination_cpu);
-                return 0;
-            }
-            unlock_queue_pair(owner, destination_cpu);
         }
     }
     return 0;
