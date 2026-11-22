@@ -1677,7 +1677,19 @@ static int32_t process_sleep_on_kind(uintptr_t channel, struct spinlock *held_lo
     c->wait_timeout_ticks=timeout_ticks;
     c->wait_cpu=cpu;
     c->wait_deadline=0u;
-    (void)process_transition_state_locked(c,PROCESS_WAITING);
+    if(process_transition_state_locked(c,PROCESS_WAITING)!=0){
+        /* The caller must not return as blocked unless WAITING was published. */
+        c->wait_channel=0u;
+        c->wait_kind=0u;
+        c->wait_timeout_active=0u;
+        c->wait_timeout_result=0u;
+        c->wait_timeout_ticks=0u;
+        c->wait_cpu=0u;
+        c->wait_deadline=0u;
+        spinlock_irqrestore_release(&process_lock,flags);
+        spinlock_irqrestore_release(held_lock,irq_flags);
+        return -1;
+    }
     process_request_blocked_reschedule(cpu);
     spinlock_irqrestore_release(&process_lock,flags);
     spinlock_irqrestore_release(held_lock,irq_flags);
