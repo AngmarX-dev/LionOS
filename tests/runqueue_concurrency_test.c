@@ -68,6 +68,22 @@ static void unlock_queue_pair(uint32_t a, uint32_t b) {
     spinlock_release(&queues[first].lock);
 }
 
+/*
+ * queue_cpu is protected by the owning queue lock. Lock every queue in
+ * ascending CPU order to obtain a stable owner snapshot while transfers may
+ * move this node between queues.
+ */
+static uint32_t node_owner_snapshot(uint32_t index) {
+    for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu)
+        spinlock_acquire(&queues[cpu].lock);
+
+    uint32_t owner = nodes[index].queue_cpu;
+
+    for (uint32_t cpu = TEST_CPU_COUNT; cpu > 0u; --cpu)
+        spinlock_release(&queues[cpu - 1u].lock);
+    return owner;
+}
+
 static void *run_worker(void *opaque) {
     const struct worker_argument *argument =
         (const struct worker_argument *)opaque;
@@ -122,7 +138,7 @@ static void *run_transfer_worker(void *opaque) {
     for (uint32_t round = 0u; round < TRANSFER_ITERATIONS; ++round) {
         for (uint32_t i = 0u; i < NODES_PER_WORKER; ++i) {
             uint32_t index = first + i;
-            uint32_t owner = nodes[index].queue_cpu;
+            uint32_t owner = node_owner_snapshot(index);
             uint32_t destination_cpu =
                 transfer_random(&random_state) % TEST_CPU_COUNT;
 
@@ -134,8 +150,16 @@ static void *run_transfer_worker(void *opaque) {
                 destination_cpu = (destination_cpu + 1u) % TEST_CPU_COUNT;
 
             lock_queue_pair(owner, destination_cpu);
-            if (nodes[index].queue_cpu != owner ||
-                runqueue_move_locked(&queues[owner],
+            /*
+             * Another worker may have moved the node after the snapshot.
+             * Revalidate under both locks and retry instead of treating this
+             * ordinary concurrent ownership change as a test failure.
+             */
+            if (nodes[index].queue_cpu != owner) {
+                unlock_queue_pair(owner, destination_cpu);
+                continue;
+            }
+            if (runqueue_move_locked(&queues[owner],
                     &queues[destination_cpu], nodes, NODE_COUNT, index) != 0 ||
                 runqueue_validate_locked(&queues[owner], nodes,
                     NODE_COUNT, 0) != 0 ||
