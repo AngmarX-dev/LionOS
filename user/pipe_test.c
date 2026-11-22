@@ -69,7 +69,7 @@ int main(void) {
         child = lion_fork();
         if (child == (uint32_t)-1) return 12;
         if (child == 0u) {
-            pipe_zombie_marker = 0u;
+            __atomic_store_n(&pipe_zombie_marker, 0u, __ATOMIC_RELEASE);
             uint32_t zombie_tid = lion_thread_create(pipe_zombie_worker);
             if (zombie_tid == 0u || zombie_tid == LIONOS_SYSCALL_ERR)
                 lion_exit_code(16u);
