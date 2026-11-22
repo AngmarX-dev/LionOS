@@ -88,7 +88,24 @@ run_qemu() {
         echo "SMP lock contention stress test did not pass: $log_file" >&2
         return 1
     fi
+    if grep -q 'LIONOS:SMP-AP-TIMER-UNAVAILABLE' "$log_file"; then
+        echo "an AP failed Local APIC timer calibration: $log_file" >&2
+        return 1
+    fi
     if [ "$cpu_count" -gt 1 ]; then
+        expected_timer_aps=$((cpu_count - 1))
+        actual_timer_aps=$(grep -c '^LIONOS:SMP-AP-TIMER-IRQ cpu=' "$log_file" || true)
+        if [ "$actual_timer_aps" -ne "$expected_timer_aps" ]; then
+            echo "expected $expected_timer_aps distinct AP timer IRQ markers, observed $actual_timer_aps: $log_file" >&2
+            return 1
+        fi
+        for cpu in $(seq 1 $((cpu_count - 1))); do
+            printf -v cpu_hex '%08X' "$cpu"
+            if ! grep -qx "LIONOS:SMP-AP-TIMER-IRQ cpu=$cpu_hex" "$log_file"; then
+                echo "missing first Local APIC timer interrupt from AP index $cpu: $log_file" >&2
+                return 1
+            fi
+        done
         grep -q 'LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK' "$log_file"
         for cpu in $(seq 0 $((cpu_count - 1))); do
             if ! grep -q "LIONOS:IRQ-CPU cpu=$cpu " "$log_file"; then
@@ -267,7 +284,7 @@ if grep -q 'LIONOS:SMP-CPU-ONLINE' build/qemu-smp-1cpu.log; then
     echo "single-CPU regression: an application processor was unexpectedly marked online" >&2
     exit 1
 fi
-if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL|RUNQUEUE-WAKEUP-OK|RUNQUEUE-TIMEOUT-OK|RUNQUEUE-STOP-CONT-OK|RUNQUEUE-PRIORITY-REQUEUE-OK|RUNQUEUE-REAP-VALIDATION-OK|USER-FORK-WAITPID-OK|USER-FORK-WAITPID-FAIL)' build/qemu-smp-1cpu.log; then
+if grep -Eq 'LIONOS:SMP-AP-(IDLE-CONTEXTS-READY|IDLE-ALL-ENTERED|RUNQUEUE-LIFECYCLE-OK|RUNQUEUE-LIFECYCLE-FAIL|RUNQUEUE-WAKEUP-OK|RUNQUEUE-TIMEOUT-OK|RUNQUEUE-STOP-CONT-OK|RUNQUEUE-PRIORITY-REQUEUE-OK|RUNQUEUE-REAP-VALIDATION-OK|USER-FORK-WAITPID-OK|USER-FORK-WAITPID-FAIL|TIMER-CALIBRATED|TIMER-IRQ)' build/qemu-smp-1cpu.log; then
     echo "single-CPU regression: AP-only scheduler lifecycle marker appeared" >&2
     exit 1
 fi

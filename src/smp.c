@@ -175,13 +175,16 @@ void smp_ap_main(void){
         debug_write("LIONOS:SMP-AP-LAPIC-ENABLE-FAIL\n");
         for(;;)__asm__ volatile("cli; hlt");
     }
-    lapic_timer_init();
-    debug_write("LIONOS:SMP-AP-TIMER-OK\n");
-    __asm__ volatile("sti");
-    debug_write("LIONOS:SMP-AP-STI-OK\n");
+    if(lapic_timer_init()!=0){
+        debug_write("LIONOS:SMP-AP-TIMER-UNAVAILABLE\n");
+        for(;;)__asm__ volatile("cli; hlt");
+    }
+    debug_write("LIONOS:SMP-AP-TIMER-CALIBRATED\n");
     cpu_mark_online(index,lapic_id());
     __atomic_fetch_or(&ap_online_mask,1u<<index,__ATOMIC_RELEASE);
     debug_write("LIONOS:SMP-AP-ONLINE-MARKED\n");
+    __asm__ volatile("sti");
+    debug_write("LIONOS:SMP-AP-STI-OK\n");
     for(;;){
         if(__atomic_load_n(&smp_stress_request,__ATOMIC_ACQUIRE))
             smp_lock_stress_worker(index);

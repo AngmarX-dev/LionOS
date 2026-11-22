@@ -189,11 +189,28 @@ static uint32_t lapic_calibrate_initial(uint32_t target_hz){
     outb(PIT_CH2,(uint8_t)(pit_count>>8));
 
     uint32_t guard=10000000u;
-    while((inb(PIT_SPKR)&0x20u)!=0u && guard--){__asm__ volatile("pause");}
-    if(!guard){outb(PIT_SPKR,speaker);return 0u;}
+    uint8_t pit_status=inb(PIT_SPKR);
+    while((pit_status&0x20u)!=0u && guard!=0u){
+        --guard;
+        __asm__ volatile("pause");
+        pit_status=inb(PIT_SPKR);
+    }
+    if((pit_status&0x20u)!=0u){
+        outb(PIT_SPKR,speaker);
+        return 0u;
+    }
+
     guard=10000000u;
-    while((inb(PIT_SPKR)&0x20u)==0u && guard--){__asm__ volatile("pause");}
-    if(!guard){outb(PIT_SPKR,speaker);return 0u;}
+    pit_status=inb(PIT_SPKR);
+    while((pit_status&0x20u)==0u && guard!=0u){
+        --guard;
+        __asm__ volatile("pause");
+        pit_status=inb(PIT_SPKR);
+    }
+    if((pit_status&0x20u)==0u){
+        outb(PIT_SPKR,speaker);
+        return 0u;
+    }
 
     uint32_t elapsed=0xFFFFFFFFu-read_reg(LAPIC_REG_TIMER_CUR);
     outb(PIT_SPKR,speaker);
@@ -208,20 +225,27 @@ static uint32_t lapic_calibrate_initial(uint32_t target_hz){
     uint32_t whole=elapsed/target_hz;
     uint32_t remainder=elapsed%target_hz;
     if(whole>0xFFFFFFFFu/PIT_CAL_HZ) return 0u;
-    uint32_t initial=whole*PIT_CAL_HZ+
-        (remainder*PIT_CAL_HZ)/target_hz;
+    uint32_t base=whole*PIT_CAL_HZ;
+    uint32_t fraction=(remainder*PIT_CAL_HZ)/target_hz;
+    if(fraction>0xFFFFFFFFu-base) return 0u;
+    uint32_t initial=base+fraction;
     if(initial<1000u) return 0u;
     return initial;
 }
-void lapic_timer_init(void){
-    if(!initialized)return;
-    timer_ticks=0u;
-    /* Match the BSP frame/futex clock: one nominal 120 Hz tick source per AP. */
-    uint32_t initial=lapic_calibrate_initial(120u);
-    if(!initial) initial=200000u;
+int lapic_timer_init(void){
+    if(!initialized) return -1;
     write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);
-    write_reg(LAPIC_REG_LVT_TIMER,LAPIC_TIMER_PERIODIC|LIONOS_LAPIC_TIMER_VECTOR);
+    write_reg(LAPIC_REG_LVT_TIMER,
+              LAPIC_TIMER_MASKED|LIONOS_LAPIC_TIMER_VECTOR);
+    write_reg(LAPIC_REG_TIMER_INIT,0u);
+    /* timer_ticks is shared diagnostic state; do not reset it per AP. */
+    uint32_t initial=lapic_calibrate_initial(120u);
+    if(!initial) return -1;
+    write_reg(LAPIC_REG_TIMER_DIV,LAPIC_TIMER_DIV_16);
+    write_reg(LAPIC_REG_LVT_TIMER,
+              LAPIC_TIMER_PERIODIC|LIONOS_LAPIC_TIMER_VECTOR);
     write_reg(LAPIC_REG_TIMER_INIT,initial);
+    return 0;
 }
 
 /* BSP frame clock: independent from the PIT process/scheduler clock. */

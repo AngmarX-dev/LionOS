@@ -15,7 +15,7 @@ int lapic_enable(void);
 void lapic_send_init(uint32_t apic_id);
 void lapic_send_startup(uint32_t apic_id, uint32_t vector);
 void lapic_send_ipi(uint32_t apic_id, uint32_t vector);
-void lapic_timer_init(void);
+int lapic_timer_init(void);
 void lapic_timer_tick(void);
 uint32_t lapic_timer_ticks(void);
 int lapic_frame_timer_init(uint32_t hz);
