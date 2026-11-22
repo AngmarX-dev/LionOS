@@ -2431,6 +2431,15 @@ void process_exit_current(uint32_t code){
     int is_hup_exit=(code==(128u+LIONOS_SIG_HUP));
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:EXIT-ENTER\n");
     if(!c->is_thread){
+        /* Stop every sibling before closing process-wide descriptors. Threads
+         * share the leader's FD table and address space; no sibling may race
+         * pipe/VFS teardown once this point has been reached. */
+        flags=spinlock_irqsave_acquire(&process_lock);
+        if(current_local()!=c||c->state==PROCESS_UNUSED||
+           c->state==PROCESS_ZOMBIE)
+            process_lifecycle_fault("process-exit-owner-changed",c->pid);
+        process_retire_siblings_locked(c);
+        spinlock_irqrestore_release(&process_lock,flags);
         pipe_close_all(c);
         vfs_close_all_process(c);
     }
@@ -2486,8 +2495,7 @@ void process_exit_current(uint32_t code){
         return;
     }
 
-    /* Retire every sibling before publishing the leader as a zombie. */
-    process_retire_siblings_locked(c);
+    /* Siblings were retired before process-wide resource teardown. */
     uint32_t exiting_sid=c->sid;
     uint32_t diagnostic_pid=c->pid;
     uint32_t diagnostic_parent_pid=c->parent_pid;

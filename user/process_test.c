@@ -429,10 +429,19 @@ int main(int argc, char **argv) {
     for (uint32_t i = 0u; i < 64u; ++i) {
         uint32_t owner_pid = lion_fork();
         if (owner_pid == 0u) {
-            for (uint32_t sibling = 0u; sibling < 3u; ++sibling) {
+            thread_marker = 0u;
+            uint32_t zombie_tid = lion_thread_create(thread_worker_zombie);
+            if (zombie_tid == 0u || zombie_tid == LIONOS_SYSCALL_ERR)
+                lion_exit_code(101u);
+            for (uint32_t turn = 0u; turn < 16u &&
+                 thread_marker != 0x2468ACE0u; ++turn)
+                (void)lion_yield();
+            if (thread_marker != 0x2468ACE0u)
+                lion_exit_code(102u);
+            for (uint32_t sibling = 0u; sibling < 2u; ++sibling) {
                 uint32_t orphan_tid = lion_thread_create(thread_worker_blocking);
                 if (orphan_tid == 0u || orphan_tid == LIONOS_SYSCALL_ERR)
-                    lion_exit_code(101u);
+                    lion_exit_code(103u);
             }
             lion_exit_code(55u);
         }
