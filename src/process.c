@@ -2803,6 +2803,21 @@ void process_request_reschedule(void){
 }
 
 int process_set_priority(struct process*p,uint32_t priority){
+    uint32_t owner=LIONOS_MAX_CPUS;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    int result=process_set_priority_locked(p,priority);
+    if(result==0&&p->state==PROCESS_READY&&p->cpu_owner<LIONOS_MAX_CPUS)
+        owner=p->cpu_owner;
+    spinlock_irqrestore_release(&process_lock,flags);
+
+    /* A priority promotion can change the next task selected by an idle or
+       lower-priority owner CPU. Notify it only after queue metadata is stable
+       and process_lock has been released. */
+    if(result==0&&owner<LIONOS_MAX_CPUS)
+        process_kick_cpu(owner);
+    return result;
+}
+
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     int result=process_set_priority_locked(p,priority);
     spinlock_irqrestore_release(&process_lock,flags);
