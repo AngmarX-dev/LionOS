@@ -1461,12 +1461,21 @@ void lionos_user_integration_step(void){
                 &integration_busy_worker_status[cpu],__ATOMIC_ACQUIRE);
             uint32_t pid=__atomic_load_n(
                 &integration_busy_worker_pids[cpu],__ATOMIC_ACQUIRE);
+            if(status==0u){
+                pending=1u;
+                continue;
+            }
+            if(status==2u&&pid==0u)
+                continue;
             if(status!=1u||!pid){
-                if(status==0u){
-                    pending=1u;
-                }else{
-                    integration_busy_balance_failed=1u;
-                }
+                integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-WORKER-STATE-INVALID cpu=");
+                debug_write_u32_hex(cpu);
+                debug_write(" status=");
+                debug_write_u32_hex(status);
+                debug_write(" pid=");
+                debug_write_u32_hex(pid);
+                debug_write("\n");
                 continue;
             }
             int32_t state=process_get_state(pid);
@@ -1505,6 +1514,8 @@ void lionos_user_integration_step(void){
                                      __ATOMIC_RELEASE);
                 }else{
                     __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
+                                     __ATOMIC_RELAXED);
+                    __atomic_store_n(&integration_busy_worker_status[cpu],2u,
                                      __ATOMIC_RELEASE);
                 }
             }else if(state<0){
@@ -1515,6 +1526,8 @@ void lionos_user_integration_step(void){
                 debug_write_u32_hex(pid);
                 debug_write("\n");
                 __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
+                                 __ATOMIC_RELAXED);
+                __atomic_store_n(&integration_busy_worker_status[cpu],3u,
                                  __ATOMIC_RELEASE);
             }else{
                 pending=1u;
