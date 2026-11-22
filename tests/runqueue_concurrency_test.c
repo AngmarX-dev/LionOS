@@ -18,6 +18,7 @@ struct worker_argument {
 
 struct transfer_argument {
     uint32_t worker;
+    volatile uint32_t *start;
 };
 
 struct priority_argument {
@@ -135,6 +136,9 @@ static void *run_transfer_worker(void *opaque) {
     uint32_t random_state =
         0x9E3779B9u ^ ((argument->worker + 1u) * 0x85EBCA6Bu);
 
+    while (__atomic_load_n(argument->start, __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile("pause");
+
     for (uint32_t round = 0u; round < TRANSFER_ITERATIONS; ++round) {
         for (uint32_t i = 0u; i < NODES_PER_WORKER; ++i) {
             uint32_t index = first + i;
@@ -187,24 +191,39 @@ static void *run_priority_worker(void *opaque) {
     for (uint32_t round = 0u; round < PRIORITY_ITERATIONS; ++round) {
         for (uint32_t i = 0u; i < NODES_PER_WORKER; ++i) {
             uint32_t index = first + i;
-            uint32_t owner = nodes[index].queue_cpu;
-            if (owner >= TEST_CPU_COUNT) {
-                fail_test();
-                return 0;
-            }
+            uint32_t retries = 0u;
+            for (;;) {
+                /* Transfers may change queue_cpu concurrently. Take a
+                 * stable snapshot, then revalidate under the owner lock. */
+                uint32_t owner = node_owner_snapshot(index);
+                if (owner >= TEST_CPU_COUNT) {
+                    fail_test();
+                    return 0;
+                }
 
-            struct runqueue *queue = &queues[owner];
-            spinlock_acquire(&queue->lock);
-            if (nodes[index].queue_cpu != owner ||
-                runqueue_requeue_priority_locked(queue, nodes, NODE_COUNT,
-                    index, (round + i + argument->worker) %
-                    LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0 ||
-                runqueue_validate_locked(queue, nodes, NODE_COUNT, 0) != 0) {
-                fail_test();
+                struct runqueue *queue = &queues[owner];
+                spinlock_acquire(&queue->lock);
+                if (nodes[index].queue_cpu != owner) {
+                    spinlock_release(&queue->lock);
+                    if (++retries >= 65536u) {
+                        fail_test();
+                        return 0;
+                    }
+                    continue;
+                }
+                if (runqueue_requeue_priority_locked(queue, nodes,
+                        NODE_COUNT, index,
+                        (round + i + argument->worker) %
+                        LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0 ||
+                    runqueue_validate_locked(queue, nodes,
+                        NODE_COUNT, 0) != 0) {
+                    fail_test();
+                    spinlock_release(&queue->lock);
+                    return 0;
+                }
                 spinlock_release(&queue->lock);
-                return 0;
+                break;
             }
-            spinlock_release(&queue->lock);
         }
     }
     return 0;
@@ -908,47 +927,46 @@ int main(void) {
     if (__atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
         return 2;
 
-    created = 0u;
+    /* Run cross-CPU transfers and priority changes concurrently. Both
+     * operations contend on the same queue locks; priority workers must
+     * follow a node when its owner changes rather than reading queue_cpu
+     * without synchronization or failing on a stale owner snapshot. */
+    pthread_t priority_threads[WORKER_COUNT];
+    struct priority_argument priority_arguments[WORKER_COUNT];
+    volatile uint32_t concurrent_start = 0u;
+    uint32_t transfer_created = 0u;
+    uint32_t priority_created = 0u;
+
     for (uint32_t worker = 0u; worker < WORKER_COUNT; ++worker) {
         transfer_arguments[worker].worker = worker;
+        transfer_arguments[worker].start = &concurrent_start;
         if (pthread_create(&transfer_threads[worker], 0,
                 run_transfer_worker, &transfer_arguments[worker]) != 0) {
             fail_test();
             break;
         }
-        ++created;
+        ++transfer_created;
     }
-    for (uint32_t i = 0u; i < created; ++i)
-        if (pthread_join(transfer_threads[i], 0) != 0)
-            fail_test();
-    if (created != WORKER_COUNT ||
-        __atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
-        return 3;
-
-    /*
-     * Stress priority changes after transfers. Each worker owns disjoint
-     * nodes, follows them to their current CPU, and requeues under that
-     * queue's lock while other workers operate on the same queues.
-     */
-    pthread_t priority_threads[WORKER_COUNT];
-    struct priority_argument priority_arguments[WORKER_COUNT];
-    volatile uint32_t priority_start = 0u;
-    created = 0u;
     for (uint32_t worker = 0u; worker < WORKER_COUNT; ++worker) {
         priority_arguments[worker].worker = worker;
-        priority_arguments[worker].start = &priority_start;
+        priority_arguments[worker].start = &concurrent_start;
         if (pthread_create(&priority_threads[worker], 0,
                 run_priority_worker, &priority_arguments[worker]) != 0) {
             fail_test();
             break;
         }
-        ++created;
+        ++priority_created;
     }
-    __atomic_store_n(&priority_start, 1u, __ATOMIC_RELEASE);
-    for (uint32_t i = 0u; i < created; ++i)
+
+    __atomic_store_n(&concurrent_start, 1u, __ATOMIC_RELEASE);
+    for (uint32_t i = 0u; i < transfer_created; ++i)
+        if (pthread_join(transfer_threads[i], 0) != 0)
+            fail_test();
+    for (uint32_t i = 0u; i < priority_created; ++i)
         if (pthread_join(priority_threads[i], 0) != 0)
             fail_test();
-    if (created != WORKER_COUNT ||
+    if (transfer_created != WORKER_COUNT ||
+        priority_created != WORKER_COUNT ||
         __atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
         return 6;
 
