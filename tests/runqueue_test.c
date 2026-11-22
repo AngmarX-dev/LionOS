@@ -99,6 +99,30 @@ static int busy_balance_convergence_test(void) {
     if (transfers != 4u || queues[0].total != 2u ||
         queues[1].total != 2u || queues[2].total != 2u)
         return 7;
+
+    /*
+     * Once the busy queues converge, repeated scheduler opportunities must
+     * not move work back and forth. Exercise alternating destinations for a
+     * sustained window and require stable queue totals and valid membership.
+     */
+    for (uint32_t invocation = 0u; invocation < 1024u; ++invocation) {
+        uint32_t destination = 1u + (invocation & 1u);
+        uint32_t victim_total = 0u;
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+            if (cpu != destination && queues[cpu].total > victim_total)
+                victim_total = queues[cpu].total;
+        }
+        if (runqueue_should_balance(queues[destination].total,
+                                    victim_total, 0))
+            return 10;
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+            uint32_t total = 0u;
+            if (runqueue_validate_locked(&queues[cpu], nodes,
+                    BALANCE_NODE_COUNT, &total) != 0 ||
+                total != 2u || total != queues[cpu].total)
+                return 11;
+        }
+    }
     for (uint32_t i = 0u; i < 6u; ++i) {
         uint32_t memberships = 0u;
         for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
