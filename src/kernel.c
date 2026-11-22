@@ -342,6 +342,9 @@ static volatile uint32_t integration_ap_user_status;
 #define INTEGRATION_BUSY_BALANCE_PROCESS_COUNT 4u
 /* Keep the QEMU stress fixture within the 16-slot process table. */
 #define INTEGRATION_BUSY_BALANCE_MAX_WORKERS 3u
+/* The documented QEMU acceptance consistently migrates at least two of the
+ * three eligible candidates; one transfer is insufficient convergence. */
+#define INTEGRATION_BUSY_BALANCE_MIN_MOVED 2u
 static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_COUNT];
 static volatile uint32_t integration_busy_worker_pids[LIONOS_MAX_CPUS];
 static volatile uint32_t integration_busy_worker_status[LIONOS_MAX_CPUS];
@@ -1583,7 +1586,8 @@ void lionos_user_integration_step(void){
             debug_write(" elapsed=");
             debug_write_u32_hex(stage28_elapsed);
             debug_write("\n");
-            if(busy_mask==0u||integration_busy_balance_moved==0u||
+            if(busy_mask==0u||
+               integration_busy_balance_moved<INTEGRATION_BUSY_BALANCE_MIN_MOVED||
                busy_owner_intersection==0u){
                 integration_busy_balance_failed=1u;
                 debug_write("LIONOS:SMP-BUSY-MASK-FAIL busy=");
