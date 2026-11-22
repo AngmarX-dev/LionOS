@@ -16,8 +16,9 @@ The timer scheduler uses a non-blocking try-acquire for its local queue selectio
 The scheduler may steal one explicitly opted-in READY user process when its local queue is empty, or move one eligible READY process from a sufficiently heavier victim queue after selecting a local task. Busy-destination balancing requires a victim backlog at least two tasks larger than the destination's remaining queue. Ordinary processes are not migratable by default, and the policy permits at most one migration per process.
 
 Host tests cover queue invariants, FIFO/priority ordering, destination-lane FIFO
-append semantics across multiple READY-task priority changes, and concurrent lock
-contention across independent per-CPU queues. The run-queue concurrency regression
+append semantics across multiple READY-task priority changes, concurrent lock
+contention across independent per-CPU queues, and 20,000 rounds per worker of
+concurrent priority requeueing after cross-CPU node transfers. The run-queue concurrency regression
 also starts two busy destinations against one shared source queue, uses ordered
 non-blocking lock acquisition, verifies that a held source lock causes a deferred
 attempt, and checks that both destinations receive exactly one READY node with

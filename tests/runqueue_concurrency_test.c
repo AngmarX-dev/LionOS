@@ -9,6 +9,7 @@
 #define NODE_COUNT (WORKER_COUNT * NODES_PER_WORKER)
 #define ITERATIONS 20000u
 #define TRANSFER_ITERATIONS 10000u
+#define PRIORITY_ITERATIONS 20000u
 
 struct worker_argument {
     uint32_t cpu;
@@ -140,6 +141,38 @@ static void *run_transfer_worker(void *opaque) {
                 return 0;
             }
             unlock_queue_pair(owner, destination_cpu);
+        }
+    }
+    return 0;
+}
+
+
+static void *run_priority_worker(void *opaque) {
+    const struct worker_argument *argument =
+        (const struct worker_argument *)opaque;
+    uint32_t first = argument->worker * NODES_PER_WORKER;
+
+    for (uint32_t round = 0u; round < PRIORITY_ITERATIONS; ++round) {
+        for (uint32_t i = 0u; i < NODES_PER_WORKER; ++i) {
+            uint32_t index = first + i;
+            uint32_t owner = nodes[index].queue_cpu;
+            if (owner >= TEST_CPU_COUNT) {
+                fail_test();
+                return 0;
+            }
+
+            struct runqueue *queue = &queues[owner];
+            spinlock_acquire(&queue->lock);
+            if (nodes[index].queue_cpu != owner ||
+                runqueue_requeue_priority_locked(queue, nodes, NODE_COUNT,
+                    index, (round + i + argument->worker) %
+                    LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0 ||
+                runqueue_validate_locked(queue, nodes, NODE_COUNT, 0) != 0) {
+                fail_test();
+                spinlock_release(&queue->lock);
+                return 0;
+            }
+            spinlock_release(&queue->lock);
         }
     }
     return 0;
@@ -388,6 +421,28 @@ int main(void) {
     if (created != WORKER_COUNT ||
         __atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
         return 3;
+
+    /*
+     * Stress priority changes after transfers. Each worker owns disjoint
+     * nodes, follows them to their current CPU, and requeues under that
+     * queue's lock while other workers operate on the same queues.
+     */
+    pthread_t priority_threads[WORKER_COUNT];
+    created = 0u;
+    for (uint32_t worker = 0u; worker < WORKER_COUNT; ++worker) {
+        if (pthread_create(&priority_threads[worker], 0,
+                run_priority_worker, &arguments[worker]) != 0) {
+            fail_test();
+            break;
+        }
+        ++created;
+    }
+    for (uint32_t i = 0u; i < created; ++i)
+        if (pthread_join(priority_threads[i], 0) != 0)
+            fail_test();
+    if (created != WORKER_COUNT ||
+        __atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
+        return 6;
 
     /* Lock every queue to verify global membership and total accounting. */
     for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu)
