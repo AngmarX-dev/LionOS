@@ -20,3 +20,12 @@ int scheduler_priority_demote(uint32_t *priority, uint32_t *time_slice) {
     *time_slice = scheduler_priority_quantum(*priority);
     return 0;
 }
+
+int scheduler_tick_deadline_reached(uint32_t now, uint32_t deadline) {
+    /*
+     * Unsigned subtraction is defined modulo 2^32. A result in the lower
+     * half-range means the deadline is reached; the upper half means it is
+     * still in the future. Callers must cap relative deadlines at INT32_MAX.
+     */
+    return (uint32_t)(now - deadline) <= 0x7FFFFFFFu;
+}

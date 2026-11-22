@@ -1737,7 +1737,7 @@ void process_futex_tick(uint32_t cpu){
             continue;
         }
         if(p->wait_timeout_active!=1u||
-           (int32_t)(now-p->wait_deadline)<0)continue;
+           !scheduler_tick_deadline_reached(now,p->wait_deadline))continue;
         uint32_t kind=p->wait_kind;
         /*
          * Keep the timeout registration intact until READY publication has

@@ -41,5 +41,13 @@ int main(void) {
     if (scheduler_priority_demote(&priority, &quantum) == 0 ||
         priority != UINT32_MAX || quantum != 55u)
         return 9;
+    if (!scheduler_tick_deadline_reached(100u, 100u)) return 10;
+    if (!scheduler_tick_deadline_reached(101u, 100u)) return 11;
+    if (scheduler_tick_deadline_reached(99u, 100u)) return 12;
+    if (!scheduler_tick_deadline_reached(1u, UINT32_MAX)) return 13;
+    if (scheduler_tick_deadline_reached(UINT32_MAX, 1u)) return 14;
+    if (!scheduler_tick_deadline_reached(0x7FFFFFFFu, 0u)) return 15;
+    if (scheduler_tick_deadline_reached(0x80000000u, 0u)) return 16;
+    if (scheduler_tick_deadline_reached(0u, 0x7FFFFFFFu)) return 17;
     return 0;
 }
