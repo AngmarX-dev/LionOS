@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-This document records the synchronization and ownership contract for the per-CPU run-queue scheduler. Process lifecycle transitions maintain queue membership and `process_schedule()` selects from local priority lanes. The single-CPU fallback and 2-, 4-, 8-, and 16-vCPU SMP regressions, including topology-aware multi-process work stealing and zombie-reap retries, passed Build, Phase 26, and xHCI CI on exact commit `b8829f4a7ea2d919e24b4d9d5f6c6bdb1f646452`. A follow-up test repeats the bounded migration batch for three rounds to exercise repeated scheduling, process exit, and reclamation cycles without allowing any individual process to migrate more than once. Build, Phase 26, and xHCI workflows passed on exact commit `831e6580b964041df1070fb475178a1043a30399`. The milestone remains partial pending broader load-balancing stress and physical hardware verification.
+This document records the synchronization and ownership contract for the per-CPU run-queue scheduler. Process lifecycle transitions maintain queue membership and `process_schedule()` selects from local priority lanes. The single-CPU fallback and 2-, 4-, 8-, and 16-vCPU SMP regressions, including topology-aware multi-process work stealing and zombie-reap retries, passed Build, Phase 26, and xHCI CI on exact commit `b8829f4a7ea2d919e24b4d9d5f6c6bdb1f646452`. A follow-up test repeats the bounded migration batch for three rounds to exercise repeated scheduling, process exit, and reclamation cycles without allowing any individual process to migrate more than once. Build, Phase 26, and xHCI workflows passed on exact commit `831e6580b964041df1070fb475178a1043a30399`. The production busy-destination path also passed QEMU acceptance in Build and Phase 26 on exact commit `aadccc98716afc1f0d84aa7282c5d7629f29759d`; the milestone remains partial pending sustained-load convergence, broader migration, and physical hardware verification.
 
-A controlled migration slice is enabled only for explicitly opted-in READY independent user processes. Each opted-in process may migrate at most once; ordinary processes remain pinned by default, as do kernel threads, user threads, and leaders with unreaped sibling threads. Idle stealing and bounded busy-queue balancing are implemented, while runtime busy-to-busy acceptance and broader migration remain partial.
+A controlled migration slice is enabled only for explicitly opted-in READY independent user processes. Each opted-in process may migrate at most once; ordinary processes remain pinned by default, as do kernel threads, user threads, and leaders with unreaped sibling threads. Idle stealing and bounded busy-queue balancing are implemented. Production QEMU busy-to-busy acceptance passed on exact commit `aadccc98716afc1f0d84aa7282c5d7629f29759d`; broader migration and sustained-load balancing remain partial.
 
 The implementation now connects the intrusive run-queue core in
 `include/runqueue.h` and `src/runqueue.c` to process lifecycle transitions and
@@ -21,8 +21,7 @@ contention across independent per-CPU queues. The run-queue concurrency regressi
 also starts two busy destinations against one shared source queue, uses ordered
 non-blocking lock acquisition, verifies that a held source lock causes a deferred
 attempt, and checks that both destinations receive exactly one READY node with
-global membership preserved. This is a host-side queue-mechanics test: it does not
-execute process eligibility checks or the production SMP scheduler path.
+global membership preserved. This is a host-side queue-mechanics test: it does not execute process eligibility checks. The separate QEMU integration test exercises the production SMP scheduler path.
 
 ### Production busy-destination acceptance
 
@@ -86,7 +85,7 @@ Consequently, `cpu_owner` is both the affinity owner and the CPU whose queue con
 - Do not change xHCI, interrupt routing, or unrelated driver code.
 
 
-## Bounded general load-balancing policy (implemented; acceptance remains partial)
+## Bounded general load-balancing policy (implemented; QEMU acceptance passed, sustained stress partial)
 
 The implementation retains the original idle-CPU work-stealing path and
 adds a bounded busy-destination balancing path. Both are serialized by
@@ -131,17 +130,19 @@ Concrete policy for the first implementation:
 - Transfer at most one node per scheduler invocation. A successful move updates the node's owner and one-time migration count only after the queue primitive succeeds. The selected local task continues to run; a newly transferred task remains queued for a later scheduling decision unless the destination was idle and had no selected task.
 - If the destination was idle, select the newly transferred task only after reacquiring its local queue lock. If the lock cannot be reacquired, leave the READY task queued, request a later reschedule, and enter the normal CPU-local idle fallback rather than returning a READY task's stale frame.
 
-This deliberately distinguishes *idle stealing* from *backlog balancing*: the former has a one-task progress threshold, while the latter requires a two-task skew. The scheduler implementation now applies this policy, avoids moving work on every equal-load tick, and leaves the existing one-migration eligibility guard intact. The host unit test covers the threshold helper and arithmetic boundaries; it does not yet prove end-to-end busy-to-busy transfer or simultaneous scheduler contention.
+This deliberately distinguishes *idle stealing* from *backlog balancing*: the former has a one-task progress threshold, while the latter requires a two-task skew. The scheduler implementation now applies this policy, avoids moving work on every equal-load tick, and leaves the existing one-migration eligibility guard intact. The host unit test covers the threshold helper and arithmetic boundaries. End-to-end production busy-to-busy transfer is covered separately by the QEMU integration phase; simultaneous scheduler execution is not exercised because process state remains serialized by `process_lock`.
 
-Acceptance tests for that increment must cover deterministic skewed queue
-populations on 2/4/8/16 CPUs, no transfer below the threshold, successful
-transfer above it, ineligible-node skipping, simultaneous stealers targeting
-one victim, queue-lock contention, and exact-one membership after every
-operation. Runtime tests must also prove that all runnable test processes make
-progress, that pinned control tasks retain affinity, that no process executes
-on two CPUs, and that the queue totals converge without oscillation. The
-existing single-CPU, AP lifecycle, process/waitpid, three-round migration,
-GUI, VFS, and xHCI regressions remain mandatory.
+The production QEMU acceptance phase covers the configured 2/4/8/16-vCPU
+matrix, a skewed BSP source queue, busy AP destinations, eligible-node checks,
+one-migration ownership, a pinned control process, process exit/reaping, and
+the scheduler execution guard. The host pthread regression separately covers
+two busy destinations racing for one source, ordered non-blocking lock
+acquisition, deferred lock-contention attempts, and exact-one membership.
+Remaining acceptance work is sustained-load convergence and fairness without
+oscillation, longer-duration scheduler contention, broader thread migration,
+and physical hardware verification. The existing single-CPU, AP lifecycle,
+process/waitpid, three-round migration, GUI, VFS, and xHCI regressions remain
+mandatory.
 
 Do not mark the load-balancing roadmap item complete until the full build,
 host tests, QEMU topology matrix, both code reviews, and all required workflows
@@ -260,7 +261,7 @@ The queue conversion is not complete until tests demonstrate:
 3. Exactly-one queue membership through create, fork, thread creation, wakeup, timeout, stop/continue, exit, and reap paths.
 4. No queue entry for WAITING, STOPPED, ZOMBIE, UNUSED, or RUNNING tasks.
 5. Queue counts and head/tail/link consistency after every stress iteration.
-6. Host-side concurrent enqueue/dequeue stress uses four independently locked per-CPU queues and eight workers; a second deterministic stress phase performs 10,000 pseudo-random, bidirectional node transfers per worker across all four queues while acquiring queue locks in ascending CPU order, validating both touched queues after every transfer, and checking exactly-one global membership under all queue locks at completion. The boot-time AP probe verifies one task create/enqueue/dispatch/exit/reap lifecycle and queue invariants on every online AP; QEMU coverage exercises cross-CPU wakeup, timeout, stop/continue, and AP-owned priority requeue across 2-, 4-, 8-, and 16-CPU topologies; AP-owned fork/waitpid is checked at all four SMP sizes; the earlier restricted two-process migration test checks atomic execution ownership at all SMP sizes and requires two distinct AP owners at 4, 8, and 16 CPUs; the topology-aware workload tests up to four independently migrated processes, never exceeding the online AP count, plus one pinned control process, and passed exact-commit CI on `b8829f4a7ea2d919e24b4d9d5f6c6bdb1f646452`; the three-round repeat extension now requires exactly three round-success markers in every multi-CPU `run_qemu` test. The standalone host run-queue test also models a busy destination after its local task has been selected: it verifies no transfer at backlog skew one, exactly one transfer at the two-task threshold, that the selected task remains outside both queues, and that source/destination counts and node membership remain valid afterward. This exercises the queue policy and transfer primitive only; it does not test process eligibility, simultaneous scheduler stealers, queue-lock contention in the kernel, or end-to-end SMP progress. Longer-duration kernel scheduler contention, broad load-distribution stress, and physical hardware verification remain outstanding.
+6. Host-side concurrent enqueue/dequeue stress uses four independently locked per-CPU queues and eight workers; a second deterministic stress phase performs 10,000 pseudo-random, bidirectional node transfers per worker across all four queues while acquiring queue locks in ascending CPU order, validating both touched queues after every transfer, and checking exactly-one global membership under all queue locks at completion. The boot-time AP probe verifies one task create/enqueue/dispatch/exit/reap lifecycle and queue invariants on every online AP; QEMU coverage exercises cross-CPU wakeup, timeout, stop/continue, and AP-owned priority requeue across 2-, 4-, 8-, and 16-CPU topologies; AP-owned fork/waitpid is checked at all four SMP sizes; the earlier restricted two-process migration test checks atomic execution ownership at all SMP sizes and requires two distinct AP owners at 4, 8, and 16 CPUs; the topology-aware workload tests up to four independently migrated processes, never exceeding the online AP count, plus one pinned control process, and passed exact-commit CI on `b8829f4a7ea2d919e24b4d9d5f6c6bdb1f646452`; the three-round repeat extension now requires exactly three round-success markers in every multi-CPU `run_qemu` test. The standalone host run-queue test also models a busy destination after its local task has been selected: it verifies no transfer at backlog skew one, exactly one transfer at the two-task threshold, that the selected task remains outside both queues, and that source/destination counts and node membership remain valid afterward. This host test exercises the queue policy and transfer primitive only. Process eligibility and end-to-end busy-destination transfer are covered by the separate production QEMU acceptance phase; competing queue operations and deferred lock contention are covered by the host pthread regression. Longer-duration kernel scheduler contention, sustained load-distribution convergence, broader thread migration, and physical hardware verification remain outstanding.
 7. Timer scheduling remains bounded when a lock is contended.
 8. Existing process, waitpid, futex, pipe, TTY, FPU/SSE, and xHCI regressions pass.
 9. QEMU tests cover one CPU, multiple CPUs, and the maximum supported CPU topology.
