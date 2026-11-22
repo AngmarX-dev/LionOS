@@ -424,16 +424,6 @@ int main(int argc, char **argv) {
     }
     puts("[PASS] thread blocking join, zombie join, invalid TID, and stack reuse");
 
-    /* Keep one pipe owned by the parent while each child inherits it.
-       Child exit must retire its siblings and drop only the child's references;
-       the parent's endpoints must remain usable across every cleanup cycle. */
-    uint32_t cleanup_pipe_read = 0u;
-    uint32_t cleanup_pipe_write = 0u;
-    if (lion_pipe_create(&cleanup_pipe_read, &cleanup_pipe_write) != 0) {
-        puts("[FAIL] pipe setup for process cleanup stress");
-        return 24;
-    }
-
     /* Exiting a process must retire multiple unjoined siblings, including
        READY and already-zombie threads, before its address space is reaped. */
     for (uint32_t i = 0u; i < 64u; ++i) {
@@ -465,25 +455,8 @@ int main(int argc, char **argv) {
             puts("[FAIL] process exit did not clean up unjoined threads");
             return 26;
         }
-
-        char pipe_expected = (char)(i ^ 0x5Au);
-        char pipe_observed = 0;
-        if (lion_pipe_write(cleanup_pipe_write, &pipe_expected, 1u) != 1 ||
-            lion_pipe_read(cleanup_pipe_read, &pipe_observed, 1u) != 1 ||
-            pipe_observed != pipe_expected) {
-            puts("[FAIL] child cleanup damaged parent pipe references");
-            print_u32("[FAIL] cleanup iteration: ", i);
-            return 27;
-        }
-    }
-    int32_t cleanup_read_close = lion_pipe_close(cleanup_pipe_read);
-    int32_t cleanup_write_close = lion_pipe_close(cleanup_pipe_write);
-    if (cleanup_read_close != 0 || cleanup_write_close != 0) {
-        puts("[FAIL] close parent cleanup pipe endpoints");
-        return 28;
     }
     puts("[PASS] process exit reaps unjoined threads");
-    puts("[PASS] inherited pipe references survive repeated child cleanup");
 
     tid = lion_thread_create(thread_worker_blocking);
     if (tid == 0u || tid == LIONOS_SYSCALL_ERR) {

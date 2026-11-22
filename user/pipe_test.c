@@ -47,6 +47,29 @@ int main(void) {
     if (lion_waitpid(child, &status) != (int32_t)child || status != 0)
         return 10;
 
+    /* Keep both parent endpoints open while children inherit and exit.
+       Their cleanup must drop only child references, not the parent's. */
+    if (lion_pipe_create(&read_end, &write_end) != 0) return 11;
+    for (uint32_t i = 0u; i < 64u; ++i) {
+        child = lion_fork();
+        if (child == (uint32_t)-1) return 12;
+        if (child == 0u) lion_exit_code(0u);
+
+        status = -1;
+        if (lion_waitpid(child, &status) != (int32_t)child || status != 0)
+            return 13;
+
+        char expected = (char)(i ^ 0x5Au);
+        char observed = 0;
+        if (lion_pipe_write(write_end, &expected, 1u) != 1 ||
+            lion_pipe_read(read_end, &observed, 1u) != 1 ||
+            observed != expected)
+            return 14;
+    }
+    if (lion_pipe_close(read_end) != 0 || lion_pipe_close(write_end) != 0)
+        return 15;
+
     puts("PIPE TEST: PASS");
+    puts("PIPE TEST: inherited parent references survive 64 child exits");
     return 0;
 }
