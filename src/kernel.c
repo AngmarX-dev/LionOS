@@ -1465,7 +1465,7 @@ void lionos_user_integration_step(void){
                 pending=1u;
                 continue;
             }
-            if(status==2u&&pid==0u)
+            if(status==4u&&pid==0u)
                 continue;
             if(status!=1u||!pid){
                 integration_busy_balance_failed=1u;
@@ -1515,7 +1515,7 @@ void lionos_user_integration_step(void){
                 }else{
                     __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
                                      __ATOMIC_RELAXED);
-                    __atomic_store_n(&integration_busy_worker_status[cpu],2u,
+                    __atomic_store_n(&integration_busy_worker_status[cpu],4u,
                                      __ATOMIC_RELEASE);
                 }
             }else if(state<0){
