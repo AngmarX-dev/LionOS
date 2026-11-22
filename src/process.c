@@ -1544,9 +1544,9 @@ static uint32_t process_wake_interrupted_waitpid_locked(void){
         uint32_t *saved=(uint32_t *)(uintptr_t)frame_address;
         process_diag_status33("WAITPID-INTERRUPTED-SCAN",p->pid,
                               p->wait_pid,p->pending_signals);
+        if(process_transition_state_locked(p,PROCESS_READY)!=0)continue;
         saved[11]=(uint32_t)LIONOS_EINTR;
         process_clear_waitpid_locked(p);
-        if(process_transition_state_locked(p,PROCESS_READY)!=0)continue;
         uint32_t cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
         if(cpu<32u)wake_mask|=1u<<cpu;
     }
