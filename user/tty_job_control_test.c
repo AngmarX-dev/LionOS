@@ -78,16 +78,32 @@ static int test_blocking_waitpid_event_wakeups(void){
                 (void)lion_waitpid(target,&status);
             lion_exit_code(102u);
         }
-        (void)lion_pipe_close(pid_write);
-
         status=-1;
         if(lion_waitpid_options(target,&status,LIONOS_WUNTRACED)!=(int32_t)target||
            !LIONOS_WIFSTOPPED(status)||LIONOS_WSTOPSIG(status)!=LIONOS_SIG_STOP){
+            (void)lion_pipe_close(pid_write);
             if(lion_getstate(target)!=LIONOS_PROCESS_ZOMBIE)
                 (void)lion_kill(target,LIONOS_SIG_TERM);
             (void)lion_waitpid(target,&status);
             lion_exit_code(103u);
         }
+
+        /*
+         * Publish a phase marker only after the stop event has been consumed.
+         * The grandparent uses it to distinguish the second waitpid block from
+         * the first WAITING state; observing WAITING twice without this
+         * handshake could be a false positive.
+         */
+        const uint32_t stop_consumed=0x57A7E001u;
+        if(lion_pipe_write(pid_write,&stop_consumed,sizeof(stop_consumed))!=
+           (int32_t)sizeof(stop_consumed)){
+            (void)lion_pipe_close(pid_write);
+            if(lion_getstate(target)!=LIONOS_PROCESS_ZOMBIE)
+                (void)lion_kill(target,LIONOS_SIG_TERM);
+            (void)lion_waitpid(target,&status);
+            lion_exit_code(107u);
+        }
+        (void)lion_pipe_close(pid_write);
 
         status=-1;
         if(lion_waitpid_options(target,&status,LIONOS_WCONTINUED)!=(int32_t)target||
@@ -115,8 +131,8 @@ static int test_blocking_waitpid_event_wakeups(void){
     (void)lion_pipe_close(pid_write);
     uint32_t target=0u;
     int32_t received=pipe_read_bounded(pid_read,&target,sizeof(target));
-    (void)lion_pipe_close(pid_read);
     if(received!=(int32_t)sizeof(target)||target==0u){
+        (void)lion_pipe_close(pid_read);
         (void)cleanup_child(waiter,108);
         return 108;
     }
@@ -131,6 +147,25 @@ static int test_blocking_waitpid_event_wakeups(void){
         return 109;
     }
 
+    uint32_t stop_consumed=0u;
+    int32_t marker_result=pipe_read_bounded(
+        pid_read,&stop_consumed,sizeof(stop_consumed));
+    (void)lion_pipe_close(pid_read);
+    if(marker_result!=(int32_t)sizeof(stop_consumed)||
+       stop_consumed!=0x57A7E001u){
+        if(lion_getstate(target)!=LIONOS_PROCESS_ZOMBIE){
+            (void)lion_kill(target,LIONOS_SIG_CONT);
+            (void)lion_kill(target,LIONOS_SIG_TERM);
+        }
+        status=-1;
+        (void)lion_waitpid(waiter,&status);
+        return 110;
+    }
+
+    /*
+     * The marker is emitted after the first waitpid has returned. The waiter
+     * must now transition RUNNING -> WAITING again before SIGCONT is sent.
+     */
     uint32_t saw_continue_wait=wait_for_process_state(
         waiter,LIONOS_PROCESS_STATE_WAITING);
     if(lion_getstate(waiter)!=LIONOS_PROCESS_ZOMBIE&&
