@@ -870,10 +870,9 @@ void process_init(void) {
         spinlock_init(&scheduler_ap_probe_wait_locks[i]);
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELAXED);
-    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,__ATOMIC_RELAXED);
-    __atomic_store_n(&scheduler_execution_guard_fault,0u,__ATOMIC_RELAXED);
     __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,
                      __ATOMIC_RELAXED);
+    __atomic_store_n(&scheduler_execution_guard_fault,0u,__ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
         __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
         runqueue_node_init(&runqueue_nodes[i]);
@@ -2828,6 +2827,8 @@ int process_scheduler_execution_guard_enable(void){
         return -1;
     }
     __atomic_store_n(&scheduler_execution_guard_fault,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,
+                     __ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)
         __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
     for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
