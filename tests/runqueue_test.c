@@ -163,13 +163,13 @@ static int busy_balance_sustained_arrival_test(void) {
         CPU_COUNT = 3u,
         ROUNDS = 24u,
         ARRIVALS_PER_ROUND = 3u,
-        NODE_COUNT = ROUNDS * ARRIVALS_PER_ROUND,
+        SUSTAINED_NODE_COUNT = ROUNDS * ARRIVALS_PER_ROUND,
         EXPECTED_COMPLETIONS = ROUNDS * 2u
     };
     struct runqueue queues[CPU_COUNT];
-    struct runqueue_node nodes[NODE_COUNT];
+    struct runqueue_node nodes[SUSTAINED_NODE_COUNT];
     uint32_t completed[EXPECTED_COMPLETIONS];
-    uint8_t seen[NODE_COUNT];
+    uint8_t seen[SUSTAINED_NODE_COUNT];
     uint32_t next_node = 0u;
     uint32_t completion_count = 0u;
     uint32_t transfers[CPU_COUNT] = {0u, 0u, 0u};
@@ -178,7 +178,7 @@ static int busy_balance_sustained_arrival_test(void) {
         runqueue_init(&queues[cpu], cpu);
         queues[cpu].lock.value = 1u;
     }
-    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+    for (uint32_t i = 0u; i < SUSTAINED_NODE_COUNT; ++i)
         runqueue_node_init(&nodes[i]);
 
     for (uint32_t round = 0u; round < ROUNDS; ++round) {
@@ -186,8 +186,8 @@ static int busy_balance_sustained_arrival_test(void) {
             uint32_t index = next_node++;
             uint32_t priority = (round + arrival) %
                                LIONOS_RUNQUEUE_PRIORITY_LEVELS;
-            if (index >= NODE_COUNT ||
-                runqueue_enqueue_locked(&queues[0], nodes, NODE_COUNT,
+            if (index >= SUSTAINED_NODE_COUNT ||
+                runqueue_enqueue_locked(&queues[0], nodes, SUSTAINED_NODE_COUNT,
                                         index, priority) != 0)
                 return 1;
         }
@@ -216,13 +216,13 @@ static int busy_balance_sustained_arrival_test(void) {
             }
             if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
                 runqueue_move_locked(&queues[victim], &queues[destination],
-                                     nodes, NODE_COUNT, candidate) != 0)
+                                     nodes, SUSTAINED_NODE_COUNT, candidate) != 0)
                 return 3;
             ++transfers[destination];
 
             uint32_t dispatched = LIONOS_RUNQUEUE_INVALID_INDEX;
             if (runqueue_pick_next_locked(&queues[destination], nodes,
-                    NODE_COUNT, &dispatched) != 0 ||
+                    SUSTAINED_NODE_COUNT, &dispatched) != 0 ||
                 dispatched != candidate ||
                 completion_count >= EXPECTED_COMPLETIONS)
                 return 4;
@@ -234,23 +234,23 @@ static int busy_balance_sustained_arrival_test(void) {
             return 5;
         for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
             uint32_t total = 0u;
-            if (runqueue_validate_locked(&queues[cpu], nodes, NODE_COUNT,
+            if (runqueue_validate_locked(&queues[cpu], nodes, SUSTAINED_NODE_COUNT,
                                          &total) != 0 ||
                 total != queues[cpu].total)
                 return 6;
         }
     }
 
-    if (next_node != NODE_COUNT ||
+    if (next_node != SUSTAINED_NODE_COUNT ||
         completion_count != EXPECTED_COMPLETIONS ||
         transfers[1] != ROUNDS || transfers[2] != ROUNDS ||
         queues[0].total != ROUNDS)
         return 7;
 
-    for (uint32_t i = 0u; i < NODE_COUNT; ++i) seen[i] = 0u;
+    for (uint32_t i = 0u; i < SUSTAINED_NODE_COUNT; ++i) seen[i] = 0u;
     for (uint32_t i = 0u; i < completion_count; ++i) {
         uint32_t index = completed[i];
-        if (index >= NODE_COUNT || seen[index] != 0u ||
+        if (index >= SUSTAINED_NODE_COUNT || seen[index] != 0u ||
             nodes[index].queued != 0u ||
             nodes[index].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
             return 8;
@@ -262,14 +262,14 @@ static int busy_balance_sustained_arrival_test(void) {
         uint32_t index = queues[0].head[priority];
         uint32_t visited = 0u;
         while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
-            if (index >= NODE_COUNT || visited++ >= NODE_COUNT ||
+            if (index >= SUSTAINED_NODE_COUNT || visited++ >= SUSTAINED_NODE_COUNT ||
                 seen[index] != 0u || nodes[index].queue_cpu != queues[0].cpu)
                 return 9;
             seen[index] = 1u;
             index = nodes[index].next;
         }
     }
-    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+    for (uint32_t i = 0u; i < SUSTAINED_NODE_COUNT; ++i)
         if (seen[i] != 1u) return 10;
 
     return 0;
