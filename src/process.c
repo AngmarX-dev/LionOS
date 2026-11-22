@@ -1840,36 +1840,33 @@ static uint32_t wake_waiting_parent(struct process *child){
         return owner;
     }
     return LIONOS_MAX_CPUS;
-}static void wake_waiting_parent_stop(struct process *child){
-    if(!child||!child->stop_event_pending)return;
+}static uint32_t wake_waiting_parent_stop(struct process *child){
+    if(!child||!child->stop_event_pending)return 0u;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *parent=&processes[i];
         if(parent->state!=PROCESS_WAITING||parent->wait_kind!=3u||parent->pid!=child->parent_pid||
            !(parent->wait_options&LIONOS_WAIT_UNTRACED)||
            (parent->wait_pid!=PROCESS_WAIT_ANY&&parent->wait_pid!=child->pid))
             continue;
-        debug_write("LIONOS:JOBCTL:WAITPID-STOP-WAKE\n");
         uint32_t status=LIONOS_WAIT_STATUS_STOPPED(child->stop_signal);
         int status_ok=!parent->wait_status_ptr||
             write_user_u32(parent,parent->wait_status_ptr,status)==0;
         uint32_t *frame=(uint32_t *)(uintptr_t)__atomic_load_n(&parent->saved_frame,__ATOMIC_ACQUIRE);
+        if(process_transition_state_locked(parent,PROCESS_READY)!=0)return 0u;
         if(frame)frame[11]=status_ok?child->pid:PROCESS_SYSCALL_ERR;
         if(status_ok)child->stop_event_pending=0u;
-        parent->wait_pid=0u;
-        parent->wait_status_ptr=0u;
-        parent->wait_options=0u;
-        parent->wait_channel=0u;
+        uint32_t owner=parent->cpu_owner;
+        parent->wait_pid=0u;parent->wait_status_ptr=0u;
+        parent->wait_options=0u;parent->wait_channel=0u;
         parent->wait_kind=0u;
         __atomic_store_n(&parent->wait_frame_saved,0u,__ATOMIC_RELEASE);
-        (void)process_transition_state_locked(parent,PROCESS_READY);
-        debug_write("LIONOS:JOBCTL:WAITPID-STOP-READY\n");
-        return;
+        return owner<LIONOS_MAX_CPUS?(1u<<owner):0u;
     }
+    return 0u;
 }
 
-
-static void wake_waiting_parent_continued(struct process *child){
-    if(!child||!child->continued_event_pending)return;
+static uint32_t wake_waiting_parent_continued(struct process *child){
+    if(!child||!child->continued_event_pending)return 0u;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *parent=&processes[i];
         if(parent->state!=PROCESS_WAITING||parent->wait_kind!=3u||
@@ -1880,17 +1877,22 @@ static void wake_waiting_parent_continued(struct process *child){
         int status_ok=!parent->wait_status_ptr||
             write_user_u32(parent,parent->wait_status_ptr,LIONOS_WAIT_STATUS_CONTINUED)==0;
         uint32_t *frame=(uint32_t *)(uintptr_t)__atomic_load_n(&parent->saved_frame,__ATOMIC_ACQUIRE);
+        if(process_transition_state_locked(parent,PROCESS_READY)!=0)return 0u;
         if(frame)frame[11]=status_ok?child->pid:PROCESS_SYSCALL_ERR;
         if(status_ok)child->continued_event_pending=0u;
-        parent->wait_pid=0u;parent->wait_status_ptr=0u;parent->wait_options=0u;
-        parent->wait_channel=0u;parent->wait_kind=0u;__atomic_store_n(&parent->wait_frame_saved,0u,__ATOMIC_RELEASE);(void)process_transition_state_locked(parent,PROCESS_READY);
-        return;
+        uint32_t owner=parent->cpu_owner;
+        parent->wait_pid=0u;parent->wait_status_ptr=0u;
+        parent->wait_options=0u;parent->wait_channel=0u;
+        parent->wait_kind=0u;
+        __atomic_store_n(&parent->wait_frame_saved,0u,__ATOMIC_RELEASE);
+        return owner<LIONOS_MAX_CPUS?(1u<<owner):0u;
     }
+    return 0u;
 }
 
-static void wake_pending_waitpid_event(struct process *parent){
+static uint32_t wake_pending_waitpid_event(struct process *parent){
     if(!parent||parent->state!=PROCESS_WAITING||parent->wait_kind!=3u)
-        return;
+        return 0u;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *child=&processes[i];
         if(child->state==PROCESS_UNUSED||child->reap_pending||
@@ -1898,23 +1900,20 @@ static void wake_pending_waitpid_event(struct process *parent){
            (parent->wait_pid!=PROCESS_WAIT_ANY&&parent->wait_pid!=child->pid))
             continue;
         if(child->state==PROCESS_ZOMBIE){
-            wake_waiting_parent(child);
-            return;
+            uint32_t owner=wake_waiting_parent(child);
+            return owner<LIONOS_MAX_CPUS?(1u<<owner):0u;
         }
         if((parent->wait_options&LIONOS_WAIT_UNTRACED)&&
-           child->state==PROCESS_STOPPED&&child->stop_event_pending){
-            wake_waiting_parent_stop(child);
-            return;
-        }
-        if((parent->wait_options&LIONOS_WAIT_CONTINUED)&&child->continued_event_pending){
-            wake_waiting_parent_continued(child);
-            return;
-        }
+           child->state==PROCESS_STOPPED&&child->stop_event_pending)
+            return wake_waiting_parent_stop(child);
+        if((parent->wait_options&LIONOS_WAIT_CONTINUED)&&child->continued_event_pending)
+            return wake_waiting_parent_continued(child);
     }
+    return 0u;
 }
 
-static void stop_process_locked(struct process *process,uint32_t signal){
-    if(!process||process->state==PROCESS_UNUSED||process->state==PROCESS_ZOMBIE)return;
+static uint32_t stop_process_locked(struct process *process,uint32_t signal){
+    if(!process||process->state==PROCESS_UNUSED||process->state==PROCESS_ZOMBIE)return 0u;
     uint32_t bit=1u<<(signal-1u);
     int was_stopped=process->state==PROCESS_STOPPED&&
         (process->is_thread?(process->pending_signals&bit)!=0u:process->stop_signal!=0u);
@@ -1957,8 +1956,46 @@ static void stop_process_locked(struct process *process,uint32_t signal){
             else
                 __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
         }
-        if(!was_stopped)wake_waiting_parent_stop(process);
+        if(!was_stopped)return wake_waiting_parent_stop(process);
     }
+    return 0u;
+}
+
+static uint32_t continue_process_locked(struct process *process){
+    if(!process||process->state==PROCESS_UNUSED||process->state==PROCESS_ZOMBIE)return 0u;
+    uint32_t wake_mask=0u;
+    int was_stopped=process->state==PROCESS_STOPPED;
+    const uint32_t stop_mask=(1u<<(LIONOS_SIG_STOP-1u))|
+        (1u<<(LIONOS_SIG_TTIN-1u))|(1u<<(LIONOS_SIG_TTOU-1u));
+    process->pending_signals&=~stop_mask;
+    if(!process->is_thread){
+        process->stop_event_pending=0u;
+        process->stop_signal=0u;
+        if(was_stopped)process->continued_event_pending=1u;
+    }
+    uint32_t resume_waitpid=(was_stopped&&process->wait_kind==3u);
+    if(was_stopped&&process_transition_state_locked(
+           process,resume_waitpid?PROCESS_WAITING:PROCESS_READY)!=0)return 0u;
+    if(was_stopped&&!resume_waitpid&&process->cpu_owner<LIONOS_MAX_CPUS)
+        wake_mask|=1u<<process->cpu_owner;
+    if(!process->is_thread){
+        for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+            struct process *thread=&processes[i];
+            if(thread->state==PROCESS_UNUSED||thread->state==PROCESS_ZOMBIE||
+               !thread->is_thread||thread->thread_group_pid!=process->pid)continue;
+            thread->pending_signals&=~stop_mask;
+            if(thread->state==PROCESS_STOPPED&&
+               process_transition_state_locked(thread,PROCESS_READY)==0){
+                uint32_t cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
+                wake_mask|=1u<<cpu;
+                __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+            }
+        }
+    }
+    if(was_stopped&&!process->is_thread)
+        wake_mask|=wake_waiting_parent_continued(process);
+    if(resume_waitpid)wake_mask|=wake_pending_waitpid_event(process);
+    return wake_mask;
 }
 
 static void continue_process_locked(struct process *process){
@@ -1998,10 +2035,12 @@ static int process_scheduler_ap_probe_stop_current(void){
         spinlock_irqrestore_release(&process_lock,flags);
         return -1;
     }
-    stop_process_locked(current,LIONOS_SIG_STOP);
+    uint32_t wake_mask=stop_process_locked(current,LIONOS_SIG_STOP);
     int stopped=current->state==PROCESS_STOPPED&&
         runqueue_nodes[process_index(current)].queued==0u;
     spinlock_irqrestore_release(&process_lock,flags);
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(wake_mask&(1u<<cpu))process_kick_cpu(cpu);
     return stopped?0:-1;
 }
 
@@ -2397,15 +2436,18 @@ int32_t process_tty_check_foreground(uint32_t sid,uint32_t caller_pid,uint32_t s
         spinlock_irqrestore_release(&process_lock,flags);
         return LIONOS_SIGNAL_ERR;
     }
+    uint32_t wake_mask=0u;
     debug_write("LIONOS:JOBCTL:BACKGROUND-STOP-REQUEST\n");
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *member=&processes[i];
         if(member->state==PROCESS_UNUSED||member->state==PROCESS_ZOMBIE||
            member->is_thread||member->pgid!=caller->pgid)continue;
-        stop_process_locked(member,signal);
+        wake_mask|=stop_process_locked(member,signal);
     }
     debug_write("LIONOS:JOBCTL:BACKGROUND-STOP-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(wake_mask&(1u<<cpu))process_kick_cpu(cpu);
     return 1;
 }
 
@@ -2504,6 +2546,7 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         return LIONOS_SIGNAL_OK;
     }
     if(signal==LIONOS_SIG_HUP||signal==LIONOS_SIG_INT){
+        uint32_t wake_cpu=LIONOS_MAX_CPUS;
         p->pending_signals|=(1u<<(signal-1u));
         if(p->state==PROCESS_WAITING&&p->wait_kind==3u&&
            __atomic_load_n(&p->wait_frame_saved,__ATOMIC_ACQUIRE)&&
@@ -2511,23 +2554,32 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
             uint32_t frame_address=
                 __atomic_load_n(&p->saved_frame,__ATOMIC_ACQUIRE);
             uint32_t *saved=(uint32_t *)(uintptr_t)frame_address;
-            if(saved){debug_write("LIONOS:WAITPID-EINTR-REMOTE-WAKE\n");saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(p);(void)process_transition_state_locked(p,PROCESS_READY);uint32_t cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
+            if(saved&&process_transition_state_locked(p,PROCESS_READY)==0){
+                debug_write("LIONOS:WAITPID-EINTR-REMOTE-WAKE\n");
+                saved[11]=(uint32_t)LIONOS_EINTR;
+                process_clear_waitpid_locked(p);
+                wake_cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:LIONOS_MAX_CPUS;
+            }
         }
         spinlock_irqrestore_release(&process_lock,flags);
+        if(wake_cpu<LIONOS_MAX_CPUS&&wake_cpu!=cpu_current_index())
+            process_kick_cpu(wake_cpu);
         return LIONOS_SIGNAL_OK;
     }
     if(signal==LIONOS_SIG_STOP||signal==LIONOS_SIG_TTIN||signal==LIONOS_SIG_TTOU){
-        stop_process_locked(p,signal);
+        uint32_t wake_mask=stop_process_locked(p,signal);
         spinlock_irqrestore_release(&process_lock,flags);
+        for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+            if((wake_mask&(1u<<cpu))&&cpu!=cpu_current_index())
+                process_kick_cpu(cpu);
         return LIONOS_SIGNAL_OK;
     }
     if(signal==LIONOS_SIG_CONT){
-        uint32_t target_cpu=p->cpu_owner;
-        continue_process_locked(p);
+        uint32_t wake_mask=continue_process_locked(p);
         spinlock_irqrestore_release(&process_lock,flags);
-        /* CONT may make a remote owner-local queue runnable again. */
-        if(target_cpu<LIONOS_MAX_CPUS&&target_cpu!=cpu_current_index())
-            process_kick_cpu(target_cpu);
+        for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+            if((wake_mask&(1u<<cpu))&&cpu!=cpu_current_index())
+                process_kick_cpu(cpu);
         return LIONOS_SIGNAL_OK;
     }
     spinlock_irqrestore_release(&process_lock,flags);
