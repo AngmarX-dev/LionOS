@@ -40,6 +40,81 @@ static int32_t pipe_read_bounded(uint32_t handle,void *buffer,uint32_t size){
     return -2;
 }
 
+static volatile uint32_t wait_event_target_pid;
+
+static int wait_for_process_state(uint32_t pid,uint32_t expected){
+    for(uint32_t attempt=0u;attempt<8192u;++attempt){
+        if(lion_getstate(pid)==(int32_t)expected)return 1;
+        (void)lion_yield();
+    }
+    return 0;
+}
+
+/*
+ * Keep the notifier pinned with its parent. It waits until the parent is
+ * actually blocked in each waitpid call before generating the corresponding
+ * child state transition. A timeout still sends the signal so a failed
+ * timing assertion cannot strand the parent in an unbounded wait.
+ */
+static int test_blocking_waitpid_event_wakeups(void){
+    int32_t status=-1;
+    uint32_t target=lion_fork();
+    if(target==0u){
+        for(;;)(void)lion_yield();
+    }
+    if(target==LIONOS_SYSCALL_ERR)return 100;
+
+    wait_event_target_pid=target;
+    uint32_t notifier=lion_fork();
+    if(notifier==0u){
+        uint32_t parent=lion_getppid();
+        uint32_t saw_stop_wait=wait_for_process_state(
+            parent,LIONOS_PROCESS_STATE_WAITING);
+        if(lion_kill(wait_event_target_pid,LIONOS_SIG_STOP)!=0){
+            (void)lion_kill(wait_event_target_pid,LIONOS_SIG_TERM);
+            lion_exit_code(101u);
+        }
+
+        uint32_t saw_continue_wait=wait_for_process_state(
+            parent,LIONOS_PROCESS_STATE_WAITING);
+        if(lion_kill(wait_event_target_pid,LIONOS_SIG_CONT)!=0){
+            (void)lion_kill(wait_event_target_pid,LIONOS_SIG_TERM);
+            lion_exit_code(102u);
+        }
+        lion_exit_code(saw_stop_wait&&saw_continue_wait?0u:103u);
+    }
+    if(notifier==LIONOS_SYSCALL_ERR)
+        return cleanup_child(target,104);
+
+    int32_t waited=lion_waitpid_options(target,&status,LIONOS_WUNTRACED);
+    if(waited!=(int32_t)target||!LIONOS_WIFSTOPPED(status)||
+       LIONOS_WSTOPSIG(status)!=LIONOS_SIG_STOP){
+        (void)cleanup_child(target,105);
+        (void)cleanup_child(notifier,106);
+        return 105;
+    }
+
+    status=-1;
+    waited=lion_waitpid_options(target,&status,LIONOS_WCONTINUED);
+    if(waited!=(int32_t)target||!LIONOS_WIFCONTINUED(status)){
+        (void)cleanup_child(target,107);
+        (void)cleanup_child(notifier,108);
+        return 107;
+    }
+
+    status=-1;
+    if(lion_waitpid(notifier,&status)!=(int32_t)notifier||status!=0)
+        return cleanup_child(target,109);
+
+    if(lion_kill(target,LIONOS_SIG_TERM)!=0)
+        return cleanup_child(target,110);
+    status=-1;
+    if(lion_waitpid(target,&status)!=(int32_t)target||
+       status!=(int32_t)(128u+LIONOS_SIG_TERM))
+        return 111;
+    return 0;
+}
+
 static int test_setsid_orphan_transition(void){
     int32_t status=-1;
     uint32_t parent=lion_fork();
@@ -157,6 +232,8 @@ int main(void){
     uint8_t byte=0u;
     static const char output[]="x";
     int32_t status=-1;
+    int wait_event_result=test_blocking_waitpid_event_wakeups();
+    if(wait_event_result)return 120+(int)wait_event_result;
     if(lion_tty_claim()!=0||lion_tty_getattr(&attributes)!=0)
         return 1;
     attributes.flags|=LIONOS_TTY_ATTR_TOSTOP;
