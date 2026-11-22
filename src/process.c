@@ -2357,7 +2357,8 @@ static __attribute__((noreturn)) void process_lifecycle_fault(
  * space while any sibling remains runnable, current on a CPU, or unreaped. */
 static int process_validate_thread_retirement_locked(
     const struct process *owner){
-    if(!owner||owner->is_thread||owner->thread_group_pid!=owner->pid)
+    if(!owner||owner->is_thread||owner->thread_group_pid!=owner->pid||
+       owner->cpu_owner>=LIONOS_MAX_CPUS)
         return -1;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         const struct process *thread=&processes[i];
@@ -2374,12 +2375,15 @@ static int process_validate_thread_retirement_locked(
                node->queue_cpu!=thread->cpu_owner||
                process_runqueue_validate_locked(node->queue_cpu)!=0)
                 return -1;
-        }else if(thread->state==PROCESS_RUNNING||
-                 node->queued!=0u||
-                 node->next!=LIONOS_RUNQUEUE_INVALID_INDEX||
-                 node->previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
-                 node->queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX){
-            return -1;
+        }else{
+            if((thread->state!=PROCESS_ZOMBIE&&
+                thread->state!=PROCESS_WAITING&&
+                thread->state!=PROCESS_STOPPED)||
+               node->queued!=0u||
+               node->next!=LIONOS_RUNQUEUE_INVALID_INDEX||
+               node->previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
+               node->queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX)
+                return -1;
         }
     }
     return 0;
