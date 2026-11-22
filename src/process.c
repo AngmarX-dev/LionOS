@@ -393,7 +393,7 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked,
     if(idle_destination){
         uint32_t restricted=__atomic_load_n(
             &scheduler_execution_guard_idle_steal_mask,__ATOMIC_ACQUIRE);
-        if(restricted!=0u&&(restricted&(1u<<cpu))==0u)return 0;
+        if(restricted!=0xFFFFFFFFu&&(restricted&(1u<<cpu))==0u)return 0;
         if(runqueues[cpu].total!=0u)return 0;
     }
 
@@ -870,7 +870,7 @@ void process_init(void) {
         spinlock_init(&scheduler_ap_probe_wait_locks[i]);
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELAXED);
-    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,
+    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0xFFFFFFFFu,
                      __ATOMIC_RELAXED);
     __atomic_store_n(&scheduler_execution_guard_fault,0u,__ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
@@ -2827,7 +2827,7 @@ int process_scheduler_execution_guard_enable(void){
         return -1;
     }
     __atomic_store_n(&scheduler_execution_guard_fault,0u,__ATOMIC_RELAXED);
-    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,
+    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0xFFFFFFFFu,
                      __ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)
         __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
@@ -2851,7 +2851,7 @@ int process_scheduler_execution_guard_set_idle_steal_mask(uint32_t cpu_mask){
     uint32_t online=smp_online_count();
     if(online==0u||online>LIONOS_MAX_CPUS||online>=32u)return -1;
     uint32_t online_mask=(1u<<online)-1u;
-    if((cpu_mask&~online_mask)!=0u||(cpu_mask&1u)!=0u||cpu_mask==0u)
+    if(cpu_mask!=0xFFFFFFFFu&&(cpu_mask&~online_mask)!=0u)
         return -1;
 
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
@@ -2961,7 +2961,7 @@ int process_scheduler_execution_guard_finish(void){
             debug_write("\n");
         }
     }
-    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,
+    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0xFFFFFFFFu,
                      __ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELEASE);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)
