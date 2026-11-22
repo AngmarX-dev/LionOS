@@ -1244,7 +1244,7 @@ void lionos_user_integration_step(void){
             (void)process_scheduler_execution_guard_finish();
             integration_done=1;
             debug_write("LIONOS:SMP-BUSY-STEAL-MASK-FAIL\n");
-            debug_write("LIONOS:USER-INTEGRATION-FAIL\\n");
+            debug_write("LIONOS:USER-INTEGRATION-FAIL\n");
             return;
         }
         integration_busy_worker_launch_mask=0u;
