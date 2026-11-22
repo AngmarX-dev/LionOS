@@ -3240,6 +3240,7 @@ uint32_t *process_schedule(uint32_t *frame){
                 spinlock_release(&runqueues[cpu].lock);
                 __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
                 spinlock_irqrestore_release(&process_lock,flags);
+                process_kick_mask(waitpid_wake_mask,cpu);
                 for(;;)__asm__ volatile("cli; hlt");
             }
             prev->state=PROCESS_RUNNING;
