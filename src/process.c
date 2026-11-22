@@ -566,7 +566,7 @@ static void process_scheduler_ap_probe_report(void){
         __atomic_load_n(&scheduler_ap_probe_stop_continue_issued,__ATOMIC_ACQUIRE);
     if((timeout_seen_for_continue&expected)==expected&&!continue_issued){
         struct process *targets[LIONOS_MAX_CPUS]={0};
-        uint32_t all_stopped=1u,missing_target=0u;
+        uint32_t all_stopped=1u,missing_target=0u,wake_mask=0u;
         if(spinlock_try_acquire(&process_lock)){
             uint32_t online=smp_online_count();
             if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
@@ -602,7 +602,7 @@ static void process_scheduler_ap_probe_report(void){
                                  __ATOMIC_RELEASE);
                 for(uint32_t cpu=1u;cpu<online;++cpu){
                     if(!(expected&(1u<<cpu)))continue;
-                    continue_process_locked(targets[cpu]);
+                    wake_mask|=continue_process_locked(targets[cpu]);
                     uint32_t next_priority=
                         (targets[cpu]->priority+1u)%PROCESS_PRIORITY_LEVELS;
                     if(process_set_priority_locked(targets[cpu],next_priority)!=0||
@@ -619,6 +619,7 @@ static void process_scheduler_ap_probe_report(void){
                                          __ATOMIC_RELEASE);
             }
             spinlock_release(&process_lock);
+            process_kick_mask(wake_mask,cpu_current_index());
         }
         if(all_stopped&&!missing_target&&
            __atomic_load_n(&scheduler_ap_probe_stop_continue_issued,
