@@ -558,6 +558,8 @@ struct sustained_test_state {
     uint8_t completed_seen[SUSTAINED_NODES];
     volatile uint32_t producer_done;
     volatile uint32_t balancer_done;
+    volatile uint32_t service_ready_mask;
+    volatile uint32_t service_go;
     volatile uint32_t abort;
     volatile uint32_t failed;
     volatile uint32_t completed;
@@ -597,6 +599,9 @@ static void *sustained_producer(void *opaque) {
         (struct sustained_test_state *)opaque;
     struct runqueue *source = &state->queues[0];
 
+    while (__atomic_load_n(&state->service_go, __ATOMIC_ACQUIRE) == 0u &&
+           __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile("pause");
     for (uint32_t round = 0u; round < SUSTAINED_ARRIVAL_ROUNDS; ++round) {
         if (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) != 0u)
             break;
@@ -623,6 +628,9 @@ static void *sustained_balancer(void *opaque) {
         (struct sustained_test_state *)opaque;
     uint32_t attempts = 0u;
 
+    while (__atomic_load_n(&state->service_go, __ATOMIC_ACQUIRE) == 0u &&
+           __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile("pause");
     while (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u &&
            attempts++ < 100000000u) {
         int progress = 0;
@@ -692,6 +700,11 @@ static void *sustained_service_worker(void *opaque) {
     struct sustained_test_state *state = argument->state;
     struct runqueue *queue = &state->queues[argument->cpu];
 
+    __atomic_fetch_or(&state->service_ready_mask, 1u << argument->cpu,
+                      __ATOMIC_RELEASE);
+    while (__atomic_load_n(&state->service_go, __ATOMIC_ACQUIRE) == 0u &&
+           __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile("pause");
     while (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u) {
         uint32_t index = LIONOS_RUNQUEUE_INVALID_INDEX;
         spinlock_acquire(&queue->lock);
@@ -748,6 +761,8 @@ static int sustained_concurrent_arrival_test(void) {
     }
     state->producer_done = 0u;
     state->balancer_done = 0u;
+    state->service_ready_mask = 0u;
+    state->service_go = 0u;
     state->abort = 0u;
     state->failed = 0u;
     state->completed = 0u;
@@ -765,26 +780,6 @@ static int sustained_concurrent_arrival_test(void) {
     }
     spinlock_release(&state->queues[0].lock);
 
-    if (pthread_create(&balancer_thread, 0, sustained_balancer, state) != 0)
-        return 2;
-    balancer_created = 1;
-
-    /* Wait for both destinations to receive at least one node before service. */
-    for (uint32_t wait = 0u; wait < 10000000u; ++wait) {
-        if (__atomic_load_n(&state->transfers, __ATOMIC_ACQUIRE) >= 2u)
-            break;
-        if (__atomic_load_n(&state->failed, __ATOMIC_ACQUIRE) != 0u)
-            break;
-        __asm__ volatile("pause");
-    }
-    if (__atomic_load_n(&state->transfers, __ATOMIC_ACQUIRE) < 2u ||
-        __atomic_load_n(&state->failed, __ATOMIC_ACQUIRE) != 0u) {
-        __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
-        __atomic_store_n(&state->producer_done, 1u, __ATOMIC_RELEASE);
-        pthread_join(balancer_thread, 0);
-        return 3;
-    }
-
     for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu) {
         arguments[cpu].state = state;
         arguments[cpu].cpu = cpu;
@@ -793,14 +788,41 @@ static int sustained_concurrent_arrival_test(void) {
             break;
         ++service_created;
     }
-    if (service_created == SUSTAINED_CPU_COUNT &&
-        pthread_create(&producer_thread, 0, sustained_producer, state) == 0) {
+    if (service_created != SUSTAINED_CPU_COUNT) {
+        __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+        __atomic_store_n(&state->service_go, 1u, __ATOMIC_RELEASE);
+        for (uint32_t cpu = 0u; cpu < service_created; ++cpu)
+            if (pthread_join(service_threads[cpu], 0) != 0)
+                join_failed = 1;
+        return 3;
+    }
+
+    uint32_t ready_mask = (1u << SUSTAINED_CPU_COUNT) - 1u;
+    uint32_t ready_wait = 0u;
+    while (__atomic_load_n(&state->service_ready_mask, __ATOMIC_ACQUIRE) !=
+               ready_mask && ready_wait++ < 10000000u)
+        __asm__ volatile("pause");
+    if (__atomic_load_n(&state->service_ready_mask, __ATOMIC_ACQUIRE) !=
+        ready_mask) {
+        __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+        __atomic_store_n(&state->service_go, 1u, __ATOMIC_RELEASE);
+        for (uint32_t cpu = 0u; cpu < service_created; ++cpu)
+            if (pthread_join(service_threads[cpu], 0) != 0)
+                join_failed = 1;
+        return 3;
+    }
+
+    if (pthread_create(&balancer_thread, 0, sustained_balancer, state) == 0)
+        balancer_created = 1;
+    if (balancer_created &&
+        pthread_create(&producer_thread, 0, sustained_producer, state) == 0)
         producer_created = 1;
-    } else {
+    if (!balancer_created || !producer_created) {
         __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
         __atomic_store_n(&state->producer_done, 1u, __ATOMIC_RELEASE);
         __atomic_store_n(&state->balancer_done, 1u, __ATOMIC_RELEASE);
     }
+    __atomic_store_n(&state->service_go, 1u, __ATOMIC_RELEASE);
 
     if (producer_created && pthread_join(producer_thread, 0) != 0)
         join_failed = 1;
