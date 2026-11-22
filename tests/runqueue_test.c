@@ -15,9 +15,9 @@ static int check(int condition, uint32_t code) {
  * convergence mechanics, not production process eligibility or SMP timing.
  */
 static int busy_balance_convergence_test(void) {
-    enum { CPU_COUNT = 3u, NODE_COUNT = 8u };
+    enum { CPU_COUNT = 3u, BALANCE_NODE_COUNT = 8u };
     struct runqueue queues[CPU_COUNT];
-    struct runqueue_node nodes[NODE_COUNT];
+    struct runqueue_node nodes[BALANCE_NODE_COUNT];
     uint32_t selected[2] = {
         LIONOS_RUNQUEUE_INVALID_INDEX,
         LIONOS_RUNQUEUE_INVALID_INDEX
@@ -27,19 +27,19 @@ static int busy_balance_convergence_test(void) {
         runqueue_init(&queues[cpu], cpu);
         queues[cpu].lock.value = 1u;
     }
-    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+    for (uint32_t i = 0u; i < BALANCE_NODE_COUNT; ++i)
         runqueue_node_init(&nodes[i]);
 
     for (uint32_t i = 0u; i < 6u; ++i)
-        if (runqueue_enqueue_locked(&queues[0], nodes, NODE_COUNT,
+        if (runqueue_enqueue_locked(&queues[0], nodes, BALANCE_NODE_COUNT,
                                     i, 2u) != 0)
             return 1;
-    if (runqueue_enqueue_locked(&queues[1], nodes, NODE_COUNT, 6u, 2u) != 0 ||
-        runqueue_enqueue_locked(&queues[2], nodes, NODE_COUNT, 7u, 2u) != 0)
+    if (runqueue_enqueue_locked(&queues[1], nodes, BALANCE_NODE_COUNT, 6u, 2u) != 0 ||
+        runqueue_enqueue_locked(&queues[2], nodes, BALANCE_NODE_COUNT, 7u, 2u) != 0)
         return 2;
 
     for (uint32_t cpu = 1u; cpu < CPU_COUNT; ++cpu)
-        if (runqueue_pick_next_locked(&queues[cpu], nodes, NODE_COUNT,
+        if (runqueue_pick_next_locked(&queues[cpu], nodes, BALANCE_NODE_COUNT,
                                       &selected[cpu - 1u]) != 0 ||
             selected[cpu - 1u] != cpu + 5u)
             return 3;
@@ -71,7 +71,7 @@ static int busy_balance_convergence_test(void) {
             }
             if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
                 runqueue_move_locked(&queues[victim], &queues[destination],
-                                     nodes, NODE_COUNT, candidate) != 0)
+                                     nodes, BALANCE_NODE_COUNT, candidate) != 0)
                 return 4;
             moved_this_invocation = 1u;
             ++transfers;
@@ -80,12 +80,12 @@ static int busy_balance_convergence_test(void) {
             return 5;
 
         uint32_t total_sum = 0u;
-        uint32_t minimum = NODE_COUNT;
+        uint32_t minimum = BALANCE_NODE_COUNT;
         uint32_t maximum = 0u;
         for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
             uint32_t total = 0u;
             if (runqueue_validate_locked(&queues[cpu], nodes,
-                                         NODE_COUNT, &total) != 0 ||
+                                         BALANCE_NODE_COUNT, &total) != 0 ||
                 total != queues[cpu].total)
                 return 6;
             total_sum += total;
@@ -105,7 +105,11 @@ static int busy_balance_convergence_test(void) {
             for (uint32_t priority = 0u;
                  priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
                 uint32_t index = queues[cpu].head[priority];
+                uint32_t visited = 0u;
                 while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
+                    if (index >= BALANCE_NODE_COUNT ||
+                        visited++ >= BALANCE_NODE_COUNT)
+                        return 8;
                     if (index == i) ++memberships;
                     index = nodes[index].next;
                 }
