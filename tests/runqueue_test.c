@@ -151,6 +151,131 @@ static int busy_balance_convergence_test(void) {
 }
 
 /*
+ * Apply a sustained arrival rate to one source while two busy destinations
+ * each receive at most one transfer per scheduling opportunity. Each
+ * destination immediately dispatches its transferred task, modeling service
+ * without claiming to reproduce production scheduler timing or eligibility.
+ * The source is intentionally overloaded (three arrivals, two completions),
+ * so its backlog must grow by exactly one per round without losing ownership.
+ */
+static int busy_balance_sustained_arrival_test(void) {
+    enum {
+        CPU_COUNT = 3u,
+        ROUNDS = 24u,
+        ARRIVALS_PER_ROUND = 3u,
+        NODE_COUNT = ROUNDS * ARRIVALS_PER_ROUND,
+        EXPECTED_COMPLETIONS = ROUNDS * 2u
+    };
+    struct runqueue queues[CPU_COUNT];
+    struct runqueue_node nodes[NODE_COUNT];
+    uint32_t completed[EXPECTED_COMPLETIONS];
+    uint8_t seen[NODE_COUNT];
+    uint32_t next_node = 0u;
+    uint32_t completion_count = 0u;
+    uint32_t transfers[CPU_COUNT] = {0u, 0u, 0u};
+
+    for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+        runqueue_init(&queues[cpu], cpu);
+        queues[cpu].lock.value = 1u;
+    }
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+        runqueue_node_init(&nodes[i]);
+
+    for (uint32_t round = 0u; round < ROUNDS; ++round) {
+        for (uint32_t arrival = 0u; arrival < ARRIVALS_PER_ROUND; ++arrival) {
+            uint32_t index = next_node++;
+            uint32_t priority = (round + arrival) %
+                               LIONOS_RUNQUEUE_PRIORITY_LEVELS;
+            if (index >= NODE_COUNT ||
+                runqueue_enqueue_locked(&queues[0], nodes, NODE_COUNT,
+                                        index, priority) != 0)
+                return 1;
+        }
+
+        for (uint32_t destination = 1u;
+             destination < CPU_COUNT; ++destination) {
+            uint32_t victim = 0u;
+            for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+                if (cpu != destination &&
+                    queues[cpu].total > queues[victim].total)
+                    victim = cpu;
+            }
+            if (victim == destination ||
+                !runqueue_should_balance(queues[destination].total,
+                                         queues[victim].total, 0))
+                return 2;
+
+            uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
+            for (uint32_t priority = 0u;
+                 priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+                if (queues[victim].head[priority] !=
+                    LIONOS_RUNQUEUE_INVALID_INDEX) {
+                    candidate = queues[victim].head[priority];
+                    break;
+                }
+            }
+            if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
+                runqueue_move_locked(&queues[victim], &queues[destination],
+                                     nodes, NODE_COUNT, candidate) != 0)
+                return 3;
+            ++transfers[destination];
+
+            uint32_t dispatched = LIONOS_RUNQUEUE_INVALID_INDEX;
+            if (runqueue_pick_next_locked(&queues[destination], nodes,
+                    NODE_COUNT, &dispatched) != 0 ||
+                dispatched != candidate ||
+                completion_count >= EXPECTED_COMPLETIONS)
+                return 4;
+            completed[completion_count++] = dispatched;
+        }
+
+        if (queues[0].total != round + 1u ||
+            queues[1].total != 0u || queues[2].total != 0u)
+            return 5;
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+            uint32_t total = 0u;
+            if (runqueue_validate_locked(&queues[cpu], nodes, NODE_COUNT,
+                                         &total) != 0 ||
+                total != queues[cpu].total)
+                return 6;
+        }
+    }
+
+    if (next_node != NODE_COUNT ||
+        completion_count != EXPECTED_COMPLETIONS ||
+        transfers[1] != ROUNDS || transfers[2] != ROUNDS ||
+        queues[0].total != ROUNDS)
+        return 7;
+
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i) seen[i] = 0u;
+    for (uint32_t i = 0u; i < completion_count; ++i) {
+        uint32_t index = completed[i];
+        if (index >= NODE_COUNT || seen[index] != 0u ||
+            nodes[index].queued != 0u ||
+            nodes[index].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
+            return 8;
+        seen[index] = 1u;
+    }
+
+    for (uint32_t priority = 0u;
+         priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+        uint32_t index = queues[0].head[priority];
+        uint32_t visited = 0u;
+        while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
+            if (index >= NODE_COUNT || visited++ >= NODE_COUNT ||
+                seen[index] != 0u || nodes[index].queue_cpu != queues[0].cpu)
+                return 9;
+            seen[index] = 1u;
+            index = nodes[index].next;
+        }
+    }
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+        if (seen[i] != 1u) return 10;
+
+    return 0;
+}
+
+/*
  * A failed cross-CPU move must leave both queues untouched when the source
  * chain is malformed. In particular, preflight validation must happen before
  * unlinking the requested node from the source lane.
@@ -210,6 +335,7 @@ int main(void) {
     int result;
 
     if (move_rejects_corrupt_source_test() != 0) return 75;
+    if (busy_balance_sustained_arrival_test() != 0) return 76;
 
     runqueue_init(&queue, 1u);
     /* The locked API is exercised with its queue lock held. */
