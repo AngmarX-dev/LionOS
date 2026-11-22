@@ -2,6 +2,17 @@
 #include "user_api.h"
 #include "user_libc.h"
 
+static volatile uint32_t pipe_zombie_marker;
+
+static void pipe_zombie_worker(void) {
+    __atomic_store_n(&pipe_zombie_marker, 1u, __ATOMIC_RELEASE);
+    lion_thread_exit(0u);
+}
+
+static void pipe_live_worker(void) {
+    for (;;) (void)lion_yield();
+}
+
 int main(void) {
     uint32_t read_end = 0u;
     uint32_t write_end = 0u;
@@ -47,13 +58,35 @@ int main(void) {
     if (lion_waitpid(child, &status) != (int32_t)child || status != 0)
         return 10;
 
-    /* Keep both parent endpoints open while children inherit and exit.
-       Their cleanup must drop only child references, not the parent's. */
+    /*
+     * Keep both parent endpoints open while children inherit them. Each child
+     * first retires one zombie sibling, then exits with two live siblings.
+     * Process teardown must retire those threads before dropping only the
+     * child's pipe references; the parent's endpoints must remain usable.
+     */
     if (lion_pipe_create(&read_end, &write_end) != 0) return 11;
     for (uint32_t i = 0u; i < 64u; ++i) {
         child = lion_fork();
         if (child == (uint32_t)-1) return 12;
-        if (child == 0u) lion_exit_code(0u);
+        if (child == 0u) {
+            pipe_zombie_marker = 0u;
+            uint32_t zombie_tid = lion_thread_create(pipe_zombie_worker);
+            if (zombie_tid == 0u || zombie_tid == LIONOS_SYSCALL_ERR)
+                lion_exit_code(16u);
+            for (uint32_t turn = 0u; turn < 16u &&
+                 __atomic_load_n(&pipe_zombie_marker, __ATOMIC_ACQUIRE) == 0u;
+                 ++turn)
+                (void)lion_yield();
+            if (__atomic_load_n(&pipe_zombie_marker, __ATOMIC_ACQUIRE) == 0u)
+                lion_exit_code(17u);
+
+            for (uint32_t sibling = 0u; sibling < 2u; ++sibling) {
+                uint32_t live_tid = lion_thread_create(pipe_live_worker);
+                if (live_tid == 0u || live_tid == LIONOS_SYSCALL_ERR)
+                    lion_exit_code(18u + sibling);
+            }
+            lion_exit_code(0u);
+        }
 
         status = -1;
         if (lion_waitpid(child, &status) != (int32_t)child || status != 0)
@@ -70,6 +103,6 @@ int main(void) {
         return 15;
 
     puts("PIPE TEST: PASS");
-    puts("PIPE TEST: inherited parent references survive 64 child exits");
+    puts("PIPE TEST: parent references survive 64 child exits with sibling cleanup");
     return 0;
 }
