@@ -1352,8 +1352,10 @@ void lionos_user_integration_step(void){
             for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT;++i)
                 eligible[i]=integration_busy_balance_pids[i];
             if(process_set_migration_eligible_batch(
-                    eligible,INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT)!=0)
+                    eligible,INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT)!=0){
                 integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-ELIGIBILITY-BATCH-FAIL\n");
+            }
         }else{
             integration_busy_balance_failed=1u;
         }
@@ -1369,9 +1371,14 @@ void lionos_user_integration_step(void){
         uint32_t online=smp_online_count();
         uint32_t pending=0u;
         if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
-        if((process_scheduler_ticks(0u)-
-            integration_busy_balance_start_tick)>10000u)
+        uint32_t stage28_elapsed=
+            process_scheduler_ticks(0u)-integration_busy_balance_start_tick;
+        if(stage28_elapsed>10000u){
             integration_busy_balance_failed=1u;
+            debug_write("LIONOS:SMP-BUSY-TIMEOUT elapsed=");
+            debug_write_u32_hex(stage28_elapsed);
+            debug_write("\n");
+        }
 
         for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i){
             uint32_t pid=integration_busy_balance_pids[i];
@@ -1414,6 +1421,11 @@ void lionos_user_integration_step(void){
                     }
                 }else if(owner!=0u||migrations!=0u){
                     integration_busy_balance_failed=1u;
+                    debug_write("LIONOS:SMP-BUSY-PINNED-CONTROL-FAIL owner=");
+                    debug_write_u32_hex(owner);
+                    debug_write(" migrations=");
+                    debug_write_u32_hex(migrations);
+                    debug_write("\n");
                 }
                 int reap=process_reap_pid(pid);
                 if(reap==1){
