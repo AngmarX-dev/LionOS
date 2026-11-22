@@ -169,8 +169,8 @@ static int process_scheduler_ap_probe_stop_current(void);
 static struct process *find_pid(uint32_t pid);
 static int process_group_orphaned_locked(uint32_t pgid,uint32_t sid);
 static int process_group_has_stopped_locked(uint32_t pgid,uint32_t sid);
-static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid);
-static void process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,int was_orphaned);
+static uint32_t process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid);
+static uint32_t process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,int was_orphaned);
 struct process_group_snapshot {
     uint32_t pgid;
     uint32_t sid;
@@ -178,7 +178,7 @@ struct process_group_snapshot {
 };
 static uint32_t process_snapshot_child_groups_locked(uint32_t parent_pid,
     struct process_group_snapshot *groups,uint32_t capacity);
-static void process_notify_child_group_transitions_locked(
+static uint32_t process_notify_child_group_transitions_locked(
     const struct process_group_snapshot *groups,uint32_t count);
 static int process_has_interrupting_signal_locked(const struct process *p);
 static void process_clear_waitpid_locked(struct process *p);
@@ -225,6 +225,10 @@ static void process_kick_cpu(uint32_t cpu){
     if(apic_id==0xFFFFFFFFu)return;
     __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
     lapic_send_ipi(apic_id,LIONOS_LAPIC_RESCHEDULE_VECTOR);
+}
+static void process_kick_mask(uint32_t mask,uint32_t exclude_cpu){
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS&&cpu<32u;++cpu)
+        if(cpu!=exclude_cpu&&(mask&(1u<<cpu)))process_kick_cpu(cpu);
 }
 void process_request_reschedule_cpu(uint32_t cpu){process_kick_cpu(cpu);}
 static struct process *find_free_slot(void) { for (uint32_t i=0;i<LIONOS_PROCESS_MAX;++i) if (processes[i].state==PROCESS_UNUSED) return &processes[i]; return 0; }
@@ -1068,13 +1072,16 @@ int32_t process_create_session(void){
             member->pgid=group_pid;
         }
     }
-    process_notify_orphan_transition_locked(old_pgid,old_sid,old_orphaned);
+    uint32_t orphan_wake_mask=process_notify_orphan_transition_locked(
+        old_pgid,old_sid,old_orphaned);
     debug_write("LIONOS:JOBCTL:SETSID-OLD-GROUP-DONE\n");
     debug_write("LIONOS:JOBCTL:SETSID-CHILD-GROUPS-ENTER\n");
-    process_notify_child_group_transitions_locked(child_groups,child_group_count);
+    orphan_wake_mask|=process_notify_child_group_transitions_locked(
+        child_groups,child_group_count);
     debug_write("LIONOS:JOBCTL:SETSID-CHILD-GROUPS-DONE\n");
     debug_write("LIONOS:JOBCTL:SETSID-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
+    process_kick_mask(orphan_wake_mask,cpu_current_index());
     debug_write("LIONOS:JOBCTL:SETSID-UNLOCKED\n");
     tty_wake_readers();
     debug_write("LIONOS:JOBCTL:SETSID-TTY-WAKE-DONE\n");
@@ -1118,12 +1125,17 @@ int32_t process_set_pgid(uint32_t pid,uint32_t pgid){
         if(member->state!=PROCESS_UNUSED&&member->thread_group_pid==group)
             member->pgid=new_pgid;
     }
+    uint32_t orphan_wake_mask=0u;
     if(new_pgid!=old_pgid){
-        process_notify_orphan_transition_locked(old_pgid,old_sid,old_orphaned);
-        process_notify_orphan_transition_locked(new_pgid,new_sid,new_orphaned);
-        process_notify_child_group_transitions_locked(child_groups,child_group_count);
+        orphan_wake_mask|=process_notify_orphan_transition_locked(
+            old_pgid,old_sid,old_orphaned);
+        orphan_wake_mask|=process_notify_orphan_transition_locked(
+            new_pgid,new_sid,new_orphaned);
+        orphan_wake_mask|=process_notify_child_group_transitions_locked(
+            child_groups,child_group_count);
     }
     spinlock_irqrestore_release(&process_lock,flags);
+    process_kick_mask(orphan_wake_mask,cpu_current_index());
     if(new_pgid!=old_pgid)tty_wake_readers();
     return 0;
 }
@@ -1518,7 +1530,8 @@ static int process_has_interrupting_signal_locked(const struct process *p){
    the blocked task's frame. The signal may have arrived before that frame
    became available, so every successful scheduler lock acquisition retries
    pending waitpid wakeups under process_lock. */
-static void process_wake_interrupted_waitpid_locked(void){
+static uint32_t process_wake_interrupted_waitpid_locked(void){
+    uint32_t wake_mask=0u;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *p=&processes[i];
         if(p->state!=PROCESS_WAITING||p->wait_kind!=3u||
@@ -1533,10 +1546,11 @@ static void process_wake_interrupted_waitpid_locked(void){
                               p->wait_pid,p->pending_signals);
         saved[11]=(uint32_t)LIONOS_EINTR;
         process_clear_waitpid_locked(p);
-        (void)process_transition_state_locked(p,PROCESS_READY);
+        if(process_transition_state_locked(p,PROCESS_READY)!=0)continue;
         uint32_t cpu=p->cpu_owner<LIONOS_MAX_CPUS?p->cpu_owner:0u;
-        __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
+        if(cpu<32u)wake_mask|=1u<<cpu;
     }
+    return wake_mask;
 }
 static void process_clear_waitpid_locked(struct process *p){
     if(!p)return;
@@ -2063,21 +2077,26 @@ static uint32_t process_snapshot_child_groups_locked(uint32_t parent_pid,
     return count;
 }
 
-static void process_notify_child_group_transitions_locked(
+static uint32_t process_notify_child_group_transitions_locked(
     const struct process_group_snapshot *groups,uint32_t count){
-    if(!groups)return;
+    uint32_t wake_mask=0u;
+    if(!groups)return 0u;
     for(uint32_t i=0u;i<count;++i)
-        process_notify_orphan_transition_locked(groups[i].pgid,groups[i].sid,
-                                                 groups[i].was_orphaned);
+        wake_mask|=process_notify_orphan_transition_locked(
+            groups[i].pgid,groups[i].sid,groups[i].was_orphaned);
+    return wake_mask;
 }
 
-static void process_notify_orphan_transition_locked(uint32_t pgid,uint32_t sid,int was_orphaned){
+static uint32_t process_notify_orphan_transition_locked(
+    uint32_t pgid,uint32_t sid,int was_orphaned){
     if(!was_orphaned&&process_group_orphaned_locked(pgid,sid)&&
        process_group_has_stopped_locked(pgid,sid))
-        process_orphan_group_notify_locked(pgid,sid);
+        return process_orphan_group_notify_locked(pgid,sid);
+    return 0u;
 }
 
-static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
+static uint32_t process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
+    uint32_t wake_mask=0u;
     debug_write("LIONOS:JOBCTL:ORPHAN-NOTIFY\n");
     const uint32_t hup_bit=1u<<(LIONOS_SIG_HUP-1u);
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
@@ -2095,7 +2114,12 @@ static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
             uint32_t frame_address=
                 __atomic_load_n(&member->saved_frame,__ATOMIC_ACQUIRE);
             uint32_t *saved=(uint32_t *)(uintptr_t)frame_address;
-            if(saved){saved[11]=(uint32_t)LIONOS_EINTR;process_clear_waitpid_locked(member);(void)process_transition_state_locked(member,PROCESS_READY);uint32_t cpu=member->cpu_owner<LIONOS_MAX_CPUS?member->cpu_owner:0u;__atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);}
+            if(saved&&process_transition_state_locked(member,PROCESS_READY)==0){
+                saved[11]=(uint32_t)LIONOS_EINTR;
+                process_clear_waitpid_locked(member);
+                uint32_t cpu=member->cpu_owner<LIONOS_MAX_CPUS?member->cpu_owner:0u;
+                if(cpu<32u)wake_mask|=1u<<cpu;
+            }
         }
         for(uint32_t j=1u;j<LIONOS_PROCESS_MAX;++j){
             struct process *thread=&processes[j];
@@ -2110,20 +2134,22 @@ static void process_orphan_group_notify_locked(uint32_t pgid,uint32_t sid){
         if(member->state!=PROCESS_UNUSED&&member->state!=PROCESS_ZOMBIE&&
            !member->is_thread&&member->pgid==pgid&&member->sid==sid){
             debug_write("LIONOS:JOBCTL:ORPHAN-CONTINUE-ENTER\n");
-            continue_process_locked(member);
+            wake_mask|=continue_process_locked(member);
             debug_write("LIONOS:JOBCTL:ORPHAN-CONTINUE-DONE\n");
         }
     }
     debug_write("LIONOS:JOBCTL:ORPHAN-NOTIFY-DONE\n");
+    return wake_mask;
 }
 
 /* Called with process_lock held. Reparenting is immediate, as required when
    a parent exits; init (PID 1) is the adopter and auto-reaps its children. */
-static void process_reparent_children_locked(struct process *exiting){
+static uint32_t process_reparent_children_locked(struct process *exiting){
     uint32_t pgids[LIONOS_PROCESS_MAX],sids[LIONOS_PROCESS_MAX];
     uint8_t was_orphaned[LIONOS_PROCESS_MAX];
     uint32_t group_count=0u;
-    if(!exiting||!exiting->pid)return;
+    uint32_t wake_mask=0u;
+    if(!exiting||!exiting->pid)return 0u;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *child=&processes[i];
         if(child->state==PROCESS_UNUSED||child->parent_pid!=exiting->pid||
@@ -2148,8 +2174,9 @@ static void process_reparent_children_locked(struct process *exiting){
     for(uint32_t g=0u;g<group_count;++g){
         if(!was_orphaned[g]&&process_group_orphaned_locked(pgids[g],sids[g])&&
            process_group_has_stopped_locked(pgids[g],sids[g]))
-            process_orphan_group_notify_locked(pgids[g],sids[g]);
+            wake_mask|=process_orphan_group_notify_locked(pgids[g],sids[g]);
     }
+    return wake_mask;
 }
 
 static void process_diag_hex32(uint32_t value){
@@ -2266,7 +2293,7 @@ void process_exit_current(uint32_t code){
     uint32_t diagnostic_pid=c->pid;
     uint32_t diagnostic_parent_pid=c->parent_pid;
     c->exit_code=code;
-    process_reparent_children_locked(c);
+    uint32_t orphan_wake_mask=process_reparent_children_locked(c);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:REPARENT-DONE\n");
     (void)process_transition_state_locked(c,PROCESS_ZOMBIE);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:ZOMBIE-SET\n");
@@ -2280,6 +2307,7 @@ void process_exit_current(uint32_t code){
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\n");
     /* Publish the non-runnable handoff only after all exit cleanup is done. */
     uint32_t exit_cpu=cpu_current_index();
+    process_kick_mask(orphan_wake_mask,exit_cpu);
     if(parent_wake_cpu<LIONOS_MAX_CPUS&&parent_wake_cpu!=exit_cpu)
         process_kick_cpu(parent_wake_cpu);
     process_request_blocked_reschedule(exit_cpu);
@@ -2507,12 +2535,14 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         pipe_close_all(p);
         vfs_close_all_process(p);
         uint32_t parent_wake_cpu=LIONOS_MAX_CPUS;
+        uint32_t orphan_wake_mask=0u;
         flags=spinlock_irqsave_acquire(&process_lock);
         if(p->state==PROCESS_STOPPED){
-            process_reparent_children_locked(p);
+            orphan_wake_mask=process_reparent_children_locked(p);
             parent_wake_cpu=wake_waiting_parent(p);
         }
         spinlock_irqrestore_release(&process_lock,flags);
+        process_kick_mask(orphan_wake_mask,cpu_current_index());
         if(parent_wake_cpu<LIONOS_MAX_CPUS&&
            parent_wake_cpu!=cpu_current_index())
             process_kick_cpu(parent_wake_cpu);
@@ -3118,6 +3148,7 @@ uint32_t *process_schedule(uint32_t *frame){
     __atomic_store_n(&reschedule_ipi_pending[cpu],0u,__ATOMIC_RELEASE);
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
     ++sc->schedule_count;
+    uint32_t waitpid_wake_mask=0u;
     struct process*prev=current_local();
     scheduler_execution_guard_leave(prev,cpu);
     int prev_is_idle=scheduler_is_idle_context(prev);
@@ -3126,7 +3157,7 @@ uint32_t *process_schedule(uint32_t *frame){
                          __ATOMIC_RELEASE);
         if(prev->state==PROCESS_WAITING&&prev->wait_kind==3u&&frame)
             __atomic_store_n(&prev->wait_frame_saved,1u,__ATOMIC_RELEASE);
-        process_wake_interrupted_waitpid_locked();
+        waitpid_wake_mask=process_wake_interrupted_waitpid_locked();
         /* Reap adopted or explicitly deferred zombies only after no CPU
          * references them as its current execution context. */
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
@@ -3152,6 +3183,7 @@ uint32_t *process_schedule(uint32_t *frame){
             if(prev->ticks_used < prev->time_slice){
                 scheduler_execution_guard_enter(prev,cpu);
                 spinlock_irqrestore_release(&process_lock,flags);
+                process_kick_mask(waitpid_wake_mask,cpu);
                 return frame;
             }
             prev->ticks_used=0u;
@@ -3181,6 +3213,7 @@ uint32_t *process_schedule(uint32_t *frame){
                 __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
                 scheduler_execution_guard_enter(prev,cpu);
                 spinlock_irqrestore_release(&process_lock,flags);
+                process_kick_mask(waitpid_wake_mask,cpu);
                 return frame;
             }
             prev->state=PROCESS_READY;
@@ -3256,6 +3289,7 @@ uint32_t *process_schedule(uint32_t *frame){
         uint32_t*n=process_saved_frame(next);
         scheduler_execution_guard_enter(next,cpu);
         spinlock_irqrestore_release(&process_lock,flags);
+        process_kick_mask(waitpid_wake_mask,cpu);
         return n;
     }
     if(prev&&prev->state!=PROCESS_RUNNING){
@@ -3273,6 +3307,7 @@ uint32_t *process_schedule(uint32_t *frame){
             uint32_t*n=process_saved_frame(b);
             scheduler_execution_guard_enter(b,cpu);
             spinlock_irqrestore_release(&process_lock,flags);
+            process_kick_mask(waitpid_wake_mask,cpu);
             return n;
         }
         struct process *idle=(cpu<LIONOS_MAX_CPUS&&
@@ -3289,11 +3324,13 @@ uint32_t *process_schedule(uint32_t *frame){
             scheduler_note_idle_entry(cpu);
             uint32_t *idle_frame=process_saved_frame(idle);
             spinlock_irqrestore_release(&process_lock,flags);
+            process_kick_mask(waitpid_wake_mask,cpu);
             return idle_frame?idle_frame:frame;
         }
         set_current_local(0);
 
         spinlock_irqrestore_release(&process_lock,flags);
+        process_kick_mask(waitpid_wake_mask,cpu);
         debug_write("LIONOS:SCHEDULER-BLOCKED-AP-NO-IDLE\n");
         for(;;)__asm__ volatile("cli; hlt");
     }
@@ -3310,11 +3347,13 @@ uint32_t *process_schedule(uint32_t *frame){
             scheduler_note_idle_entry(cpu);
             uint32_t *idle_frame=process_saved_frame(idle);
             spinlock_irqrestore_release(&process_lock,flags);
+            process_kick_mask(waitpid_wake_mask,cpu);
             return idle_frame?idle_frame:frame;
         }
     }
     if(prev_is_idle&&prev->state==PROCESS_RUNNING){
         spinlock_irqrestore_release(&process_lock,flags);
+        process_kick_mask(waitpid_wake_mask,cpu);
         return frame;
     }
     if(!prev&&cpu==0){
@@ -3327,6 +3366,7 @@ uint32_t *process_schedule(uint32_t *frame){
     scheduler_execution_guard_enter(
         prev?prev:(cpu==0u?&processes[0]:0),cpu);
     spinlock_irqrestore_release(&process_lock,flags);
+    process_kick_mask(waitpid_wake_mask,cpu);
     return frame;
 }
 void scheduler_idle(void){for(;;)__asm__ volatile("sti; hlt");}
