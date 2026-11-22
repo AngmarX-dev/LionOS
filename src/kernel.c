@@ -1229,18 +1229,13 @@ void lionos_user_integration_step(void){
         uint32_t worker_limit=online;
         if(worker_limit>INTEGRATION_BUSY_BALANCE_MAX_WORKERS+1u)
             worker_limit=INTEGRATION_BUSY_BALANCE_MAX_WORKERS+1u;
-        uint32_t busy_worker_cpu_mask=0u;
-        for(uint32_t cpu=1u;cpu<worker_limit;++cpu)
-            busy_worker_cpu_mask|=1u<<cpu;
         /*
-         * Isolate this acceptance from unrelated idle AP stealers. Otherwise
-         * they can consume the BSP's migration candidates before the busy
-         * destinations exercise the production busy-queue transfer path.
-         * The scheduler applies this mask only while the execution guard is
-         * active and clears it when the guarded test finishes.
+         * Isolate busy-queue acceptance from idle stealing. The separate
+         * migration rounds above cover idle steals; this phase disables them
+         * temporarily so idle APs cannot consume the candidates before a
+         * busy destination exercises the production transfer path.
          */
-        if(process_scheduler_execution_guard_set_idle_steal_mask(
-                busy_worker_cpu_mask)!=0){
+        if(process_scheduler_execution_guard_set_idle_steal_mask(0u)!=0){
             (void)process_scheduler_execution_guard_finish();
             integration_done=1;
             debug_write("LIONOS:SMP-BUSY-STEAL-MASK-FAIL\n");
