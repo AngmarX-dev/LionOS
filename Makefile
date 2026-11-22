@@ -90,7 +90,7 @@ runqueue-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/runqueue.c tests/runqueue_test.c -o $(BUILD)/runqueue_test
 	$(BUILD)/runqueue_test
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -pthread -Iinclude src/runqueue.c tests/runqueue_concurrency_test.c -o $(BUILD)/runqueue_concurrency_test
-	timeout -k 5s 180s $(BUILD)/runqueue_concurrency_test || { status=$?; if [ $status -eq 124 ]; then echo 'runqueue concurrency regression timed out after 180 seconds' >&2; fi; exit $status; }
+	timeout -k 5s 180s $(BUILD)/runqueue_concurrency_test
 
 interrupt-stats-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -pthread -Iinclude src/interrupt_stats.c tests/interrupt_stats_test.c -o $(BUILD)/interrupt_stats_test
