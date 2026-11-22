@@ -1739,10 +1739,17 @@ void process_futex_tick(uint32_t cpu){
         if(p->wait_timeout_active!=1u||
            (int32_t)(now-p->wait_deadline)<0)continue;
         uint32_t kind=p->wait_kind;
+        /*
+         * Keep the timeout registration intact until READY publication has
+         * successfully inserted the process into its owner run queue. If the
+         * queue rejects the transition, the expired deadline is retried on
+         * the next local timer tick instead of stranding a WAITING process.
+         */
+        if(process_transition_state_locked(p,PROCESS_READY)!=0)
+            continue;
         p->wait_channel=0u;
         p->wait_kind=0u;
         p->wait_timeout_active=0u;
-        (void)process_transition_state_locked(p,PROCESS_READY);
         if(kind==2u)p->wait_timeout_result=1u;
         if(kind==1u){
             uint32_t *frame=(uint32_t *)(uintptr_t)__atomic_load_n(&p->saved_frame,__ATOMIC_ACQUIRE);
