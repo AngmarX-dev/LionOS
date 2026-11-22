@@ -40,78 +40,109 @@ static int32_t pipe_read_bounded(uint32_t handle,void *buffer,uint32_t size){
     return -2;
 }
 
-static volatile uint32_t wait_event_target_pid;
-
 static int wait_for_process_state(uint32_t pid,uint32_t expected){
     for(uint32_t attempt=0u;attempt<8192u;++attempt){
-        if(lion_getstate(pid)==(int32_t)expected)return 1;
+        int32_t state=lion_getstate(pid);
+        if(state==(int32_t)expected)return 1;
+        if(state==LIONOS_PROCESS_ZOMBIE||state<0)return 0;
         (void)lion_yield();
     }
     return 0;
 }
 
 /*
- * Keep the notifier pinned with its parent. It waits until the parent is
- * actually blocked in each waitpid call before generating the corresponding
- * child state transition. A timeout still sends the signal so a failed
- * timing assertion cannot strand the parent in an unbounded wait.
+ * The test process is the target's grandparent: this preserves the syscall's
+ * descendant-only signal permission while the direct parent blocks in
+ * waitpid. Both stop and continue are issued only after observing WAITING.
  */
 static int test_blocking_waitpid_event_wakeups(void){
+    uint32_t pid_read=0u,pid_write=0u;
     int32_t status=-1;
-    uint32_t target=lion_fork();
-    if(target==0u){
-        for(;;)(void)lion_yield();
-    }
-    if(target==LIONOS_SYSCALL_ERR)return 100;
+    if(lion_pipe_create(&pid_read,&pid_write)!=0)return 100;
 
-    wait_event_target_pid=target;
-    uint32_t notifier=lion_fork();
-    if(notifier==0u){
-        uint32_t parent=lion_getppid();
-        uint32_t saw_stop_wait=wait_for_process_state(
-            parent,LIONOS_PROCESS_STATE_WAITING);
-        if(lion_kill(wait_event_target_pid,LIONOS_SIG_STOP)!=0){
-            (void)lion_kill(wait_event_target_pid,LIONOS_SIG_TERM);
+    uint32_t waiter=lion_fork();
+    if(waiter==0u){
+        (void)lion_pipe_close(pid_read);
+        uint32_t target=lion_fork();
+        if(target==0u){
+            (void)lion_pipe_close(pid_write);
+            for(;;)(void)lion_yield();
+        }
+        if(target==LIONOS_SYSCALL_ERR){
+            (void)lion_pipe_close(pid_write);
             lion_exit_code(101u);
         }
-
-        uint32_t saw_continue_wait=wait_for_process_state(
-            parent,LIONOS_PROCESS_STATE_WAITING);
-        if(lion_kill(wait_event_target_pid,LIONOS_SIG_CONT)!=0){
-            (void)lion_kill(wait_event_target_pid,LIONOS_SIG_TERM);
+        if(lion_pipe_write(pid_write,&target,sizeof(target))!=(int32_t)sizeof(target)){
+            (void)lion_pipe_close(pid_write);
+            if(lion_kill(target,LIONOS_SIG_TERM)==0)
+                (void)lion_waitpid(target,&status);
             lion_exit_code(102u);
         }
-        lion_exit_code(saw_stop_wait&&saw_continue_wait?0u:103u);
-    }
-    if(notifier==LIONOS_SYSCALL_ERR)
-        return cleanup_child(target,104);
+        (void)lion_pipe_close(pid_write);
 
-    int32_t waited=lion_waitpid_options(target,&status,LIONOS_WUNTRACED);
-    if(waited!=(int32_t)target||!LIONOS_WIFSTOPPED(status)||
-       LIONOS_WSTOPSIG(status)!=LIONOS_SIG_STOP){
-        (void)cleanup_child(target,105);
-        (void)cleanup_child(notifier,106);
-        return 105;
-    }
+        status=-1;
+        if(lion_waitpid_options(target,&status,LIONOS_WUNTRACED)!=(int32_t)target||
+           !LIONOS_WIFSTOPPED(status)||LIONOS_WSTOPSIG(status)!=LIONOS_SIG_STOP){
+            if(lion_getstate(target)!=LIONOS_PROCESS_ZOMBIE)
+                (void)lion_kill(target,LIONOS_SIG_TERM);
+            (void)lion_waitpid(target,&status);
+            lion_exit_code(103u);
+        }
 
-    status=-1;
-    waited=lion_waitpid_options(target,&status,LIONOS_WCONTINUED);
-    if(waited!=(int32_t)target||!LIONOS_WIFCONTINUED(status)){
-        (void)cleanup_child(target,107);
-        (void)cleanup_child(notifier,108);
+        status=-1;
+        if(lion_waitpid_options(target,&status,LIONOS_WCONTINUED)!=(int32_t)target||
+           !LIONOS_WIFCONTINUED(status)){
+            if(lion_getstate(target)!=LIONOS_PROCESS_ZOMBIE)
+                (void)lion_kill(target,LIONOS_SIG_TERM);
+            (void)lion_waitpid(target,&status);
+            lion_exit_code(104u);
+        }
+
+        if(lion_kill(target,LIONOS_SIG_TERM)!=0)
+            lion_exit_code(105u);
+        status=-1;
+        if(lion_waitpid(target,&status)!=(int32_t)target||
+           status!=(int32_t)(128u+LIONOS_SIG_TERM))
+            lion_exit_code(106u);
+        lion_exit_code(0u);
+    }
+    if(waiter==LIONOS_SYSCALL_ERR){
+        (void)lion_pipe_close(pid_read);
+        (void)lion_pipe_close(pid_write);
         return 107;
     }
 
-    status=-1;
-    if(lion_waitpid(notifier,&status)!=(int32_t)notifier||status!=0)
-        return cleanup_child(target,109);
+    (void)lion_pipe_close(pid_write);
+    uint32_t target=0u;
+    int32_t received=pipe_read_bounded(pid_read,&target,sizeof(target));
+    (void)lion_pipe_close(pid_read);
+    if(received!=(int32_t)sizeof(target)||target==0u){
+        (void)cleanup_child(waiter,108);
+        return 108;
+    }
 
-    if(lion_kill(target,LIONOS_SIG_TERM)!=0)
-        return cleanup_child(target,110);
+    uint32_t saw_stop_wait=wait_for_process_state(
+        waiter,LIONOS_PROCESS_STATE_WAITING);
+    if(lion_kill(target,LIONOS_SIG_STOP)!=0){
+        if(lion_getstate(target)!=LIONOS_PROCESS_ZOMBIE)
+            (void)lion_kill(target,LIONOS_SIG_TERM);
+        status=-1;
+        (void)lion_waitpid(waiter,&status);
+        return 109;
+    }
+
+    uint32_t saw_continue_wait=wait_for_process_state(
+        waiter,LIONOS_PROCESS_STATE_WAITING);
+    if(lion_getstate(waiter)!=LIONOS_PROCESS_ZOMBIE&&
+       lion_kill(target,LIONOS_SIG_CONT)!=0){
+        if(lion_getstate(target)!=LIONOS_PROCESS_ZOMBIE)
+            (void)lion_kill(target,LIONOS_SIG_TERM);
+    }
+
     status=-1;
-    if(lion_waitpid(target,&status)!=(int32_t)target||
-       status!=(int32_t)(128u+LIONOS_SIG_TERM))
-        return 111;
+    if(lion_waitpid(waiter,&status)!=(int32_t)waiter||status!=0||
+       !saw_stop_wait||!saw_continue_wait)
+        return 110;
     return 0;
 }
 
