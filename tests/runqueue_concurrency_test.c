@@ -347,8 +347,9 @@ static int simultaneous_busy_destination_test(void) {
         busy_race_validate(2u, &total) != 0 || total != 1u)
         return 7;
 
-    for (uint32_t i = 0u; i < 4u; ++i) {
+    for (uint32_t i = 0u; i < BUSY_RACE_NODE_COUNT; ++i) {
         uint32_t memberships = 0u;
+        uint32_t membership_cpu = LIONOS_RUNQUEUE_INVALID_INDEX;
         for (uint32_t cpu = 0u; cpu < 3u; ++cpu) {
             for (uint32_t priority = 0u;
                  priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
@@ -358,19 +359,31 @@ static int simultaneous_busy_destination_test(void) {
                     if (index >= BUSY_RACE_NODE_COUNT ||
                         visited++ >= BUSY_RACE_NODE_COUNT)
                         return 10;
-                    if (index == i)
+                    if (index == i) {
                         ++memberships;
+                        membership_cpu = cpu;
+                    }
                     index = busy_race_nodes[index].next;
                 }
             }
         }
-        if (memberships != 1u || busy_race_nodes[i].queued != 1u)
-            return 8;
+        if (i < 4u) {
+            if (memberships != 1u ||
+                busy_race_nodes[i].queued != 1u ||
+                busy_race_nodes[i].queue_cpu != membership_cpu)
+                return 8;
+        } else if (memberships != 0u ||
+                   busy_race_nodes[i].queued != 0u ||
+                   busy_race_nodes[i].queue_cpu !=
+                       LIONOS_RUNQUEUE_INVALID_INDEX ||
+                   busy_race_nodes[i].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+                   busy_race_nodes[i].previous !=
+                       LIONOS_RUNQUEUE_INVALID_INDEX) {
+            return 9;
+        }
     }
-    if (busy_race_nodes[4].queued != 0u ||
-        busy_race_nodes[5].queued != 0u ||
-        busy_race_queues[1].total + busy_race_queues[2].total != 2u)
-        return 9;
+    if (busy_race_queues[1].total + busy_race_queues[2].total != 2u)
+        return 11;
     return 0;
 }
 
