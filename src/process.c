@@ -15,8 +15,12 @@
 #include "smp.h"
 #include "lapic.h"
 #include "runqueue.h"
+#include "scheduler_policy.h"
 #if PROCESS_PRIORITY_LEVELS != LIONOS_RUNQUEUE_PRIORITY_LEVELS
 #error "process and runqueue priority levels must match"
+#endif
+#if PROCESS_PRIORITY_LEVELS != LIONOS_SCHEDULER_PRIORITY_LEVELS
+#error "process and scheduler policy priority levels must match"
 #endif
 _Static_assert(LIONOS_PROCESS_MAX >= LIONOS_MAX_CPUS,
                "AP lifecycle probe requires one non-bootstrap slot per CPU");
@@ -182,10 +186,6 @@ static void process_diag_status33(const char *kind,uint32_t pid,
                                   uint32_t parent_pid,uint32_t value);
 static uint8_t fpu_initial_state[512] __attribute__((aligned(16)));
 
-static uint32_t quantum_for_priority(uint32_t priority){
-    static const uint32_t q[PROCESS_PRIORITY_LEVELS]={2u,4u,8u,12u};
-    return q[priority<PROCESS_PRIORITY_LEVELS?priority:PROCESS_PRIORITY_LEVELS-1u];
-}
 static void fpu_save(struct process *p){if(!fpu_enabled||!p)return;__asm__ volatile("fxsave %0":"=m"(p->fpu_state)::"memory");p->fpu_valid=1u;}
 static void fpu_restore(struct process *p){if(!fpu_enabled||!p)return;if(p->fpu_valid)__asm__ volatile("fxrstor %0"::"m"(p->fpu_state):"memory");else __asm__ volatile("fxrstor %0"::"m"(fpu_initial_state):"memory");}
 
@@ -343,7 +343,7 @@ static int process_set_priority_locked(struct process *p,uint32_t priority){
     }
     p->priority=priority;
     p->base_priority=priority;
-    p->time_slice=quantum_for_priority(priority);
+    p->time_slice=scheduler_priority_quantum(priority);
     p->ticks_used=0u;
     return 0;
 }
@@ -1141,7 +1141,7 @@ struct process *process_pipe_owner(void){
 struct process *process_fd_owner(void){return process_pipe_owner();}
 const char *process_state_name(uint32_t s){switch(s){case PROCESS_READY:return "READY";case PROCESS_RUNNING:return "RUNNING";case PROCESS_ZOMBIE:return "ZOMBIE";case PROCESS_WAITING:return "WAITING";case PROCESS_STOPPED:return "STOPPED";default:return "UNUSED";}}
 
-static struct process *process_create_ex_vas_locked(uint32_t entry,uint32_t stack,uint32_t pd,const uint32_t *pages,const uint32_t *vas,uint32_t count){ struct process*p=find_free_slot(); if(!p||!pd||!pages||!vas||!count||count>LIONOS_PROCESS_MAX_USER_PAGES)return 0; void *ks=page_alloc();if(!ks)return 0; p->pid=next_pid++;if(next_pid==0)next_pid=2;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=p->pid;p->is_thread=0;p->owns_address_space=1;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->state=PROCESS_STOPPED; struct process *parent=current_local();p->parent_pid=parent?parent->pid:1;p->adopted_by_init=0u;p->pgid=p->pid;p->sid=p->pid; p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->stop_event_pending=0;p->stop_signal=0;p->wait_channel=0;p->wait_kind=0;__atomic_store_n(&p->wait_frame_saved,0,__ATOMIC_RELEASE);p->reap_pending=0;p->deferred_kernel_stack=0; p->page_directory=pd;p->entry=entry;p->user_stack=stack;p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u; __atomic_store_n(&p->saved_frame,0,__ATOMIC_RELEASE);p->user_page_count=count;p->user_code_page=pages[0];p->user_stack_page=pages[count-1u];p->pending_signals=0;p->signal_active=0u;p->signal_active_restorer=0u;for(uint32_t i=0u;i<32u;++i){p->signal_handlers[i]=LIONOS_SIG_DFL;p->signal_restorers[i]=0u;}for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)p->signal_saved_frame[i]=0u;p->capabilities=PROCESS_CAP_USER_DEFAULT;p->cpu_owner=cpu_current_index();p->migration_count=0u;p->migration_eligible=0u;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=quantum_for_priority(PROCESS_PRIORITY_DEFAULT);p->ticks_used=0;p->fpu_valid=0;p->pipe_read_mask=0;p->pipe_write_mask=0; for(uint32_t i=0;i<count;++i){p->user_pages[i]=pages[i];p->user_page_vas[i]=vas[i];} for(uint32_t i=count;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} init_interrupt_frame(p);return p;}
+static struct process *process_create_ex_vas_locked(uint32_t entry,uint32_t stack,uint32_t pd,const uint32_t *pages,const uint32_t *vas,uint32_t count){ struct process*p=find_free_slot(); if(!p||!pd||!pages||!vas||!count||count>LIONOS_PROCESS_MAX_USER_PAGES)return 0; void *ks=page_alloc();if(!ks)return 0; p->pid=next_pid++;if(next_pid==0)next_pid=2;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=p->pid;p->is_thread=0;p->owns_address_space=1;p->thread_stack_page=0;p->thread_stack_va=0;p->join_tid=0;p->join_status_ptr=0;p->state=PROCESS_STOPPED; struct process *parent=current_local();p->parent_pid=parent?parent->pid:1;p->adopted_by_init=0u;p->pgid=p->pid;p->sid=p->pid; p->exit_code=0;p->wait_pid=0;p->wait_status_ptr=0;p->wait_options=0;p->stop_event_pending=0;p->stop_signal=0;p->wait_channel=0;p->wait_kind=0;__atomic_store_n(&p->wait_frame_saved,0,__ATOMIC_RELEASE);p->reap_pending=0;p->deferred_kernel_stack=0; p->page_directory=pd;p->entry=entry;p->user_stack=stack;p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u; __atomic_store_n(&p->saved_frame,0,__ATOMIC_RELEASE);p->user_page_count=count;p->user_code_page=pages[0];p->user_stack_page=pages[count-1u];p->pending_signals=0;p->signal_active=0u;p->signal_active_restorer=0u;for(uint32_t i=0u;i<32u;++i){p->signal_handlers[i]=LIONOS_SIG_DFL;p->signal_restorers[i]=0u;}for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)p->signal_saved_frame[i]=0u;p->capabilities=PROCESS_CAP_USER_DEFAULT;p->cpu_owner=cpu_current_index();p->migration_count=0u;p->migration_eligible=0u;p->priority=PROCESS_PRIORITY_DEFAULT;p->base_priority=PROCESS_PRIORITY_DEFAULT;p->time_slice=scheduler_priority_quantum(PROCESS_PRIORITY_DEFAULT);p->ticks_used=0;p->fpu_valid=0;p->pipe_read_mask=0;p->pipe_write_mask=0; for(uint32_t i=0;i<count;++i){p->user_pages[i]=pages[i];p->user_page_vas[i]=vas[i];} for(uint32_t i=count;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){p->user_pages[i]=0;p->user_page_vas[i]=0;} init_interrupt_frame(p);return p;}
 static int process_create_ex_vas_internal(uint32_t entry,uint32_t stack,
     uint32_t pd,const uint32_t *pages,const uint32_t *vas,uint32_t count,
     uint32_t migration_eligible,uint32_t *pid_out,
@@ -1269,7 +1269,7 @@ uint32_t process_fork_current(uint32_t *parent_frame){
     for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)slot->signal_saved_frame[i]=parent->signal_saved_frame[i];
     slot->priority=parent->priority;
     slot->base_priority=parent->base_priority;
-    slot->time_slice=quantum_for_priority(slot->priority);
+    slot->time_slice=scheduler_priority_quantum(slot->priority);
     slot->ticks_used=0;
 
     /* File descriptions are shared by fork; pipe ownership is cloned separately. */
@@ -2740,7 +2740,7 @@ uint32_t process_create_user_thread(uint32_t entry){
     if(paging_map_user_page_in(parent->page_directory,va,(uint32_t)(uintptr_t)kp,3u)!=0){page_free(kp);page_free(ks);spinlock_irqrestore_release(&process_lock,flags);return PROCESS_SYSCALL_ERR;}
     for(uint32_t i=0;i<4096u;++i)((uint8_t*)kp)[i]=0;
     uint32_t top=va+4096u;uint32_t*sp=(uint32_t*)(uintptr_t)top;--sp;*sp=0u;
-    clear_process(p);p->pid=0;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=parent->thread_group_pid;p->pgid=parent->pgid;p->sid=parent->sid;p->is_thread=1;p->owns_address_space=0;(void)process_transition_state_locked(p,PROCESS_STOPPED);p->cpu_owner=cpu_current_index();p->page_directory=parent->page_directory;p->entry=entry;p->user_stack=(uint32_t)(uintptr_t)sp;p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u;p->thread_stack_page=(uint32_t)(uintptr_t)kp;p->thread_stack_va=va;p->capabilities=parent->capabilities;p->priority=parent->priority;p->base_priority=parent->base_priority;p->time_slice=quantum_for_priority(p->priority);p->fpu_valid=0;
+    clear_process(p);p->pid=0;p->tid=next_tid++;if(next_tid==0)next_tid=1;p->thread_group_pid=parent->thread_group_pid;p->pgid=parent->pgid;p->sid=parent->sid;p->is_thread=1;p->owns_address_space=0;(void)process_transition_state_locked(p,PROCESS_STOPPED);p->cpu_owner=cpu_current_index();p->page_directory=parent->page_directory;p->entry=entry;p->user_stack=(uint32_t)(uintptr_t)sp;p->kernel_stack_top=(uint32_t)(uintptr_t)ks+4096u;p->thread_stack_page=(uint32_t)(uintptr_t)kp;p->thread_stack_va=va;p->capabilities=parent->capabilities;p->priority=parent->priority;p->base_priority=parent->base_priority;p->time_slice=scheduler_priority_quantum(p->priority);p->fpu_valid=0;
     uint32_t*f=(uint32_t*)(uintptr_t)(p->kernel_stack_top-PROCESS_CONTEXT_WORDS*4u);for(uint32_t i=0;i<PROCESS_CONTEXT_WORDS;++i)f[i]=0;f[14]=entry;f[15]=USER_CODE_SEL;f[16]=0x202u;f[17]=p->user_stack;f[18]=USER_DATA_SEL;__atomic_store_n(&p->saved_frame,(uint32_t)(uintptr_t)f,__ATOMIC_RELEASE);
     if(process_transition_state_locked(p,PROCESS_READY)!=0){
         (void)process_transition_state_locked(p,PROCESS_ZOMBIE);
@@ -3104,7 +3104,9 @@ uint32_t *process_schedule(uint32_t *frame){
                 return frame;
             }
             prev->ticks_used=0u;
-            if(prev->priority+1u<PROCESS_PRIORITY_LEVELS) ++prev->priority;
+            if(scheduler_priority_demote(&prev->priority,
+                    &prev->time_slice)!=0)
+                __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
         } else {
             prev->ticks_used=0u;
         }

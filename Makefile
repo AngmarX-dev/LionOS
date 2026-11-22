@@ -35,7 +35,7 @@ C_SOURCES := $(filter-out src/ramfs.c src/kernel.c src/kernel_runtime.c src/gui.
 C_OBJECTS := $(patsubst src/%.c,$(BUILD)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD)/boot.o
 
-.PHONY: all clean iso usb disk ext2-disk run check test third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check keyboard-tty-check memory-type-check runqueue-check interrupt-stats-check acpi-madt-check lapic-base-check ioapic-check multiboot2-check phys-range-check memory-allocator-check userspace userland process-test ipc-test signal-test net-test
+.PHONY: all clean iso usb disk ext2-disk run check test third-party-check abi-check block-device-check ext2-ro-check ata-identify-check ata-block-device-check elf-check usercopy-check tty-check keyboard-tty-check memory-type-check runqueue-check scheduler-policy-check interrupt-stats-check acpi-madt-check lapic-base-check ioapic-check multiboot2-check phys-range-check memory-allocator-check userspace userland process-test ipc-test signal-test net-test scheduler-policy-check
 all: $(KERNEL)
 userspace userland: $(USER_ELFS)
 process-test: $(BUILD)/process_test.elf
@@ -81,6 +81,10 @@ keyboard-tty-check: | $(BUILD)
 memory-type-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/memory_type.c tests/memory_type_test.c -o $(BUILD)/memory_type_test
 	$(BUILD)/memory_type_test
+
+scheduler-policy-check: | $(BUILD)
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/scheduler_policy.c tests/scheduler_policy_test.c -o $(BUILD)/scheduler_policy_test
+	$(BUILD)/scheduler_policy_test
 
 runqueue-check: | $(BUILD)
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/runqueue.c tests/runqueue_test.c -o $(BUILD)/runqueue_test
