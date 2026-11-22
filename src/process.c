@@ -1799,8 +1799,8 @@ uint32_t process_futex_wakeup(uintptr_t channel,uint32_t maximum){
     return woken;
 }
 
-static void wake_waiting_parent(struct process *child){
-    if(!child||child->state!=PROCESS_ZOMBIE)return;
+static uint32_t wake_waiting_parent(struct process *child){
+    if(!child||child->state!=PROCESS_ZOMBIE)return LIONOS_MAX_CPUS;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *parent=&processes[i];
         if(parent->state!=PROCESS_WAITING||parent->wait_kind!=3u||
@@ -1822,19 +1822,24 @@ static void wake_waiting_parent(struct process *child){
                                   child->pid,parent->cpu_owner);
         }
 
+        /* Keep WAITING metadata intact if queue publication fails. */
+        if(process_transition_state_locked(parent,PROCESS_READY)!=0)
+            return LIONOS_MAX_CPUS;
+        uint32_t owner=parent->cpu_owner<LIONOS_MAX_CPUS?
+            parent->cpu_owner:LIONOS_MAX_CPUS;
         parent->wait_pid=0u;
         parent->wait_status_ptr=0u;
         parent->wait_options=0u;
         parent->wait_channel=0u;
         parent->wait_kind=0u;
         __atomic_store_n(&parent->wait_frame_saved,0u,__ATOMIC_RELEASE);
-        (void)process_transition_state_locked(parent,PROCESS_READY);
 
         /* Keep the zombie available for a retry when status delivery failed. */
         if(status_ok)child->reap_pending=1u;
         else debug_write("LIONOS:WAITPID-ASYNC-STATUS-WRITE-FAIL\n");
-        return;
+        return owner;
     }
+    return LIONOS_MAX_CPUS;
 }static void wake_waiting_parent_stop(struct process *child){
     if(!child||!child->stop_event_pending)return;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
@@ -2252,7 +2257,7 @@ void process_exit_current(uint32_t code){
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:REPARENT-DONE\n");
     (void)process_transition_state_locked(c,PROCESS_ZOMBIE);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:ZOMBIE-SET\n");
-    wake_waiting_parent(c);
+    uint32_t parent_wake_cpu=wake_waiting_parent(c);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:PARENT-WAKE-DONE\n");
     spinlock_irqrestore_release(&process_lock,flags);
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:UNLOCKED\n");
@@ -2262,6 +2267,8 @@ void process_exit_current(uint32_t code){
     if(is_hup_exit)debug_write("LIONOS:SIGHUP:TTY-RELEASE-DONE\n");
     /* Publish the non-runnable handoff only after all exit cleanup is done. */
     uint32_t exit_cpu=cpu_current_index();
+    if(parent_wake_cpu<LIONOS_MAX_CPUS&&parent_wake_cpu!=exit_cpu)
+        process_kick_cpu(parent_wake_cpu);
     process_request_blocked_reschedule(exit_cpu);
     __asm__ volatile("pushl %0; popfl" : : "r"(exit_flags) : "memory","cc");
     process_kick_cpu(exit_cpu);
@@ -2483,12 +2490,16 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         spinlock_irqrestore_release(&process_lock,flags);
         pipe_close_all(p);
         vfs_close_all_process(p);
+        uint32_t parent_wake_cpu=LIONOS_MAX_CPUS;
         flags=spinlock_irqsave_acquire(&process_lock);
         if(p->state==PROCESS_STOPPED){
             process_reparent_children_locked(p);
-            wake_waiting_parent(p);
+            parent_wake_cpu=wake_waiting_parent(p);
         }
         spinlock_irqrestore_release(&process_lock,flags);
+        if(parent_wake_cpu<LIONOS_MAX_CPUS&&
+           parent_wake_cpu!=cpu_current_index())
+            process_kick_cpu(parent_wake_cpu);
         process_release_tty_if_session_empty(exiting_sid);
         return LIONOS_SIGNAL_OK;
     }
