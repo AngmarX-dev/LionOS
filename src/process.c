@@ -2522,8 +2522,12 @@ int32_t process_signal(uint32_t pid,uint32_t signal){
         return LIONOS_SIGNAL_OK;
     }
     if(signal==LIONOS_SIG_CONT){
+        uint32_t target_cpu=p->cpu_owner;
         continue_process_locked(p);
         spinlock_irqrestore_release(&process_lock,flags);
+        /* CONT may make a remote owner-local queue runnable again. */
+        if(target_cpu<LIONOS_MAX_CPUS&&target_cpu!=cpu_current_index())
+            process_kick_cpu(target_cpu);
         return LIONOS_SIGNAL_OK;
     }
     spinlock_irqrestore_release(&process_lock,flags);
