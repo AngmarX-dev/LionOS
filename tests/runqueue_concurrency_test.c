@@ -736,10 +736,10 @@ static int sustained_concurrent_arrival_test(void) {
     struct sustained_test_state *state = &sustained_state;
     uint32_t service_created = 0u;
     uint32_t service_joined = 0u;
+    int join_failed = 0;
     int balancer_created = 0;
     int producer_created = 0;
 
-    __atomic_store_n(&failed, 0u, __ATOMIC_RELAXED);
     for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
         runqueue_init(&state->queues[cpu], cpu);
     for (uint32_t i = 0u; i < SUSTAINED_NODES; ++i) {
@@ -802,16 +802,17 @@ static int sustained_concurrent_arrival_test(void) {
         __atomic_store_n(&state->balancer_done, 1u, __ATOMIC_RELEASE);
     }
 
-    if (producer_created)
-        pthread_join(producer_thread, 0);
+    if (producer_created && pthread_join(producer_thread, 0) != 0)
+        join_failed = 1;
     for (uint32_t cpu = 0u; cpu < service_created; ++cpu) {
-        pthread_join(service_threads[cpu], 0);
+        if (pthread_join(service_threads[cpu], 0) != 0)
+            join_failed = 1;
         ++service_joined;
     }
-    if (balancer_created)
-        pthread_join(balancer_thread, 0);
+    if (balancer_created && pthread_join(balancer_thread, 0) != 0)
+        join_failed = 1;
 
-    if (!producer_created || service_created != SUSTAINED_CPU_COUNT ||
+    if (join_failed || !producer_created || service_created != SUSTAINED_CPU_COUNT ||
         service_joined != service_created ||
         __atomic_load_n(&state->failed, __ATOMIC_ACQUIRE) != 0u ||
         __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) != 0u ||
