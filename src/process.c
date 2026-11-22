@@ -155,6 +155,7 @@ static volatile uint32_t reschedule_blocked[LIONOS_MAX_CPUS];
 static uint32_t fpu_enabled;
 /* Test-only proof that one process context is never dispatched on two CPUs. */
 static volatile uint32_t scheduler_execution_guard_enabled;
+static volatile uint32_t scheduler_execution_guard_idle_steal_mask;
 static volatile uint32_t scheduler_execution_guard_fault;
 static volatile uint32_t scheduler_execution_cpu[LIONOS_PROCESS_MAX];
 
@@ -389,7 +390,12 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked,
     if(online==0u||online>LIONOS_MAX_CPUS)online=1u;
     if(!picked||cpu>=online||
        (idle_destination!=0&&idle_destination!=1))return -1;
-    if(idle_destination&&runqueues[cpu].total!=0u)return 0;
+    if(idle_destination){
+        uint32_t restricted=__atomic_load_n(
+            &scheduler_execution_guard_idle_steal_mask,__ATOMIC_ACQUIRE);
+        if(restricted!=0u&&(restricted&(1u<<cpu))==0u)return 0;
+        if(runqueues[cpu].total!=0u)return 0;
+    }
 
     uint32_t visited=0u;
     for(uint32_t attempt=0u;attempt+1u<online;++attempt){
@@ -864,7 +870,10 @@ void process_init(void) {
         spinlock_init(&scheduler_ap_probe_wait_locks[i]);
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,__ATOMIC_RELAXED);
     __atomic_store_n(&scheduler_execution_guard_fault,0u,__ATOMIC_RELAXED);
+    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,
+                     __ATOMIC_RELAXED);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
         __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
         runqueue_node_init(&runqueue_nodes[i]);
@@ -2837,6 +2846,25 @@ int process_scheduler_execution_guard_enable(void){
     return result;
 }
 
+int process_scheduler_execution_guard_set_idle_steal_mask(uint32_t cpu_mask){
+    uint32_t online=smp_online_count();
+    if(online==0u||online>LIONOS_MAX_CPUS||online>=32u)return -1;
+    uint32_t online_mask=(1u<<online)-1u;
+    if((cpu_mask&~online_mask)!=0u||(cpu_mask&1u)!=0u||cpu_mask==0u)
+        return -1;
+
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    if(__atomic_load_n(&scheduler_execution_guard_enabled,
+                       __ATOMIC_ACQUIRE)==0u){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
+    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,cpu_mask,
+                     __ATOMIC_RELEASE);
+    spinlock_irqrestore_release(&process_lock,flags);
+    return 0;
+}
+
 int process_scheduler_execution_guard_finish(void){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     int result=0;
@@ -2932,6 +2960,8 @@ int process_scheduler_execution_guard_finish(void){
             debug_write("\n");
         }
     }
+    __atomic_store_n(&scheduler_execution_guard_idle_steal_mask,0u,
+                     __ATOMIC_RELEASE);
     __atomic_store_n(&scheduler_execution_guard_enabled,0u,__ATOMIC_RELEASE);
     for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i)
         __atomic_store_n(&scheduler_execution_cpu[i],0u,__ATOMIC_RELAXED);
