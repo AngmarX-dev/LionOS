@@ -357,7 +357,7 @@ static int simultaneous_busy_destination_test(void) {
                 while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
                     if (index >= BUSY_RACE_NODE_COUNT ||
                         visited++ >= BUSY_RACE_NODE_COUNT)
-                        return 8;
+                        return 10;
                     if (index == i)
                         ++memberships;
                     index = busy_race_nodes[index].next;
