@@ -64,7 +64,7 @@ A passing CI run alone does not guarantee operation on every physical hardware c
 | Complete interrupt routing across diverse hardware | ⬜ |
 | Lazy FPU | ⬜ |
 
-**SMP limitation:** AP startup and per-CPU infrastructure are present. The scheduler currently supports a restricted migration path for explicitly opted-in, independent READY user processes, with at most one migration per process, plus bounded busy-queue balancing. This is not unrestricted process or thread migration, and runtime busy-to-busy acceptance under simultaneous stealers and queue-lock contention remains pending.
+**SMP limitation:** AP startup and per-CPU infrastructure are present. The scheduler currently supports a restricted migration path for explicitly opted-in, independent READY user processes, with at most one migration per process, plus bounded busy-queue balancing. This is not unrestricted process or thread migration, and production QEMU busy-to-busy acceptance passed in Build and Phase 26 on exact commit `aadccc98716afc1f0d84aa7282c5d7629f29759d` across the configured 2/4/8/16-vCPU test matrix. The host pthread regression separately covers two competing busy destinations and deferred queue-lock contention. Production scheduler decisions remain serialized by `process_lock`, so simultaneous execution inside that critical section is not tested; sustained-load convergence, broader thread migration, and physical hardware verification remain pending.
 
 ### Memory Management
 
@@ -104,7 +104,7 @@ A passing CI run alone does not guarantee operation on every physical hardware c
 | Complete user-space signal delivery and handling | ⬜ |
 | Shared memory and Unix domain sockets | ⬜ |
 | Limited READY user-process migration (one migration per process) | 🟡 |
-| Bounded busy-queue balancing (runtime acceptance pending) | 🟡 |
+| Bounded busy-queue balancing (production QEMU acceptance passed; sustained-load stress partial) | 🟡 |
 
 ### Storage, VFS, and Filesystems
 
