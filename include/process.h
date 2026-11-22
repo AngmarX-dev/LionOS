@@ -170,7 +170,7 @@ uint32_t process_scheduler_steals(uint32_t cpu);
 uint32_t process_scheduler_busy_balances(uint32_t cpu);
 /* Test-only scheduler instrumentation for cross-CPU execution exclusion. */
 int process_scheduler_execution_guard_enable(void);
-/* Restrict test-only idle steals to selected CPUs during guarded acceptance. */
+/* During guarded tests: zero disables idle steals; UINT32_MAX allows all CPUs. */
 int process_scheduler_execution_guard_set_idle_steal_mask(uint32_t cpu_mask);
 int process_scheduler_execution_guard_finish(void);
 uint32_t *process_saved_frame(struct process *process);
