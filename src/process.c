@@ -2818,11 +2818,6 @@ int process_set_priority(struct process*p,uint32_t priority){
     return result;
 }
 
-    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
-    int result=process_set_priority_locked(p,priority);
-    spinlock_irqrestore_release(&process_lock,flags);
-    return result;
-}
 uint32_t process_scheduler_ticks(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?scheduler_cpu[cpu].schedule_count:0u;}
 uint32_t process_scheduler_steals(uint32_t cpu){
     return cpu<LIONOS_MAX_CPUS
