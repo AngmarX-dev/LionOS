@@ -1544,7 +1544,7 @@ void lionos_user_integration_step(void){
             debug_write_u32_hex(integration_busy_balance_failed);
             debug_write(" elapsed=");
             debug_write_u32_hex(stage28_elapsed);
-            debug_write("\\n");
+            debug_write("\n");
             if(busy_mask==0u||integration_busy_balance_moved==0u||
                busy_owner_intersection==0u){
                 integration_busy_balance_failed=1u;
@@ -1554,12 +1554,12 @@ void lionos_user_integration_step(void){
                 debug_write_u32_hex(integration_busy_balance_owner_mask);
                 debug_write(" moved=");
                 debug_write_u32_hex(integration_busy_balance_moved);
-                debug_write("\\n");
+                debug_write("\n");
             }
             int guard_ok=process_scheduler_execution_guard_finish()==0;
             debug_write(guard_ok
-                ? "LIONOS:SMP-BUSY-GUARD-OK\\n"
-                : "LIONOS:SMP-BUSY-GUARD-RESULT-FAIL\\n");
+                ? "LIONOS:SMP-BUSY-GUARD-OK\n"
+                : "LIONOS:SMP-BUSY-GUARD-RESULT-FAIL\n");
             if(!guard_ok){
                 integration_busy_balance_failed=1u;
                 debug_write("LIONOS:SMP-BUSY-GUARD-FAIL\n");
