@@ -314,19 +314,26 @@ static int busy_race_validate(uint32_t cpu, uint32_t *total) {
 }
 
 #define SHARED_TRANSFER_ITERATIONS 10000u
+#define SHARED_TRANSFER_MAX_ATTEMPTS (SHARED_TRANSFER_ITERATIONS * 64u)
 
 struct shared_transfer_argument {
     uint32_t worker;
+    uint32_t completed;
 };
 
 static void *run_shared_transfer_worker(void *opaque) {
-    const struct shared_transfer_argument *argument =
-        (const struct shared_transfer_argument *)opaque;
+    struct shared_transfer_argument *argument =
+        (struct shared_transfer_argument *)opaque;
 
-    for (uint32_t round = 0u; round < SHARED_TRANSFER_ITERATIONS; ++round) {
+    uint32_t attempts = 0u;
+    argument->completed = 0u;
+    while (argument->completed < SHARED_TRANSFER_ITERATIONS &&
+           attempts < SHARED_TRANSFER_MAX_ATTEMPTS) {
+        ++attempts;
         const uint32_t index = 0u;
         uint32_t owner = node_owner_snapshot(index);
-        uint32_t destination = (argument->worker + round) % TEST_CPU_COUNT;
+        uint32_t destination =
+            (argument->worker + argument->completed) % TEST_CPU_COUNT;
 
         if (owner >= TEST_CPU_COUNT) {
             fail_test();
@@ -356,13 +363,16 @@ static void *run_shared_transfer_worker(void *opaque) {
             return 0;
         }
         unlock_queue_pair(owner, destination);
+        ++argument->completed;
     }
+    if (argument->completed != SHARED_TRANSFER_ITERATIONS)
+        fail_test();
     return 0;
 }
 
 static int shared_node_transfer_race_test(void) {
     pthread_t threads[2];
-    struct shared_transfer_argument arguments[2] = {{0u}, {1u}};
+    struct shared_transfer_argument arguments[2] = {{0u, 0u}, {1u, 0u}};
     uint32_t created = 0u;
     uint32_t total = 0u;
 
@@ -388,6 +398,8 @@ static int shared_node_transfer_race_test(void) {
         if (pthread_join(threads[i], 0) != 0)
             fail_test();
     if (created != 2u ||
+        arguments[0].completed != SHARED_TRANSFER_ITERATIONS ||
+        arguments[1].completed != SHARED_TRANSFER_ITERATIONS ||
         __atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
         return 2;
 
