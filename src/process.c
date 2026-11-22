@@ -164,7 +164,7 @@ static volatile uint32_t scheduler_execution_guard_fault;
 static volatile uint32_t scheduler_execution_cpu[LIONOS_PROCESS_MAX];
 
 static void reap_process(struct process *p);
-static void continue_process_locked(struct process *process);
+static uint32_t continue_process_locked(struct process *process);
 static int process_scheduler_ap_probe_stop_current(void);
 static struct process *find_pid(uint32_t pid);
 static int process_group_orphaned_locked(uint32_t pgid,uint32_t sid);
@@ -1840,7 +1840,9 @@ static uint32_t wake_waiting_parent(struct process *child){
         return owner;
     }
     return LIONOS_MAX_CPUS;
-}static uint32_t wake_waiting_parent_stop(struct process *child){
+}
+
+static uint32_t wake_waiting_parent_stop(struct process *child){
     if(!child||!child->stop_event_pending)return 0u;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *parent=&processes[i];
@@ -1996,34 +1998,6 @@ static uint32_t continue_process_locked(struct process *process){
         wake_mask|=wake_waiting_parent_continued(process);
     if(resume_waitpid)wake_mask|=wake_pending_waitpid_event(process);
     return wake_mask;
-}
-
-static void continue_process_locked(struct process *process){
-    if(!process||process->state==PROCESS_UNUSED||process->state==PROCESS_ZOMBIE)return;
-    int was_stopped=process->state==PROCESS_STOPPED;
-    const uint32_t stop_mask=(1u<<(LIONOS_SIG_STOP-1u))|
-        (1u<<(LIONOS_SIG_TTIN-1u))|(1u<<(LIONOS_SIG_TTOU-1u));
-    process->pending_signals&=~stop_mask;
-    if(!process->is_thread){
-        process->stop_event_pending=0u;
-        process->stop_signal=0u;
-        if(was_stopped)process->continued_event_pending=1u;
-    }
-    uint32_t resume_waitpid=(was_stopped&&process->wait_kind==3u);
-    if(was_stopped)if(process_transition_state_locked(process,resume_waitpid?PROCESS_WAITING:PROCESS_READY)!=0)return;
-    if(!process->is_thread){
-        for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
-            struct process *thread=&processes[i];
-            if(thread->state==PROCESS_UNUSED||thread->state==PROCESS_ZOMBIE||
-               !thread->is_thread||thread->thread_group_pid!=process->pid)continue;
-            thread->pending_signals&=~stop_mask;
-            if(thread->state==PROCESS_STOPPED)(void)process_transition_state_locked(thread,PROCESS_READY);
-            uint32_t cpu=thread->cpu_owner<LIONOS_MAX_CPUS?thread->cpu_owner:0u;
-            __atomic_store_n(&reschedule_requested[cpu],1u,__ATOMIC_RELEASE);
-        }
-    }
-    if(was_stopped&&!process->is_thread)wake_waiting_parent_continued(process);
-    if(resume_waitpid)wake_pending_waitpid_event(process);
 }
 
 static int process_scheduler_ap_probe_stop_current(void){
