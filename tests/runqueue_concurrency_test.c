@@ -313,6 +313,123 @@ static int busy_race_validate(uint32_t cpu, uint32_t *total) {
     return result;
 }
 
+#define SHARED_TRANSFER_ITERATIONS 10000u
+
+struct shared_transfer_argument {
+    uint32_t worker;
+};
+
+static void *run_shared_transfer_worker(void *opaque) {
+    const struct shared_transfer_argument *argument =
+        (const struct shared_transfer_argument *)opaque;
+
+    for (uint32_t round = 0u; round < SHARED_TRANSFER_ITERATIONS; ++round) {
+        const uint32_t index = 0u;
+        uint32_t owner = node_owner_snapshot(index);
+        uint32_t destination = (argument->worker + round) % TEST_CPU_COUNT;
+
+        if (owner >= TEST_CPU_COUNT) {
+            fail_test();
+            return 0;
+        }
+        if (destination == owner)
+            destination = (destination + 1u) % TEST_CPU_COUNT;
+
+        lock_queue_pair(owner, destination);
+        /*
+         * The other worker may have won the same-node transfer race after
+         * our snapshot. Retry with a fresh owner rather than moving from a
+         * stale source queue.
+         */
+        if (nodes[index].queue_cpu != owner) {
+            unlock_queue_pair(owner, destination);
+            continue;
+        }
+        if (runqueue_move_locked(&queues[owner], &queues[destination],
+                nodes, NODE_COUNT, index) != 0 ||
+            runqueue_validate_locked(&queues[owner], nodes,
+                NODE_COUNT, 0) != 0 ||
+            runqueue_validate_locked(&queues[destination], nodes,
+                NODE_COUNT, 0) != 0) {
+            fail_test();
+            unlock_queue_pair(owner, destination);
+            return 0;
+        }
+        unlock_queue_pair(owner, destination);
+    }
+    return 0;
+}
+
+static int shared_node_transfer_race_test(void) {
+    pthread_t threads[2];
+    struct shared_transfer_argument arguments[2] = {{0u}, {1u}};
+    uint32_t created = 0u;
+    uint32_t total = 0u;
+
+    for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu)
+        runqueue_init(&queues[cpu], cpu);
+    for (uint32_t i = 0u; i < NODE_COUNT; ++i)
+        runqueue_node_init(&nodes[i]);
+
+    spinlock_acquire(&queues[0].lock);
+    int enqueue_result = runqueue_enqueue_locked(&queues[0], nodes,
+        NODE_COUNT, 0u, 1u);
+    spinlock_release(&queues[0].lock);
+    if (enqueue_result != 0)
+        return 1;
+
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        if (pthread_create(&threads[i], 0, run_shared_transfer_worker,
+                           &arguments[i]) != 0)
+            break;
+        ++created;
+    }
+    for (uint32_t i = 0u; i < created; ++i)
+        if (pthread_join(threads[i], 0) != 0)
+            fail_test();
+    if (created != 2u ||
+        __atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
+        return 2;
+
+    for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu)
+        spinlock_acquire(&queues[cpu].lock);
+    uint32_t global_total = 0u;
+    uint32_t memberships = 0u;
+    uint32_t owner = nodes[0].queue_cpu;
+    for (uint32_t cpu = 0u; cpu < TEST_CPU_COUNT; ++cpu) {
+        if (runqueue_validate_locked(&queues[cpu], nodes,
+                NODE_COUNT, &total) != 0 ||
+            total != queues[cpu].total ||
+            total > NODE_COUNT - global_total) {
+            fail_test();
+            break;
+        }
+        global_total += total;
+        for (uint32_t priority = 0u;
+             priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+            uint32_t index = queues[cpu].head[priority];
+            while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
+                if (index >= NODE_COUNT) {
+                    fail_test();
+                    break;
+                }
+                if (index == 0u)
+                    ++memberships;
+                index = nodes[index].next;
+            }
+        }
+    }
+    if (global_total != 1u || memberships != 1u ||
+        owner >= TEST_CPU_COUNT || queues[owner].total != 1u ||
+        nodes[0].queued != 1u)
+        fail_test();
+
+    for (uint32_t cpu = TEST_CPU_COUNT; cpu > 0u; --cpu)
+        spinlock_release(&queues[cpu - 1u].lock);
+
+    return __atomic_load_n(&failed, __ATOMIC_ACQUIRE) == 0u ? 0 : 3;
+}
+
 static int simultaneous_busy_destination_test(void) {
     pthread_t threads[2];
     struct busy_race_argument arguments[2] = {
@@ -566,5 +683,7 @@ int main(void) {
 
     if (simultaneous_busy_destination_test() != 0)
         return 5;
+    if (shared_node_transfer_race_test() != 0)
+        return 7;
     return __atomic_load_n(&failed, __ATOMIC_ACQUIRE) == 0u ? 0 : 4;
 }
