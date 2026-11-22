@@ -328,6 +328,143 @@ static int move_rejects_corrupt_source_test(void) {
     return 0;
 }
 
+
+/*
+ * Sustained arrivals below aggregate service capacity must not create an
+ * unbounded source backlog. The source starts with a finite burst, receives
+ * one new node per round, and all three CPUs dispatch at most one local node
+ * per round. Busy destinations may each accept at most one transfer after
+ * their dispatch. This is a deterministic queue-policy model, not production
+ * scheduler timing or process-eligibility coverage.
+ */
+static int busy_balance_sustained_service_test(void) {
+    enum {
+        CPU_COUNT = 3u,
+        INITIAL_BACKLOG = 32u,
+        ARRIVAL_ROUNDS = 48u,
+        TOTAL_NODES = INITIAL_BACKLOG + ARRIVAL_ROUNDS
+    };
+    struct runqueue queues[CPU_COUNT];
+    struct runqueue_node nodes[TOTAL_NODES];
+    uint8_t completed_seen[TOTAL_NODES];
+    uint32_t transfers[CPU_COUNT] = {0u, 0u, 0u};
+    uint32_t completed = 0u;
+    uint32_t maximum_outstanding = 0u;
+
+    for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+        runqueue_init(&queues[cpu], cpu);
+        queues[cpu].lock.value = 1u;
+    }
+    for (uint32_t i = 0u; i < TOTAL_NODES; ++i) {
+        runqueue_node_init(&nodes[i]);
+        completed_seen[i] = 0u;
+    }
+    for (uint32_t i = 0u; i < INITIAL_BACKLOG; ++i) {
+        if (runqueue_enqueue_locked(&queues[0], nodes, TOTAL_NODES,
+                                    i, i % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0)
+            return 1;
+    }
+
+    for (uint32_t round = 0u; round < ARRIVAL_ROUNDS; ++round) {
+        uint32_t arrival = INITIAL_BACKLOG + round;
+        if (runqueue_enqueue_locked(&queues[0], nodes, TOTAL_NODES,
+                arrival, round % LIONOS_RUNQUEUE_PRIORITY_LEVELS) != 0)
+            return 2;
+
+        uint32_t outstanding = 0u;
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu)
+            outstanding += queues[cpu].total;
+        if (outstanding > maximum_outstanding)
+            maximum_outstanding = outstanding;
+
+        /* One local dispatch opportunity per CPU, including the source. */
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+            uint32_t index = LIONOS_RUNQUEUE_INVALID_INDEX;
+            int picked = runqueue_pick_next_locked(&queues[cpu], nodes,
+                                                   TOTAL_NODES, &index);
+            if (picked < 0) return 3;
+            if (picked == 1) continue;
+            if (index >= TOTAL_NODES || completed_seen[index] != 0u ||
+                nodes[index].queued != 0u ||
+                nodes[index].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX ||
+                completed >= TOTAL_NODES)
+                return 4;
+            completed_seen[index] = 1u;
+            ++completed;
+        }
+
+        /* Each busy destination gets one independent balancing opportunity. */
+        for (uint32_t destination = 1u;
+             destination < CPU_COUNT; ++destination) {
+            uint32_t victim = LIONOS_RUNQUEUE_INVALID_INDEX;
+            uint32_t largest = 0u;
+            for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+                if (cpu != destination && queues[cpu].total > largest) {
+                    largest = queues[cpu].total;
+                    victim = cpu;
+                }
+            }
+            if (victim == LIONOS_RUNQUEUE_INVALID_INDEX ||
+                !runqueue_should_balance(queues[destination].total,
+                                         queues[victim].total, 0))
+                continue;
+
+            uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
+            for (uint32_t priority = 0u;
+                 priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+                candidate = queues[victim].head[priority];
+                if (candidate != LIONOS_RUNQUEUE_INVALID_INDEX) break;
+            }
+            if (candidate == LIONOS_RUNQUEUE_INVALID_INDEX ||
+                runqueue_move_locked(&queues[victim], &queues[destination],
+                                     nodes, TOTAL_NODES, candidate) != 0)
+                return 5;
+            ++transfers[destination];
+        }
+
+        outstanding = 0u;
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+            uint32_t validated_total = 0u;
+            if (runqueue_validate_locked(&queues[cpu], nodes, TOTAL_NODES,
+                                         &validated_total) != 0 ||
+                validated_total != queues[cpu].total)
+                return 6;
+            outstanding += validated_total;
+        }
+        if (outstanding + completed != INITIAL_BACKLOG + round + 1u ||
+            outstanding > INITIAL_BACKLOG)
+            return 7;
+    }
+
+    /* The sustained arrival stream must leave only a bounded residual. */
+    if (maximum_outstanding > INITIAL_BACKLOG + 1u ||
+        queues[0].total > 1u || queues[1].total != 0u ||
+        queues[2].total != 0u || transfers[1] == 0u ||
+        transfers[2] == 0u)
+        return 8;
+
+    /* Drain any final residual and prove every accepted node completed once. */
+    for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
+        for (;;) {
+            uint32_t index = LIONOS_RUNQUEUE_INVALID_INDEX;
+            int picked = runqueue_pick_next_locked(&queues[cpu], nodes,
+                                                   TOTAL_NODES, &index);
+            if (picked == 1) break;
+            if (picked != 0 || index >= TOTAL_NODES ||
+                completed_seen[index] != 0u || completed >= TOTAL_NODES)
+                return 9;
+            completed_seen[index] = 1u;
+            ++completed;
+        }
+    }
+    if (completed != TOTAL_NODES) return 10;
+    for (uint32_t i = 0u; i < TOTAL_NODES; ++i)
+        if (completed_seen[i] != 1u || nodes[i].queued != 0u ||
+            nodes[i].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
+            return 11;
+    return 0;
+}
+
 int main(void) {
     struct runqueue queue;
     struct runqueue_node nodes[NODE_COUNT];
@@ -336,6 +473,7 @@ int main(void) {
 
     if (move_rejects_corrupt_source_test() != 0) return 75;
     if (busy_balance_sustained_arrival_test() != 0) return 76;
+    if (busy_balance_sustained_service_test() != 0) return 77;
 
     runqueue_init(&queue, 1u);
     /* The locked API is exercised with its queue lock held. */
