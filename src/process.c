@@ -1231,7 +1231,124 @@ int process_create_ex_vas_pid(uint32_t entry,uint32_t stack,uint32_t pd,
 struct process *process_create_ex(uint32_t entry,uint32_t stack,uint32_t pd,const uint32_t *pages,uint32_t count){ uint32_t vas[LIONOS_PROCESS_MAX_USER_PAGES];for(uint32_t i=0;i<count&&i<LIONOS_PROCESS_MAX_USER_PAGES;++i)vas[i]=i*4096u;return process_create_ex_vas(entry,stack,pd,pages,vas,count); }
 struct process *process_create(uint32_t entry,uint32_t stack,uint32_t pd,uint32_t code,uint32_t user_stack_page){ uint32_t p[2]={code,user_stack_page},v[2]={0x10000000u,0x10001000u};return process_create_ex_vas(entry,stack,pd,p,v,2u); }
 
-int process_exec_replace_current(uint32_t entry,uint32_t stack,uint32_t pd,const uint32_t *pages,const uint32_t *vas,uint32_t count){ uint32_t flags=spinlock_irqsave_acquire(&process_lock);struct process*c=current_local(); if(!c||c==&processes[0]||c->is_thread||!pd||!pages||!vas||!count||count>LIONOS_PROCESS_MAX_USER_PAGES){spinlock_irqrestore_release(&process_lock,flags);return -1;} void*new_ks=page_alloc();if(!new_ks){spinlock_irqrestore_release(&process_lock,flags);return -1;} for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){struct process*t=&processes[i];if(t!=c&&t->state!=PROCESS_UNUSED&&t->is_thread&&t->thread_group_pid==c->thread_group_pid){(void)process_transition_state_locked(t,PROCESS_ZOMBIE);reap_process(t);}} uint32_t old_pd=c->page_directory,old_ks=c->kernel_stack_top,old_pages[LIONOS_PROCESS_MAX_USER_PAGES],old_count=c->user_page_count; for(uint32_t i=0;i<old_count;++i)old_pages[i]=c->user_pages[i]; c->page_directory=pd;c->entry=entry;c->user_stack=stack;c->kernel_stack_top=(uint32_t)(uintptr_t)new_ks+4096u;__atomic_store_n(&c->saved_frame,0,__ATOMIC_RELEASE); c->user_page_count=count;c->user_code_page=pages[0];c->user_stack_page=pages[count-1u];c->exit_code=0;c->wait_pid=0;c->wait_status_ptr=0;c->wait_options=0;__atomic_store_n(&c->wait_frame_saved,0u,__ATOMIC_RELEASE);c->stop_event_pending=0;c->stop_signal=0;c->continued_event_pending=0;c->reap_pending=0;c->pending_signals=0;c->signal_active=0u;c->signal_active_restorer=0u;for(uint32_t i=0u;i<32u;++i){if(c->signal_handlers[i]!=LIONOS_SIG_IGN)c->signal_handlers[i]=LIONOS_SIG_DFL;c->signal_restorers[i]=0u;}for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)c->signal_saved_frame[i]=0u;c->deferred_kernel_stack=old_ks; for(uint32_t i=0;i<count;++i){c->user_pages[i]=pages[i];c->user_page_vas[i]=vas[i];} for(uint32_t i=count;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){c->user_pages[i]=0;c->user_page_vas[i]=0;} paging_switch_address_space(pd);tss_set_kernel_stack(c->kernel_stack_top);init_interrupt_frame(c); for(uint32_t i=0;i<old_count;++i)if(old_pages[i])page_free((void *)(uintptr_t)old_pages[i]); if(old_pd&&old_pd!=pd)paging_destroy_address_space(old_pd); spinlock_irqrestore_release(&process_lock,flags);return 0; }
+int process_exec_replace_current(uint32_t entry,uint32_t stack,uint32_t pd,
+    const uint32_t *pages,const uint32_t *vas,uint32_t count){
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    struct process *c=current_local();
+    if(!c||c==&processes[0]||c->is_thread||!pd||!pages||!vas||
+       !count||count>LIONOS_PROCESS_MAX_USER_PAGES){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
+    void *new_ks=page_alloc();
+    if(!new_ks){
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
+
+    /*
+     * Validate every sibling's queue membership before retiring any thread.
+     * process_lock prevents scheduler transitions between this pass and the
+     * retirement pass below.
+     */
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process *t=&processes[i];
+        if(t==c||t->state==PROCESS_UNUSED||!t->is_thread||
+           t->thread_group_pid!=c->thread_group_pid)continue;
+        uint32_t index;
+        if(process_slot_index(t,&index)!=0){
+            page_free(new_ks);
+            spinlock_irqrestore_release(&process_lock,flags);
+            return -1;
+        }
+        const struct runqueue_node *node=&runqueue_nodes[index];
+        if(t->state==PROCESS_READY){
+            if(node->queued!=1u||node->queue_cpu>=LIONOS_MAX_CPUS||
+               node->queue_cpu!=t->cpu_owner||
+               process_runqueue_validate_locked(node->queue_cpu)!=0){
+                page_free(new_ks);
+                spinlock_irqrestore_release(&process_lock,flags);
+                return -1;
+            }
+        }else if(node->queued!=0u||
+                 node->next!=LIONOS_RUNQUEUE_INVALID_INDEX||
+                 node->previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
+                 node->queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX){
+            page_free(new_ks);
+            spinlock_irqrestore_release(&process_lock,flags);
+            return -1;
+        }
+    }
+
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        struct process *t=&processes[i];
+        if(t==c||t->state==PROCESS_UNUSED||!t->is_thread||
+           t->thread_group_pid!=c->thread_group_pid)continue;
+        if(t->state!=PROCESS_ZOMBIE&&
+           process_transition_state_locked(t,PROCESS_ZOMBIE)!=0){
+            /* Never replace the address space while a sibling can still run. */
+            page_free(new_ks);
+            spinlock_irqrestore_release(&process_lock,flags);
+            return -1;
+        }
+        reap_process(t);
+        if(t->state!=PROCESS_UNUSED){
+            /* A failed thread-stack teardown must not outlive the old space. */
+            page_free(new_ks);
+            spinlock_irqrestore_release(&process_lock,flags);
+            return -1;
+        }
+    }
+
+    uint32_t old_pd=c->page_directory,old_ks=c->kernel_stack_top;
+    uint32_t old_pages[LIONOS_PROCESS_MAX_USER_PAGES];
+    uint32_t old_count=c->user_page_count;
+    for(uint32_t i=0;i<old_count;++i)old_pages[i]=c->user_pages[i];
+    c->page_directory=pd;
+    c->entry=entry;
+    c->user_stack=stack;
+    c->kernel_stack_top=(uint32_t)(uintptr_t)new_ks+4096u;
+    __atomic_store_n(&c->saved_frame,0,__ATOMIC_RELEASE);
+    c->user_page_count=count;
+    c->user_code_page=pages[0];
+    c->user_stack_page=pages[count-1u];
+    c->exit_code=0;
+    c->wait_pid=0;
+    c->wait_status_ptr=0;
+    c->wait_options=0;
+    __atomic_store_n(&c->wait_frame_saved,0u,__ATOMIC_RELEASE);
+    c->stop_event_pending=0;
+    c->stop_signal=0;
+    c->continued_event_pending=0;
+    c->reap_pending=0;
+    c->pending_signals=0;
+    c->signal_active=0u;
+    c->signal_active_restorer=0u;
+    for(uint32_t i=0u;i<32u;++i){
+        if(c->signal_handlers[i]!=LIONOS_SIG_IGN)
+            c->signal_handlers[i]=LIONOS_SIG_DFL;
+        c->signal_restorers[i]=0u;
+    }
+    for(uint32_t i=0u;i<PROCESS_CONTEXT_WORDS;++i)
+        c->signal_saved_frame[i]=0u;
+    c->deferred_kernel_stack=old_ks;
+    for(uint32_t i=0;i<count;++i){
+        c->user_pages[i]=pages[i];
+        c->user_page_vas[i]=vas[i];
+    }
+    for(uint32_t i=count;i<LIONOS_PROCESS_MAX_USER_PAGES;++i){
+        c->user_pages[i]=0;
+        c->user_page_vas[i]=0;
+    }
+    paging_switch_address_space(pd);
+    tss_set_kernel_stack(c->kernel_stack_top);
+    init_interrupt_frame(c);
+    for(uint32_t i=0;i<old_count;++i)
+        if(old_pages[i])page_free((void *)(uintptr_t)old_pages[i]);
+    if(old_pd&&old_pd!=pd)paging_destroy_address_space(old_pd);
+    spinlock_irqrestore_release(&process_lock,flags);
+    return 0;
+}
 
 uint32_t process_fork_current(uint32_t *parent_frame){
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
