@@ -126,11 +126,66 @@ static int busy_balance_convergence_test(void) {
     return 0;
 }
 
+/*
+ * A failed cross-CPU move must leave both queues untouched when the source
+ * chain is malformed. In particular, preflight validation must happen before
+ * unlinking the requested node from the source lane.
+ */
+static int move_rejects_corrupt_source_test(void) {
+    struct runqueue source, destination;
+    struct runqueue_node nodes[3];
+    uint32_t total = 0u;
+
+    runqueue_init(&source, 0u);
+    runqueue_init(&destination, 1u);
+    source.lock.value = 1u;
+    destination.lock.value = 1u;
+    for (uint32_t i = 0u; i < 3u; ++i)
+        runqueue_node_init(&nodes[i]);
+
+    if (runqueue_enqueue_locked(&source, nodes, 3u, 0u, 1u) != 0 ||
+        runqueue_enqueue_locked(&source, nodes, 3u, 1u, 1u) != 0 ||
+        runqueue_enqueue_locked(&destination, nodes, 3u, 2u, 1u) != 0)
+        return 1;
+
+    /* Break the backward link while preserving the source head and tail. */
+    nodes[1].previous = LIONOS_RUNQUEUE_INVALID_INDEX;
+    if (runqueue_move_locked(&source, &destination, nodes, 3u, 0u) == 0)
+        return 2;
+
+    /* The failed operation must not partially unlink or append the node. */
+    if (source.total != 2u || source.count[1] != 2u ||
+        source.head[1] != 0u || source.tail[1] != 1u ||
+        destination.total != 1u || destination.count[1] != 1u ||
+        destination.head[1] != 2u || destination.tail[1] != 2u ||
+        nodes[0].queued != 1u || nodes[0].queue_cpu != source.cpu ||
+        nodes[0].next != 1u || nodes[1].queued != 1u ||
+        nodes[1].queue_cpu != source.cpu)
+        return 3;
+
+    /* Restore the deliberate corruption and prove both queues still validate. */
+    nodes[1].previous = 0u;
+    if (runqueue_validate_locked(&source, nodes, 3u, &total) != 0 ||
+        total != 2u ||
+        runqueue_validate_locked(&destination, nodes, 3u, &total) != 0 ||
+        total != 1u)
+        return 4;
+
+    if (runqueue_move_locked(&source, &destination, nodes, 3u, 0u) != 0)
+        return 5;
+    if (source.total != 1u || destination.total != 2u ||
+        nodes[0].queue_cpu != destination.cpu || nodes[0].queued != 1u)
+        return 6;
+    return 0;
+}
+
 int main(void) {
     struct runqueue queue;
     struct runqueue_node nodes[NODE_COUNT];
     uint32_t picked = 0u, total = 0u;
     int result;
+
+    if (move_rejects_corrupt_source_test() != 0) return 75;
 
     runqueue_init(&queue, 1u);
     /* The locked API is exercised with its queue lock held. */
