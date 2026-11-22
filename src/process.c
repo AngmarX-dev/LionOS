@@ -1643,7 +1643,12 @@ int32_t process_waitpid_options(uint32_t pid,uint32_t status_ptr,uint32_t option
     caller->wait_kind=3u;
     __atomic_store_n(&caller->wait_frame_saved,0u,__ATOMIC_RELEASE);
     debug_write("LIONOS:WAITPID-EINTR-BLOCK\n");
-    (void)process_transition_state_locked(caller,PROCESS_WAITING);
+    if(process_transition_state_locked(caller,PROCESS_WAITING)!=0){
+        /* Do not report a blocked wait unless WAITING was published. */
+        process_clear_waitpid_locked(caller);
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
     process_request_blocked_reschedule(cpu_current_index());
     spinlock_irqrestore_release(&process_lock,flags);
     return PROCESS_WAIT_BLOCKED;
@@ -2876,7 +2881,13 @@ int32_t process_join_thread(uint32_t tid,uint32_t status_ptr){
         process_diag_status33("THREAD-JOIN-BLOCK",tid,c->pid,p->state);
         c->join_tid=tid;
         c->join_status_ptr=status_ptr;
-        (void)process_transition_state_locked(c,PROCESS_WAITING);
+        if(process_transition_state_locked(c,PROCESS_WAITING)!=0){
+            /* A failed transition must not leave a stale join registration. */
+            c->join_tid=0u;
+            c->join_status_ptr=0u;
+            spinlock_irqrestore_release(&process_lock,flags);
+            return -1;
+        }
         process_request_blocked_reschedule(cpu_current_index());
         spinlock_irqrestore_release(&process_lock,flags);
         return PROCESS_WAIT_BLOCKED;
