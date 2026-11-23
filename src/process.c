@@ -695,9 +695,14 @@ static void process_scheduler_ap_probe_report(void){
                      */
                     uint32_t target_index=process_index(target);
                     uint32_t saved_owner=target->cpu_owner;
+                    uint32_t saved_state=target->state;
+                    uint32_t saved_priority=target->priority;
+                    uint32_t saved_base_priority=target->base_priority;
+                    uint32_t saved_time_slice=target->time_slice;
+                    uint32_t saved_ticks_used=target->ticks_used;
                     uint32_t saved_fault=__atomic_load_n(&runqueue_fault,
                                                           __ATOMIC_ACQUIRE);
-                    uint32_t fallback_total=runqueues[0].total;
+                    uint32_t fallback_total=runqueues[cpu].total;
                     if(runqueue_nodes[target_index].queued!=0u||
                        runqueue_nodes[target_index].next!=
                            LIONOS_RUNQUEUE_INVALID_INDEX||
@@ -714,7 +719,11 @@ static void process_scheduler_ap_probe_report(void){
                     int transition_result=
                         process_transition_state_locked(target,PROCESS_READY);
                     int transition_unchanged=
-                        transition_result!=0&&target->state==PROCESS_STOPPED&&
+                        transition_result!=0&&target->state==saved_state&&
+                        target->priority==saved_priority&&
+                        target->base_priority==saved_base_priority&&
+                        target->time_slice==saved_time_slice&&
+                        target->ticks_used==saved_ticks_used&&
                         target->cpu_owner==LIONOS_RUNQUEUE_INVALID_INDEX&&
                         runqueue_nodes[target_index].queued==1u&&
                         runqueue_nodes[target_index].next==
@@ -723,7 +732,7 @@ static void process_scheduler_ap_probe_report(void){
                             LIONOS_RUNQUEUE_INVALID_INDEX&&
                         runqueue_nodes[target_index].queue_cpu==
                             LIONOS_RUNQUEUE_INVALID_INDEX&&
-                        runqueues[0].total==fallback_total;
+                        runqueues[cpu].total==fallback_total;
                     runqueue_node_init(&runqueue_nodes[target_index]);
                     target->cpu_owner=saved_owner;
                     __atomic_store_n(&runqueue_fault,saved_fault,__ATOMIC_RELEASE);
