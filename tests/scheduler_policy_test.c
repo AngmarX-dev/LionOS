@@ -9,9 +9,15 @@ struct accumulator_worker {
 };
 
 static volatile uint32_t pending_ticks;
+static volatile uint32_t accumulator_ready;
+static volatile uint32_t accumulator_start;
 
 static void *accumulator_worker_main(void *argument) {
     struct accumulator_worker *worker = argument;
+    (void)__atomic_fetch_add(&accumulator_ready, 1u, __ATOMIC_RELEASE);
+    while (__atomic_load_n(&accumulator_start, __ATOMIC_ACQUIRE) == 0u) {
+        /* Wait until every successfully created worker is ready to contend. */
+    }
     for (uint32_t i = 0u; i < worker->iterations; ++i) {
         int result = scheduler_tick_accumulate(&pending_ticks);
         if (result == 1)
@@ -32,6 +38,8 @@ static int run_accumulator_workers(uint32_t iterations,
 
     if (!successes_out) return -1;
     *successes_out = 0u;
+    __atomic_store_n(&accumulator_ready, 0u, __ATOMIC_RELAXED);
+    __atomic_store_n(&accumulator_start, 0u, __ATOMIC_RELAXED);
     for (; started < WORKERS; ++started) {
         workers[started].iterations = iterations;
         workers[started].successes = 0u;
@@ -41,6 +49,12 @@ static int run_accumulator_workers(uint32_t iterations,
             break;
     }
     if (started != WORKERS) failed = 1;
+
+    /* Release all workers together only after each one has reached the gate. */
+    while (__atomic_load_n(&accumulator_ready, __ATOMIC_ACQUIRE) < started) {
+    }
+    __atomic_store_n(&accumulator_start, 1u, __ATOMIC_RELEASE);
+
     for (uint32_t i = 0u; i < started; ++i) {
         if (pthread_join(threads[i], 0) != 0) {
             failed = 1;
