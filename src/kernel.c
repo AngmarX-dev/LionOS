@@ -345,6 +345,8 @@ static volatile uint32_t integration_ap_user_status;
 /* The documented QEMU acceptance consistently migrates at least two of the
  * three eligible candidates; one transfer is insufficient convergence. */
 #define INTEGRATION_BUSY_BALANCE_MIN_MOVED 2u
+#define INTEGRATION_BUSY_BALANCE_ROUNDS 3u
+static uint32_t integration_busy_balance_round;
 static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_COUNT];
 static volatile uint32_t integration_busy_worker_pids[LIONOS_MAX_CPUS];
 static volatile uint32_t integration_busy_worker_status[LIONOS_MAX_CPUS];
@@ -1493,6 +1495,30 @@ void lionos_user_integration_step(void){
                 pending=1u;
                 continue;
             }
+            if(integration_busy_balance_round+1u<
+               INTEGRATION_BUSY_BALANCE_ROUNDS){
+                uint32_t owner=LIONOS_MAX_CPUS;
+                uint32_t migrations=0xFFFFFFFFu;
+                int32_t state=(status==1u&&pid)?process_get_state(pid):-1;
+                if(status!=1u||!pid||state==PROCESS_ZOMBIE||state<0||
+                   process_get_migration_info(pid,&owner,&migrations)!=0||
+                   owner!=cpu||migrations!=0u||
+                   (state!=PROCESS_RUNNING&&state!=PROCESS_READY)){
+                    integration_busy_balance_failed=1u;
+                    debug_write("LIONOS:SMP-BUSY-WORKER-NOT-SUSTAINED cpu=");
+                    debug_write_u32_hex(cpu);
+                    debug_write(" status=");
+                    debug_write_u32_hex(status);
+                    debug_write(" state=");
+                    debug_write_u32_hex((uint32_t)state);
+                    debug_write(" owner=");
+                    debug_write_u32_hex(owner);
+                    debug_write(" migrations=");
+                    debug_write_u32_hex(migrations);
+                    debug_write("\n");
+                }
+                continue;
+            }
             if(status==4u&&pid==0u)
                 continue;
             if(status!=1u||!pid){
@@ -1562,6 +1588,80 @@ void lionos_user_integration_step(void){
             }
         }
 
+        if(!pending&&integration_busy_balance_round+1u<
+           INTEGRATION_BUSY_BALANCE_ROUNDS){
+            if(integration_busy_balance_failed!=0u){
+                integration_busy_balance_round=INTEGRATION_BUSY_BALANCE_ROUNDS-1u;
+                return;
+            }
+            uint32_t round_busy_mask=0u;
+            for(uint32_t cpu=1u;cpu<online;++cpu){
+                uint32_t current=process_scheduler_busy_balances(cpu);
+                if((current-integration_busy_balance_before[cpu])!=0u)
+                    round_busy_mask|=1u<<cpu;
+            }
+            uint32_t round_owner_intersection=
+                round_busy_mask&integration_busy_balance_owner_mask;
+            if(round_busy_mask==0u||
+               integration_busy_balance_moved<INTEGRATION_BUSY_BALANCE_MIN_MOVED||
+               round_owner_intersection==0u){
+                integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-ROUND-ACCEPTANCE-FAIL round=");
+                debug_write_u32_hex(integration_busy_balance_round);
+                debug_write(" busy=");
+                debug_write_u32_hex(round_busy_mask);
+                debug_write(" moved=");
+                debug_write_u32_hex(integration_busy_balance_moved);
+                debug_write("\n");
+                integration_busy_balance_round=INTEGRATION_BUSY_BALANCE_ROUNDS-1u;
+                return;
+            }
+            debug_write("LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=");
+            debug_write_u32_hex(integration_busy_balance_round);
+            debug_write(" moved=");
+            debug_write_u32_hex(integration_busy_balance_moved);
+            debug_write("\n");
+            ++integration_busy_balance_round;
+            integration_busy_balance_moved=0u;
+            integration_busy_balance_moved_mask=0u;
+            integration_busy_balance_owner_mask=0u;
+            integration_busy_balance_start_tick=process_scheduler_ticks(0u);
+            for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+                integration_busy_balance_before[cpu]=
+                    process_scheduler_busy_balances(cpu);
+            for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i)
+                integration_busy_balance_pids[i]=0u;
+
+            uint32_t launch_flags=0u;
+            __asm__ volatile("pushfl; popl %0; cli"
+                             : "=r"(launch_flags) : : "memory");
+            uint32_t created=0u;
+            for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i){
+                int pid=exec_run_file("migration_test.elf");
+                if(pid<=0){
+                    integration_busy_balance_failed=1u;
+                    break;
+                }
+                integration_busy_balance_pids[i]=(uint32_t)pid;
+                ++created;
+            }
+            if(created==INTEGRATION_BUSY_BALANCE_PROCESS_COUNT){
+                uint32_t eligible[INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT];
+                for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT;++i)
+                    eligible[i]=integration_busy_balance_pids[i];
+                if(process_set_migration_eligible_batch(
+                        eligible,INTEGRATION_BUSY_BALANCE_ELIGIBLE_COUNT)!=0)
+                    integration_busy_balance_failed=1u;
+            }else{
+                integration_busy_balance_failed=1u;
+            }
+            __asm__ volatile("pushl %0; popfl"
+                             : : "r"(launch_flags) : "memory","cc");
+            for(uint32_t cpu=1u;cpu<online;++cpu)
+                process_request_reschedule_cpu(cpu);
+            return;
+        }
+
         if(!pending){
             uint32_t busy_mask=0u;
             for(uint32_t cpu=1u;cpu<online;++cpu){
@@ -1607,6 +1707,12 @@ void lionos_user_integration_step(void){
                 debug_write("LIONOS:SMP-BUSY-GUARD-FAIL\n");
             }
             if(integration_busy_balance_failed==0u){
+                debug_write("LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=");
+                debug_write_u32_hex(integration_busy_balance_round);
+                debug_write("\n");
+                debug_write("LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=");
+                debug_write_u32_hex(INTEGRATION_BUSY_BALANCE_ROUNDS);
+                debug_write("\n");
                 debug_write("LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-OK mask=");
                 debug_write_u32_hex(busy_mask);
                 debug_write(" moved=");

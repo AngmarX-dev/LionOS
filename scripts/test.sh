@@ -128,6 +128,12 @@ run_qemu() {
             return 1
         fi
         grep -q "LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-OK" "$log_file"
+        busy_balance_rounds=$(grep -c '^LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=' "$log_file" || true)
+        if [ "$busy_balance_rounds" -ne 3 ]; then
+            echo "expected 3 production busy-balance rounds, observed $busy_balance_rounds: $log_file" >&2
+            return 1
+        fi
+        grep -q "LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=00000003" "$log_file"
         migration_rounds=$(grep -c '^LIONOS:SMP-WORK-STEAL-ROUND-OK round=' "$log_file" || true)
         if [ "$migration_rounds" -ne 3 ]; then
             echo "expected 3 completed SMP migration stress rounds, observed $migration_rounds: $log_file" >&2
