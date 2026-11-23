@@ -133,6 +133,14 @@ run_qemu() {
             echo "expected 3 production busy-balance rounds, observed $busy_balance_rounds: $log_file" >&2
             return 1
         fi
+        busy_balance_round_sequence=$(sed -n \
+            's/^LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=\\([0-9A-Fa-f]*\\).*/\\1/p' \
+            "$log_file")
+        expected_busy_balance_round_sequence=$(printf '00000000\\n00000001\\n00000002')
+        if [ "$busy_balance_round_sequence" != "$expected_busy_balance_round_sequence" ]; then
+            echo "production busy-balance rounds were missing, duplicated, or out of order: $log_file" >&2
+            return 1
+        fi
         grep -q "LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=00000003" "$log_file"
         migration_rounds=$(grep -c '^LIONOS:SMP-WORK-STEAL-ROUND-OK round=' "$log_file" || true)
         if [ "$migration_rounds" -ne 3 ]; then
