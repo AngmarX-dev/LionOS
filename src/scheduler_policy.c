@@ -21,6 +21,27 @@ int scheduler_priority_demote(uint32_t *priority, uint32_t *time_slice) {
     return 0;
 }
 
+int scheduler_tick_charge(uint32_t *ticks_used, uint32_t *priority,
+                          uint32_t *time_slice, uint32_t elapsed_ticks) {
+    if (!ticks_used || !priority || !time_slice ||
+        *priority >= LIONOS_SCHEDULER_PRIORITY_LEVELS ||
+        *time_slice == 0u || *ticks_used >= *time_slice)
+        return -1;
+
+    if (elapsed_ticks == 0u) return 0;
+
+    uint32_t remaining = *time_slice - *ticks_used;
+    if (elapsed_ticks < remaining) {
+        *ticks_used += elapsed_ticks;
+        return 0;
+    }
+
+    /* The caller is about to leave this task; do not carry timer overrun
+       into the next quantum or demote more than one level in one decision. */
+    *ticks_used = 0u;
+    return scheduler_priority_demote(priority, time_slice);
+}
+
 int scheduler_tick_delta_valid(uint32_t ticks) {
     return ticks <= 0x7FFFFFFFu;
 }

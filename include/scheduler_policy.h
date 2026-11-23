@@ -14,6 +14,15 @@ uint32_t scheduler_priority_quantum(uint32_t priority);
  */
 int scheduler_priority_demote(uint32_t *priority, uint32_t *time_slice);
 
+/*
+ * Charge elapsed local timer ticks to the running task. When the current
+ * quantum expires, reset ticks_used and demote exactly one priority level;
+ * the caller must schedule another task after a successful expiration.
+ * Invalid state is rejected without modifying any argument.
+ */
+int scheduler_tick_charge(uint32_t *ticks_used, uint32_t *priority,
+                          uint32_t *time_slice, uint32_t elapsed_ticks);
+
 /* Relative deadlines must stay within the unambiguous unsigned half-range. */
 int scheduler_tick_delta_valid(uint32_t ticks);
 

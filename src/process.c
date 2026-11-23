@@ -148,7 +148,7 @@ static volatile uint32_t scheduler_idle_entered_mask;
 static volatile uint32_t scheduler_idle_reported;
 static uint32_t scheduler_idle_ready_mask;
 static uint32_t scheduler_idle_expected_mask;
-struct scheduler_cpu_state{uint32_t cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t busy_balance_count;uint32_t timer_ticks;};
+struct scheduler_cpu_state{uint32_t cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t busy_balance_count;uint32_t timer_ticks;volatile uint32_t pending_schedule_ticks;};
 static struct scheduler_cpu_state scheduler_cpu[LIONOS_MAX_CPUS];
 static uint32_t next_pid;
 static uint32_t next_tid;
@@ -1188,6 +1188,7 @@ void process_init(void) {
         scheduler_cpu[i].steal_count=0u;
         scheduler_cpu[i].busy_balance_count=0u;
         scheduler_cpu[i].timer_ticks=0u;
+        scheduler_cpu[i].pending_schedule_ticks=0u;
         reschedule_requested[i]=0u;
         reschedule_ipi_pending[i]=0u;
         reschedule_blocked[i]=0u;
@@ -2144,6 +2145,15 @@ void process_futex_tick(uint32_t cpu){
      * contended. Dropping the timeout scan is safe; dropping elapsed AP-local
      * ticks can indefinitely postpone a timeout on a repeatedly contended CPU.
      */
+    /* Preserve the scheduling charge even if process_schedule() immediately
+       loses the global lifecycle lock. Saturation avoids counter wrap if a
+       CPU is unable to enter the scheduler for an exceptionally long time. */
+    uint32_t pending=__atomic_load_n(
+        &scheduler_cpu[cpu].pending_schedule_ticks,__ATOMIC_RELAXED);
+    while(pending!=UINT32_MAX&&
+          !__atomic_compare_exchange_n(
+              &scheduler_cpu[cpu].pending_schedule_ticks,&pending,pending+1u,
+              0,__ATOMIC_RELEASE,__ATOMIC_RELAXED)){}
     uint32_t now=__atomic_add_fetch(&scheduler_cpu[cpu].timer_ticks,1u,
                                     __ATOMIC_RELAXED);
     if(!spinlock_try_acquire(&process_lock))return;
@@ -3658,6 +3668,8 @@ uint32_t *process_schedule(uint32_t *frame){
     __atomic_store_n(&reschedule_blocked[cpu],0u,__ATOMIC_RELEASE);
     __atomic_store_n(&reschedule_ipi_pending[cpu],0u,__ATOMIC_RELEASE);
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
+    uint32_t elapsed_timer_ticks=__atomic_exchange_n(
+        &sc->pending_schedule_ticks,0u,__ATOMIC_ACQ_REL);
     ++sc->schedule_count;
     uint32_t waitpid_wake_mask=0u;
     struct process*prev=current_local();
@@ -3690,17 +3702,21 @@ uint32_t *process_schedule(uint32_t *frame){
 
     if(prev && prev->state==PROCESS_RUNNING && !prev_is_idle){
         if(__atomic_exchange_n(&reschedule_requested[cpu],0u,__ATOMIC_ACQ_REL)==0u){
-            ++prev->ticks_used;
-            if(prev->ticks_used < prev->time_slice){
+            if(elapsed_timer_ticks==0u){
                 scheduler_execution_guard_enter(prev,cpu);
                 spinlock_irqrestore_release(&process_lock,flags);
                 process_kick_mask(waitpid_wake_mask,cpu);
                 return frame;
             }
-            prev->ticks_used=0u;
-            if(scheduler_priority_demote(&prev->priority,
-                    &prev->time_slice)!=0)
+            if(scheduler_tick_charge(&prev->ticks_used,&prev->priority,
+                    &prev->time_slice,elapsed_timer_ticks)!=0){
                 __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+            }else if(prev->ticks_used!=0u){
+                scheduler_execution_guard_enter(prev,cpu);
+                spinlock_irqrestore_release(&process_lock,flags);
+                process_kick_mask(waitpid_wake_mask,cpu);
+                return frame;
+            }
         } else {
             prev->ticks_used=0u;
         }

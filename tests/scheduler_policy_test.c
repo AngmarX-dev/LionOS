@@ -54,5 +54,43 @@ int main(void) {
     if (!scheduler_tick_deadline_reached(0x7FFFFFFFu, 0u)) return 20;
     if (scheduler_tick_deadline_reached(0x80000000u, 0u)) return 21;
     if (scheduler_tick_deadline_reached(0u, 0x7FFFFFFFu)) return 22;
+    uint32_t used = 0u;
+    priority = 0u;
+    quantum = scheduler_priority_quantum(priority);
+    if (scheduler_tick_charge(&used, &priority, &quantum, 0u) != 0 ||
+        used != 0u || priority != 0u || quantum != 2u) return 23;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) != 0 ||
+        used != 1u || priority != 0u || quantum != 2u) return 24;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) != 0 ||
+        used != 0u || priority != 1u || quantum != 4u) return 25;
+
+    /* A delayed scheduling decision consumes all elapsed ticks but performs
+       only one demotion before the caller switches away from this task. */
+    used = 1u;
+    if (scheduler_tick_charge(&used, &priority, &quantum, UINT32_MAX) != 0 ||
+        used != 0u || priority != 2u || quantum != 8u) return 26;
+    used = 7u;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) != 0 ||
+        used != 0u || priority != 3u || quantum != 12u) return 27;
+    used = 11u;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) != 0 ||
+        used != 0u || priority != 3u || quantum != 12u) return 28;
+
+    used = 1u;
+    priority = 1u;
+    quantum = 4u;
+    if (scheduler_tick_charge(0, &priority, &quantum, 1u) == 0 ||
+        used != 1u || priority != 1u || quantum != 4u) return 29;
+    if (scheduler_tick_charge(&used, 0, &quantum, 1u) == 0 ||
+        used != 1u || priority != 1u || quantum != 4u) return 30;
+    if (scheduler_tick_charge(&used, &priority, 0, 1u) == 0 ||
+        used != 1u || priority != 1u || quantum != 4u) return 31;
+    used = 4u;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
+        used != 4u || priority != 1u || quantum != 4u) return 32;
+    used = 0u;
+    quantum = 0u;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
+        used != 0u || priority != 1u || quantum != 0u) return 33;
     return 0;
 }
