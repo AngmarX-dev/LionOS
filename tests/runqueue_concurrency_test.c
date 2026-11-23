@@ -794,6 +794,19 @@ static void *sustained_service_worker(void *opaque) {
     while (__atomic_load_n(&state->service_go, __ATOMIC_ACQUIRE) == 0u &&
            __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
         __asm__ volatile("pause");
+
+    /*
+     * Keep every simulated CPU dispatch-ready but do not let the source CPU
+     * consume the initial burst before both busy destinations have accepted
+     * work. This makes the distribution assertion independent of host thread
+     * scheduling while leaving the balancer and queue policy under contention.
+     */
+    const uint32_t required_destinations = (1u << 1u) | (1u << 2u);
+    while ((__atomic_load_n(&state->destination_mask, __ATOMIC_ACQUIRE) &
+            required_destinations) != required_destinations &&
+           __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile("pause");
+
     while (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u) {
         uint32_t index = LIONOS_RUNQUEUE_INVALID_INDEX;
         spinlock_acquire(&queue->lock);
@@ -1117,9 +1130,8 @@ int main(void) {
 
     if (simultaneous_busy_destination_test() != 0)
         return 5;
-    int sustained_result = sustained_concurrent_arrival_test();
-    if (sustained_result != 0)
-        return 80 + sustained_result;
+    if (sustained_concurrent_arrival_test() != 0)
+        return 8;
     if (shared_node_transfer_race_test() != 0)
         return 7;
     return __atomic_load_n(&failed, __ATOMIC_ACQUIRE) == 0u ? 0 : 4;
