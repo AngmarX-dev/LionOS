@@ -339,8 +339,23 @@ static int process_runqueue_validate_locked(uint32_t cpu){
 /* process_lock must be held. Reposition READY tasks atomically on their owner queue. */
 static int process_set_priority_locked(struct process *p,uint32_t priority){
     uint32_t index;
-    if(priority>=PROCESS_PRIORITY_LEVELS||process_slot_index(p,&index)!=0)
+    if(priority>=PROCESS_PRIORITY_LEVELS||process_slot_index(p,&index)!=0||
+       p->state==PROCESS_UNUSED)
         return -1;
+    if(p->state!=PROCESS_READY){
+        /*
+         * Non-READY processes must be detached. A stale intrusive node here
+         * would otherwise let a priority update mutate process metadata while
+         * the scheduler can still discover the process through a queue.
+         */
+        if(runqueue_nodes[index].queued!=0u||
+           runqueue_nodes[index].next!=LIONOS_RUNQUEUE_INVALID_INDEX||
+           runqueue_nodes[index].previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
+           runqueue_nodes[index].queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX){
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+            return -1;
+        }
+    }
     if(p->state==PROCESS_READY){
         uint32_t owner=runqueue_nodes[index].queue_cpu;
         /*
