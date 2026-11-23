@@ -745,6 +745,90 @@ static void process_scheduler_ap_probe_report(void){
                         continue;
                     }
                     wake_mask|=continue_process_locked(target);
+                    /*
+                     * A READY-to-WAITING transition must be failure-atomic
+                     * when the owning priority lane is structurally invalid.
+                     * Corrupt only the lane tail while process_lock excludes
+                     * scheduler/lifecycle users, then verify dequeue rejects
+                     * the transition without changing process or node state.
+                     */
+                    {
+                        uint32_t ready_index=process_index(target);
+                        uint32_t ready_priority=target->priority;
+                        struct runqueue_node *ready_node=&runqueue_nodes[ready_index];
+                        uint32_t ready_state=target->state;
+                        uint32_t ready_owner=target->cpu_owner;
+                        uint32_t ready_base_priority=target->base_priority;
+                        uint32_t ready_time_slice=target->time_slice;
+                        uint32_t ready_ticks_used=target->ticks_used;
+                        uint32_t ready_queued=ready_node->queued;
+                        uint32_t ready_next=ready_node->next;
+                        uint32_t ready_previous=ready_node->previous;
+                        uint32_t ready_queue_cpu=ready_node->queue_cpu;
+                        uint32_t ready_node_priority=ready_node->priority;
+                        if(ready_priority>=PROCESS_PRIORITY_LEVELS){
+                            __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                             __ATOMIC_RELEASE);
+                            continue;
+                        }
+                        uint32_t saved_runqueue_fault=
+                            __atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE);
+                        uint32_t ready_head,ready_tail,ready_count,ready_total;
+                        spinlock_acquire(&runqueues[cpu].lock);
+                        ready_head=runqueues[cpu].head[ready_priority];
+                        ready_tail=runqueues[cpu].tail[ready_priority];
+                        ready_count=runqueues[cpu].count[ready_priority];
+                        ready_total=runqueues[cpu].total;
+                        if(ready_state!=PROCESS_READY||ready_owner!=cpu||
+                           ready_queued!=1u||ready_queue_cpu!=cpu||
+                           ready_node_priority!=ready_priority||
+                           ready_count==0u||ready_head>=LIONOS_PROCESS_MAX||
+                           ready_tail>=LIONOS_PROCESS_MAX){
+                            spinlock_release(&runqueues[cpu].lock);
+                            __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                             __ATOMIC_RELEASE);
+                            continue;
+                        }
+                        runqueues[cpu].tail[ready_priority]=
+                            LIONOS_RUNQUEUE_INVALID_INDEX;
+                        spinlock_release(&runqueues[cpu].lock);
+
+                        int failed_ready_transition=
+                            process_transition_state_locked(target,PROCESS_WAITING);
+                        uint32_t transition_fault=
+                            __atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE);
+
+                        spinlock_acquire(&runqueues[cpu].lock);
+                        runqueues[cpu].tail[ready_priority]=ready_tail;
+                        int queue_unchanged=
+                            runqueues[cpu].head[ready_priority]==ready_head&&
+                            runqueues[cpu].count[ready_priority]==ready_count&&
+                            runqueues[cpu].tail[ready_priority]==ready_tail&&
+                            runqueues[cpu].total==ready_total;
+                        spinlock_release(&runqueues[cpu].lock);
+                        int process_unchanged=
+                            target->state==ready_state&&
+                            target->cpu_owner==ready_owner&&
+                            target->priority==ready_priority&&
+                            target->base_priority==ready_base_priority&&
+                            target->time_slice==ready_time_slice&&
+                            target->ticks_used==ready_ticks_used&&
+                            ready_node->queued==ready_queued&&
+                            ready_node->next==ready_next&&
+                            ready_node->previous==ready_previous&&
+                            ready_node->queue_cpu==ready_queue_cpu&&
+                            ready_node->priority==ready_node_priority;
+                        __atomic_store_n(&runqueue_fault,saved_runqueue_fault,
+                                         __ATOMIC_RELEASE);
+                        if(saved_runqueue_fault!=0u||transition_fault==saved_runqueue_fault||
+                           failed_ready_transition!=-1||!queue_unchanged||
+                           !process_unchanged||
+                           process_runqueue_validate_locked(cpu)!=0){
+                            __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                             __ATOMIC_RELEASE);
+                            continue;
+                        }
+                    }
                     uint32_t next_priority=
                         (target->priority+1u)%PROCESS_PRIORITY_LEVELS;
                     if(target->state!=PROCESS_READY||
