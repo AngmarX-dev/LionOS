@@ -814,5 +814,40 @@ int main(void) {
     }
     if (busy_memberships != 1u)
         return 73;
+
+    /*
+     * Distinct queue objects must not claim the same logical CPU. Rejecting
+     * this transfer before mutation preserves the single-owner invariant and
+     * avoids treating two locks as separate owners for one run queue.
+     */
+    struct runqueue duplicate_cpu_source, duplicate_cpu_destination;
+    struct runqueue_node duplicate_cpu_nodes[2];
+    runqueue_init(&duplicate_cpu_source, 4u);
+    runqueue_init(&duplicate_cpu_destination, 4u);
+    duplicate_cpu_source.lock.value = 1u;
+    duplicate_cpu_destination.lock.value = 1u;
+    runqueue_node_init(&duplicate_cpu_nodes[0]);
+    runqueue_node_init(&duplicate_cpu_nodes[1]);
+    if (runqueue_enqueue_locked(&duplicate_cpu_source, duplicate_cpu_nodes,
+            2u, 0u, 1u) != 0 ||
+        runqueue_enqueue_locked(&duplicate_cpu_destination, duplicate_cpu_nodes,
+            2u, 1u, 1u) != 0)
+        return 85;
+    if (runqueue_move_locked(&duplicate_cpu_source,
+            &duplicate_cpu_destination, duplicate_cpu_nodes, 2u, 0u) == 0)
+        return 86;
+    if (duplicate_cpu_source.total != 1u ||
+        duplicate_cpu_destination.total != 1u ||
+        duplicate_cpu_nodes[0].queued != 1u ||
+        duplicate_cpu_nodes[0].queue_cpu != duplicate_cpu_source.cpu ||
+        duplicate_cpu_nodes[0].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        duplicate_cpu_nodes[0].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        duplicate_cpu_nodes[1].queued != 1u ||
+        duplicate_cpu_nodes[1].queue_cpu != duplicate_cpu_destination.cpu ||
+        runqueue_validate_locked(&duplicate_cpu_source, duplicate_cpu_nodes,
+            2u, &total) != 0 || total != 1u ||
+        runqueue_validate_locked(&duplicate_cpu_destination, duplicate_cpu_nodes,
+            2u, &total) != 0 || total != 1u)
+        return 87;
     return 0;
 }
