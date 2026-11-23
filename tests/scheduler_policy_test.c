@@ -89,8 +89,12 @@ int main(void) {
     if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
         used != 4u || priority != 1u || quantum != 4u) return 32;
     used = 0u;
+    priority = 0u;
     quantum = 0u;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) != 0 ||
+        used != 0u || priority != 1u || quantum != 4u) return 33;
+    used = 1u;
     if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
-        used != 0u || priority != 1u || quantum != 0u) return 33;
+        used != 1u || priority != 1u || quantum != 4u) return 34;
     return 0;
 }

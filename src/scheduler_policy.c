@@ -24,11 +24,19 @@ int scheduler_priority_demote(uint32_t *priority, uint32_t *time_slice) {
 int scheduler_tick_charge(uint32_t *ticks_used, uint32_t *priority,
                           uint32_t *time_slice, uint32_t elapsed_ticks) {
     if (!ticks_used || !priority || !time_slice ||
-        *priority >= LIONOS_SCHEDULER_PRIORITY_LEVELS ||
-        *time_slice == 0u || *ticks_used >= *time_slice)
+        *priority >= LIONOS_SCHEDULER_PRIORITY_LEVELS)
         return -1;
 
     if (elapsed_ticks == 0u) return 0;
+
+    /* The bootstrap context starts with a zero quantum. Preserve the legacy
+       behavior: its first charged scheduler tick establishes a real quantum
+       by demoting once, rather than treating initialization as corruption. */
+    if (*time_slice == 0u) {
+        if (*ticks_used != 0u) return -1;
+        return scheduler_priority_demote(priority, time_slice);
+    }
+    if (*ticks_used >= *time_slice) return -1;
 
     uint32_t remaining = *time_slice - *ticks_used;
     if (elapsed_ticks < remaining) {
