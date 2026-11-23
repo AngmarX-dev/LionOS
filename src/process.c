@@ -793,6 +793,53 @@ static void process_scheduler_ap_probe_report(void){
                             LIONOS_RUNQUEUE_INVALID_INDEX;
                         spinlock_release(&runqueues[cpu].lock);
 
+                        /*
+                         * A failed READY priority requeue must preserve both
+                         * process scheduling metadata and intrusive membership.
+                         */
+                        uint32_t requeue_priority=
+                            (ready_priority+1u)%PROCESS_PRIORITY_LEVELS;
+                        int failed_priority_update=
+                            process_set_priority_locked(target,requeue_priority);
+                        uint32_t requeue_fault=
+                            __atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE);
+                        spinlock_acquire(&runqueues[cpu].lock);
+                        runqueues[cpu].tail[ready_priority]=ready_tail;
+                        int requeue_queue_unchanged=
+                            runqueues[cpu].head[ready_priority]==ready_head&&
+                            runqueues[cpu].count[ready_priority]==ready_count&&
+                            runqueues[cpu].tail[ready_priority]==ready_tail&&
+                            runqueues[cpu].total==ready_total;
+                        spinlock_release(&runqueues[cpu].lock);
+                        int requeue_process_unchanged=
+                            target->state==ready_state&&
+                            target->cpu_owner==ready_owner&&
+                            target->priority==ready_priority&&
+                            target->base_priority==ready_base_priority&&
+                            target->time_slice==ready_time_slice&&
+                            target->ticks_used==ready_ticks_used&&
+                            ready_node->queued==ready_queued&&
+                            ready_node->next==ready_next&&
+                            ready_node->previous==ready_previous&&
+                            ready_node->queue_cpu==ready_queue_cpu&&
+                            ready_node->priority==ready_node_priority;
+                        __atomic_store_n(&runqueue_fault,saved_runqueue_fault,
+                                         __ATOMIC_RELEASE);
+                        if(saved_runqueue_fault!=0u||failed_priority_update!=-1||
+                           requeue_fault==saved_runqueue_fault||
+                           !requeue_queue_unchanged||!requeue_process_unchanged||
+                           process_runqueue_validate_locked(cpu)!=0){
+                            __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                             __ATOMIC_RELEASE);
+                            continue;
+                        }
+
+                        /* Re-inject corruption for the READY-to-WAITING case. */
+                        spinlock_acquire(&runqueues[cpu].lock);
+                        runqueues[cpu].tail[ready_priority]=
+                            LIONOS_RUNQUEUE_INVALID_INDEX;
+                        spinlock_release(&runqueues[cpu].lock);
+
                         int failed_ready_transition=
                             process_transition_state_locked(target,PROCESS_WAITING);
                         uint32_t transition_fault=
