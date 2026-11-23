@@ -1117,8 +1117,9 @@ int main(void) {
 
     if (simultaneous_busy_destination_test() != 0)
         return 5;
-    if (sustained_concurrent_arrival_test() != 0)
-        return 8;
+    int sustained_result = sustained_concurrent_arrival_test();
+    if (sustained_result != 0)
+        return 80 + sustained_result;
     if (shared_node_transfer_race_test() != 0)
         return 7;
     return __atomic_load_n(&failed, __ATOMIC_ACQUIRE) == 0u ? 0 : 4;
