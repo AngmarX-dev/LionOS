@@ -3702,14 +3702,12 @@ uint32_t *process_schedule(uint32_t *frame){
 
     if(prev && prev->state==PROCESS_RUNNING && !prev_is_idle){
         if(__atomic_exchange_n(&reschedule_requested[cpu],0u,__ATOMIC_ACQ_REL)==0u){
-            if(elapsed_timer_ticks==0u){
-                scheduler_execution_guard_enter(prev,cpu);
-                spinlock_irqrestore_release(&process_lock,flags);
-                process_kick_mask(waitpid_wake_mask,cpu);
-                return frame;
-            }
+            /* Preserve the legacy one-charge behavior for scheduler entries
+               that are not paired with process_futex_tick() (for example,
+               the PIT fallback while the LAPIC frame timer is active). */
+            uint32_t charge_ticks=elapsed_timer_ticks?elapsed_timer_ticks:1u;
             if(scheduler_tick_charge(&prev->ticks_used,&prev->priority,
-                    &prev->time_slice,elapsed_timer_ticks)!=0){
+                    &prev->time_slice,charge_ticks)!=0){
                 __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
             }else if(prev->ticks_used!=0u){
                 scheduler_execution_guard_enter(prev,cpu);

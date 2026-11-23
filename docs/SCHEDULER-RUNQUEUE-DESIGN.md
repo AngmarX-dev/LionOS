@@ -12,7 +12,7 @@ The implementation now connects the intrusive run-queue core in
 enqueue exactly once; transitions away from READY dequeue before publishing the
 new state; scheduler selection removes the highest-priority head. The global
 `process_lock` remains in place and is always acquired before a queue lock.
-The timer scheduler uses a non-blocking try-acquire for its local queue selection. Per-CPU timer interrupts are accumulated in a saturating pending counter before the global lock attempt; a later successful scheduling decision charges the elapsed ticks to the running process, while non-timer reschedule requests retain their existing quantum-reset behavior.
+The timer scheduler uses a non-blocking try-acquire for its local queue selection. Per-CPU timer interrupts are accumulated in a saturating pending counter before the global lock attempt; a later successful scheduling decision charges the elapsed ticks to the running process. Scheduler entry paths without a pending timer count retain the previous single-charge behavior, and explicit reschedule requests retain their existing quantum-reset behavior.
 The scheduler may steal one explicitly opted-in READY user process when its local queue is empty, or move one eligible READY process from a sufficiently heavier victim queue after selecting a local task. Busy-destination balancing requires a victim backlog at least two tasks larger than the destination's remaining queue. Ordinary processes are not migratable by default, and the policy permits at most one migration per process.
 
 Host tests cover queue invariants, FIFO/priority ordering, destination-lane FIFO
