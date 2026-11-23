@@ -681,8 +681,33 @@ int main(void) {
     if (runqueue_enqueue_locked(&queue, nodes, NODE_COUNT, 0u, 1u) != 0) return 29;
     queue.head[1] = NODE_COUNT;
     if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) < 0, 30u))) return result;
-    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT, 0u, 1u) < 0, 31u))) return result;
+    /*
+     * A priority change must validate every lane before unlinking the node.
+     * Corrupt metadata in its current lane must leave the node and counts
+     * untouched, even when the requested priority is a different lane.
+     */
+    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes,
+                    NODE_COUNT, 0u, 0u) < 0, 31u))) return result;
+    if (queue.total != 1u || queue.count[1] != 1u ||
+        queue.head[1] != NODE_COUNT || queue.tail[1] != 0u ||
+        queue.count[0] != 0u || nodes[0].queued != 1u ||
+        nodes[0].queue_cpu != queue.cpu || nodes[0].priority != 1u ||
+        nodes[0].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        nodes[0].next != LIONOS_RUNQUEUE_INVALID_INDEX)
+        return 80;
     queue.head[1] = 0u;
+    if (runqueue_validate_locked(&queue, nodes, NODE_COUNT, &total) != 0 ||
+        total != 1u)
+        return 81;
+    if (runqueue_requeue_priority_locked(&queue, nodes, NODE_COUNT,
+                                         0u, 0u) != 0 ||
+        queue.total != 1u || queue.count[1] != 0u ||
+        queue.count[0] != 1u || queue.head[0] != 0u ||
+        queue.tail[0] != 0u || nodes[0].queued != 1u ||
+        nodes[0].queue_cpu != queue.cpu || nodes[0].priority != 0u ||
+        nodes[0].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        nodes[0].next != LIONOS_RUNQUEUE_INVALID_INDEX)
+        return 82;
     if (runqueue_dequeue_locked(&queue, nodes, NODE_COUNT, 0u) != 0) return 32;
 
     /* Repeated FIFO cycles exercise link reuse and count restoration. */
