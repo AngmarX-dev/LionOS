@@ -702,7 +702,8 @@ static void process_scheduler_ap_probe_report(void){
                     uint32_t saved_ticks_used=target->ticks_used;
                     uint32_t saved_fault=__atomic_load_n(&runqueue_fault,
                                                           __ATOMIC_ACQUIRE);
-                    uint32_t fallback_total=runqueues[cpu].total;
+                    /* The report runs on the BSP; failed enqueue falls back to CPU 0. */
+                    uint32_t fallback_total=runqueues[0u].total;
                     if(runqueue_nodes[target_index].queued!=0u||
                        runqueue_nodes[target_index].next!=
                            LIONOS_RUNQUEUE_INVALID_INDEX||
@@ -732,7 +733,7 @@ static void process_scheduler_ap_probe_report(void){
                             LIONOS_RUNQUEUE_INVALID_INDEX&&
                         runqueue_nodes[target_index].queue_cpu==
                             LIONOS_RUNQUEUE_INVALID_INDEX&&
-                        runqueues[cpu].total==fallback_total;
+                        runqueues[0u].total==fallback_total;
                     runqueue_node_init(&runqueue_nodes[target_index]);
                     target->cpu_owner=saved_owner;
                     __atomic_store_n(&runqueue_fault,saved_fault,__ATOMIC_RELEASE);
