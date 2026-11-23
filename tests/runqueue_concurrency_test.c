@@ -1,6 +1,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include "runqueue.h"
+#include "scheduler_policy.h"
 
 #define TEST_CPU_COUNT 4u
 #define WORKERS_PER_CPU 2u
@@ -624,6 +625,8 @@ struct sustained_test_state {
     volatile uint32_t failed;
     volatile uint32_t completed;
     volatile uint32_t transfers;
+    volatile uint32_t destination_mask;
+    uint32_t balance_cursor[SUSTAINED_CPU_COUNT];
 };
 
 struct sustained_worker_argument {
@@ -683,6 +686,18 @@ static void *sustained_producer(void *opaque) {
     return 0;
 }
 
+static void sustained_queue_totals_snapshot(
+    struct sustained_test_state *state,
+    uint32_t totals[SUSTAINED_CPU_COUNT]) {
+    /* Acquire all queue locks in CPU order for one coherent policy snapshot. */
+    for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
+        spinlock_acquire(&state->queues[cpu].lock);
+    for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
+        totals[cpu] = state->queues[cpu].total;
+    for (uint32_t cpu = SUSTAINED_CPU_COUNT; cpu > 0u; --cpu)
+        spinlock_release(&state->queues[cpu - 1u].lock);
+}
+
 static void *sustained_balancer(void *opaque) {
     struct sustained_test_state *state =
         (struct sustained_test_state *)opaque;
@@ -696,19 +711,29 @@ static void *sustained_balancer(void *opaque) {
         int progress = 0;
         for (uint32_t destination = 1u;
              destination < SUSTAINED_CPU_COUNT; ++destination) {
-            if (!sustained_lock_pair(state, 0u, destination))
+            uint32_t totals[SUSTAINED_CPU_COUNT];
+            sustained_queue_totals_snapshot(state, totals);
+            uint32_t victim = scheduler_select_victim(
+                totals, SUSTAINED_CPU_COUNT, destination,
+                state->balance_cursor[destination], 0u);
+            if (victim == UINT32_MAX ||
+                !runqueue_should_balance(totals[destination], totals[victim], 0))
                 continue;
-            struct runqueue *source = &state->queues[0];
+
+            if (!sustained_lock_pair(state, victim, destination))
+                continue;
+            struct runqueue *source = &state->queues[victim];
             struct runqueue *target = &state->queues[destination];
             if (runqueue_validate_locked(source, state->nodes,
                     SUSTAINED_NODES, 0) != 0 ||
                 runqueue_validate_locked(target, state->nodes,
                     SUSTAINED_NODES, 0) != 0) {
                 __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
-                sustained_unlock_pair(state, 0u, destination);
+                sustained_unlock_pair(state, victim, destination);
                 __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
                 break;
             }
+            /* The coherent snapshot may be stale after its locks are released. */
             if (runqueue_should_balance(target->total, source->total, 0)) {
                 uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
                 for (uint32_t priority = 0u;
@@ -721,14 +746,18 @@ static void *sustained_balancer(void *opaque) {
                     runqueue_move_locked(source, target, state->nodes,
                         SUSTAINED_NODES, candidate) != 0) {
                     __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
-                    sustained_unlock_pair(state, 0u, destination);
+                    sustained_unlock_pair(state, victim, destination);
                     __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
                     break;
                 }
+                state->balance_cursor[destination] =
+                    (victim + 1u) % SUSTAINED_CPU_COUNT;
+                __atomic_fetch_or(&state->destination_mask,
+                    1u << destination, __ATOMIC_RELEASE);
                 __atomic_fetch_add(&state->transfers, 1u, __ATOMIC_RELAXED);
                 progress = 1;
             }
-            sustained_unlock_pair(state, 0u, destination);
+            sustained_unlock_pair(state, victim, destination);
         }
 
         if (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) != 0u)
@@ -827,6 +856,9 @@ static int sustained_concurrent_arrival_test(void) {
     state->failed = 0u;
     state->completed = 0u;
     state->transfers = 0u;
+    state->destination_mask = 0u;
+    for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
+        state->balance_cursor[cpu] = 0u;
 
     /* Preload a finite burst so both busy destinations must accept work. */
     spinlock_acquire(&state->queues[0].lock);
@@ -901,7 +933,9 @@ static int sustained_concurrent_arrival_test(void) {
         __atomic_load_n(&state->producer_done, __ATOMIC_ACQUIRE) == 0u ||
         __atomic_load_n(&state->balancer_done, __ATOMIC_ACQUIRE) == 0u ||
         __atomic_load_n(&state->completed, __ATOMIC_ACQUIRE) != SUSTAINED_NODES ||
-        __atomic_load_n(&state->transfers, __ATOMIC_ACQUIRE) < 2u)
+        __atomic_load_n(&state->transfers, __ATOMIC_ACQUIRE) < 2u ||
+        __atomic_load_n(&state->destination_mask, __ATOMIC_ACQUIRE) !=
+            ((1u << 1u) | (1u << 2u)))
         return 4;
 
     uint32_t global_total = 0u;
