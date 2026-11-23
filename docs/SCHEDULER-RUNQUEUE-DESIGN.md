@@ -2,11 +2,11 @@
 
 ## Latest CI verification
 
-On 2026-11-23, all three required workflows passed on exact branch commit `5ebe0666f2e5f7841acacb9653e3d8da840df7f1`:
+On 2026-11-23, all three required workflows passed on exact branch commit `d491fd14eac89cd0e96c59b405d549e7b504c94b`:
 
-- Build LionOS — run [45148113739](https://github.com/AngmarX-dev/LionOS/actions/runs/45148113739). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI entry checks, boot-UI checks, and USB disk-image validation completed successfully.
-- LionOS Phase 26 CI — run [45148116539](https://github.com/AngmarX-dev/LionOS/actions/runs/45148116539). Build and QEMU smoke tests completed successfully.
-- xHCI USB mouse test — run [45148113710](https://github.com/AngmarX-dev/LionOS/actions/runs/45148113710). QEMU USB mouse and USB keyboard-discovery regression steps completed successfully.
+- Build LionOS — run [45151803964](https://github.com/AngmarX-dev/LionOS/actions/runs/45151803964). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI and boot-UI checks, USB disk-image validation, and artifact upload completed successfully.
+- LionOS Phase 26 CI — run [45151803700](https://github.com/AngmarX-dev/LionOS/actions/runs/45151803700). Build and QEMU smoke tests completed successfully.
+- xHCI USB mouse test — run [45151803711](https://github.com/AngmarX-dev/LionOS/actions/runs/45151803711). QEMU USB mouse boot and USB keyboard-discovery regression completed successfully.
 
 This was a documentation-only revision; it did not change scheduler behavior. These are CI/QEMU results for this exact revision, not physical-hardware verification. The scheduler still serializes process state and scheduling decisions through the global `process_lock`; sustained-load convergence, broader thread migration, and physical validation remain open.
 
