@@ -271,7 +271,18 @@ static int process_transition_state_locked(struct process *p,uint32_t state){
     if(old_state==state)return 0;
     if(old_state==PROCESS_READY){
         uint32_t owner=runqueue_nodes[index].queue_cpu;
-        if(owner>=LIONOS_MAX_CPUS){__atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);return -1;}
+        /*
+         * A READY process must agree with its queue node before unlinking.
+         * Do not silently repair stale ownership or priority metadata while
+         * transitioning out of READY; that would hide a scheduler invariant
+         * violation and make later queue diagnostics harder to trust.
+         */
+        if(owner>=LIONOS_MAX_CPUS||owner!=p->cpu_owner||
+           runqueue_nodes[index].queued!=1u||
+           runqueue_nodes[index].priority!=p->priority){
+            __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+            return -1;
+        }
         spinlock_acquire(&runqueues[owner].lock);
         int result=runqueue_dequeue_locked(&runqueues[owner],runqueue_nodes,
                                            LIONOS_PROCESS_MAX,index);
