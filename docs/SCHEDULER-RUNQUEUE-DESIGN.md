@@ -39,12 +39,14 @@ yield, must perform at least one successful busy-destination transfer. Acceptanc
 per-CPU busy-balance counter, the migrated process's owner and one-migration
 limit, the pinned process's unchanged BSP ownership, successful process exit
 and reaping, and the scheduler execution guard. The workload is finite and
-does not modify shared files or console state. The current follow-up acceptance
-repeats four fresh-candidate waves and lengthens the bounded AP worker so busy
-destinations must remain active through every non-final wave; the test script
-requires all four ordered success markers. This increases repeated production
-path coverage but does not establish asymptotic load convergence or concurrent
-execution inside `process_lock`.
+does not modify shared files or console state. The four-wave acceptance
+repeats fresh-candidate workloads and lengthens the bounded AP worker so busy
+destinations remain active through every non-final wave; the test script
+requires all four ordered success markers. Build LionOS, Phase 26 CI, and xHCI
+USB mouse workflows passed on exact commit
+`f8beac283087e04d19fb50005467be2cd80a9b09` across the configured 2/4/8/16-vCPU
+matrix. This increases repeated production-path coverage but does not establish
+asymptotic load convergence or concurrent execution inside `process_lock`.
 
 The QEMU stability script requires the acceptance marker for every SMP
 configuration it runs. This proves a production busy-destination transfer in
