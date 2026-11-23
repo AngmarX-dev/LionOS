@@ -55,6 +55,29 @@ static int lane_valid(const struct runqueue *queue,
            nodes[tail].next == LIONOS_RUNQUEUE_INVALID_INDEX;
 }
 
+/*
+ * Validate every lane's boundary metadata and aggregate accounting before a
+ * local enqueue/dequeue mutates the queue. This is bounded by the fixed
+ * priority-level count and prevents a valid target lane from hiding damage
+ * in another lane or an inconsistent queue->total.
+ */
+static int queue_lanes_valid(const struct runqueue *queue,
+                             const struct runqueue_node *nodes,
+                             uint32_t capacity) {
+    uint32_t total = 0u;
+    if (!queue || !nodes || !capacity || queue->total > capacity)
+        return 0;
+    for (uint32_t priority = 0u;
+         priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+        uint32_t count = queue->count[priority];
+        if (!lane_valid(queue, nodes, capacity, priority) ||
+            count > capacity - total)
+            return 0;
+        total += count;
+    }
+    return total == queue->total;
+}
+
 int runqueue_enqueue_locked(struct runqueue *queue,
                             struct runqueue_node *nodes,
                             uint32_t capacity, uint32_t index,
@@ -64,7 +87,7 @@ int runqueue_enqueue_locked(struct runqueue *queue,
     if (!queue || !nodes || !capacity || index >= capacity ||
         priority >= LIONOS_RUNQUEUE_PRIORITY_LEVELS ||
         queue->total >= capacity || queue->count[priority] >= capacity ||
-        !lane_valid(queue, nodes, capacity, priority))
+        !queue_lanes_valid(queue, nodes, capacity))
         return -1;
     node = &nodes[index];
     if (node->queued != 0u ||
@@ -101,14 +124,14 @@ int runqueue_dequeue_locked(struct runqueue *queue,
     struct runqueue_node *node;
     uint32_t priority, previous, next;
     if (!queue || !nodes || !capacity || index >= capacity ||
-        queue->total == 0u || queue->total > capacity)
+        queue->total == 0u || queue->total > capacity ||
+        !queue_lanes_valid(queue, nodes, capacity))
         return -1;
     node = &nodes[index];
     priority = node->priority;
     if (node->queued != 1u || node->queue_cpu != queue->cpu ||
         priority >= LIONOS_RUNQUEUE_PRIORITY_LEVELS ||
-        queue->count[priority] == 0u ||
-        !lane_valid(queue, nodes, capacity, priority))
+        queue->count[priority] == 0u)
         return -1;
     previous = node->previous;
     next = node->next;

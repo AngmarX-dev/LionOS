@@ -849,5 +849,61 @@ int main(void) {
         runqueue_validate_locked(&duplicate_cpu_destination, duplicate_cpu_nodes,
             2u, &total) != 0 || total != 1u)
         return 87;
+    /*
+     * Local mutations reject corruption in an unrelated lane and mismatched
+     * aggregate accounting before changing any queue or node metadata.
+     */
+    struct runqueue lane_guard;
+    struct runqueue_node lane_guard_nodes[4];
+    runqueue_init(&lane_guard, 5u);
+    lane_guard.lock.value = 1u;
+    for (uint32_t i = 0u; i < 4u; ++i)
+        runqueue_node_init(&lane_guard_nodes[i]);
+    if (runqueue_enqueue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                0u, 0u) != 0 ||
+        runqueue_enqueue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                1u, 1u) != 0)
+        return 88;
+    lane_guard.head[2] = 4u;
+    if (runqueue_enqueue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                2u, 0u) == 0 ||
+        runqueue_dequeue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                0u) == 0)
+        return 89;
+    if (lane_guard.total != 2u ||
+        lane_guard.count[0] != 1u || lane_guard.head[0] != 0u ||
+        lane_guard.tail[0] != 0u || lane_guard.count[1] != 1u ||
+        lane_guard.head[1] != 1u || lane_guard.tail[1] != 1u ||
+        lane_guard_nodes[0].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        lane_guard_nodes[0].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        lane_guard_nodes[1].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        lane_guard_nodes[1].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        lane_guard_nodes[2].queued != 0u ||
+        lane_guard_nodes[2].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
+        return 90;
+    lane_guard.head[2] = LIONOS_RUNQUEUE_INVALID_INDEX;
+    lane_guard.total = 3u;
+    if (runqueue_enqueue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                2u, 0u) == 0 ||
+        runqueue_dequeue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                0u) == 0 ||
+        lane_guard.count[0] != 1u || lane_guard.count[1] != 1u ||
+        lane_guard_nodes[2].queued != 0u ||
+        lane_guard_nodes[2].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
+        return 91;
+    lane_guard.total = 2u;
+    if (runqueue_validate_locked(&lane_guard, lane_guard_nodes, 4u,
+                                 &total) != 0 || total != 2u ||
+        runqueue_enqueue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                2u, 0u) != 0 ||
+        runqueue_dequeue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                0u) != 0 ||
+        runqueue_dequeue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                1u) != 0 ||
+        runqueue_dequeue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                2u) != 0 ||
+        runqueue_validate_locked(&lane_guard, lane_guard_nodes, 4u,
+                                 &total) != 0 || total != 0u)
+        return 92;
     return 0;
 }
