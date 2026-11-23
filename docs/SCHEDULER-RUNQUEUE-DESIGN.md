@@ -33,9 +33,14 @@ contention across independent per-CPU queues, and 20,000 barrier-synchronized
 priority requeue rounds per worker after cross-CPU node transfers. A bounded
 three-queue model also alternates two busy destinations against a shared source,
 checks one-transfer-per-invocation behavior, and verifies convergence to equal
-queued backlogs without moving either destination's selected running task. This
-is a deterministic queue-policy model, not a sustained-load or production
-scheduler convergence claim. The run-queue concurrency regression
+queued backlogs without moving either destination's selected running task. Its
+victim selection now calls the same `scheduler_select_victim()` policy helper
+used by `process_schedule()`, and advances the per-destination cyclic cursor
+only after a successful transfer. The sustained-arrival and sustained-service
+models use that same selector and busy-backlog threshold while checking queue
+invariants, bounded outstanding work, and exact-once completion. These are
+deterministic host queue-policy models, not production scheduling timing,
+process-eligibility, or end-to-end SMP convergence tests. The run-queue concurrency regression
 also starts two busy destinations against one shared source queue, uses ordered
 non-blocking lock acquisition, verifies that a held source lock causes a deferred
 attempt, and checks that both destinations receive exactly one READY node with

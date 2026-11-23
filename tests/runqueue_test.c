@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "runqueue.h"
+#include "scheduler_policy.h"
 
 #define NODE_COUNT 8u
 
@@ -22,6 +23,7 @@ static int busy_balance_convergence_test(void) {
         LIONOS_RUNQUEUE_INVALID_INDEX,
         LIONOS_RUNQUEUE_INVALID_INDEX
     };
+    uint32_t balance_cursor[CPU_COUNT] = {0u, 0u, 0u};
 
     for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
         runqueue_init(&queues[cpu], cpu);
@@ -47,19 +49,17 @@ static int busy_balance_convergence_test(void) {
     uint32_t transfers = 0u;
     for (uint32_t invocation = 0u; invocation < 16u; ++invocation) {
         uint32_t destination = 1u + (invocation & 1u);
-        uint32_t victim = LIONOS_RUNQUEUE_INVALID_INDEX;
-        uint32_t largest = 0u;
-        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
-            if (cpu != destination && queues[cpu].total > largest) {
-                largest = queues[cpu].total;
-                victim = cpu;
-            }
-        }
+        uint32_t queue_totals[CPU_COUNT];
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu)
+            queue_totals[cpu] = queues[cpu].total;
+        uint32_t victim = scheduler_select_victim(
+            queue_totals, CPU_COUNT, destination,
+            balance_cursor[destination], 0u);
 
         uint32_t moved_this_invocation = 0u;
         if (victim != LIONOS_RUNQUEUE_INVALID_INDEX &&
             runqueue_should_balance(queues[destination].total,
-                                    queues[victim].total, 0)) {
+                                    queue_totals[victim], 0)) {
             uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
             for (uint32_t priority = 0u;
                  priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
@@ -75,6 +75,7 @@ static int busy_balance_convergence_test(void) {
                 return 4;
             moved_this_invocation = 1u;
             ++transfers;
+            balance_cursor[destination] = (victim + 1u) % CPU_COUNT;
         }
         if (moved_this_invocation > 1u)
             return 5;
@@ -107,13 +108,15 @@ static int busy_balance_convergence_test(void) {
      */
     for (uint32_t invocation = 0u; invocation < 1024u; ++invocation) {
         uint32_t destination = 1u + (invocation & 1u);
-        uint32_t victim_total = 0u;
-        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
-            if (cpu != destination && queues[cpu].total > victim_total)
-                victim_total = queues[cpu].total;
-        }
-        if (runqueue_should_balance(queues[destination].total,
-                                    victim_total, 0))
+        uint32_t queue_totals[CPU_COUNT];
+        for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu)
+            queue_totals[cpu] = queues[cpu].total;
+        uint32_t victim = scheduler_select_victim(
+            queue_totals, CPU_COUNT, destination,
+            balance_cursor[destination], 0u);
+        if (victim != LIONOS_RUNQUEUE_INVALID_INDEX &&
+            runqueue_should_balance(queues[destination].total,
+                                    queue_totals[victim], 0))
             return 10;
         for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
             uint32_t total = 0u;
@@ -349,6 +352,7 @@ static int busy_balance_sustained_service_test(void) {
     uint8_t completed_seen[TOTAL_NODES];
     uint32_t transfers[CPU_COUNT] = {0u, 0u, 0u};
     uint32_t completed = 0u;
+    uint32_t balance_cursor[CPU_COUNT] = {0u, 0u, 0u};
     uint32_t maximum_outstanding = 0u;
 
     for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
@@ -396,17 +400,15 @@ static int busy_balance_sustained_service_test(void) {
         /* Each busy destination gets one independent balancing opportunity. */
         for (uint32_t destination = 1u;
              destination < CPU_COUNT; ++destination) {
-            uint32_t victim = LIONOS_RUNQUEUE_INVALID_INDEX;
-            uint32_t largest = 0u;
-            for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu) {
-                if (cpu != destination && queues[cpu].total > largest) {
-                    largest = queues[cpu].total;
-                    victim = cpu;
-                }
-            }
+            uint32_t queue_totals[CPU_COUNT];
+            for (uint32_t cpu = 0u; cpu < CPU_COUNT; ++cpu)
+                queue_totals[cpu] = queues[cpu].total;
+            uint32_t victim = scheduler_select_victim(
+                queue_totals, CPU_COUNT, destination,
+                balance_cursor[destination], 0u);
             if (victim == LIONOS_RUNQUEUE_INVALID_INDEX ||
                 !runqueue_should_balance(queues[destination].total,
-                                         queues[victim].total, 0))
+                                         queue_totals[victim], 0))
                 continue;
 
             uint32_t candidate = LIONOS_RUNQUEUE_INVALID_INDEX;
@@ -420,6 +422,7 @@ static int busy_balance_sustained_service_test(void) {
                                      nodes, TOTAL_NODES, candidate) != 0)
                 return 5;
             ++transfers[destination];
+            balance_cursor[destination] = (victim + 1u) % CPU_COUNT;
         }
 
         outstanding = 0u;
