@@ -3570,12 +3570,6 @@ uint32_t *process_schedule(uint32_t *frame){
     process_scheduler_ap_probe_report();
     if(__atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)
         return frame;
-    if(__atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE)!=0u){
-        uint32_t expected=0u;
-        if(__atomic_compare_exchange_n(&runqueue_fault_reported,&expected,1u,0,
-                __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
-            debug_write("LIONOS:RUNQUEUE-FAULT\n");
-    }
     /* Do not let a timer interrupt spin behind another CPU. Per-CPU\n     * run-queue locks are in place, but process lifetime and state are still\n     * serialized by process_lock; dropping a contended tick is preferable\n     * to stalling the CPU in an IRQ-disabled spin loop. */
     uint32_t flags;
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
@@ -3648,6 +3642,18 @@ uint32_t *process_schedule(uint32_t *frame){
         }
         __asm__ volatile("pushl %0; popfl" : : "r"(flags) : "memory","cc");
         return frame;
+    }
+    /*
+     * Read the fault flag only while holding process_lock. Scheduler probes
+     * deliberately inject temporary queue failures under this lock; checking
+     * before acquiring it lets another CPU report that test fixture as a
+     * production run-queue failure.
+     */
+    if(__atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE)!=0u){
+        uint32_t expected=0u;
+        if(__atomic_compare_exchange_n(&runqueue_fault_reported,&expected,1u,0,
+                __ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
+            debug_write("LIONOS:RUNQUEUE-FAULT\n");
     }
     __atomic_store_n(&reschedule_blocked[cpu],0u,__ATOMIC_RELEASE);
     __atomic_store_n(&reschedule_ipi_pending[cpu],0u,__ATOMIC_RELEASE);
