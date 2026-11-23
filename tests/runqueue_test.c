@@ -682,6 +682,17 @@ int main(void) {
     queue.head[1] = NODE_COUNT;
     if ((result = check(runqueue_pick_next_locked(&queue, nodes, NODE_COUNT, &picked) < 0, 30u))) return result;
     /*
+     * Even a no-op priority request must reject a structurally invalid queue;
+     * it must not bypass the full invariant check just because the priority
+     * already matches the node.
+     */
+    if ((result = check(runqueue_requeue_priority_locked(&queue, nodes,
+                    NODE_COUNT, 0u, 1u) < 0, 83u))) return result;
+    if (queue.total != 1u || queue.count[1] != 1u ||
+        queue.head[1] != NODE_COUNT || queue.tail[1] != 0u ||
+        nodes[0].queued != 1u || nodes[0].priority != 1u)
+        return 84;
+    /*
      * A priority change must validate every lane before unlinking the node.
      * Corrupt metadata in its current lane must leave the node and counts
      * untouched, even when the requested priority is a different lane.
