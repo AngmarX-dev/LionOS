@@ -2,13 +2,13 @@
 
 ## Latest CI verification
 
-On 2026-11-23, all three required workflows passed on exact branch commit `f1ff9beeafbdae190a298bc8bdb1c2ed37bbff43`:
+On 2026-11-23, all three required workflows passed on exact branch commit `5ebe0666f2e5f7841acacb9653e3d8da840df7f1`:
 
-- Build LionOS — run [45145032769](https://github.com/AngmarX-dev/LionOS/actions/runs/45145032769). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI entry checks, boot-UI checks, and USB disk-image validation completed successfully.
-- LionOS Phase 26 CI — run [45145032571](https://github.com/AngmarX-dev/LionOS/actions/runs/45145032571). Build and QEMU smoke tests completed successfully.
-- xHCI USB mouse test — run [45145032655](https://github.com/AngmarX-dev/LionOS/actions/runs/45145032655). QEMU USB mouse and USB keyboard-discovery regression steps completed successfully.
+- Build LionOS — run [45148113739](https://github.com/AngmarX-dev/LionOS/actions/runs/45148113739). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI entry checks, boot-UI checks, and USB disk-image validation completed successfully.
+- LionOS Phase 26 CI — run [45148116539](https://github.com/AngmarX-dev/LionOS/actions/runs/45148116539). Build and QEMU smoke tests completed successfully.
+- xHCI USB mouse test — run [45148113710](https://github.com/AngmarX-dev/LionOS/actions/runs/45148113710). QEMU USB mouse and USB keyboard-discovery regression steps completed successfully.
 
-These are CI/QEMU results for this exact revision, not physical-hardware verification. The scheduler still serializes process state and scheduling decisions through the global `process_lock`; sustained-load convergence, broader thread migration, and physical validation remain open.
+This was a documentation-only revision; it did not change scheduler behavior. These are CI/QEMU results for this exact revision, not physical-hardware verification. The scheduler still serializes process state and scheduling decisions through the global `process_lock`; sustained-load convergence, broader thread migration, and physical validation remain open.
 
 ---
 
