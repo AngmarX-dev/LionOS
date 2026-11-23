@@ -130,19 +130,19 @@ run_qemu() {
         fi
         grep -q "LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-OK" "$log_file"
         busy_balance_rounds=$(grep -c '^LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=' "$log_file" || true)
-        if [ "$busy_balance_rounds" -ne 4 ]; then
-            echo "expected 4 production busy-balance rounds, observed $busy_balance_rounds: $log_file" >&2
+        if [ "$busy_balance_rounds" -ne 5 ]; then
+            echo "expected 5 production busy-balance rounds, observed $busy_balance_rounds: $log_file" >&2
             return 1
         fi
         busy_balance_round_sequence=$(sed -n \
             's/^LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=\([0-9A-Fa-f]*\).*/\1/p' \
             "$log_file")
-        expected_busy_balance_round_sequence=$(printf '00000000\n00000001\n00000002\n00000003')
+        expected_busy_balance_round_sequence=$(printf '00000000\n00000001\n00000002\n00000003\n00000004')
         if [ "$busy_balance_round_sequence" != "$expected_busy_balance_round_sequence" ]; then
             echo "production busy-balance rounds were missing, duplicated, or out of order: $log_file" >&2
             return 1
         fi
-        grep -q "LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=00000004" "$log_file"
+        grep -q "LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=00000005" "$log_file"
         migration_rounds=$(grep -c '^LIONOS:SMP-WORK-STEAL-ROUND-OK round=' "$log_file" || true)
         if [ "$migration_rounds" -ne 3 ]; then
             echo "expected 3 completed SMP migration stress rounds, observed $migration_rounds: $log_file" >&2

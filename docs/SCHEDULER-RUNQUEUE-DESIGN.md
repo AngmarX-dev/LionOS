@@ -2,13 +2,13 @@
 
 ## Latest CI verification
 
-On 2026-11-23, all three required workflows passed on exact branch commit `d491fd14eac89cd0e96c59b405d549e7b504c94b`:
+On 2026-11-23, all three required workflows passed on exact branch commit `cae8548fac47901b25099b81d1eb6051949869b3`:
 
-- Build LionOS — run [45151803964](https://github.com/AngmarX-dev/LionOS/actions/runs/45151803964). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI and boot-UI checks, USB disk-image validation, and artifact upload completed successfully.
-- LionOS Phase 26 CI — run [45151803700](https://github.com/AngmarX-dev/LionOS/actions/runs/45151803700). Build and QEMU smoke tests completed successfully.
-- xHCI USB mouse test — run [45151803711](https://github.com/AngmarX-dev/LionOS/actions/runs/45151803711). QEMU USB mouse boot and USB keyboard-discovery regression completed successfully.
+- Build LionOS — run [45155307115](https://github.com/AngmarX-dev/LionOS/actions/runs/45155307115). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI and boot-UI checks, USB disk-image validation, and artifact upload completed successfully.
+- LionOS Phase 26 CI — run [45155307128](https://github.com/AngmarX-dev/LionOS/actions/runs/45155307128). Build and QEMU smoke tests completed successfully.
+- xHCI USB mouse test — run [45155307118](https://github.com/AngmarX-dev/LionOS/actions/runs/45155307118). QEMU USB mouse boot and USB keyboard-discovery regression completed successfully.
 
-This was a documentation-only revision; it did not change scheduler behavior. These are CI/QEMU results for this exact revision, not physical-hardware verification. The scheduler still serializes process state and scheduling decisions through the global `process_lock`; sustained-load convergence, broader thread migration, and physical validation remain open.
+This was a documentation-only revision; it did not change scheduler behavior. These are CI/QEMU results for this exact parent revision, not physical-hardware verification. The five-wave busy-destination test extension in the current revision is pending CI. The scheduler still serializes process state and scheduling decisions through the global `process_lock`; sustained-load convergence, broader thread migration, and physical validation remain open.
 
 ---
 
@@ -51,14 +51,13 @@ yield, must perform at least one successful busy-destination transfer. Acceptanc
 per-CPU busy-balance counter, the migrated process's owner and one-migration
 limit, the pinned process's unchanged BSP ownership, successful process exit
 and reaping, and the scheduler execution guard. The workload is finite and
-does not modify shared files or console state. The four-wave acceptance
-repeats fresh-candidate workloads and lengthens the bounded AP worker so busy
-destinations remain active through every non-final wave; the test script
-requires all four ordered success markers. Build LionOS, Phase 26 CI, and xHCI
-USB mouse workflows passed on exact commit
-`f8beac283087e04d19fb50005467be2cd80a9b09` across the configured 2/4/8/16-vCPU
-matrix. This increases repeated production-path coverage but does not establish
-asymptotic load convergence or concurrent execution inside `process_lock`.
+does not modify shared files or console state. The five-wave acceptance
+repeats fresh-candidate workloads and raises the AP worker workload to
+200,000,000 iterations so busy destinations must remain active through every
+non-final wave; the test script requires all five ordered success markers.
+CI verification for this extension is pending. This increases repeated
+production-path coverage but does not establish asymptotic load convergence or
+concurrent execution inside `process_lock`.
 
 The QEMU stability script requires the acceptance marker for every SMP
 configuration it runs. This proves a production busy-destination transfer in
