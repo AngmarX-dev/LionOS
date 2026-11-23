@@ -660,10 +660,43 @@ static void process_scheduler_ap_probe_report(void){
                                          __ATOMIC_RELEASE);
                         continue;
                     }
+                    /*
+                     * An out-of-range request must fail without changing a
+                     * stopped process or publishing a queue node.
+                     */
+                    if(process_set_priority_locked(target,PROCESS_PRIORITY_LEVELS)==0||
+                       target->state!=PROCESS_STOPPED||
+                       target->priority!=stopped_priority||
+                       target->base_priority!=stopped_priority||
+                       target->time_slice!=scheduler_priority_quantum(stopped_priority)||
+                       target->ticks_used!=0u||
+                       runqueue_nodes[process_index(target)].queued!=0u||
+                       runqueue_nodes[process_index(target)].next!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX||
+                       runqueue_nodes[process_index(target)].previous!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX||
+                       runqueue_nodes[process_index(target)].queue_cpu!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX){
+                        __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                         __ATOMIC_RELEASE);
+                        continue;
+                    }
                     wake_mask|=continue_process_locked(target);
                     uint32_t next_priority=
                         (target->priority+1u)%PROCESS_PRIORITY_LEVELS;
                     if(target->state!=PROCESS_READY||
+                       runqueue_nodes[process_index(target)].queued!=1u||
+                       runqueue_nodes[process_index(target)].queue_cpu!=cpu||
+                       runqueue_nodes[process_index(target)].priority!=target->priority||
+                       process_set_priority_locked(target,PROCESS_PRIORITY_LEVELS)==0||
+                       target->state!=PROCESS_READY||
+                       target->priority!=stopped_priority||
+                       target->base_priority!=stopped_priority||
+                       target->time_slice!=scheduler_priority_quantum(stopped_priority)||
+                       target->ticks_used!=0u||
+                       runqueue_nodes[process_index(target)].queued!=1u||
+                       runqueue_nodes[process_index(target)].queue_cpu!=cpu||
+                       runqueue_nodes[process_index(target)].priority!=stopped_priority||
                        process_set_priority_locked(target,next_priority)!=0||
                        target->state!=PROCESS_READY||
                        target->priority!=next_priority||
