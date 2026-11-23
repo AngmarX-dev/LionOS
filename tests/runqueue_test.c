@@ -925,5 +925,61 @@ int main(void) {
         runqueue_validate_locked(&lane_guard, lane_guard_nodes, 4u,
                                  &total) != 0 || total != 0u)
         return 92;
+    /*
+     * Mutation guards must inspect interior links, not only lane endpoints.
+     * Corrupt an interior forward link while preserving valid head/tail
+     * metadata; enqueue and dequeue must both reject it without mutation.
+     */
+    struct runqueue interior_guard;
+    struct runqueue_node interior_nodes[4];
+    runqueue_init(&interior_guard, 6u);
+    interior_guard.lock.value = 1u;
+    for (uint32_t i = 0u; i < 4u; ++i)
+        runqueue_node_init(&interior_nodes[i]);
+    if (runqueue_enqueue_locked(&interior_guard, interior_nodes, 4u,
+                                0u, 2u) != 0 ||
+        runqueue_enqueue_locked(&interior_guard, interior_nodes, 4u,
+                                1u, 2u) != 0 ||
+        runqueue_enqueue_locked(&interior_guard, interior_nodes, 4u,
+                                2u, 2u) != 0)
+        return 94;
+    interior_nodes[1].next = 1u;
+    if (runqueue_enqueue_locked(&interior_guard, interior_nodes, 4u,
+                                3u, 2u) == 0 ||
+        runqueue_dequeue_locked(&interior_guard, interior_nodes, 4u,
+                                0u) == 0)
+        return 95;
+    if (interior_guard.total != 3u ||
+        interior_guard.count[2] != 3u ||
+        interior_guard.head[2] != 0u ||
+        interior_guard.tail[2] != 2u ||
+        interior_nodes[0].next != 1u ||
+        interior_nodes[1].next != 1u ||
+        interior_nodes[1].previous != 0u ||
+        interior_nodes[2].previous != 1u ||
+        interior_nodes[3].queued != 0u ||
+        interior_nodes[3].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
+        return 96;
+    if (runqueue_validate_locked(&interior_guard, interior_nodes, 4u,
+                                 &total) == 0)
+        return 97;
+    interior_nodes[1].next = 2u;
+    if (runqueue_validate_locked(&interior_guard, interior_nodes, 4u,
+                                 &total) != 0 || total != 3u ||
+        runqueue_enqueue_locked(&interior_guard, interior_nodes, 4u,
+                                3u, 2u) != 0)
+        return 98;
+    for (uint32_t expected = 0u; expected < 4u; ++expected) {
+        uint32_t picked_index = LIONOS_RUNQUEUE_INVALID_INDEX;
+        if (runqueue_pick_next_locked(&interior_guard, interior_nodes, 4u,
+                                      &picked_index) != 0 ||
+            picked_index != expected)
+            return 99;
+    }
+    if (runqueue_pick_next_locked(&interior_guard, interior_nodes, 4u,
+                                  &picked) != 1 ||
+        runqueue_validate_locked(&interior_guard, interior_nodes, 4u,
+                                 &total) != 0 || total != 0u)
+        return 100;
     return 0;
 }

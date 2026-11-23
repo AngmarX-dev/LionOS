@@ -68,18 +68,13 @@ static int lane_valid(const struct runqueue *queue,
 static int queue_lanes_valid(const struct runqueue *queue,
                              const struct runqueue_node *nodes,
                              uint32_t capacity) {
-    uint32_t total = 0u;
-    if (!queue || !nodes || !capacity || queue->total > capacity)
-        return 0;
-    for (uint32_t priority = 0u;
-         priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
-        uint32_t count = queue->count[priority];
-        if (!lane_valid(queue, nodes, capacity, priority) ||
-            count > capacity - total)
-            return 0;
-        total += count;
-    }
-    return total == queue->total;
+    /*
+     * Mutations must not trust only lane endpoints: a corrupt interior link
+     * can otherwise survive the boundary checks and be modified in place.
+     * The full validator is bounded by capacity and checks every link,
+     * per-lane count, and aggregate total before any mutation is committed.
+     */
+    return runqueue_validate_locked(queue, nodes, capacity, 0) == 0;
 }
 
 int runqueue_enqueue_locked(struct runqueue *queue,
