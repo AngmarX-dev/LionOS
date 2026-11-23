@@ -31,6 +31,9 @@ static struct runqueue_node nodes[NODE_COUNT];
 static struct worker_argument arguments[WORKER_COUNT];
 static struct transfer_argument transfer_arguments[WORKER_COUNT];
 static volatile uint32_t failed;
+static volatile uint32_t transfer_first_snapshot_ready;
+static volatile uint32_t transfer_first_snapshot_expected;
+static volatile uint32_t transfer_stale_owner_retries;
 
 void spinlock_init(struct spinlock *lock) {
     if (lock) __atomic_store_n(&lock->value, 0u, __ATOMIC_RELAXED);
@@ -132,59 +135,86 @@ static uint32_t transfer_random(uint32_t *state) {
 static void *run_transfer_worker(void *opaque) {
     const struct transfer_argument *argument =
         (const struct transfer_argument *)opaque;
-    uint32_t first = argument->worker * NODES_PER_WORKER;
     uint32_t random_state =
         0x9E3779B9u ^ ((argument->worker + 1u) * 0x85EBCA6Bu);
 
     while (__atomic_load_n(argument->start, __ATOMIC_ACQUIRE) == 0u)
         __asm__ volatile("pause");
 
-    for (uint32_t round = 0u; round < TRANSFER_ITERATIONS; ++round) {
-        for (uint32_t i = 0u; i < NODES_PER_WORKER; ++i) {
-            uint32_t index = first + i;
-            uint32_t retries = 0u;
+    /*
+     * Every transfer worker chooses from the complete node set. Unlike a
+     * disjoint per-worker partition, this makes two transfer workers able
+     * to race for the same node and exercises stale-owner retry in practice.
+     * Keep the total operation count equal to the previous nested workload.
+     */
+    for (uint32_t operation = 0u;
+         operation < TRANSFER_ITERATIONS * NODES_PER_WORKER;
+         ++operation) {
+        uint32_t index = operation == 0u
+            ? 0u : transfer_random(&random_state) % NODE_COUNT;
+        uint32_t retries = 0u;
 
-            for (;;) {
-                uint32_t owner = node_owner_snapshot(index);
-                if (owner >= TEST_CPU_COUNT) {
-                    fail_test();
-                    return 0;
-                }
+        for (;;) {
+            uint32_t owner = node_owner_snapshot(index);
+            if (owner >= TEST_CPU_COUNT) {
+                fail_test();
+                return 0;
+            }
 
-                uint32_t destination_cpu =
+            /*
+             * Force all transfer workers to snapshot the same node before
+             * any of them can acquire its source/destination pair. The first
+             * move then makes every other initial snapshot stale.
+             */
+            if (operation == 0u && retries == 0u) {
+                __atomic_fetch_add(&transfer_first_snapshot_ready, 1u,
+                                   __ATOMIC_ACQ_REL);
+                while (__atomic_load_n(&transfer_first_snapshot_ready,
+                                       __ATOMIC_ACQUIRE) !=
+                       __atomic_load_n(&transfer_first_snapshot_expected,
+                                       __ATOMIC_ACQUIRE))
+                    __asm__ volatile("pause");
+            }
+
+            uint32_t destination_cpu;
+            if (operation == 0u && retries == 0u) {
+                destination_cpu = (owner + 1u) % TEST_CPU_COUNT;
+            } else {
+                destination_cpu =
                     transfer_random(&random_state) % TEST_CPU_COUNT;
                 if (destination_cpu == owner)
-                    destination_cpu = (destination_cpu + 1u) %
-                                      TEST_CPU_COUNT;
+                    destination_cpu = (destination_cpu + 1u) % TEST_CPU_COUNT;
+            }
 
-                lock_queue_pair(owner, destination_cpu);
-                /*
-                 * A competing transfer may have changed the owner after the
-                 * stable snapshot. Retry this same transfer operation rather
-                 * than silently dropping it from the stress workload.
-                 */
-                if (nodes[index].queue_cpu != owner) {
-                    unlock_queue_pair(owner, destination_cpu);
-                    if (++retries >= 65536u) {
-                        fail_test();
-                        return 0;
-                    }
-                    continue;
-                }
-
-                if (runqueue_move_locked(&queues[owner],
-                        &queues[destination_cpu], nodes, NODE_COUNT, index) != 0 ||
-                    runqueue_validate_locked(&queues[owner], nodes,
-                        NODE_COUNT, 0) != 0 ||
-                    runqueue_validate_locked(&queues[destination_cpu], nodes,
-                        NODE_COUNT, 0) != 0) {
+            lock_queue_pair(owner, destination_cpu);
+            /*
+             * A competing transfer may have changed the owner after the
+             * stable snapshot. Retry this same transfer operation rather
+             * than silently dropping it from the stress workload.
+             */
+            if (nodes[index].queue_cpu != owner) {
+                unlock_queue_pair(owner, destination_cpu);
+                __atomic_fetch_add(&transfer_stale_owner_retries, 1u,
+                                   __ATOMIC_RELAXED);
+                if (++retries >= 65536u) {
                     fail_test();
-                    unlock_queue_pair(owner, destination_cpu);
                     return 0;
                 }
-                unlock_queue_pair(owner, destination_cpu);
-                break;
+                continue;
             }
+
+            if (runqueue_move_locked(&queues[owner],
+                    &queues[destination_cpu], nodes, NODE_COUNT, index) != 0 ||
+                runqueue_validate_locked(&queues[owner], nodes,
+                    NODE_COUNT, 0) != 0 ||
+                runqueue_validate_locked(&queues[destination_cpu], nodes,
+                    NODE_COUNT, 0) != 0) {
+                fail_test();
+                unlock_queue_pair(owner, destination_cpu);
+                return 0;
+            }
+            unlock_queue_pair(owner, destination_cpu);
+            break;
         }
     }
     return 0;
@@ -969,6 +999,8 @@ int main(void) {
         ++priority_created;
     }
 
+    __atomic_store_n(&transfer_first_snapshot_expected, transfer_created,
+                     __ATOMIC_RELEASE);
     __atomic_store_n(&concurrent_start, 1u, __ATOMIC_RELEASE);
     for (uint32_t i = 0u; i < transfer_created; ++i)
         if (pthread_join(transfer_threads[i], 0) != 0)
@@ -978,7 +1010,9 @@ int main(void) {
             fail_test();
     if (transfer_created != WORKER_COUNT ||
         priority_created != WORKER_COUNT ||
-        __atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u)
+        __atomic_load_n(&failed, __ATOMIC_ACQUIRE) != 0u ||
+        __atomic_load_n(&transfer_stale_owner_retries, __ATOMIC_ACQUIRE) <
+            WORKER_COUNT - 1u)
         return 6;
 
     /* Lock every queue to verify global membership and total accounting. */
