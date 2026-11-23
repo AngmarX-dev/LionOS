@@ -71,7 +71,7 @@ The current scheduler has these relevant properties:
 
 - The process table is a fixed array protected by the global `process_lock`.
 - `process_schedule()` disables local interrupts and uses `spinlock_try_acquire()` on `process_lock`. If another CPU owns the lock, the timer scheduling attempt is dropped rather than spinning in interrupt context.
-- Each CPU has a small scheduler state record (scan cursor, schedule count, steal count, busy-balance count, timer ticks, and pending scheduler ticks). Every timer interrupt that invokes `process_schedule()` saturating-increments the pending scheduler-tick count before attempting `process_lock`; if the scheduling attempt is contended, the elapsed ticks remain pending and are charged to the current process on the next successful scheduler entry. The BSP frame timer is excluded because it does not invoke process scheduling. The timeout scan may still be deferred, but elapsed time is not silently lost from either the AP-local timeout clock or a scheduled task's priority quantum.
+- Each CPU has a small scheduler state record (scan cursor, busy-balance victim cursor, schedule count, steal count, busy-balance count, timer ticks, and pending scheduler ticks). Every timer interrupt that invokes `process_schedule()` saturating-increments the pending scheduler-tick count before attempting `process_lock`; if the scheduling attempt is contended, the elapsed ticks remain pending and are charged to the current process on the next successful scheduler entry. The BSP frame timer is excluded because it does not invoke process scheduling. The timeout scan may still be deferred, but elapsed time is not silently lost from either the AP-local timeout clock or a scheduled task's priority quantum.
 - Runnable selection dequeues from the current CPU's highest-priority non-empty FIFO run-queue lane; process-table scans are retained only for lifecycle and relationship operations.
 - New processes and threads are initially assigned to the creating CPU. An idle CPU may steal an explicitly opted-in READY user process once; a busy CPU may receive one eligible READY process when a victim has at least two more queued tasks than its remaining local backlog. Ordinary processes remain pinned by default, as do kernel threads, user threads, and process leaders with unreaped sibling threads.
 - APs complete CPU-local initialization and receive a dedicated kernel idle context during `process_init()`. Their Local APIC timer enters `process_schedule()`, which switches an AP with no current task into that idle context. APs can receive explicitly opted-in READY user processes through idle stealing or bounded busy-queue balancing; ordinary processes and other task types remain pinned by default.
@@ -111,6 +111,10 @@ until their lifetime and synchronization guarantees are independently proven.
 The implemented policy is:
 
 - Select a victim with the largest observed runnable backlog among online CPUs.
+  Equal-backlog candidates are considered in cyclic CPU order from the
+  destination's per-CPU `balance_cursor`; after a successful transfer, the
+  cursor advances to the CPU after the selected victim. This avoids a fixed
+  low-index preference when multiple source queues remain equally loaded.
   The process layer holds `process_lock` while reading queue totals, and
   revalidates the chosen source/destination state after acquiring both queue
   locks.
@@ -151,7 +155,7 @@ one-migration ownership, a pinned control process, process exit/reaping, and
 the scheduler execution guard. The host pthread regression separately covers
 two busy destinations racing for one source, ordered non-blocking lock
 acquisition, deferred lock-contention attempts, and exact-one membership.
-Remaining acceptance work is sustained-load convergence and fairness without
+The tie-breaking cursor and its policy helper are covered by deterministic tests for cyclic wraparound, equal and unequal backlogs, visited masks (including bit 31), empty queues, and invalid CPU bounds. The helper tests do not establish end-to-end production fairness or sustained-load convergence. Remaining acceptance work is sustained-load convergence and fairness without
 oscillation, longer-duration scheduler contention, broader thread migration,
 and physical hardware verification. The existing single-CPU, AP lifecycle,
 process/waitpid, three-round migration, GUI, VFS, and xHCI regressions remain

@@ -105,6 +105,37 @@ int main(void) {
         UINT32_MAX)
         return 47;
 
+    /* Exercise cyclic tie-breaking and mask boundaries at maximum CPU counts. */
+    uint32_t totals16[16];
+    for (uint32_t cpu = 0u; cpu < 16u; ++cpu)
+        totals16[cpu] = cpu == 0u ? 0u : 9u;
+    if (scheduler_select_victim(totals16, 16u, 0u, 15u, 0u) != 15u)
+        return 48;
+    if (scheduler_select_victim(totals16, 16u, 0u, 0u, 0u) != 1u)
+        return 49;
+
+    uint32_t totals32[32];
+    for (uint32_t cpu = 0u; cpu < 32u; ++cpu)
+        totals32[cpu] = cpu == 0u ? 0u : 4u;
+    if (scheduler_select_victim(totals32, 32u, 0u, 31u, 0u) != 31u)
+        return 50;
+    if (scheduler_select_victim(totals32, 32u, 0u, 31u,
+                                1u << 31u) != 1u)
+        return 51;
+    if (scheduler_select_victim(totals32, 32u, 0u, 31u,
+                                UINT32_MAX) != UINT32_MAX)
+        return 52;
+    for (uint32_t cpu = 0u; cpu < 32u; ++cpu)
+        totals32[cpu] = 0u;
+    if (scheduler_select_victim(totals32, 32u, 0u, 31u, 0u) !=
+        UINT32_MAX)
+        return 53;
+    if (scheduler_select_victim(totals32, 32u, 32u, 0u, 0u) !=
+        UINT32_MAX ||
+        scheduler_select_victim(totals32, 32u, 0u, 32u, 0u) !=
+        UINT32_MAX)
+        return 54;
+
     uint32_t priority = 0u, quantum = 99u;
     if (scheduler_priority_demote(&priority, &quantum) != 0 ||
         priority != 1u || quantum != 4u)
