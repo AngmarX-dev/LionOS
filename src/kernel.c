@@ -1071,15 +1071,29 @@ void lionos_user_integration_step(void){
                 reserved_batch,reserved_count);
             int missing_result=process_set_migration_eligible_batch(
                 missing_batch,integration_migration_eligible_count);
+            /*
+             * Reject malformed API arguments before touching the process
+             * table: null storage, an empty batch, and a count beyond the
+             * process table's representable capacity.
+             */
+            int null_result=process_set_migration_eligible_batch(
+                (const uint32_t *)0,1u);
+            int empty_result=process_set_migration_eligible_batch(
+                eligible_pids,0u);
+            int oversized_result=process_set_migration_eligible_batch(
+                eligible_pids,LIONOS_PROCESS_MAX+1u);
             if(invalid_result!=-1||duplicate_result!=-1||
-               reserved_result!=-1||missing_result!=-1)
+               reserved_result!=-1||missing_result!=-1||
+               null_result!=-1||empty_result!=-1||oversized_result!=-1)
                 integration_migration_failed=1u;
 
             if(process_set_migration_eligible_batch(
                    eligible_pids,integration_migration_eligible_count)!=0)
                 integration_migration_failed=1u;
             else if(invalid_result==-1&&duplicate_result==-1&&
-                    reserved_result==-1&&missing_result==-1)
+                    reserved_result==-1&&missing_result==-1&&
+                    null_result==-1&&empty_result==-1&&
+                    oversized_result==-1)
                 debug_write("LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK\n");
         }
 
