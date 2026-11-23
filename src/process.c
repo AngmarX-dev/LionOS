@@ -343,7 +343,15 @@ static int process_set_priority_locked(struct process *p,uint32_t priority){
         return -1;
     if(p->state==PROCESS_READY){
         uint32_t owner=runqueue_nodes[index].queue_cpu;
-        if(owner>=LIONOS_MAX_CPUS||owner!=p->cpu_owner){
+        /*
+         * Priority updates must not repair stale READY metadata. The process
+         * record and intrusive node are one scheduler membership invariant;
+         * reject divergence before requeueing so diagnostics retain the
+         * original corruption and the queue remains unchanged.
+         */
+        if(owner>=LIONOS_MAX_CPUS||owner!=p->cpu_owner||
+           runqueue_nodes[index].queued!=1u||
+           runqueue_nodes[index].priority!=p->priority){
             __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
             return -1;
         }
