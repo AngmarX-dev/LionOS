@@ -981,5 +981,67 @@ int main(void) {
         runqueue_validate_locked(&interior_guard, interior_nodes, 4u,
                                  &total) != 0 || total != 0u)
         return 100;
+    /*
+     * Cross-queue transfer must validate every source link before mutation.
+     * Keep source endpoints intact while corrupting an interior back-link;
+     * a rejected transfer must leave both queues and every node unchanged.
+     */
+    struct runqueue move_guard_source, move_guard_destination;
+    struct runqueue_node move_guard_nodes[4];
+    runqueue_init(&move_guard_source, 7u);
+    runqueue_init(&move_guard_destination, 8u);
+    move_guard_source.lock.value = 1u;
+    move_guard_destination.lock.value = 1u;
+    for (uint32_t i = 0u; i < 4u; ++i)
+        runqueue_node_init(&move_guard_nodes[i]);
+    if (runqueue_enqueue_locked(&move_guard_source, move_guard_nodes, 4u,
+                                0u, 1u) != 0 ||
+        runqueue_enqueue_locked(&move_guard_source, move_guard_nodes, 4u,
+                                1u, 1u) != 0 ||
+        runqueue_enqueue_locked(&move_guard_source, move_guard_nodes, 4u,
+                                2u, 1u) != 0 ||
+        runqueue_enqueue_locked(&move_guard_destination, move_guard_nodes, 4u,
+                                3u, 1u) != 0)
+        return 101;
+    move_guard_nodes[1].previous = 2u;
+    if (runqueue_move_locked(&move_guard_source, &move_guard_destination,
+                             move_guard_nodes, 4u, 0u) == 0)
+        return 102;
+    if (move_guard_source.total != 3u ||
+        move_guard_source.count[1] != 3u ||
+        move_guard_source.head[1] != 0u ||
+        move_guard_source.tail[1] != 2u ||
+        move_guard_destination.total != 1u ||
+        move_guard_destination.count[1] != 1u ||
+        move_guard_destination.head[1] != 3u ||
+        move_guard_destination.tail[1] != 3u ||
+        move_guard_nodes[0].next != 1u ||
+        move_guard_nodes[1].previous != 2u ||
+        move_guard_nodes[1].next != 2u ||
+        move_guard_nodes[2].previous != 1u ||
+        move_guard_nodes[3].queued != 1u ||
+        move_guard_nodes[3].queue_cpu != move_guard_destination.cpu)
+        return 103;
+    move_guard_nodes[1].previous = 0u;
+    if (runqueue_validate_locked(&move_guard_source, move_guard_nodes, 4u,
+                                 &total) != 0 || total != 3u ||
+        runqueue_move_locked(&move_guard_source, &move_guard_destination,
+                             move_guard_nodes, 4u, 1u) != 0)
+        return 104;
+    if (runqueue_validate_locked(&move_guard_source, move_guard_nodes, 4u,
+                                 &total) != 0 || total != 2u ||
+        runqueue_validate_locked(&move_guard_destination, move_guard_nodes,
+                                 4u, &total) != 0 || total != 2u ||
+        move_guard_source.head[1] != 0u ||
+        move_guard_source.tail[1] != 2u ||
+        move_guard_nodes[0].next != 2u ||
+        move_guard_nodes[2].previous != 0u ||
+        move_guard_destination.head[1] != 3u ||
+        move_guard_destination.tail[1] != 1u ||
+        move_guard_nodes[3].next != 1u ||
+        move_guard_nodes[1].previous != 3u ||
+        move_guard_nodes[1].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        move_guard_nodes[1].queue_cpu != move_guard_destination.cpu)
+        return 105;
     return 0;
 }
