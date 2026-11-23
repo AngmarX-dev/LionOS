@@ -1856,6 +1856,7 @@ int process_set_migration_eligible(uint32_t pid){
  */
 int process_set_migration_eligible_batch(const uint32_t *pids,uint32_t count){
     if(!pids||count==0u||count>LIONOS_PROCESS_MAX)return -1;
+    struct process *validated[LIONOS_PROCESS_MAX];
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
     for(uint32_t i=0u;i<count;++i){
         if(!pids[i]){
@@ -1876,13 +1877,12 @@ int process_set_migration_eligible_batch(const uint32_t *pids,uint32_t count){
             spinlock_irqrestore_release(&process_lock,flags);
             return -1;
         }
+        validated[i]=p;
     }
-    for(uint32_t i=0u;i<count;++i){
-        struct process *p=find_pid(pids[i]);
-        /* The validation pass above guarantees every slot remains valid
-           while process_lock is held. */
-        p->migration_eligible=1u;
-    }
+    /* Keep the validated references: process_lock prevents slot reuse or
+       state changes between validation and this all-or-nothing publication. */
+    for(uint32_t i=0u;i<count;++i)
+        validated[i]->migration_eligible=1u;
     spinlock_irqrestore_release(&process_lock,flags);
     return 0;
 }
