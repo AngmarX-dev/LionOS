@@ -346,6 +346,8 @@ static volatile uint32_t integration_ap_user_status;
  * three eligible candidates; one transfer is insufficient convergence. */
 #define INTEGRATION_BUSY_BALANCE_MIN_MOVED 2u
 #define INTEGRATION_BUSY_BALANCE_ROUNDS 5u
+/* Five fresh waves need AP workers to outlive the longest QEMU SMP run. */
+#define INTEGRATION_BUSY_BALANCE_TIMEOUT_TICKS 120000u
 static uint32_t integration_busy_balance_round;
 static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_COUNT];
 static volatile uint32_t integration_busy_worker_pids[LIONOS_MAX_CPUS];
@@ -1450,7 +1452,7 @@ void lionos_user_integration_step(void){
         if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
         uint32_t stage28_elapsed=
             process_scheduler_ticks(0u)-integration_busy_balance_start_tick;
-        if(stage28_elapsed>10000u){
+        if(stage28_elapsed>INTEGRATION_BUSY_BALANCE_TIMEOUT_TICKS){
             integration_busy_balance_failed=1u;
             debug_write("LIONOS:SMP-BUSY-TIMEOUT elapsed=");
             debug_write_u32_hex(stage28_elapsed);

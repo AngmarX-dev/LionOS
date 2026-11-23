@@ -2,14 +2,17 @@
 #include "user_api.h"
 
 /*
- * Bounded CPU workload for SMP busy-destination balancing. Periodic voluntary
- * yields force scheduler decisions while the AP always has runnable work.
+ * Keep each AP busy for the complete five-wave production balancing probe.
+ * The workload is bounded so the integration test can reap it normally.
  */
+#define BUSY_BALANCE_ITERATIONS 1500000000u
+#define BUSY_BALANCE_YIELD_MASK 0x3FFFFu
+
 int main(void) {
     volatile uint32_t value = 0x4C494F4Eu;
-    for (uint32_t i = 0u; i < 200000000u; ++i) {
+    for (uint32_t i = 0u; i < BUSY_BALANCE_ITERATIONS; ++i) {
         value = (value * 1664525u) + 1013904223u + i;
-        if ((i & 0x3FFFFu) == 0u)
+        if ((i & BUSY_BALANCE_YIELD_MASK) == 0u)
             (void)lion_yield();
     }
     (void)value;
