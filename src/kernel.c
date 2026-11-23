@@ -1087,8 +1087,13 @@ void lionos_user_integration_step(void){
                null_result!=-1||empty_result!=-1||oversized_result!=-1)
                 integration_migration_failed=1u;
 
-            if(process_set_migration_eligible_batch(
-                   eligible_pids,integration_migration_eligible_count)!=0)
+            int publish_result=process_set_migration_eligible_batch(
+                eligible_pids,integration_migration_eligible_count);
+            int republish_result=publish_result==0
+                ?process_set_migration_eligible_batch(
+                    eligible_pids,integration_migration_eligible_count)
+                :0;
+            if(publish_result!=0||republish_result!=-1)
                 integration_migration_failed=1u;
             else if(invalid_result==-1&&duplicate_result==-1&&
                     reserved_result==-1&&missing_result==-1&&
