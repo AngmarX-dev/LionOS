@@ -1130,8 +1130,11 @@ int main(void) {
 
     if (simultaneous_busy_destination_test() != 0)
         return 5;
-    if (sustained_concurrent_arrival_test() != 0)
-        return 8;
+    /* Repeat the complete lifecycle to catch stale state across test runs. */
+    for (uint32_t repetition = 0u; repetition < 3u; ++repetition) {
+        if (sustained_concurrent_arrival_test() != 0)
+            return 8;
+    }
     if (shared_node_transfer_race_test() != 0)
         return 7;
     return __atomic_load_n(&failed, __ATOMIC_ACQUIRE) == 0u ? 0 : 4;
