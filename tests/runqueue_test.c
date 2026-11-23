@@ -1043,5 +1043,69 @@ int main(void) {
         move_guard_nodes[1].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
         move_guard_nodes[1].queue_cpu != move_guard_destination.cpu)
         return 105;
+    /*
+     * A corrupt destination lane must reject a cross-queue transfer before
+     * unlinking the otherwise-valid source node or changing destination data.
+     */
+    struct runqueue destination_guard_source, destination_guard_destination;
+    struct runqueue_node destination_guard_nodes[5];
+    runqueue_init(&destination_guard_source, 9u);
+    runqueue_init(&destination_guard_destination, 10u);
+    destination_guard_source.lock.value = 1u;
+    destination_guard_destination.lock.value = 1u;
+    for (uint32_t i = 0u; i < 5u; ++i)
+        runqueue_node_init(&destination_guard_nodes[i]);
+    if (runqueue_enqueue_locked(&destination_guard_source,
+            destination_guard_nodes, 5u, 0u, 2u) != 0 ||
+        runqueue_enqueue_locked(&destination_guard_destination,
+            destination_guard_nodes, 5u, 1u, 2u) != 0 ||
+        runqueue_enqueue_locked(&destination_guard_destination,
+            destination_guard_nodes, 5u, 2u, 2u) != 0 ||
+        runqueue_enqueue_locked(&destination_guard_destination,
+            destination_guard_nodes, 5u, 3u, 2u) != 0)
+        return 106;
+    destination_guard_nodes[2].next = 2u;
+    if (runqueue_move_locked(&destination_guard_source,
+            &destination_guard_destination, destination_guard_nodes,
+            5u, 0u) == 0)
+        return 107;
+    if (destination_guard_source.total != 1u ||
+        destination_guard_source.count[2] != 1u ||
+        destination_guard_source.head[2] != 0u ||
+        destination_guard_source.tail[2] != 0u ||
+        destination_guard_nodes[0].queued != 1u ||
+        destination_guard_nodes[0].queue_cpu != destination_guard_source.cpu ||
+        destination_guard_nodes[0].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        destination_guard_nodes[0].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        destination_guard_destination.total != 3u ||
+        destination_guard_destination.count[2] != 3u ||
+        destination_guard_destination.head[2] != 1u ||
+        destination_guard_destination.tail[2] != 3u ||
+        destination_guard_nodes[1].next != 2u ||
+        destination_guard_nodes[2].previous != 1u ||
+        destination_guard_nodes[2].next != 2u ||
+        destination_guard_nodes[3].previous != 2u)
+        return 108;
+    destination_guard_nodes[2].next = 3u;
+    if (runqueue_validate_locked(&destination_guard_source,
+            destination_guard_nodes, 5u, &total) != 0 || total != 1u ||
+        runqueue_validate_locked(&destination_guard_destination,
+            destination_guard_nodes, 5u, &total) != 0 || total != 3u ||
+        runqueue_move_locked(&destination_guard_source,
+            &destination_guard_destination, destination_guard_nodes,
+            5u, 0u) != 0)
+        return 109;
+    if (runqueue_validate_locked(&destination_guard_source,
+            destination_guard_nodes, 5u, &total) != 0 || total != 0u ||
+        runqueue_validate_locked(&destination_guard_destination,
+            destination_guard_nodes, 5u, &total) != 0 || total != 4u ||
+        destination_guard_destination.head[2] != 1u ||
+        destination_guard_destination.tail[2] != 0u ||
+        destination_guard_nodes[3].next != 0u ||
+        destination_guard_nodes[0].previous != 3u ||
+        destination_guard_nodes[0].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        destination_guard_nodes[0].queue_cpu !=
+            destination_guard_destination.cpu)
+        return 110;
     return 0;
 }
