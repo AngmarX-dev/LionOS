@@ -144,6 +144,19 @@ run_qemu() {
         fi
         grep -q "LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=00000005" "$log_file"
         grep -q "LIONOS:SMP-BUSY-DESTINATION-COVERAGE-OK" "$log_file"
+        busy_destination_spread_rounds=$(grep -c '^LIONOS:SMP-BUSY-ROUND-DESTINATION-SPREAD-OK round=' "$log_file" || true)
+        if [ "$busy_destination_spread_rounds" -ne 5 ]; then
+            echo "expected 5 busy-destination spread markers, observed $busy_destination_spread_rounds: $log_file" >&2
+            return 1
+        fi
+        busy_destination_spread_sequence=$(sed -n \
+            's/^LIONOS:SMP-BUSY-ROUND-DESTINATION-SPREAD-OK round=\([0-9A-Fa-f]*\).*/\1/p' \
+            "$log_file")
+        expected_busy_destination_spread_sequence=$(printf '00000000\n00000001\n00000002\n00000003\n00000004')
+        if [ "$busy_destination_spread_sequence" != "$expected_busy_destination_spread_sequence" ]; then
+            echo "busy-destination spread markers were missing, duplicated, or out of order: $log_file" >&2
+            return 1
+        fi
         migration_rounds=$(grep -c '^LIONOS:SMP-WORK-STEAL-ROUND-OK round=' "$log_file" || true)
         if [ "$migration_rounds" -ne 3 ]; then
             echo "expected 3 completed SMP migration stress rounds, observed $migration_rounds: $log_file" >&2

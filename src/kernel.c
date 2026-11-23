@@ -410,6 +410,25 @@ static void debug_write_u32_hex(uint32_t value){
     debug_write(out);
 }
 
+/* Count set CPU bits without relying on hosted-library helpers. */
+static uint32_t integration_mask_count(uint32_t mask){
+    uint32_t count=0u;
+    while(mask!=0u){
+        mask&=mask-1u;
+        ++count;
+    }
+    return count;
+}
+
+/*
+ * Require two distinct busy destinations when the fixture launched at least
+ * two AP workers; a two-vCPU run has only one possible destination.
+ */
+static uint32_t integration_busy_balance_required_destinations(void){
+    return integration_mask_count(integration_busy_worker_launch_mask)>=2u?
+        2u:1u;
+}
+
 void lionos_user_integration_step(void){
     if(integration_done)return;
 
@@ -1606,9 +1625,13 @@ void lionos_user_integration_step(void){
             }
             uint32_t round_owner_intersection=
                 round_busy_mask&integration_busy_balance_owner_mask;
+            uint32_t round_destination_count=
+                integration_mask_count(round_owner_intersection);
+            uint32_t required_destinations=
+                integration_busy_balance_required_destinations();
             if(round_busy_mask==0u||
                integration_busy_balance_moved<INTEGRATION_BUSY_BALANCE_MIN_MOVED||
-               round_owner_intersection==0u){
+               round_destination_count<required_destinations){
                 integration_busy_balance_failed=1u;
                 debug_write("LIONOS:SMP-BUSY-ROUND-ACCEPTANCE-FAIL round=");
                 debug_write_u32_hex(integration_busy_balance_round);
@@ -1616,10 +1639,21 @@ void lionos_user_integration_step(void){
                 debug_write_u32_hex(round_busy_mask);
                 debug_write(" moved=");
                 debug_write_u32_hex(integration_busy_balance_moved);
+                debug_write(" destinations=");
+                debug_write_u32_hex(round_destination_count);
+                debug_write(" required=");
+                debug_write_u32_hex(required_destinations);
                 debug_write("\n");
                 integration_busy_balance_round=INTEGRATION_BUSY_BALANCE_ROUNDS-1u;
                 return;
             }
+            debug_write("LIONOS:SMP-BUSY-ROUND-DESTINATION-SPREAD-OK round=");
+            debug_write_u32_hex(integration_busy_balance_round);
+            debug_write(" destinations=");
+            debug_write_u32_hex(round_destination_count);
+            debug_write(" required=");
+            debug_write_u32_hex(required_destinations);
+            debug_write("\n");
             debug_write("LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=");
             debug_write_u32_hex(integration_busy_balance_round);
             debug_write(" moved=");
@@ -1675,6 +1709,10 @@ void lionos_user_integration_step(void){
             }
             uint32_t busy_owner_intersection=
                 busy_mask&integration_busy_balance_owner_mask;
+            uint32_t final_destination_count=
+                integration_mask_count(busy_owner_intersection);
+            uint32_t final_required_destinations=
+                integration_busy_balance_required_destinations();
             debug_write("LIONOS:SMP-BUSY-FINAL-DIAG busy=");
             debug_write_u32_hex(busy_mask);
             debug_write(" owner=");
@@ -1705,7 +1743,7 @@ void lionos_user_integration_step(void){
             }
             if(busy_mask==0u||
                integration_busy_balance_moved<INTEGRATION_BUSY_BALANCE_MIN_MOVED||
-               busy_owner_intersection==0u){
+               final_destination_count<final_required_destinations){
                 integration_busy_balance_failed=1u;
                 debug_write("LIONOS:SMP-BUSY-MASK-FAIL busy=");
                 debug_write_u32_hex(busy_mask);
@@ -1713,6 +1751,18 @@ void lionos_user_integration_step(void){
                 debug_write_u32_hex(integration_busy_balance_owner_mask);
                 debug_write(" moved=");
                 debug_write_u32_hex(integration_busy_balance_moved);
+                debug_write(" destinations=");
+                debug_write_u32_hex(final_destination_count);
+                debug_write(" required=");
+                debug_write_u32_hex(final_required_destinations);
+                debug_write("\n");
+            }else{
+                debug_write("LIONOS:SMP-BUSY-ROUND-DESTINATION-SPREAD-OK round=");
+                debug_write_u32_hex(integration_busy_balance_round);
+                debug_write(" destinations=");
+                debug_write_u32_hex(final_destination_count);
+                debug_write(" required=");
+                debug_write_u32_hex(final_required_destinations);
                 debug_write("\n");
             }
             int guard_ok=process_scheduler_execution_guard_finish()==0;
