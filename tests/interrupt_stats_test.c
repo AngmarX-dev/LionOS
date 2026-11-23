@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include "interrupt_stats.h"
 
-#define WORKER_COUNT 8u
+#define WORKER_COUNT 16u
 #define ITERATIONS 50000u
 
 struct worker_args {
@@ -24,10 +24,24 @@ int main(void)
     pthread_t threads[WORKER_COUNT];
     struct worker_args args[WORKER_COUNT];
 
+    /*
+     * Two writers share one vector on each CPU, a third writer exercises a
+     * second vector on that CPU, and a fourth writer uses the same vector
+     * number on every CPU. This checks both same-counter contention and
+     * independence between per-CPU/per-vector counter cells.
+     */
     uint32_t created = 0u;
     for (uint32_t i = 0u; i < WORKER_COUNT; ++i) {
-        args[i].cpu = i % 4u;
-        args[i].vector = 64u + args[i].cpu;
+        if (i < 8u) {
+            args[i].cpu = i % 4u;
+            args[i].vector = 64u + args[i].cpu;
+        } else if (i < 12u) {
+            args[i].cpu = i - 8u;
+            args[i].vector = 160u + args[i].cpu;
+        } else {
+            args[i].cpu = i - 12u;
+            args[i].vector = 200u;
+        }
         if (pthread_create(&threads[i], 0, record_worker, &args[i]) != 0) {
             fputs("interrupt stats: pthread_create failed\n", stderr);
             for (uint32_t joined = 0u; joined < created; ++joined)
@@ -45,20 +59,16 @@ int main(void)
     }
 
     /* Check shared counters only after every writer has stopped. */
-    for (uint32_t i = 0u; i < WORKER_COUNT; ++i) {
-        if (interrupt_stats_count(args[i].cpu, args[i].vector) !=
-            (2u * ITERATIONS)) {
-            fputs("interrupt stats: concurrent count mismatch\n", stderr);
+    for (uint32_t cpu = 0u; cpu < 4u; ++cpu) {
+        if (interrupt_stats_count(cpu, 64u + cpu) != (2u * ITERATIONS) ||
+            interrupt_stats_count(cpu, 160u + cpu) != ITERATIONS ||
+            interrupt_stats_count(cpu, 200u) != ITERATIONS) {
+            fputs("interrupt stats: concurrent vector count mismatch\n",
+                  stderr);
             return 3;
         }
-    }
 
-    for (uint32_t cpu = 0u; cpu < 4u; ++cpu) {
-        uint32_t expected = 0u;
-        for (uint32_t i = 0u; i < WORKER_COUNT; ++i)
-            if (args[i].cpu == cpu)
-                expected += ITERATIONS;
-        if (interrupt_stats_total(cpu) != expected) {
+        if (interrupt_stats_total(cpu) != (4u * ITERATIONS)) {
             fputs("interrupt stats: per-CPU total mismatch\n", stderr);
             return 4;
         }
@@ -67,7 +77,7 @@ int main(void)
     /* A different vector on the same CPU must remain independently countable. */
     interrupt_stats_record(0u, 128u);
     if (interrupt_stats_count(0u, 128u) != 1u ||
-        interrupt_stats_total(0u) != (2u * ITERATIONS + 1u)) {
+        interrupt_stats_total(0u) != (4u * ITERATIONS + 1u)) {
         fputs("interrupt stats: vector isolation failed\n", stderr);
         return 7;
     }
