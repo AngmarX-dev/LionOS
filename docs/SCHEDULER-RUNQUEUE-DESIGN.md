@@ -1,5 +1,17 @@
 # Per-CPU Scheduler Run-Queue Design
 
+## Latest CI verification
+
+On 2026-11-23, all three required workflows passed on exact branch commit `7cb462d51abaf81931515460e65e5947f9a44c52`:
+
+- Build LionOS — run [45142084657](https://github.com/AngmarX-dev/LionOS/actions/runs/45142084657). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI entry checks, boot-UI checks, and USB disk-image validation completed successfully.
+- LionOS Phase 26 CI — run [45142084245](https://github.com/AngmarX-dev/LionOS/actions/runs/45142084245). Build and QEMU smoke tests completed successfully.
+- xHCI USB mouse test — run [45142084296](https://github.com/AngmarX-dev/LionOS/actions/runs/45142084296). QEMU USB mouse and USB keyboard-discovery regression steps completed successfully.
+
+These are CI/QEMU results for this exact revision, not physical-hardware verification. The scheduler still serializes process state and scheduling decisions through the global `process_lock`; sustained-load convergence, broader thread migration, and physical validation remain open.
+
+---
+
 ## Status and scope
 
 This document records the synchronization and ownership contract for the per-CPU run-queue scheduler. Process lifecycle transitions maintain queue membership and `process_schedule()` selects from local priority lanes. The single-CPU fallback and 2-, 4-, 8-, and 16-vCPU SMP regressions, including topology-aware multi-process work stealing and zombie-reap retries, passed Build, Phase 26, and xHCI CI on exact commit `b8829f4a7ea2d919e24b4d9d5f6c6bdb1f646452`. A follow-up test repeats the bounded migration batch for three rounds to exercise repeated scheduling, process exit, and reclamation cycles without allowing any individual process to migrate more than once. Build, Phase 26, and xHCI workflows passed on exact commit `831e6580b964041df1070fb475178a1043a30399`. The production busy-destination path also passed QEMU acceptance in Build and Phase 26 on exact commit `aadccc98716afc1f0d84aa7282c5d7629f29759d`; the milestone remains partial pending sustained-load convergence, broader migration, and physical hardware verification.
