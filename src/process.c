@@ -2137,6 +2137,19 @@ int32_t process_futex_sleep_on_timeout(uintptr_t channel, struct spinlock *held_
     return process_sleep_on_kind(channel,held_lock,irq_flags,1u,timeout_ticks);
 }
 
+void process_scheduler_tick(uint32_t cpu){
+    if(cpu>=LIONOS_MAX_CPUS||
+       __atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)return;
+    /* Only timer interrupts that enter process_schedule() contribute to a
+       task quantum. Keep BSP frame-timer ticks out of this accounting path. */
+    uint32_t pending=__atomic_load_n(
+        &scheduler_cpu[cpu].pending_schedule_ticks,__ATOMIC_RELAXED);
+    while(pending!=UINT32_MAX&&
+          !__atomic_compare_exchange_n(
+              &scheduler_cpu[cpu].pending_schedule_ticks,&pending,pending+1u,
+              0,__ATOMIC_RELEASE,__ATOMIC_RELAXED)){}
+}
+
 void process_futex_tick(uint32_t cpu){
     if(cpu>=LIONOS_MAX_CPUS||
        __atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)return;
@@ -2145,15 +2158,6 @@ void process_futex_tick(uint32_t cpu){
      * contended. Dropping the timeout scan is safe; dropping elapsed AP-local
      * ticks can indefinitely postpone a timeout on a repeatedly contended CPU.
      */
-    /* Preserve the scheduling charge even if process_schedule() immediately
-       loses the global lifecycle lock. Saturation avoids counter wrap if a
-       CPU is unable to enter the scheduler for an exceptionally long time. */
-    uint32_t pending=__atomic_load_n(
-        &scheduler_cpu[cpu].pending_schedule_ticks,__ATOMIC_RELAXED);
-    while(pending!=UINT32_MAX&&
-          !__atomic_compare_exchange_n(
-              &scheduler_cpu[cpu].pending_schedule_ticks,&pending,pending+1u,
-              0,__ATOMIC_RELEASE,__ATOMIC_RELAXED)){}
     uint32_t now=__atomic_add_fetch(&scheduler_cpu[cpu].timer_ticks,1u,
                                     __ATOMIC_RELAXED);
     if(!spinlock_try_acquire(&process_lock))return;

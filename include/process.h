@@ -157,6 +157,7 @@ int32_t process_futex_sleep_on(uintptr_t channel, struct spinlock *held_lock, ui
 int32_t process_futex_sleep_on_timeout(uintptr_t channel, struct spinlock *held_lock,
                                        uint32_t irq_flags, uint32_t timeout_ticks);
 void process_futex_tick(uint32_t cpu);
+void process_scheduler_tick(uint32_t cpu);
 void    process_wakeup(uintptr_t channel);
 uint32_t process_futex_wakeup(uintptr_t channel, uint32_t maximum);
 uint32_t process_count(void);
