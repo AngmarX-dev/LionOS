@@ -59,7 +59,11 @@ and reaping, and the scheduler execution guard. The workload is finite and
 does not modify shared files or console state. The five-wave acceptance
 repeats fresh-candidate workloads and raises the AP worker workload to
 200,000,000 iterations so busy destinations must remain active through every
-non-final wave; the test script requires all five ordered success markers.
+non-final wave; the test script requires all five ordered success markers. The
+acceptance now accumulates successful destination CPUs across all five waves
+and requires every launched busy-worker CPU to receive at least one eligible
+process. This is a repeated-arrival coverage check, not proof of convergence
+under arbitrary arrival rates.
 Build LionOS (run `45159926164`), Phase 26 CI (run `45159926076`), and xHCI USB
 regression (run `45159925975`) all passed on exact commit
 `fb6a9bd1750390b3d0c1a73ff3313e66b69134bc`. This verifies the configured QEMU

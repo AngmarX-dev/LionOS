@@ -143,6 +143,7 @@ run_qemu() {
             return 1
         fi
         grep -q "LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=00000005" "$log_file"
+        grep -q "LIONOS:SMP-BUSY-DESTINATION-COVERAGE-OK" "$log_file"
         migration_rounds=$(grep -c '^LIONOS:SMP-WORK-STEAL-ROUND-OK round=' "$log_file" || true)
         if [ "$migration_rounds" -ne 3 ]; then
             echo "expected 3 completed SMP migration stress rounds, observed $migration_rounds: $log_file" >&2

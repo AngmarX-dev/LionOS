@@ -356,6 +356,8 @@ static uint32_t integration_busy_balance_start_tick;
 static uint32_t integration_busy_balance_moved;
 static uint32_t integration_busy_balance_moved_mask;
 static uint32_t integration_busy_balance_owner_mask;
+/* Cumulative destination coverage across all fresh-arrival waves. */
+static uint32_t integration_busy_balance_coverage_mask;
 static uint32_t integration_busy_balance_failed;
 /*
  * Run the full process lifecycle regression from an AP-owned kernel thread.
@@ -1252,6 +1254,7 @@ void lionos_user_integration_step(void){
         integration_busy_balance_moved=0u;
         integration_busy_balance_moved_mask=0u;
         integration_busy_balance_owner_mask=0u;
+        integration_busy_balance_coverage_mask=0u;
         integration_busy_balance_start_tick=process_scheduler_ticks(0u);
         for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
             __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
@@ -1447,6 +1450,7 @@ void lionos_user_integration_step(void){
                        (integration_busy_balance_moved_mask&(1u<<i))==0u){
                         integration_busy_balance_moved_mask|=1u<<i;
                         integration_busy_balance_owner_mask|=1u<<owner;
+                        integration_busy_balance_coverage_mask|=1u<<owner;
                         ++integration_busy_balance_moved;
                     }
                 }else if(owner!=0u||migrations!=0u){
@@ -1686,6 +1690,19 @@ void lionos_user_integration_step(void){
             debug_write(" elapsed=");
             debug_write_u32_hex(stage28_elapsed);
             debug_write("\n");
+            uint32_t uncovered_busy_workers =
+                integration_busy_worker_launch_mask &
+                ~integration_busy_balance_coverage_mask;
+            if(uncovered_busy_workers!=0u){
+                integration_busy_balance_failed=1u;
+                debug_write("LIONOS:SMP-BUSY-DESTINATION-COVERAGE-FAIL missing=");
+                debug_write_u32_hex(uncovered_busy_workers);
+                debug_write(" coverage=");
+                debug_write_u32_hex(integration_busy_balance_coverage_mask);
+                debug_write(" workers=");
+                debug_write_u32_hex(integration_busy_worker_launch_mask);
+                debug_write("\n");
+            }
             if(busy_mask==0u||
                integration_busy_balance_moved<INTEGRATION_BUSY_BALANCE_MIN_MOVED||
                busy_owner_intersection==0u){
@@ -1712,6 +1729,9 @@ void lionos_user_integration_step(void){
                 debug_write("\n");
                 debug_write("LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=");
                 debug_write_u32_hex(INTEGRATION_BUSY_BALANCE_ROUNDS);
+                debug_write("\n");
+                debug_write("LIONOS:SMP-BUSY-DESTINATION-COVERAGE-OK mask=");
+                debug_write_u32_hex(integration_busy_balance_coverage_mask);
                 debug_write("\n");
                 debug_write("LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-OK mask=");
                 debug_write_u32_hex(busy_mask);
