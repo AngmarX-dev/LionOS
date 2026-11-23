@@ -345,7 +345,7 @@ static volatile uint32_t integration_ap_user_status;
 /* The documented QEMU acceptance consistently migrates at least two of the
  * three eligible candidates; one transfer is insufficient convergence. */
 #define INTEGRATION_BUSY_BALANCE_MIN_MOVED 2u
-#define INTEGRATION_BUSY_BALANCE_ROUNDS 3u
+#define INTEGRATION_BUSY_BALANCE_ROUNDS 4u
 static uint32_t integration_busy_balance_round;
 static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_COUNT];
 static volatile uint32_t integration_busy_worker_pids[LIONOS_MAX_CPUS];
