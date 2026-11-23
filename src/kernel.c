@@ -1035,12 +1035,16 @@ void lionos_user_integration_step(void){
             uint32_t invalid_batch[INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT];
             uint32_t duplicate_batch[INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT];
             uint32_t reserved_batch[INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT];
+            uint32_t missing_batch[INTEGRATION_MIGRATION_MAX_ELIGIBLE_COUNT];
             for(uint32_t i=0u;i<integration_migration_eligible_count;++i){
                 invalid_batch[i]=eligible_pids[i];
                 duplicate_batch[i]=eligible_pids[0];
                 reserved_batch[i]=eligible_pids[i];
+                missing_batch[i]=eligible_pids[i];
             }
             invalid_batch[integration_migration_eligible_count-1u]=0u;
+            /* A nonzero PID that cannot resolve must also roll back the prefix. */
+            missing_batch[integration_migration_eligible_count-1u]=0xFFFFFFFFu;
             uint32_t reserved_count=integration_migration_eligible_count;
             if(reserved_count<2u){
                 reserved_batch[0]=eligible_pids[0];
@@ -1065,15 +1069,17 @@ void lionos_user_integration_step(void){
              */
             int reserved_result=process_set_migration_eligible_batch(
                 reserved_batch,reserved_count);
+            int missing_result=process_set_migration_eligible_batch(
+                missing_batch,integration_migration_eligible_count);
             if(invalid_result!=-1||duplicate_result!=-1||
-               reserved_result!=-1)
+               reserved_result!=-1||missing_result!=-1)
                 integration_migration_failed=1u;
 
             if(process_set_migration_eligible_batch(
                    eligible_pids,integration_migration_eligible_count)!=0)
                 integration_migration_failed=1u;
             else if(invalid_result==-1&&duplicate_result==-1&&
-                    reserved_result==-1)
+                    reserved_result==-1&&missing_result==-1)
                 debug_write("LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK\n");
         }
 
