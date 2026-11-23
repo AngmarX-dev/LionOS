@@ -119,6 +119,7 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-TIMEOUT-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-STOP-CONT-OK" "$log_file"
+        grep -q "LIONOS:SMP-AP-RUNQUEUE-TRANSITION-FAILURE-ATOMIC-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-PRIORITY-REQUEUE-OK" "$log_file"
         grep -q "LIONOS:SMP-AP-RUNQUEUE-REAP-VALIDATION-OK" "$log_file"
         grep -q "LIONOS:SMP-EXECUTION-EXCLUSION-OK" "$log_file"

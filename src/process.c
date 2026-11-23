@@ -296,13 +296,19 @@ static int process_transition_state_locked(struct process *p,uint32_t state){
         if(owner>=online){
             uint32_t current=cpu_current_index();
             owner=current<online?current:0u;
-            p->cpu_owner=owner;
         }
+        /*
+         * Publish the process owner only after the queue accepts the node.
+         * A failed enqueue must leave the non-READY process metadata intact;
+         * process_lock keeps the temporary queue/process publication window
+         * invisible to lifecycle operations.
+         */
         spinlock_acquire(&runqueues[owner].lock);
         int result=runqueue_enqueue_locked(&runqueues[owner],runqueue_nodes,
                                            LIONOS_PROCESS_MAX,index,p->priority);
         spinlock_release(&runqueues[owner].lock);
         if(result!=0){__atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);return -1;}
+        p->cpu_owner=owner;
     }
     p->state=state;
     return 0;
@@ -681,6 +687,53 @@ static void process_scheduler_ap_probe_report(void){
                                          __ATOMIC_RELEASE);
                         continue;
                     }
+                    /*
+                     * A failed STOPPED-to-READY enqueue must not publish a
+                     * fallback CPU owner or alter the detached node. Inject
+                     * stale membership metadata to force the enqueue reject,
+                     * then restore the test fixture before normal continue.
+                     */
+                    uint32_t target_index=process_index(target);
+                    uint32_t saved_owner=target->cpu_owner;
+                    uint32_t saved_fault=__atomic_load_n(&runqueue_fault,
+                                                          __ATOMIC_ACQUIRE);
+                    uint32_t fallback_total=runqueues[0].total;
+                    if(runqueue_nodes[target_index].queued!=0u||
+                       runqueue_nodes[target_index].next!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX||
+                       runqueue_nodes[target_index].previous!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX||
+                       runqueue_nodes[target_index].queue_cpu!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX){
+                        __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                         __ATOMIC_RELEASE);
+                        continue;
+                    }
+                    target->cpu_owner=LIONOS_RUNQUEUE_INVALID_INDEX;
+                    runqueue_nodes[target_index].queued=1u;
+                    int transition_result=
+                        process_transition_state_locked(target,PROCESS_READY);
+                    int transition_unchanged=
+                        transition_result!=0&&target->state==PROCESS_STOPPED&&
+                        target->cpu_owner==LIONOS_RUNQUEUE_INVALID_INDEX&&
+                        runqueue_nodes[target_index].queued==1u&&
+                        runqueue_nodes[target_index].next==
+                            LIONOS_RUNQUEUE_INVALID_INDEX&&
+                        runqueue_nodes[target_index].previous==
+                            LIONOS_RUNQUEUE_INVALID_INDEX&&
+                        runqueue_nodes[target_index].queue_cpu==
+                            LIONOS_RUNQUEUE_INVALID_INDEX&&
+                        runqueues[0].total==fallback_total;
+                    runqueue_node_init(&runqueue_nodes[target_index]);
+                    target->cpu_owner=saved_owner;
+                    __atomic_store_n(&runqueue_fault,saved_fault,__ATOMIC_RELEASE);
+                    if(!transition_unchanged||
+                       process_runqueue_validate_locked(0u)!=0||
+                       process_runqueue_validate_locked(cpu)!=0){
+                        __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                         __ATOMIC_RELEASE);
+                        continue;
+                    }
                     wake_mask|=continue_process_locked(target);
                     uint32_t next_priority=
                         (target->priority+1u)%PROCESS_PRIORITY_LEVELS;
@@ -843,6 +896,7 @@ static void process_scheduler_ap_probe_report(void){
         debug_write("LIONOS:SMP-AP-RUNQUEUE-WAKEUP-OK\n");
         debug_write("LIONOS:SMP-AP-RUNQUEUE-TIMEOUT-OK\n");
         debug_write("LIONOS:SMP-AP-RUNQUEUE-STOP-CONT-OK\n");
+        debug_write("LIONOS:SMP-AP-RUNQUEUE-TRANSITION-FAILURE-ATOMIC-OK\n");
         debug_write("LIONOS:SMP-AP-RUNQUEUE-PRIORITY-REQUEUE-OK\n");
         debug_write("LIONOS:SMP-AP-RUNQUEUE-REAP-VALIDATION-OK\n");
     }
