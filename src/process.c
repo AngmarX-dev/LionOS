@@ -635,14 +635,44 @@ static void process_scheduler_ap_probe_report(void){
                                  __ATOMIC_RELEASE);
                 for(uint32_t cpu=1u;cpu<online;++cpu){
                     if(!(expected&(1u<<cpu)))continue;
-                    wake_mask|=continue_process_locked(targets[cpu]);
+                    struct process *target=targets[cpu];
+                    uint32_t stopped_priority=
+                        (target->priority+1u)%PROCESS_PRIORITY_LEVELS;
+                    /*
+                     * Exercise priority changes while the process is STOPPED.
+                     * The node must remain fully detached until continue
+                     * publishes it to the owner CPU's READY queue.
+                     */
+                    if(process_set_priority_locked(target,stopped_priority)!=0||
+                       target->state!=PROCESS_STOPPED||
+                       target->priority!=stopped_priority||
+                       target->base_priority!=stopped_priority||
+                       target->time_slice!=scheduler_priority_quantum(stopped_priority)||
+                       target->ticks_used!=0u||
+                       runqueue_nodes[process_index(target)].queued!=0u||
+                       runqueue_nodes[process_index(target)].next!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX||
+                       runqueue_nodes[process_index(target)].previous!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX||
+                       runqueue_nodes[process_index(target)].queue_cpu!=
+                           LIONOS_RUNQUEUE_INVALID_INDEX){
+                        __atomic_store_n(&scheduler_ap_probe_fault,1u,
+                                         __ATOMIC_RELEASE);
+                        continue;
+                    }
+                    wake_mask|=continue_process_locked(target);
                     uint32_t next_priority=
-                        (targets[cpu]->priority+1u)%PROCESS_PRIORITY_LEVELS;
-                    if(process_set_priority_locked(targets[cpu],next_priority)!=0||
-                       targets[cpu]->state!=PROCESS_READY||
-                       runqueue_nodes[process_index(targets[cpu])].queued!=1u||
-                       runqueue_nodes[process_index(targets[cpu])].queue_cpu!=cpu||
-                       runqueue_nodes[process_index(targets[cpu])].priority!=next_priority)
+                        (target->priority+1u)%PROCESS_PRIORITY_LEVELS;
+                    if(target->state!=PROCESS_READY||
+                       process_set_priority_locked(target,next_priority)!=0||
+                       target->state!=PROCESS_READY||
+                       target->priority!=next_priority||
+                       target->base_priority!=next_priority||
+                       target->time_slice!=scheduler_priority_quantum(next_priority)||
+                       target->ticks_used!=0u||
+                       runqueue_nodes[process_index(target)].queued!=1u||
+                       runqueue_nodes[process_index(target)].queue_cpu!=cpu||
+                       runqueue_nodes[process_index(target)].priority!=next_priority)
                         __atomic_store_n(&scheduler_ap_probe_fault,1u,
                                          __ATOMIC_RELEASE);
                 }
