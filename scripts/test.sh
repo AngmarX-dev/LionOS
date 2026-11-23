@@ -134,9 +134,9 @@ run_qemu() {
             return 1
         fi
         busy_balance_round_sequence=$(sed -n \
-            's/^LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=\\([0-9A-Fa-f]*\\).*/\\1/p' \
+            's/^LIONOS:SMP-BUSY-BALANCE-ROUND-OK round=\([0-9A-Fa-f]*\).*/\1/p' \
             "$log_file")
-        expected_busy_balance_round_sequence=$(printf '00000000\\n00000001\\n00000002')
+        expected_busy_balance_round_sequence=$(printf '00000000\n00000001\n00000002')
         if [ "$busy_balance_round_sequence" != "$expected_busy_balance_round_sequence" ]; then
             echo "production busy-balance rounds were missing, duplicated, or out of order: $log_file" >&2
             return 1
