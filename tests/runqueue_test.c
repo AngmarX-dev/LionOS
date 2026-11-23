@@ -465,12 +465,100 @@ static int busy_balance_sustained_service_test(void) {
     return 0;
 }
 
+/*
+ * Exercise FIFO order across priority lanes and a cross-CPU move. The moved
+ * node must join the destination lane tail, while a priority change must
+ * append to the new source lane tail without disturbing the remaining order.
+ */
+static int priority_fifo_transfer_order_test(void) {
+    enum { TEST_NODES = 6u };
+    struct runqueue source, destination;
+    struct runqueue_node test_nodes[TEST_NODES];
+    const uint32_t expected_source[] = {0u, 3u, 1u, 4u};
+    const uint32_t expected_destination[] = {5u, 2u};
+    uint32_t picked = LIONOS_RUNQUEUE_INVALID_INDEX;
+    uint32_t total = 0u;
+
+    runqueue_init(&source, 0u);
+    runqueue_init(&destination, 1u);
+    /* Model the caller-held locks; source CPU precedes destination CPU. */
+    source.lock.value = 1u;
+    destination.lock.value = 1u;
+    for (uint32_t i = 0u; i < TEST_NODES; ++i)
+        runqueue_node_init(&test_nodes[i]);
+
+    if (runqueue_enqueue_locked(&source, test_nodes, TEST_NODES, 0u, 0u) != 0 ||
+        runqueue_enqueue_locked(&source, test_nodes, TEST_NODES, 1u, 1u) != 0 ||
+        runqueue_enqueue_locked(&source, test_nodes, TEST_NODES, 2u, 0u) != 0 ||
+        runqueue_enqueue_locked(&source, test_nodes, TEST_NODES, 3u, 1u) != 0 ||
+        runqueue_enqueue_locked(&source, test_nodes, TEST_NODES, 4u, 2u) != 0 ||
+        runqueue_enqueue_locked(&destination, test_nodes, TEST_NODES, 5u, 0u) != 0)
+        return 1;
+
+    if (runqueue_move_locked(&source, &destination, test_nodes,
+                             TEST_NODES, 2u) != 0)
+        return 2;
+    if (runqueue_requeue_priority_locked(&source, test_nodes,
+                                         TEST_NODES, 3u, 0u) != 0)
+        return 3;
+
+    if (runqueue_validate_locked(&source, test_nodes, TEST_NODES, &total) != 0 ||
+        total != 4u || source.total != 4u ||
+        runqueue_validate_locked(&destination, test_nodes,
+                                TEST_NODES, &total) != 0 ||
+        total != 2u || destination.total != 2u)
+        return 4;
+
+    for (uint32_t i = 0u;
+         i < (uint32_t)(sizeof(expected_source) / sizeof(expected_source[0]));
+         ++i) {
+        if (runqueue_pick_next_locked(&source, test_nodes, TEST_NODES,
+                                      &picked) != 0 ||
+            picked != expected_source[i])
+            return 5;
+    }
+    if (runqueue_pick_next_locked(&source, test_nodes, TEST_NODES,
+                                  &picked) != 1 ||
+        picked != LIONOS_RUNQUEUE_INVALID_INDEX)
+        return 6;
+
+    for (uint32_t i = 0u;
+         i < (uint32_t)(sizeof(expected_destination) /
+                        sizeof(expected_destination[0]));
+         ++i) {
+        if (runqueue_pick_next_locked(&destination, test_nodes, TEST_NODES,
+                                      &picked) != 0 ||
+            picked != expected_destination[i])
+            return 7;
+    }
+    if (runqueue_pick_next_locked(&destination, test_nodes, TEST_NODES,
+                                  &picked) != 1 ||
+        picked != LIONOS_RUNQUEUE_INVALID_INDEX)
+        return 8;
+
+    if (runqueue_validate_locked(&source, test_nodes, TEST_NODES, &total) != 0 ||
+        total != 0u ||
+        runqueue_validate_locked(&destination, test_nodes,
+                                TEST_NODES, &total) != 0 ||
+        total != 0u)
+        return 9;
+    for (uint32_t i = 0u; i < TEST_NODES; ++i) {
+        if (test_nodes[i].queued != 0u ||
+            test_nodes[i].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX ||
+            test_nodes[i].next != LIONOS_RUNQUEUE_INVALID_INDEX ||
+            test_nodes[i].previous != LIONOS_RUNQUEUE_INVALID_INDEX)
+            return 10;
+    }
+    return 0;
+}
+
 int main(void) {
     struct runqueue queue;
     struct runqueue_node nodes[NODE_COUNT];
     uint32_t picked = 0u, total = 0u;
     int result;
 
+    if (priority_fifo_transfer_order_test() != 0) return 78;
     if (move_rejects_corrupt_source_test() != 0) return 75;
     if (busy_balance_sustained_arrival_test() != 0) return 76;
     if (busy_balance_sustained_service_test() != 0) return 77;
