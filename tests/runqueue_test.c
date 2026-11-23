@@ -882,6 +882,26 @@ int main(void) {
         lane_guard_nodes[2].queue_cpu != LIONOS_RUNQUEUE_INVALID_INDEX)
         return 90;
     lane_guard.head[2] = LIONOS_RUNQUEUE_INVALID_INDEX;
+    /*
+     * A singleton lane cannot advertise different head and tail nodes, even
+     * when both endpoint records individually look owned and detached at
+     * their respective boundaries.
+     */
+    lane_guard_nodes[2].queued = 1u;
+    lane_guard_nodes[2].queue_cpu = lane_guard.cpu;
+    lane_guard_nodes[2].priority = 1u;
+    lane_guard_nodes[2].previous = 1u;
+    lane_guard_nodes[2].next = LIONOS_RUNQUEUE_INVALID_INDEX;
+    lane_guard.tail[1] = 2u;
+    if (runqueue_enqueue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                2u, 0u) == 0 ||
+        runqueue_dequeue_locked(&lane_guard, lane_guard_nodes, 4u,
+                                1u) == 0 ||
+        lane_guard.total != 2u || lane_guard.count[1] != 1u ||
+        lane_guard.head[1] != 1u || lane_guard.tail[1] != 2u)
+        return 93;
+    lane_guard.tail[1] = 1u;
+    runqueue_node_init(&lane_guard_nodes[2]);
     lane_guard.total = 3u;
     if (runqueue_enqueue_locked(&lane_guard, lane_guard_nodes, 4u,
                                 2u, 0u) == 0 ||

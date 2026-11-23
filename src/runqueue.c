@@ -45,6 +45,10 @@ static int lane_valid(const struct runqueue *queue,
                tail == LIONOS_RUNQUEUE_INVALID_INDEX;
     if (count > capacity || head >= capacity || tail >= capacity)
         return 0;
+    /* A singleton lane has one node, so both endpoints must be identical. */
+    if ((count == 1u && head != tail) ||
+        (count > 1u && head == tail))
+        return 0;
     return nodes[head].queued == 1u &&
            nodes[head].queue_cpu == queue->cpu &&
            nodes[head].priority == priority &&
