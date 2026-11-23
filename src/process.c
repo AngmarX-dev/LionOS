@@ -2142,12 +2142,8 @@ void process_scheduler_tick(uint32_t cpu){
        __atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)return;
     /* Only timer interrupts that enter process_schedule() contribute to a
        task quantum. Keep BSP frame-timer ticks out of this accounting path. */
-    uint32_t pending=__atomic_load_n(
-        &scheduler_cpu[cpu].pending_schedule_ticks,__ATOMIC_RELAXED);
-    while(pending!=UINT32_MAX&&
-          !__atomic_compare_exchange_n(
-              &scheduler_cpu[cpu].pending_schedule_ticks,&pending,pending+1u,
-              0,__ATOMIC_RELEASE,__ATOMIC_RELAXED)){}
+    (void)scheduler_tick_accumulate(
+        &scheduler_cpu[cpu].pending_schedule_ticks);
 }
 
 void process_futex_tick(uint32_t cpu){

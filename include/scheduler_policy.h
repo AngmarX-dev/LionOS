@@ -23,6 +23,14 @@ int scheduler_priority_demote(uint32_t *priority, uint32_t *time_slice);
 int scheduler_tick_charge(uint32_t *ticks_used, uint32_t *priority,
                           uint32_t *time_slice, uint32_t elapsed_ticks);
 
+/*
+ * Atomically add one pending scheduler tick without wrapping. Returns 1 when
+ * incremented, 0 when already saturated, and -1 for a null counter.
+ * Safe for concurrent timer producers; the scheduler consumes the counter
+ * with an atomic exchange after entering its scheduling critical section.
+ */
+int scheduler_tick_accumulate(volatile uint32_t *pending_ticks);
+
 /* Relative deadlines must stay within the unambiguous unsigned half-range. */
 int scheduler_tick_delta_valid(uint32_t ticks);
 

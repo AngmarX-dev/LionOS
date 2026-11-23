@@ -1,5 +1,59 @@
+#include <pthread.h>
 #include <stdint.h>
 #include "scheduler_policy.h"
+
+struct accumulator_worker {
+    uint32_t iterations;
+    uint32_t successes;
+    uint32_t errors;
+};
+
+static volatile uint32_t pending_ticks;
+
+static void *accumulator_worker_main(void *argument) {
+    struct accumulator_worker *worker = argument;
+    for (uint32_t i = 0u; i < worker->iterations; ++i) {
+        int result = scheduler_tick_accumulate(&pending_ticks);
+        if (result == 1)
+            ++worker->successes;
+        else if (result < 0)
+            ++worker->errors;
+    }
+    return 0;
+}
+
+static int run_accumulator_workers(uint32_t iterations,
+                                      uint32_t *successes_out) {
+    enum { WORKERS = 8 };
+    pthread_t threads[WORKERS];
+    static struct accumulator_worker workers[WORKERS];
+    uint32_t started = 0u;
+    int failed = 0;
+
+    if (!successes_out) return -1;
+    *successes_out = 0u;
+    for (; started < WORKERS; ++started) {
+        workers[started].iterations = iterations;
+        workers[started].successes = 0u;
+        workers[started].errors = 0u;
+        if (pthread_create(&threads[started], 0, accumulator_worker_main,
+                           &workers[started]) != 0)
+            break;
+    }
+    if (started != WORKERS) failed = 1;
+    for (uint32_t i = 0u; i < started; ++i) {
+        if (pthread_join(threads[i], 0) != 0) {
+            failed = 1;
+            continue;
+        }
+        if (workers[i].errors != 0u ||
+            UINT32_MAX - *successes_out < workers[i].successes)
+            failed = 1;
+        else
+            *successes_out += workers[i].successes;
+    }
+    return failed ? -1 : 0;
+}
 
 int main(void) {
     static const uint32_t expected_quantum[LIONOS_SCHEDULER_PRIORITY_LEVELS] = {
@@ -104,5 +158,22 @@ int main(void) {
     quantum = 0u;
     if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
         used != 1u || priority != 1u || quantum != 0u) return 35;
+
+    if (scheduler_tick_accumulate(0) != -1) return 36;
+    pending_ticks = 0u;
+    if (scheduler_tick_accumulate(&pending_ticks) != 1 ||
+        pending_ticks != 1u) return 37;
+    pending_ticks = UINT32_MAX;
+    if (scheduler_tick_accumulate(&pending_ticks) != 0 ||
+        pending_ticks != UINT32_MAX) return 38;
+
+    uint32_t total_successes = 0u;
+    pending_ticks = 0u;
+    if (run_accumulator_workers(10000u, &total_successes) != 0 ||
+        total_successes != 80000u || pending_ticks != 80000u) return 39;
+
+    pending_ticks = UINT32_MAX - 100u;
+    if (run_accumulator_workers(1000u, &total_successes) != 0 ||
+        total_successes != 100u || pending_ticks != UINT32_MAX) return 40;
     return 0;
 }

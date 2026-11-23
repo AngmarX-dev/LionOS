@@ -83,7 +83,7 @@ memory-type-check: | $(BUILD)
 	$(BUILD)/memory_type_test
 
 scheduler-policy-check: | $(BUILD)
-	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -Iinclude src/scheduler_policy.c tests/scheduler_policy_test.c -o $(BUILD)/scheduler_policy_test
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -pthread -Iinclude src/scheduler_policy.c tests/scheduler_policy_test.c -o $(BUILD)/scheduler_policy_test
 	$(BUILD)/scheduler_policy_test
 
 runqueue-check: | $(BUILD)

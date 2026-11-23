@@ -50,6 +50,21 @@ int scheduler_tick_charge(uint32_t *ticks_used, uint32_t *priority,
     return scheduler_priority_demote(priority, time_slice);
 }
 
+int scheduler_tick_accumulate(volatile uint32_t *pending_ticks) {
+    if (!pending_ticks) return -1;
+
+    uint32_t pending = __atomic_load_n(pending_ticks, __ATOMIC_RELAXED);
+    for (;;) {
+        if (pending == UINT32_MAX) return 0;
+
+        /* pending is strictly below UINT32_MAX, so this increment cannot wrap. */
+        uint32_t next = pending + 1u;
+        if (__atomic_compare_exchange_n(pending_ticks, &pending, next, 0,
+                                        __ATOMIC_RELEASE, __ATOMIC_RELAXED))
+            return 1;
+    }
+}
+
 int scheduler_tick_delta_valid(uint32_t ticks) {
     return ticks <= 0x7FFFFFFFu;
 }
