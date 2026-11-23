@@ -387,7 +387,6 @@ static int process_steal_candidate_locked(uint32_t index,uint32_t source_cpu){
 }
 
 /* process_lock is held; queue locks are acquired in ascending CPU order. */
-/* process_lock is held; queue locks are acquired in ascending CPU order. */
 static int process_try_steal_locked(uint32_t cpu,uint32_t *picked,
                                     int idle_destination){
     uint32_t online=smp_online_count();
