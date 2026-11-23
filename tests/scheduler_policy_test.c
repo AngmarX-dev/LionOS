@@ -82,6 +82,29 @@ int main(void) {
     if (scheduler_priority_quantum(UINT32_MAX) != 12u)
         return 2;
 
+    /* Equal-backlog victim selection rotates instead of pinning ties to CPU 1. */
+    const uint32_t balanced_totals[4] = { 0u, 5u, 5u, 5u };
+    if (scheduler_select_victim(balanced_totals, 4u, 0u, 0u, 0u) != 1u)
+        return 41;
+    if (scheduler_select_victim(balanced_totals, 4u, 0u, 2u, 0u) != 2u)
+        return 42;
+    if (scheduler_select_victim(balanced_totals, 4u, 0u, 3u, 0u) != 3u)
+        return 43;
+    if (scheduler_select_victim(balanced_totals, 4u, 0u, 2u,
+                                1u << 2u) != 3u)
+        return 44;
+    const uint32_t unequal_totals[4] = { 0u, 3u, 7u, 7u };
+    if (scheduler_select_victim(unequal_totals, 4u, 0u, 3u, 0u) != 3u)
+        return 45;
+    if (scheduler_select_victim(balanced_totals, 4u, 0u, 0u,
+                                (1u << 1u) | (1u << 2u) | (1u << 3u)) !=
+        UINT32_MAX)
+        return 46;
+    if (scheduler_select_victim(0, 4u, 0u, 0u, 0u) != UINT32_MAX ||
+        scheduler_select_victim(balanced_totals, 33u, 0u, 0u, 0u) !=
+        UINT32_MAX)
+        return 47;
+
     uint32_t priority = 0u, quantum = 99u;
     if (scheduler_priority_demote(&priority, &quantum) != 0 ||
         priority != 1u || quantum != 4u)

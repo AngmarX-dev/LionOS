@@ -9,6 +9,17 @@
 uint32_t scheduler_priority_quantum(uint32_t priority);
 
 /*
+ * Select the largest eligible queue, breaking equal-backlog ties in cyclic
+ * order from start_cpu. visited_mask excludes CPUs already examined during
+ * this balancing attempt. Supports at most 32 CPUs; UINT32_MAX means none.
+ */
+uint32_t scheduler_select_victim(const uint32_t *queue_totals,
+                                 uint32_t online_cpus,
+                                 uint32_t destination_cpu,
+                                 uint32_t start_cpu,
+                                 uint32_t visited_mask);
+
+/*
  * Demote one level after a complete time slice and refresh the quantum.
  * Returns -1 without modifying either value for invalid pointers/priority.
  */

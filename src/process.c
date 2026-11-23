@@ -148,7 +148,7 @@ static volatile uint32_t scheduler_idle_entered_mask;
 static volatile uint32_t scheduler_idle_reported;
 static uint32_t scheduler_idle_ready_mask;
 static uint32_t scheduler_idle_expected_mask;
-struct scheduler_cpu_state{uint32_t cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t busy_balance_count;uint32_t timer_ticks;volatile uint32_t pending_schedule_ticks;};
+struct scheduler_cpu_state{uint32_t cursor;uint32_t balance_cursor;uint32_t schedule_count;uint32_t steal_count;uint32_t busy_balance_count;uint32_t timer_ticks;volatile uint32_t pending_schedule_ticks;};
 static struct scheduler_cpu_state scheduler_cpu[LIONOS_MAX_CPUS];
 static uint32_t next_pid;
 static uint32_t next_tid;
@@ -441,15 +441,16 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked,
     }
 
     uint32_t visited=0u;
+    uint32_t queue_totals[LIONOS_MAX_CPUS];
+    for(uint32_t other=0u;other<online;++other)
+        queue_totals[other]=runqueues[other].total;
+    uint32_t start_cpu=scheduler_cpu[cpu].balance_cursor%online;
     for(uint32_t attempt=0u;attempt+1u<online;++attempt){
-        uint32_t victim=LIONOS_RUNQUEUE_INVALID_INDEX,largest=0u;
-        for(uint32_t other=0u;other<online;++other){
-            if(other==cpu||(visited&(1u<<other)))continue;
-            if(runqueues[other].total>largest){
-                largest=runqueues[other].total;victim=other;
-            }
-        }
-        if(victim==LIONOS_RUNQUEUE_INVALID_INDEX||largest==0u)return 0;
+        uint32_t victim=scheduler_select_victim(queue_totals,online,cpu,
+                                                start_cpu,visited);
+        if(victim==LIONOS_RUNQUEUE_INVALID_INDEX)return 0;
+        uint32_t largest=queue_totals[victim];
+        if(largest==0u)return 0;
         if(!runqueue_should_balance(runqueues[cpu].total,largest,
                                     idle_destination))return 0;
         visited|=1u<<victim;
@@ -511,6 +512,8 @@ static int process_try_steal_locked(uint32_t cpu,uint32_t *picked,
         }
         migrating->cpu_owner=cpu;
         migrating->migration_count=1u;
+        /* Rotate equal-backlog victim preference after each successful move. */
+        scheduler_cpu[cpu].balance_cursor=(victim+1u)%online;
 
         uint32_t selected=LIONOS_RUNQUEUE_INVALID_INDEX;
         int pick_result=0;

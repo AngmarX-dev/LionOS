@@ -1,5 +1,29 @@
 #include "scheduler_policy.h"
 
+uint32_t scheduler_select_victim(const uint32_t *queue_totals,
+                                 uint32_t online_cpus,
+                                 uint32_t destination_cpu,
+                                 uint32_t start_cpu,
+                                 uint32_t visited_mask) {
+    if (!queue_totals || online_cpus == 0u || online_cpus > 32u ||
+        destination_cpu >= online_cpus || start_cpu >= online_cpus)
+        return UINT32_MAX;
+
+    uint32_t victim = UINT32_MAX;
+    uint32_t largest = 0u;
+    for (uint32_t offset = 0u; offset < online_cpus; ++offset) {
+        uint32_t cpu = start_cpu + offset;
+        if (cpu >= online_cpus) cpu -= online_cpus;
+        if (cpu == destination_cpu || (visited_mask & (1u << cpu)) != 0u)
+            continue;
+        if (queue_totals[cpu] > largest) {
+            largest = queue_totals[cpu];
+            victim = cpu;
+        }
+    }
+    return victim;
+}
+
 uint32_t scheduler_priority_quantum(uint32_t priority) {
     static const uint32_t quantum[LIONOS_SCHEDULER_PRIORITY_LEVELS] = {
         2u, 4u, 8u, 12u
