@@ -93,8 +93,16 @@ int main(void) {
     quantum = 0u;
     if (scheduler_tick_charge(&used, &priority, &quantum, 1u) != 0 ||
         used != 0u || priority != 1u || quantum != 4u) return 33;
+
+    /* Once bootstrap has acquired a valid quantum, ordinary charging resumes. */
     used = 1u;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) != 0 ||
+        used != 2u || priority != 1u || quantum != 4u) return 34;
+
+    /* A zero quantum with a nonzero usage count remains invalid. */
+    used = 1u;
+    quantum = 0u;
     if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
-        used != 1u || priority != 1u || quantum != 4u) return 34;
+        used != 1u || priority != 1u || quantum != 0u) return 35;
     return 0;
 }
