@@ -3,7 +3,8 @@
 #include <stdio.h>
 #include "interrupt_stats.h"
 
-#define WORKER_COUNT 16u
+#define WORKERS_PER_CPU 4u
+#define WORKER_COUNT (LIONOS_INTERRUPT_STATS_CPUS * WORKERS_PER_CPU)
 #define ITERATIONS 50000u
 
 struct worker_args {
@@ -25,23 +26,23 @@ int main(void)
     struct worker_args args[WORKER_COUNT];
 
     /*
-     * Two writers share one vector on each CPU, a third writer exercises a
-     * second vector on that CPU, and a fourth writer uses the same vector
-     * number on every CPU. This checks both same-counter contention and
-     * independence between per-CPU/per-vector counter cells.
+     * Exercise every configured CPU slot, including the highest valid index.
+     * Two writers contend on one vector per CPU; independent writers update a
+     * second vector and vector 200. The latter is shared by number across all
+     * CPUs, checking that the CPU dimension remains isolated.
      */
     uint32_t created = 0u;
     for (uint32_t i = 0u; i < WORKER_COUNT; ++i) {
-        if (i < 8u) {
-            args[i].cpu = i % 4u;
-            args[i].vector = 64u + args[i].cpu;
-        } else if (i < 12u) {
-            args[i].cpu = i - 8u;
-            args[i].vector = 160u + args[i].cpu;
-        } else {
-            args[i].cpu = i - 12u;
+        uint32_t cpu = i / WORKERS_PER_CPU;
+        uint32_t lane = i % WORKERS_PER_CPU;
+        args[i].cpu = cpu;
+        if (lane < 2u)
+            args[i].vector = 64u + cpu;
+        else if (lane == 2u)
+            args[i].vector = 160u + cpu;
+        else
             args[i].vector = 200u;
-        }
+
         if (pthread_create(&threads[i], 0, record_worker, &args[i]) != 0) {
             fputs("interrupt stats: pthread_create failed\n", stderr);
             for (uint32_t joined = 0u; joined < created; ++joined)
@@ -59,7 +60,7 @@ int main(void)
     }
 
     /* Check shared counters only after every writer has stopped. */
-    for (uint32_t cpu = 0u; cpu < 4u; ++cpu) {
+    for (uint32_t cpu = 0u; cpu < LIONOS_INTERRUPT_STATS_CPUS; ++cpu) {
         if (interrupt_stats_count(cpu, 64u + cpu) != (2u * ITERATIONS) ||
             interrupt_stats_count(cpu, 160u + cpu) != ITERATIONS ||
             interrupt_stats_count(cpu, 200u) != ITERATIONS) {
@@ -74,10 +75,11 @@ int main(void)
         }
     }
 
-    /* A different vector on the same CPU must remain independently countable. */
+    /* A different vector on one CPU must remain independently countable. */
     interrupt_stats_record(0u, 128u);
     if (interrupt_stats_count(0u, 128u) != 1u ||
-        interrupt_stats_total(0u) != (4u * ITERATIONS + 1u)) {
+        interrupt_stats_total(0u) != (4u * ITERATIONS + 1u) ||
+        interrupt_stats_count(1u, 128u) != 0u) {
         fputs("interrupt stats: vector isolation failed\n", stderr);
         return 7;
     }
@@ -90,12 +92,6 @@ int main(void)
         interrupt_stats_total(LIONOS_INTERRUPT_STATS_CPUS) != 0u) {
         fputs("interrupt stats: bounds validation failed\n", stderr);
         return 5;
-    }
-
-    if (interrupt_stats_count(4u, 64u) != 0u ||
-        interrupt_stats_count(5u, 65u) != 0u) {
-        fputs("interrupt stats: CPU counter isolation failed\n", stderr);
-        return 6;
     }
 
     puts("per-CPU interrupt statistics tests passed");
