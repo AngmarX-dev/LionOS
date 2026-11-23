@@ -60,10 +60,10 @@ static int lane_valid(const struct runqueue *queue,
 }
 
 /*
- * Validate every lane's boundary metadata and aggregate accounting before a
- * local enqueue/dequeue mutates the queue. This is bounded by the fixed
- * priority-level count and prevents a valid target lane from hiding damage
- * in another lane or an inconsistent queue->total.
+ * Validate complete lane topology and aggregate accounting before a local
+ * enqueue/dequeue mutates the queue. The full traversal is bounded by the
+ * caller-supplied node capacity and prevents damaged interior links in any
+ * priority lane from being hidden by valid endpoint metadata.
  */
 static int queue_lanes_valid(const struct runqueue *queue,
                              const struct runqueue_node *nodes,
