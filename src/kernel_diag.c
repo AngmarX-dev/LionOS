@@ -119,6 +119,27 @@ static void debug_dec32(uint32_t value) {
         debug_putc(digits[--count]);
 }
 
+static uint32_t debug_append_text(char *buffer, uint32_t offset,
+                                   uint32_t capacity, const char *value) {
+    if (!buffer || !value || capacity == 0u) return capacity;
+    while (*value && offset < capacity - 1u)
+        buffer[offset++] = *value++;
+    return offset;
+}
+
+static uint32_t debug_append_dec32(char *buffer, uint32_t offset,
+                                   uint32_t capacity, uint32_t value) {
+    char digits[10];
+    uint32_t count = 0u;
+    do {
+        digits[count++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    } while (value != 0u && count < sizeof(digits));
+    while (count != 0u && offset < capacity - 1u)
+        buffer[offset++] = digits[--count];
+    return offset;
+}
+
 void kernel_diag_print_interrupts(void) {
     uint32_t timer = kernel_diag_interrupt_count(0u,32u);
     uint32_t keyboard = kernel_diag_interrupt_count(0u,33u);
@@ -147,10 +168,9 @@ void kernel_diag_print_interrupts(void) {
     debug_write("\n");
 
     /*
-     * Report per-CPU samples using atomic loads. Counters may
-     * continue advancing on APs while this diagnostic is printed; each value
-     * is therefore an individually valid sample, not a global stop-the-world
-     * snapshot.
+     * Each CPU's counters are sampled independently while interrupts remain
+     * enabled. Emit each diagnostic record with one debug_write() call so
+     * concurrent AP messages cannot splice fields into another CPU's line.
      */
     for (uint32_t cpu = 0u; cpu < LIONOS_MAX_CPUS; ++cpu) {
         const struct cpu_info *info = cpu_get(cpu);
@@ -158,43 +178,67 @@ void kernel_diag_print_interrupts(void) {
             continue;
 
         uint32_t total = interrupt_stats_total(cpu);
+        uint32_t timer_count = kernel_diag_interrupt_count(cpu, 32u);
+        uint32_t keyboard_count = kernel_diag_interrupt_count(cpu, 33u);
+        uint32_t mouse_count = kernel_diag_interrupt_count(cpu, 44u);
+        uint32_t lapic_count = kernel_diag_interrupt_count(cpu, 48u);
         uint32_t reschedule = kernel_diag_interrupt_count(cpu, 50u);
         uint32_t tlb = kernel_diag_interrupt_count(cpu, 49u);
+
         console_write("[IRQ] CPU ");
         console_write_dec(cpu);
         console_write(" total=");
         console_write_dec(total);
         console_write(" timer=");
-        console_write_dec(kernel_diag_interrupt_count(cpu, 32u));
+        console_write_dec(timer_count);
         console_write(" keyboard=");
-        console_write_dec(kernel_diag_interrupt_count(cpu, 33u));
+        console_write_dec(keyboard_count);
         console_write(" mouse=");
-        console_write_dec(kernel_diag_interrupt_count(cpu, 44u));
+        console_write_dec(mouse_count);
         console_write(" LAPIC=");
-        console_write_dec(kernel_diag_interrupt_count(cpu, 48u));
+        console_write_dec(lapic_count);
         console_write(" resched=");
         console_write_dec(reschedule);
         console_write(" TLB=");
         console_write_dec(tlb);
         console_write("\n");
 
-        debug_write("LIONOS:IRQ-CPU cpu=");
-        debug_dec32(cpu);
-        debug_write(" total=");
-        debug_dec32(total);
-        debug_write(" timer=");
-        debug_dec32(kernel_diag_interrupt_count(cpu, 32u));
-        debug_write(" keyboard=");
-        debug_dec32(kernel_diag_interrupt_count(cpu, 33u));
-        debug_write(" mouse=");
-        debug_dec32(kernel_diag_interrupt_count(cpu, 44u));
-        debug_write(" lapic=");
-        debug_dec32(kernel_diag_interrupt_count(cpu, 48u));
-        debug_write(" resched=");
-        debug_dec32(reschedule);
-        debug_write(" tlb=");
-        debug_dec32(tlb);
-        debug_write("\n");
+        char message[192];
+        uint32_t position = 0u;
+        position = debug_append_text(message, position, sizeof(message),
+                                     "LIONOS:IRQ-CPU cpu=");
+        position = debug_append_dec32(message, position, sizeof(message), cpu);
+        position = debug_append_text(message, position, sizeof(message),
+                                     " total=");
+        position = debug_append_dec32(message, position, sizeof(message), total);
+        position = debug_append_text(message, position, sizeof(message),
+                                     " timer=");
+        position = debug_append_dec32(message, position, sizeof(message),
+                                      timer_count);
+        position = debug_append_text(message, position, sizeof(message),
+                                     " keyboard=");
+        position = debug_append_dec32(message, position, sizeof(message),
+                                      keyboard_count);
+        position = debug_append_text(message, position, sizeof(message),
+                                     " mouse=");
+        position = debug_append_dec32(message, position, sizeof(message),
+                                      mouse_count);
+        position = debug_append_text(message, position, sizeof(message),
+                                     " lapic=");
+        position = debug_append_dec32(message, position, sizeof(message),
+                                      lapic_count);
+        position = debug_append_text(message, position, sizeof(message),
+                                     " resched=");
+        position = debug_append_dec32(message, position, sizeof(message),
+                                      reschedule);
+        position = debug_append_text(message, position, sizeof(message),
+                                     " tlb=");
+        position = debug_append_dec32(message, position, sizeof(message), tlb);
+        if (position < sizeof(message) - 1u) {
+            message[position++] = '\n';
+            message[position] = '\0';
+            debug_write(message);
+        }
     }
 }
 

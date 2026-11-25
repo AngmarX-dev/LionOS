@@ -112,8 +112,20 @@ run_qemu() {
         done
         grep -q 'LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK' "$log_file"
         for cpu in $(seq 0 $((cpu_count - 1))); do
-            if ! grep -q "LIONOS:IRQ-CPU cpu=$cpu " "$log_file"; then
+            irq_line=$(grep -F "LIONOS:IRQ-CPU cpu=$cpu " "$log_file" | tail -n 1 || true)
+            if [ -z "$irq_line" ]; then
                 echo "per-CPU interrupt statistics missing for online CPU $cpu: $log_file" >&2
+                return 1
+            fi
+            irq_total=$(printf '%s\n' "$irq_line" | sed -n 's/.* total=\([0-9][0-9]*\) .*/\1/p')
+            irq_lapic=$(printf '%s\n' "$irq_line" | sed -n 's/.* lapic=\([0-9][0-9]*\) .*/\1/p')
+            if [ -z "$irq_total" ] || [ "$irq_total" -le 0 ]; then
+                echo "online CPU $cpu reported no counted interrupts: $irq_line" >&2
+                return 1
+            fi
+            if [ "$cpu" -gt 0 ] &&
+               { [ -z "$irq_lapic" ] || [ "$irq_lapic" -le 0 ]; }; then
+                echo "AP $cpu reported no locally-accounted LAPIC timer interrupts: $irq_line" >&2
                 return 1
             fi
         done
