@@ -110,6 +110,10 @@ run_qemu() {
                 return 1
             fi
         done
+        if ! grep -Fq -- "LIONOS:SMP-AP-SCHEDULE-LOCK-CONTENDED cpu=" "$log_file"; then
+            echo "no AP exercised the process_lock try-lock contention path: $log_file" >&2
+            return 1
+        fi
         grep -q 'LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK' "$log_file"
         grep -q 'LIONOS:SMP-WORK-STEAL-SINGLE-REPUBLICATION-OK' "$log_file"
         for cpu in $(seq 0 $((cpu_count - 1))); do
