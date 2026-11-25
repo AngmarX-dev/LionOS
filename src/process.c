@@ -1892,6 +1892,16 @@ int process_get_migration_info(uint32_t pid,uint32_t *cpu_owner,
 int process_set_migration_eligible(uint32_t pid){
     if(!pid)return -1;
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    /*
+     * Keep the single-process API fail-closed just like batch publication:
+     * eligibility must never be published while any CPU queue or process/node
+     * ownership invariant is already inconsistent.
+     */
+    if(process_runqueues_validate_all_locked()!=0){
+        __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
     struct process *p=find_pid(pid);
     if(!p||(p->state!=PROCESS_READY&&p->state!=PROCESS_RUNNING)||
        p->pid<=1u||p->is_thread||p->owns_address_space!=1u||
