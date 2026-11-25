@@ -221,6 +221,29 @@ int main(void)
     if (expect_failure(n) != 0)
         return 15;
 
+
+    /* x2APIC entries retain their full 32-bit identifiers. */
+    n = begin_table();
+    n = add_entry(n, 9u, 16u);
+    put32(table + n - 12u, 0x87654321u);
+    put32(table + n - 8u, 1u);
+    put32(table + n - 4u, 0x12345678u);
+    if (finish_parse(n, &info) != 0 || info.cpu_count != 1u ||
+        info.cpus[0].x2apic != 1u ||
+        info.cpus[0].apic_id != 0x87654321u ||
+        info.cpus[0].processor_uid != 0x12345678u)
+        return 16;
+
+    /* Duplicate processor UIDs are rejected across legacy and x2APIC entries. */
+    n = begin_table();
+    n = add_cpu_entry(n, 7u, 2u, 1u);
+    n = add_entry(n, 9u, 16u);
+    put32(table + n - 12u, 0x12345678u);
+    put32(table + n - 8u, 1u);
+    put32(table + n - 4u, 7u);
+    if (expect_failure(n) != 0)
+        return 17;
+
     puts("ACPI MADT parser tests passed");
     return 0;
 }
