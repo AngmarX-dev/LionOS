@@ -624,6 +624,7 @@ struct sustained_test_state {
     volatile uint32_t abort;
     volatile uint32_t failed;
     volatile uint32_t completed;
+    volatile uint32_t completed_by_cpu[SUSTAINED_CPU_COUNT];
     volatile uint32_t transfers;
     volatile uint32_t destination_mask;
     uint32_t balance_cursor[SUSTAINED_CPU_COUNT];
@@ -832,6 +833,8 @@ static void *sustained_service_worker(void *opaque) {
                 return 0;
             }
             __atomic_fetch_add(&state->completed, 1u, __ATOMIC_RELAXED);
+            __atomic_fetch_add(&state->completed_by_cpu[argument->cpu], 1u,
+                               __ATOMIC_RELAXED);
             continue;
         }
 
@@ -868,6 +871,8 @@ static int sustained_concurrent_arrival_test(void) {
     state->abort = 0u;
     state->failed = 0u;
     state->completed = 0u;
+    for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
+        state->completed_by_cpu[cpu] = 0u;
     state->transfers = 0u;
     state->destination_mask = 0u;
     for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
@@ -946,6 +951,8 @@ static int sustained_concurrent_arrival_test(void) {
         __atomic_load_n(&state->producer_done, __ATOMIC_ACQUIRE) == 0u ||
         __atomic_load_n(&state->balancer_done, __ATOMIC_ACQUIRE) == 0u ||
         __atomic_load_n(&state->completed, __ATOMIC_ACQUIRE) != SUSTAINED_NODES ||
+        __atomic_load_n(&state->completed_by_cpu[1], __ATOMIC_ACQUIRE) == 0u ||
+        __atomic_load_n(&state->completed_by_cpu[2], __ATOMIC_ACQUIRE) == 0u ||
         __atomic_load_n(&state->transfers, __ATOMIC_ACQUIRE) < 2u ||
         __atomic_load_n(&state->destination_mask, __ATOMIC_ACQUIRE) !=
             ((1u << 1u) | (1u << 2u)))
