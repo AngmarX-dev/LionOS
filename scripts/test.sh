@@ -111,6 +111,7 @@ run_qemu() {
             fi
         done
         grep -q 'LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK' "$log_file"
+        grep -q 'LIONOS:SMP-WORK-STEAL-SINGLE-REPUBLICATION-OK' "$log_file"
         for cpu in $(seq 0 $((cpu_count - 1))); do
             irq_line=$(grep -F "LIONOS:IRQ-CPU cpu=$cpu " "$log_file" | tail -n 1 || true)
             if [ -z "$irq_line" ]; then

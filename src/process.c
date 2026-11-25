@@ -1931,7 +1931,8 @@ int process_set_migration_eligible(uint32_t pid){
     if(!p||(p->state!=PROCESS_READY&&p->state!=PROCESS_RUNNING)||
        !process_migration_state_valid_locked(p)||
        p->pid<=1u||p->is_thread||p->owns_address_space!=1u||
-       p->thread_group_pid!=p->pid||p->migration_count!=0u){
+       p->thread_group_pid!=p->pid||p->migration_eligible!=0u||
+       p->migration_count!=0u){
         spinlock_irqrestore_release(&process_lock,flags);
         return -1;
     }

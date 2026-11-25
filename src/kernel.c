@@ -1095,13 +1095,19 @@ void lionos_user_integration_step(void){
                 ?process_set_migration_eligible_batch(
                     eligible_pids,integration_migration_eligible_count)
                 :0;
-            if(publish_result!=0||republish_result!=-1)
+            int single_republish_result=publish_result==0
+                ?process_set_migration_eligible(eligible_pids[0])
+                :0;
+            if(publish_result!=0||republish_result!=-1||
+               single_republish_result!=-1)
                 integration_migration_failed=1u;
             else if(invalid_result==-1&&duplicate_result==-1&&
                     reserved_result==-1&&missing_result==-1&&
                     null_result==-1&&empty_result==-1&&
-                    oversized_result==-1)
+                    oversized_result==-1){
                 debug_write("LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK\n");
+                debug_write("LIONOS:SMP-WORK-STEAL-SINGLE-REPUBLICATION-OK\n");
+            }
         }
 
         /* Restore the exact incoming EFLAGS, including the prior IF state. */
