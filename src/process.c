@@ -1858,6 +1858,17 @@ int process_set_migration_eligible_batch(const uint32_t *pids,uint32_t count){
     if(!pids||count==0u||count>LIONOS_PROCESS_MAX)return -1;
     struct process *validated[LIONOS_PROCESS_MAX];
     uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    /*
+     * Every candidate must be linked to the BSP READY queue before its
+     * migration eligibility is published. Validate the complete queue and
+     * process/node ownership invariant while process_lock excludes lifecycle
+     * changes; the validator acquires the queue lock in the documented order.
+     */
+    if(process_runqueue_validate_locked(0u)!=0){
+        __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
+        spinlock_irqrestore_release(&process_lock,flags);
+        return -1;
+    }
     for(uint32_t i=0u;i<count;++i){
         if(!pids[i]){
             spinlock_irqrestore_release(&process_lock,flags);
