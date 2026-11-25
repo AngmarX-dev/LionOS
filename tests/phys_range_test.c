@@ -38,8 +38,10 @@ static int randomized_reference_test(void)
         uint64_t start = next_random(&state) % 0x28000ULL;
         uint64_t end = next_random(&state) % 0x28000ULL;
         for (int reserve = 0; reserve <= 1; ++reserve) {
-            uint64_t first = UINT64_MAX;
-            uint64_t last = UINT64_MAX;
+            const uint64_t first_sentinel = 0x1122334455667788ULL;
+            const uint64_t last_sentinel = 0x8877665544332211ULL;
+            uint64_t first = first_sentinel;
+            uint64_t last = last_sentinel;
             int actual = phys_range_page_bounds(start, end, limit_start,
                                                 limit_end, reserve,
                                                 &first, &last);
@@ -66,9 +68,13 @@ static int randomized_reference_test(void)
 
             if (actual != expected)
                 return 1;
-            if (expected &&
-                (first != expected_first || last != expected_last))
-                return 2;
+            if (expected) {
+                if (first != expected_first || last != expected_last)
+                    return 2;
+            } else if (first != first_sentinel || last != last_sentinel) {
+                /* Empty/invalid conversions must not publish partial bounds. */
+                return 3;
+            }
         }
     }
     return 0;
@@ -119,6 +125,25 @@ int main(void)
 
     if (randomized_reference_test() != 0) return 11;
 
-    puts("physical range page-boundary tests passed");
+    /* Empty and invalid ranges must preserve caller-owned output values. */
+    first = 0x1122334455667788ULL;
+    last = 0x8877665544332211ULL;
+    if (phys_range_page_bounds(0x2000u, 0x2000u, 0u, LOW_LIMIT,
+                               0, &first, &last) != 0 ||
+        first != 0x1122334455667788ULL ||
+        last != 0x8877665544332211ULL)
+        return 12;
+    if (phys_range_page_bounds(0x3000u, 0x2000u, 0u, LOW_LIMIT,
+                               1, &first, &last) != 0 ||
+        first != 0x1122334455667788ULL ||
+        last != 0x8877665544332211ULL)
+        return 13;
+    if (phys_range_page_bounds(0x1000u, 0x2000u, 1u, LOW_LIMIT,
+                               0, &first, &last) != -1 ||
+        first != 0x1122334455667788ULL ||
+        last != 0x8877665544332211ULL)
+        return 14;
+
+    puts("physical range page-boundary and transactional-output tests passed");
     return 0;
 }
