@@ -357,6 +357,17 @@ static int memory_allocator_concurrency_test(void)
     return 0;
 }
 
+static int expect_rejected_boot_info(int code, const char *message)
+{
+    if (memory_init((uint32_t)(uintptr_t)boot_info) == 0)
+        return fail(code, message);
+    if (page_alloc() != 0 || memory_free_pages() != 0u ||
+        memory_high_free_pages() != 0u || memory_total_pages() != 0u ||
+        memory_high_available_bytes() != 0u)
+        return fail(code + 1, "rejected boot metadata left allocator pages exposed");
+    return 0;
+}
+
 int main(void)
 {
     uint64_t high_address = 0u;
@@ -664,11 +675,39 @@ int main(void)
     /* Invalid boot metadata must fail closed and expose no physical pages. */
     make_boot_info();
     put32(0u, 8u);
-    if (memory_init((uint32_t)(uintptr_t)boot_info) == 0)
-        return fail(53, "invalid Multiboot2 metadata reported successful initialization");
-    if (page_alloc() != 0 || memory_free_pages() != 0u || memory_high_free_pages() != 0u ||
-        memory_total_pages() != 0u || memory_high_available_bytes() != 0u)
-        return fail(41, "invalid Multiboot2 metadata exposed allocator memory");
+    if (expect_rejected_boot_info(53,
+            "invalid Multiboot2 metadata reported successful initialization") != 0)
+        return 53;
+
+    /*
+     * Exercise malformed records after a previously valid RAM map has been
+     * assembled in the input buffer. Validation must reject them before any
+     * low or high allocator page becomes visible.
+     */
+    make_boot_info();
+    put32(16u, 25u);
+    if (expect_rejected_boot_info(63,
+            "misaligned Multiboot2 mmap entry stride was accepted") != 0)
+        return 63;
+
+    make_boot_info();
+    put64(24u, UINT64_MAX - 0x7ffu);
+    put64(32u, 0x1000u);
+    if (expect_rejected_boot_info(65,
+            "overflowing Multiboot2 physical range was accepted") != 0)
+        return 65;
+
+    make_boot_info();
+    put32(180u, (uint32_t)(MODULE_START - 1u));
+    if (expect_rejected_boot_info(67,
+            "reversed Multiboot2 module range was accepted") != 0)
+        return 67;
+
+    make_boot_info();
+    boot_info[184u] = (uint8_t)'x';
+    if (expect_rejected_boot_info(69,
+            "unterminated Multiboot2 module command line was accepted") != 0)
+        return 69;
 
     if (memory_init(0u) == 0 || page_alloc() != 0 ||
         memory_free_pages() != 0u || memory_high_free_pages() != 0u)
