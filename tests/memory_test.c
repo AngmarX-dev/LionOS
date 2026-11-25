@@ -212,6 +212,23 @@ static void make_full_high_map_boot_info(void)
     put32(52u, 8u);
 }
 
+static void make_full_low_map_boot_info(void)
+{
+    for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
+        boot_info[i] = 0u;
+
+    put32(0u, 56u);
+    put32(4u, 0u);
+    put32(8u, MULTIBOOT2_TAG_MMAP);
+    put32(12u, 40u);
+    put32(16u, 24u);
+    put32(20u, 0u);
+    put_mmap_entry(24u, 0u, LOW_MEMORY_LIMIT,
+                   MULTIBOOT2_MEMORY_AVAILABLE);
+    put32(48u, MULTIBOOT2_TAG_END);
+    put32(52u, 8u);
+}
+
 static int fail(int code, const char *message)
 {
     printf("physical allocator test failed (%d): %s\n", code, message);
@@ -647,6 +664,43 @@ int main(void)
         return fail(54, "concurrency map failed allocator initialization");
     if (memory_allocator_concurrency_test() != 0)
         return fail(55, "concurrent low/high allocations duplicated pages or leaked free-page accounting");
+
+    /*
+     * Exercise every page in the complete low-memory bitmap. The first
+     * 8 MiB remain reserved; all remaining pages must form one allocatable
+     * run and return to the allocator without changing the managed limit.
+     */
+    make_full_low_map_boot_info();
+    if (multiboot2_info_validate(boot_info) != 0 ||
+        memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(71, "complete low-memory map failed allocator initialization");
+
+    const uint32_t full_low_pages =
+        (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) - 2048u;
+    if (memory_total_pages() != (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) ||
+        memory_free_pages() != full_low_pages ||
+        page_alloc_contiguous(full_low_pages + 1u) != 0 ||
+        memory_free_pages() != full_low_pages)
+        return fail(72, "complete low-memory inventory or oversized allocation handling failed");
+
+    void *full_low_run = page_alloc_contiguous(full_low_pages);
+    if ((uintptr_t)full_low_run != 2048ULL * PAGE_SIZE ||
+        memory_free_pages() != 0u ||
+        page_refcount(full_low_run) != 1u ||
+        page_refcount((void *)((uintptr_t)full_low_run +
+                      (uint64_t)(full_low_pages - 1u) * PAGE_SIZE)) != 1u ||
+        page_alloc() != 0 || memory_free_pages() != 0u)
+        return fail(73, "full low-memory allocation did not cover the exact usable range");
+
+    for (uint32_t i = 0u; i < full_low_pages; ++i)
+        page_free((void *)((uintptr_t)full_low_run + (uint64_t)i * PAGE_SIZE));
+
+    if (memory_total_pages() != (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) ||
+        memory_free_pages() != full_low_pages ||
+        page_refcount(full_low_run) != 0u ||
+        page_refcount((void *)((uintptr_t)full_low_run +
+                      (uint64_t)(full_low_pages - 1u) * PAGE_SIZE)) != 0u)
+        return fail(74, "full low-memory release did not restore all pages and references");
 
     /*
      * Reserved descriptors must win even when firmware lists available RAM
