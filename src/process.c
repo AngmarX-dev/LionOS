@@ -1971,10 +1971,11 @@ int process_set_migration_eligible_batch(const uint32_t *pids,uint32_t count){
             }
         }
         struct process *p=find_pid(pids[i]);
-        if(!p||p->state!=PROCESS_READY||p->pid<=1u||p->is_thread||
-           p->owns_address_space!=1u||p->thread_group_pid!=p->pid||
-           p->cpu_owner!=0u||p->migration_count!=0u||
-           p->migration_eligible!=0u){
+        if(!p||p->state!=PROCESS_READY||
+           !process_migration_state_valid_locked(p)||
+           p->pid<=1u||p->is_thread||p->owns_address_space!=1u||
+           p->thread_group_pid!=p->pid||p->cpu_owner!=0u||
+           p->migration_count!=0u||p->migration_eligible!=0u){
             spinlock_irqrestore_release(&process_lock,flags);
             return -1;
         }
