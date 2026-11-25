@@ -3589,7 +3589,21 @@ uint32_t *process_schedule(uint32_t *frame){
     uint32_t cpu=cpu_current_index();
     if(cpu>=LIONOS_MAX_CPUS)cpu=0u;
     struct process *contended_prev=current_local();
-    if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_enter_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-ENTER cpu=");process_debug_write_hex(cpu);debug_write("\n");}}
+    if(cpu!=0u){
+        uint32_t bit=1u<<cpu;
+        uint32_t old=__atomic_fetch_or(&smp_ap_schedule_enter_seen,bit,
+                                       __ATOMIC_ACQ_REL);
+        if(!(old&bit)){
+            static const char digits[]="0123456789ABCDEF";
+            char marker[]="LIONOS:SMP-AP-SCHEDULE-ENTER cpu=00000000\n";
+            const uint32_t prefix_length=
+                (uint32_t)(sizeof("LIONOS:SMP-AP-SCHEDULE-ENTER cpu=")-1u);
+            for(uint32_t i=0u;i<8u;++i)
+                marker[prefix_length+i]=digits[(cpu>>(28u-i*4u))&0xFu];
+            /* Emit one complete record; debug_write serializes each call. */
+            debug_write(marker);
+        }
+    }
     if(!spinlock_try_acquire(&process_lock)){
         if(cpu!=0u){uint32_t bit=1u<<cpu;uint32_t old=__atomic_fetch_or(&smp_ap_schedule_lock_contention_seen,bit,__ATOMIC_ACQ_REL);if(!(old&bit)){debug_write("LIONOS:SMP-AP-SCHEDULE-LOCK-CONTENDED cpu=");process_debug_write_hex(cpu);debug_write("\n");}}
         /* An explicit reschedule must not be lost when another CPU briefly
