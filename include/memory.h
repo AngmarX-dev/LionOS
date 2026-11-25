@@ -9,7 +9,10 @@ void *page_alloc(void);
 void *page_alloc_contiguous(uint32_t count);
 /* Allocates physical pages above 256 MiB; returned address is physical, not directly dereferenceable. */
 int page_alloc_high(uint64_t *physical_address);
-/* Allocates/releases a physically contiguous high-memory run; release skips pages already reserved. */
+/*
+ * Allocates/releases a physically contiguous high-memory run; release skips
+ * pages already reserved. The output address is written only on success.
+ */
 int page_alloc_high_contiguous(uint32_t count, uint64_t *physical_address);
 void page_free_high_contiguous(uint64_t physical_address, uint32_t count);
 void page_free_high(uint64_t physical_address);

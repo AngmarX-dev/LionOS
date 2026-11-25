@@ -564,6 +564,12 @@ int main(void)
                                             HIGH_MEMORY_LIMIT) != 1)
         return fail(29, "full-window reservation did not preserve only the final page");
 
+    high_address = 0xC3C3C3C3C3C3C3C3ULL;
+    if (page_alloc_high_contiguous(2u, &high_address) == 0 ||
+        high_address != 0xC3C3C3C3C3C3C3C3ULL ||
+        memory_high_free_pages() != 1u)
+        return fail(64, "high allocation with insufficient free pages modified output or accounting");
+
     if (page_alloc_high(&high_address) != 0 ||
         high_address != HIGH_MEMORY_LIMIT - PAGE_SIZE ||
         memory_high_free_pages() != 0u)
@@ -584,9 +590,18 @@ int main(void)
     const uint32_t full_high_pages =
         (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE);
 
+    /* Failed high allocations must preserve caller-owned output storage. */
+    high_address = 0xA5A5A5A5A5A5A5A5ULL;
     if (page_alloc_high_contiguous(0u, &high_address) == 0 ||
+        high_address != 0xA5A5A5A5A5A5A5A5ULL ||
         page_alloc_high_contiguous(3u, 0) == 0)
-        return fail(32, "high contiguous allocator accepted invalid arguments");
+        return fail(32, "high contiguous allocator accepted invalid arguments or modified output");
+
+    high_address = 0x5A5A5A5A5A5A5A5AULL;
+    if (page_alloc_high_contiguous(full_high_pages + 1u, &high_address) == 0 ||
+        high_address != 0x5A5A5A5A5A5A5A5AULL ||
+        memory_high_free_pages() != full_high_pages)
+        return fail(70, "oversized high allocation modified output or allocator accounting");
 
     if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
         high_address != LOW_MEMORY_LIMIT ||
