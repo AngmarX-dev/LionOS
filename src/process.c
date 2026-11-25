@@ -1816,6 +1816,31 @@ static int process_is_current_locked(const struct process *p){
     return 0;
 }
 
+/*
+ * process_lock must be held. READY processes must be detached from every
+ * current-CPU slot; a RUNNING process must be the unique current context on
+ * its recorded, online owner CPU. This prevents migration eligibility from
+ * being published for a process whose state and execution ownership diverge.
+ */
+static int process_migration_state_valid_locked(const struct process *p){
+    uint32_t matches=0u;
+    uint32_t current_owner=LIONOS_RUNQUEUE_INVALID_INDEX;
+    uint32_t online=smp_online_count();
+    if(!p)return 0;
+    if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
+        if(current_cpu_load(cpu)==p){
+            ++matches;
+            current_owner=cpu;
+        }
+    }
+    if(p->state==PROCESS_READY)return matches==0u;
+    if(p->state==PROCESS_RUNNING)
+        return matches==1u&&current_owner==p->cpu_owner&&
+               current_owner<online;
+    return 0;
+}
+
 static void reap_process(struct process*p){
     if(!p||p->state!=PROCESS_ZOMBIE)return;
     if(process_is_current_locked(p)){
@@ -1904,6 +1929,7 @@ int process_set_migration_eligible(uint32_t pid){
     }
     struct process *p=find_pid(pid);
     if(!p||(p->state!=PROCESS_READY&&p->state!=PROCESS_RUNNING)||
+       !process_migration_state_valid_locked(p)||
        p->pid<=1u||p->is_thread||p->owns_address_space!=1u||
        p->thread_group_pid!=p->pid||p->migration_count!=0u){
         spinlock_irqrestore_release(&process_lock,flags);
