@@ -105,6 +105,10 @@ run_qemu() {
                 echo "missing first Local APIC timer interrupt from AP index $cpu: $log_file" >&2
                 return 1
             fi
+            if ! grep -qx "LIONOS:SMP-AP-SCHEDULE-ENTER cpu=$cpu_hex" "$log_file"; then
+                echo "AP index $cpu did not enter the production process scheduler: $log_file" >&2
+                return 1
+            fi
         done
         grep -q 'LIONOS:SMP-WORK-STEAL-BATCH-ATOMICITY-OK' "$log_file"
         for cpu in $(seq 0 $((cpu_count - 1))); do
