@@ -57,6 +57,15 @@ static int expect_failure(uint32_t length)
     acpi_madt_info_t out;
     return finish_parse(length, &out) != 0 ? 0 : -1;
 }
+static uint32_t add_cpu_entry(uint32_t offset, uint8_t uid,
+                                  uint8_t apic_id, uint32_t flags)
+{
+    offset = add_entry(offset, 0u, 8u);
+    table[offset - 6u] = uid;
+    table[offset - 5u] = apic_id;
+    put32(table + offset - 4u, flags);
+    return offset;
+}
 
 int main(void)
 {
@@ -183,6 +192,34 @@ int main(void)
     n = begin_table();
     if (finish_parse(n, &info) == 0 || info.cpu_count != 0xA5A5A5A5u)
         return 12;
+
+
+    /* Online-capable but disabled processors must not enter the online CPU set. */
+    n = begin_table();
+    n = add_cpu_entry(n, 0xEEu, 0xEEu, 2u);
+    n = add_cpu_entry(n, 1u, 2u, 1u);
+    if (finish_parse(n, &info) != 0 || info.cpu_count != 1u ||
+        info.cpus[0].processor_uid != 1u || info.cpus[0].apic_id != 2u)
+        return 13;
+
+    /* The parser accepts the complete supported CPU capacity. */
+    n = begin_table();
+    for (uint32_t i = 0u; i < LIONOS_MADT_MAX_CPUS; ++i)
+        n = add_cpu_entry(n, (uint8_t)i, (uint8_t)(i + 32u), 1u);
+    if (finish_parse(n, &info) != 0 ||
+        info.cpu_count != LIONOS_MADT_MAX_CPUS ||
+        info.cpus[LIONOS_MADT_MAX_CPUS - 1u].processor_uid !=
+            (LIONOS_MADT_MAX_CPUS - 1u) ||
+        info.cpus[LIONOS_MADT_MAX_CPUS - 1u].apic_id !=
+            (LIONOS_MADT_MAX_CPUS + 31u))
+        return 14;
+
+    /* One more enabled processor must fail without overrunning the output. */
+    n = begin_table();
+    for (uint32_t i = 0u; i < LIONOS_MADT_MAX_CPUS + 1u; ++i)
+        n = add_cpu_entry(n, (uint8_t)i, (uint8_t)(i + 32u), 1u);
+    if (expect_failure(n) != 0)
+        return 15;
 
     puts("ACPI MADT parser tests passed");
     return 0;
