@@ -278,6 +278,19 @@ int main(void)
     if (expect_failure(n) != 0)
         return 21;
 
+    /* MADT header flags define only PCAT_COMPAT (bit 0). */
+    n = begin_table();
+    n = add_cpu_entry(n, 1u, 3u, 1u);
+    put32(table + 40u, 2u);
+    if (expect_failure(n) != 0)
+        return 22;
+
+    n = begin_table();
+    n = add_cpu_entry(n, 1u, 3u, 1u);
+    put32(table + 40u, 0x80000000u);
+    if (expect_failure(n) != 0)
+        return 23;
+
     puts("ACPI MADT parser tests passed");
     return 0;
 }

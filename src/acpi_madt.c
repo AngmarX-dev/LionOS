@@ -127,7 +127,9 @@ int acpi_madt_parse(const uint8_t *table, uint32_t available,
 
     parsed.lapic_address = read_le32(table + 36u);
     parsed.flags = read_le32(table + 40u);
-    if (!aligned_page(parsed.lapic_address))
+    /* MADT Flags defines only PCAT_COMPAT (bit 0); all other bits are reserved. */
+    if ((parsed.flags & ~1u) != 0u ||
+        !aligned_page(parsed.lapic_address))
         return -1;
 
     offset = MADT_HEADER_SIZE;
