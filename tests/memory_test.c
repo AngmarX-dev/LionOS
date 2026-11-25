@@ -677,11 +677,20 @@ int main(void)
 
     const uint32_t full_low_pages =
         (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) - 2048u;
-    if (memory_total_pages() != (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) ||
-        memory_free_pages() != full_low_pages ||
-        page_alloc_contiguous(full_low_pages + 1u) != 0 ||
-        memory_free_pages() != full_low_pages)
+    uint32_t full_low_free_before = memory_free_pages();
+    void *oversized_low_run = page_alloc_contiguous(full_low_pages + 1u);
+    uint32_t full_low_free_after = memory_free_pages();
+    uint32_t full_low_total = memory_total_pages();
+    if (full_low_total != (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) ||
+        full_low_free_before != full_low_pages ||
+        oversized_low_run != 0 ||
+        full_low_free_after != full_low_pages) {
+        printf("low-memory diagnostic: total=%u expected_total=%u free_before=%u expected_free=%u oversized=%p free_after=%u\\n",
+               full_low_total, (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE),
+               full_low_free_before, full_low_pages, oversized_low_run,
+               full_low_free_after);
         return fail(72, "complete low-memory inventory or oversized allocation handling failed");
+    }
 
     void *full_low_run = page_alloc_contiguous(full_low_pages);
     if ((uintptr_t)full_low_run != 2048ULL * PAGE_SIZE ||
