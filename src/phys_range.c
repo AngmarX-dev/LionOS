@@ -8,7 +8,8 @@ int phys_range_page_bounds(uint64_t start, uint64_t end,
                            int reserve, uint64_t *page_start,
                            uint64_t *page_end)
 {
-    if (!page_start || !page_end || limit_end <= limit_start ||
+    if (!page_start || !page_end || page_start == page_end ||
+        limit_end <= limit_start ||
         (limit_start & PHYS_PAGE_MASK) != 0ULL ||
         (limit_end & PHYS_PAGE_MASK) != 0ULL ||
         (reserve != 0 && reserve != 1))

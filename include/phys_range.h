@@ -8,6 +8,8 @@
  * managed interval. Available ranges include only complete pages; reserved
  * ranges conservatively include every page touched by the byte range.
  *
+ * The two output pointers must be non-null and distinct.
+ *
  * Returns 1 when the result is non-empty, 0 when there is no managed page,
  * and -1 for invalid arguments or interval definitions.
  */

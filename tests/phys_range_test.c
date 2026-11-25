@@ -112,7 +112,12 @@ int main(void)
     if (expect(phys_range_page_bounds(0x1000, 0x2000, 0, LOW_LIMIT,
                                       0, 0, &last) == -1, 9)) return 9;
 
-    if (randomized_reference_test() != 0) return 10;
+    first = 0x1122334455667788ULL;
+    if (expect(phys_range_page_bounds(0x1000, 0x2000, 0, LOW_LIMIT,
+                                      0, &first, &first) == -1 &&
+               first == 0x1122334455667788ULL, 10)) return 10;
+
+    if (randomized_reference_test() != 0) return 11;
 
     puts("physical range page-boundary tests passed");
     return 0;
