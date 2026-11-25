@@ -342,6 +342,61 @@ static int process_runqueue_validate_locked(uint32_t cpu){
     return queue_total==ready_total?0:-1;
 }
 
+
+/*
+ * process_lock must be held. Validate every per-CPU queue and its process
+ * ownership metadata as one snapshot. Acquiring all queue locks in ascending
+ * CPU order prevents transfers from changing membership during the scan.
+ */
+static int process_runqueues_validate_all_locked(void){
+    uint32_t queue_totals[LIONOS_MAX_CPUS];
+    uint32_t ready_totals[LIONOS_MAX_CPUS];
+    int valid=1;
+
+    if(__atomic_load_n(&runqueue_fault,__ATOMIC_ACQUIRE)!=0u)return -1;
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        spinlock_acquire(&runqueues[cpu].lock);
+
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
+        queue_totals[cpu]=runqueues[cpu].total;
+        ready_totals[cpu]=0u;
+        if(runqueues[cpu].cpu!=cpu||
+           runqueue_validate_locked(&runqueues[cpu],runqueue_nodes,
+                                    LIONOS_PROCESS_MAX,0)!=0)
+            valid=0;
+    }
+
+    for(uint32_t i=0u;i<LIONOS_PROCESS_MAX;++i){
+        const struct process *p=&processes[i];
+        const struct runqueue_node *node=&runqueue_nodes[i];
+        if(p->state==PROCESS_READY){
+            uint32_t owner=node->queue_cpu;
+            if(node->queued!=1u||owner>=LIONOS_MAX_CPUS||
+               owner!=p->cpu_owner||node->priority!=p->priority){
+                valid=0;
+                continue;
+            }
+            if(ready_totals[owner]>=LIONOS_PROCESS_MAX){
+                valid=0;
+                continue;
+            }
+            ++ready_totals[owner];
+        }else if(node->queued!=0u||
+                 node->next!=LIONOS_RUNQUEUE_INVALID_INDEX||
+                 node->previous!=LIONOS_RUNQUEUE_INVALID_INDEX||
+                 node->queue_cpu!=LIONOS_RUNQUEUE_INVALID_INDEX){
+            valid=0;
+        }
+    }
+
+    for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu)
+        if(queue_totals[cpu]!=ready_totals[cpu])valid=0;
+    for(uint32_t cpu=LIONOS_MAX_CPUS;cpu>0u;--cpu)
+        spinlock_release(&runqueues[cpu-1u].lock);
+
+    return valid?0:-1;
+}
+
 /* process_lock must be held. Reposition READY tasks atomically on their owner queue. */
 static int process_set_priority_locked(struct process *p,uint32_t priority){
     uint32_t index;
@@ -1863,7 +1918,7 @@ int process_set_migration_eligible_batch(const uint32_t *pids,uint32_t count){
      * while process_lock excludes lifecycle changes. The validator acquires
      * all queue locks in ascending CPU order and releases them in reverse.
      */
-    if(process_runqueue_validate_locked(0u)!=0){
+    if(process_runqueues_validate_all_locked()!=0){
         __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
         spinlock_irqrestore_release(&process_lock,flags);
         return -1;
