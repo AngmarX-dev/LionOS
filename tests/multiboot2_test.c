@@ -112,6 +112,40 @@ int main(void)
     make_valid();
     if(multiboot2_info_iterator_init(storage+1u,&iterator)==0)return 20;
     if(multiboot2_info_iterator_init(storage,0)==0)return 21;
+
+    /* Public iterator state must remain aligned and bounded on every step. */
+    make_valid();
+    if (multiboot2_info_iterator_init(storage, &iterator) != 0)
+        return 25;
+    mb2_info_iterator_t corrupted = iterator;
+    corrupted.offset = 9u;
+    if (multiboot2_info_iterator_next(&corrupted, &tag) != -1)
+        return 26;
+    corrupted = iterator;
+    corrupted.offset = 4u;
+    if (multiboot2_info_iterator_next(&corrupted, &tag) != -1)
+        return 27;
+    corrupted = iterator;
+    corrupted.total_size = 8u;
+    if (multiboot2_info_iterator_next(&corrupted, &tag) != -1)
+        return 28;
+    corrupted = iterator;
+    corrupted.total_size = 57u;
+    if (multiboot2_info_iterator_next(&corrupted, &tag) != -1)
+        return 29;
+    corrupted = iterator;
+    corrupted.base = storage + 1u;
+    if (multiboot2_info_iterator_next(&corrupted, &tag) != -1)
+        return 30;
+    corrupted = iterator;
+    corrupted.base = (const uint8_t *)(uintptr_t)(UINTPTR_MAX - 7u);
+    if (multiboot2_info_iterator_next(&corrupted, &tag) != -1)
+        return 31;
+    corrupted = iterator;
+    corrupted.ended = 2u;
+    if (multiboot2_info_iterator_next(&corrupted, &tag) != -1)
+        return 32;
+
     puts("Multiboot2 bounded tag and memory-map validation tests passed");
     return 0;
 }

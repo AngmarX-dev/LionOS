@@ -28,10 +28,34 @@ int multiboot2_info_iterator_init(const void *info, mb2_info_iterator_t *iterato
     return 0;
 }
 
+static int iterator_state_valid(const mb2_info_iterator_t *iterator)
+{
+    uintptr_t address;
+
+    if (!iterator || !iterator->base || iterator->ended > 1u)
+        return 0;
+
+    address = (uintptr_t)iterator->base;
+    if ((address & 7u) != 0u ||
+        iterator->total_size < 16u ||
+        (iterator->total_size & 7u) != 0u ||
+        address > UINTPTR_MAX - iterator->total_size ||
+        iterator->offset < MB2_HEADER_SIZE ||
+        (iterator->offset & 7u) != 0u ||
+        iterator->offset > iterator->total_size)
+        return 0;
+
+    return 1;
+}
+
 int multiboot2_info_iterator_next(mb2_info_iterator_t *iterator, mb2_tag_view_t *tag)
 {
-    if(!iterator||!tag||!iterator->base||iterator->ended||
-       iterator->offset>iterator->total_size)
+    /*
+     * The iterator structure is public. Revalidate its cursor invariants on
+     * every call so accidental or corrupted caller state cannot cause
+     * unaligned reads or pointer arithmetic outside the validated block.
+     */
+    if (!tag || !iterator_state_valid(iterator) || iterator->ended != 0u)
         return -1;
     if(iterator->offset==iterator->total_size)return -1;
     if(iterator->total_size-iterator->offset<MB2_TAG_HEADER_SIZE)
