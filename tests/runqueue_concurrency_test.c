@@ -1,4 +1,5 @@
 #include <pthread.h>
+#include <sched.h>
 #include <stdint.h>
 #include "runqueue.h"
 #include "scheduler_policy.h"
@@ -665,7 +666,7 @@ static void *sustained_producer(void *opaque) {
 
     while (__atomic_load_n(&state->service_go, __ATOMIC_ACQUIRE) == 0u &&
            __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
-        __asm__ volatile("pause");
+        (void)sched_yield();
     for (uint32_t round = 0u; round < SUSTAINED_ARRIVAL_ROUNDS; ++round) {
         if (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) != 0u)
             break;
@@ -706,7 +707,7 @@ static void *sustained_balancer(void *opaque) {
 
     while (__atomic_load_n(&state->service_go, __ATOMIC_ACQUIRE) == 0u &&
            __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
-        __asm__ volatile("pause");
+        (void)sched_yield();
     while (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u &&
            attempts++ < 100000000u) {
         int progress = 0;
@@ -774,7 +775,7 @@ static void *sustained_balancer(void *opaque) {
             }
         }
         if (!progress)
-            __asm__ volatile("pause");
+            (void)sched_yield();
     }
 
     if (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u) {
@@ -794,7 +795,7 @@ static void *sustained_service_worker(void *opaque) {
                       __ATOMIC_RELEASE);
     while (__atomic_load_n(&state->service_go, __ATOMIC_ACQUIRE) == 0u &&
            __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
-        __asm__ volatile("pause");
+        (void)sched_yield();
 
     /*
      * Keep every simulated CPU dispatch-ready but do not let the source CPU
@@ -806,7 +807,7 @@ static void *sustained_service_worker(void *opaque) {
     while ((__atomic_load_n(&state->destination_mask, __ATOMIC_ACQUIRE) &
             required_destinations) != required_destinations &&
            __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
-        __asm__ volatile("pause");
+        (void)sched_yield();
 
     while (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u) {
         uint32_t index = LIONOS_RUNQUEUE_INVALID_INDEX;
@@ -841,7 +842,7 @@ static void *sustained_service_worker(void *opaque) {
         if (__atomic_load_n(&state->producer_done, __ATOMIC_ACQUIRE) != 0u &&
             __atomic_load_n(&state->balancer_done, __ATOMIC_ACQUIRE) != 0u)
             return 0;
-        __asm__ volatile("pause");
+        (void)sched_yield();
     }
     return 0;
 }
@@ -911,7 +912,7 @@ static int sustained_concurrent_arrival_test(void) {
     uint32_t ready_wait = 0u;
     while (__atomic_load_n(&state->service_ready_mask, __ATOMIC_ACQUIRE) !=
                ready_mask && ready_wait++ < 10000000u)
-        __asm__ volatile("pause");
+        (void)sched_yield();
     if (__atomic_load_n(&state->service_ready_mask, __ATOMIC_ACQUIRE) !=
         ready_mask) {
         __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
