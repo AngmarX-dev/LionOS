@@ -26,7 +26,13 @@
 #define LOW_OWNER_SLOTS ((LOW_AVAILABLE_END - LOW_AVAILABLE_START) / PAGE_SIZE)
 #define HIGH_OWNER_SLOTS ((HIGH_AVAILABLE_END - HIGH_AVAILABLE_START) / PAGE_SIZE)
 
-static uint8_t boot_info[200] __attribute__((aligned(8)));
+/*
+ * Keep the host Multiboot2 fixture in initialized data, before the large
+ * allocator bitmaps in BSS. Its address must remain inside the first 8 MiB,
+ * which the allocator reserves unconditionally.
+ */
+static uint8_t boot_info[200]
+    __attribute__((aligned(8), section(".data.boot_info"))) = {1u};
 
 void spinlock_init(struct spinlock *lock)
 {
@@ -671,6 +677,9 @@ int main(void)
      * run and return to the allocator without changing the managed limit.
      */
     make_full_low_map_boot_info();
+    if ((uintptr_t)boot_info >= 8ULL * MIB ||
+        (uint64_t)(uintptr_t)boot_info + sizeof(boot_info) > 8ULL * MIB)
+        return fail(70, "host Multiboot2 fixture escaped the permanently reserved low-memory window");
     if (multiboot2_info_validate(boot_info) != 0 ||
         memory_init((uint32_t)(uintptr_t)boot_info) != 0)
         return fail(71, "complete low-memory map failed allocator initialization");
