@@ -84,13 +84,32 @@ int main(void)
         return 7;
     }
 
+    /*
+     * Exercise the final valid CPU/vector cell, then issue invalid writes
+     * immediately beyond each dimension. The valid boundary cell and an
+     * unrelated CPU's matching vector must remain unchanged.
+     */
+    const uint32_t last_cpu = LIONOS_INTERRUPT_STATS_CPUS - 1u;
+    const uint32_t last_vector = LIONOS_INTERRUPT_STATS_VECTORS - 1u;
+    if (interrupt_stats_count(last_cpu, last_vector) != 0u ||
+        interrupt_stats_count(0u, last_vector) != 0u) {
+        fputs("interrupt stats: boundary slot was not initially clear\n",
+              stderr);
+        return 8;
+    }
+    interrupt_stats_record(last_cpu, last_vector);
+    interrupt_stats_record(last_cpu, last_vector);
+    interrupt_stats_record(last_cpu, last_vector);
+
     /* Invalid CPU/vector indices must not access the counter array. */
-    interrupt_stats_record(LIONOS_INTERRUPT_STATS_CPUS, 1u);
-    interrupt_stats_record(0u, LIONOS_INTERRUPT_STATS_VECTORS);
-    if (interrupt_stats_count(LIONOS_INTERRUPT_STATS_CPUS, 1u) != 0u ||
-        interrupt_stats_count(0u, LIONOS_INTERRUPT_STATS_VECTORS) != 0u ||
+    interrupt_stats_record(LIONOS_INTERRUPT_STATS_CPUS, last_vector);
+    interrupt_stats_record(last_cpu, LIONOS_INTERRUPT_STATS_VECTORS);
+    if (interrupt_stats_count(last_cpu, last_vector) != 3u ||
+        interrupt_stats_count(0u, last_vector) != 0u ||
+        interrupt_stats_count(LIONOS_INTERRUPT_STATS_CPUS, last_vector) != 0u ||
+        interrupt_stats_count(last_cpu, LIONOS_INTERRUPT_STATS_VECTORS) != 0u ||
         interrupt_stats_total(LIONOS_INTERRUPT_STATS_CPUS) != 0u) {
-        fputs("interrupt stats: bounds validation failed\n", stderr);
+        fputs("interrupt stats: boundary/bounds validation failed\n", stderr);
         return 5;
     }
 
