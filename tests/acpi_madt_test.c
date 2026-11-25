@@ -244,6 +244,40 @@ int main(void)
     if (expect_failure(n) != 0)
         return 17;
 
+    /* Duplicate APIC IDs are rejected across legacy and x2APIC records. */
+    n = begin_table();
+    n = add_cpu_entry(n, 1u, 0x42u, 1u);
+    n = add_entry(n, 9u, 16u);
+    put32(table + n - 12u, 0x42u);
+    put32(table + n - 8u, 1u);
+    put32(table + n - 4u, 2u);
+    if (expect_failure(n) != 0)
+        return 18;
+
+    /* Reserved x2APIC fields and unsupported flag bits must be rejected. */
+    n = begin_table();
+    n = add_entry(n, 9u, 16u);
+    put16(table + n - 14u, 1u);
+    put32(table + n - 12u, 3u);
+    put32(table + n - 8u, 1u);
+    put32(table + n - 4u, 4u);
+    if (expect_failure(n) != 0)
+        return 19;
+
+    n = begin_table();
+    n = add_entry(n, 9u, 16u);
+    put32(table + n - 12u, 3u);
+    put32(table + n - 8u, 4u);
+    put32(table + n - 4u, 4u);
+    if (expect_failure(n) != 0)
+        return 20;
+
+    /* Legacy processor flags also reject reserved bits. */
+    n = begin_table();
+    n = add_cpu_entry(n, 1u, 3u, 4u);
+    if (expect_failure(n) != 0)
+        return 21;
+
     puts("ACPI MADT parser tests passed");
     return 0;
 }
