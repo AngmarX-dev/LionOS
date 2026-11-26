@@ -53,6 +53,16 @@ run_qemu() {
     if [ -f "$log_file.qemu" ]; then
         echo "QEMU CPU/exception trace (last 120 lines):"
         tail -n 120 "$log_file.qemu" || true
+
+        # A triple fault can make QEMU exit with status 0. Resolve the last
+        # kernel-mode page-fault instruction while the unstripped ELF exists.
+        fault_eip=$(sed -nE \
+            's/.*v=0e .* cpl=0 .* pc=([[:xdigit:]]+).*/\\1/p' \
+            "$log_file.qemu" | tail -n 1)
+        if [ -n "$fault_eip" ]; then
+            echo "QEMU kernel page-fault instruction: 0x$fault_eip"
+            addr2line -f -C -e build/lionos.bin "0x$fault_eip" || true
+        fi
     fi
     if [ -f "$log_file" ]; then
         cat "$log_file"
