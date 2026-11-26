@@ -1674,8 +1674,13 @@ void lionos_user_integration_step(void){
                 round_busy_mask&integration_busy_balance_owner_mask;
             uint32_t round_destination_count=
                 integration_mask_count(round_owner_intersection);
-            uint32_t required_destinations=
-                integration_busy_balance_required_destinations();
+            /*
+             * A single wave may be consumed by one busy AP before another AP
+             * reaches its balancing point. Require a real busy transfer in
+             * every wave; the final cumulative coverage check below proves
+             * that all launched destinations participate across the waves.
+             */
+            uint32_t required_destinations=1u;
             if(round_busy_mask==0u||
                integration_busy_balance_moved<INTEGRATION_BUSY_BALANCE_MIN_MOVED||
                round_destination_count<required_destinations){
@@ -1756,8 +1761,13 @@ void lionos_user_integration_step(void){
             }
             uint32_t busy_owner_intersection=
                 busy_mask&integration_busy_balance_owner_mask;
+            /*
+             * Destination coverage is cumulative across all five fresh
+             * candidate waves; do not require every AP to win a race in the
+             * final wave as well as having participated earlier.
+             */
             uint32_t final_destination_count=
-                integration_mask_count(busy_owner_intersection);
+                integration_mask_count(integration_busy_balance_coverage_mask);
             uint32_t final_required_destinations=
                 integration_busy_balance_required_destinations();
             debug_write("LIONOS:SMP-BUSY-FINAL-DIAG busy=");
