@@ -109,6 +109,7 @@ static int mmap_tag_valid(const mb2_tag_view_t *tag)
         const uint8_t *entry = tag->payload + 8u + offset;
         uint64_t address = *(const uint64_t *)(const void *)entry;
         uint64_t length = *(const uint64_t *)(const void *)(entry + 8u);
+        /* The Multiboot2 mmap reserved field is intentionally ignored. */
         if (length > UINT64_MAX - address)
             return 0;
     }

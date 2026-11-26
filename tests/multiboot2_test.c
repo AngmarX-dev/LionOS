@@ -54,6 +54,12 @@ int main(void)
     make_valid();
     if(multiboot2_info_validate(storage)!=0)return 1;
 
+    /* Multiboot2 requires consumers to ignore the mmap entry reserved field. */
+    put32(44u, 0xA5A5A5A5u);
+    if (multiboot2_info_validate(storage) != 0)
+        return 33;
+    make_valid();
+
     mb2_info_iterator_t iterator;
     mb2_tag_view_t tag;
     if(multiboot2_info_iterator_init(storage,&iterator)!=0||
