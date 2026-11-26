@@ -659,6 +659,18 @@ int main(void)
         memory_high_free_pages() != full_high_pages)
         return fail(70, "oversized high allocation modified output or allocator accounting");
 
+    /*
+     * The entire 256 MiB–64 GiB window must be allocatable as one physically
+     * contiguous run, then fully recoverable without losing bitmap state.
+     */
+    if (page_alloc_high_contiguous(full_high_pages, &high_address) != 0 ||
+        high_address != LOW_MEMORY_LIMIT ||
+        memory_high_free_pages() != 0u)
+        return fail(79, "full high-memory window was not allocated contiguously");
+    page_free_high_contiguous(high_address, full_high_pages);
+    if (memory_high_free_pages() != full_high_pages)
+        return fail(80, "full high-memory contiguous release did not restore all pages");
+
     if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
         high_address != LOW_MEMORY_LIMIT ||
         memory_high_free_pages() != full_high_pages - 3u)
