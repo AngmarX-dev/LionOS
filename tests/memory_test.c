@@ -1429,6 +1429,39 @@ int main(void)
         return fail(78, "simultaneous low/high release did not restore both free-page counts");
 
     /*
+     * The unified physical-page API prefers directly mapped low memory,
+     * falls back to high memory only after the low window is exhausted,
+     * and dispatches release to the matching allocator.
+     */
+    uint64_t unified_page = UINT64_C(0xA5A5A5A5A5A5A5A5);
+    if (page_alloc_physical(&unified_page) != 0 ||
+        unified_page != LOW_RESERVED_PAGES * PAGE_SIZE ||
+        memory_free_pages() != combined_low_pages - 1u)
+        return fail(139, "unified page allocation did not prefer the low physical window");
+    page_free_physical(unified_page);
+    if (memory_free_pages() != combined_low_pages)
+        return fail(140, "unified low-page release did not restore low allocator accounting");
+
+    void *all_low_pages = page_alloc_contiguous(combined_low_pages);
+    if ((uintptr_t)all_low_pages != LOW_RESERVED_PAGES * PAGE_SIZE ||
+        memory_free_pages() != 0u)
+        return fail(141, "could not exhaust low memory before unified high-memory fallback");
+    unified_page = UINT64_C(0xA5A5A5A5A5A5A5A5);
+    if (page_alloc_physical(&unified_page) != 0 ||
+        unified_page != LOW_MEMORY_LIMIT ||
+        memory_free_pages() != 0u ||
+        memory_high_free_pages() != combined_high_pages - 1u)
+        return fail(142, "unified allocator did not fall back to the first high-memory page");
+    page_free_physical(unified_page);
+    if (memory_high_free_pages() != combined_high_pages)
+        return fail(143, "unified high-page release did not restore high allocator accounting");
+    for (uint32_t i = 0u; i < combined_low_pages; ++i)
+        page_free((void *)((uintptr_t)all_low_pages + (uint64_t)i * PAGE_SIZE));
+    if (memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(144, "unified allocator regression did not restore both memory windows");
+
+    /*
      * Reserved descriptors must win even when firmware lists available RAM
      * first. The one-MiB reserved hole must split the otherwise contiguous
      * four-MiB range into two independently allocatable runs.

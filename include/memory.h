@@ -6,6 +6,9 @@
 /* Returns 0 after complete validation; -1 leaves all allocator pages unavailable. */
 int memory_init(uint32_t multiboot_info);
 void *page_alloc(void);
+/* Allocate/free one page through the unified 0..64 GiB physical-memory API. */
+int page_alloc_physical(uint64_t *physical_address);
+void page_free_physical(uint64_t physical_address);
 void *page_alloc_contiguous(uint32_t count);
 /* Allocates physical pages above 256 MiB; returned address is physical, not directly dereferenceable. */
 int page_alloc_high(uint64_t *physical_address);

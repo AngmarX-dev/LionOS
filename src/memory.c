@@ -518,6 +518,41 @@ int memory_high_page_is_allocated(uint64_t physical_address)
 }
 void*page_alloc_contiguous(uint32_t count){if(!count||count>MAX_PAGES-RESERVED_PAGES)return 0;uint32_t irq=spinlock_irqsave_acquire(&memory_lock);uint32_t run=0,start=RESERVED_PAGES;for(uint32_t p=RESERVED_PAGES;p<MAX_PAGES;++p){if(is_free(p)){if(!run)start=p;if(++run==count){for(uint32_t i=0;i<count;++i){mark_used(start+i);page_refs[start+i]=1u;}free_pages-=count;spinlock_irqrestore_release(&memory_lock,irq);return(void*)(uintptr_t)(start*PAGE_SIZE);}}else run=0;}spinlock_irqrestore_release(&memory_lock,irq);return 0;}
 void*page_alloc(void){return page_alloc_contiguous(1);}
+int page_alloc_physical(uint64_t *physical_address)
+{
+    void *low_page;
+    uint64_t high_page;
+
+    if (!physical_address)
+        return -1;
+
+    /*
+     * Prefer the directly identity-mapped low window for existing kernel
+     * callers. Fall back to the high allocator only when low memory is
+     * exhausted; publish the output only after one allocator succeeds.
+     */
+    low_page = page_alloc();
+    if (low_page != 0) {
+        *physical_address = (uint64_t)(uintptr_t)low_page;
+        return 0;
+    }
+
+    if (page_alloc_high(&high_page) != 0)
+        return -1;
+
+    *physical_address = high_page;
+    return 0;
+}
+
+void page_free_physical(uint64_t physical_address)
+{
+    if (physical_address < HIGH_MEMORY_BASE) {
+        page_free((void *)(uintptr_t)physical_address);
+        return;
+    }
+
+    page_free_high(physical_address);
+}
 void page_retain(void*ptr){uint32_t a=(uint32_t)(uintptr_t)ptr;if((a&(PAGE_SIZE-1u))!=0)return;uint32_t p=a/PAGE_SIZE;if(p<RESERVED_PAGES||p>=MAX_PAGES)return;uint32_t irq=spinlock_irqsave_acquire(&memory_lock);if(!is_free(p)&&page_refs[p]!=0u&&page_refs[p]<0xFFFFu)++page_refs[p];spinlock_irqrestore_release(&memory_lock,irq);}
 uint32_t page_refcount(void*ptr){uint32_t a=(uint32_t)(uintptr_t)ptr;if((a&(PAGE_SIZE-1u))!=0)return 0u;uint32_t p=a/PAGE_SIZE;if(p<RESERVED_PAGES||p>=MAX_PAGES)return 0u;uint32_t irq=spinlock_irqsave_acquire(&memory_lock);uint32_t n=is_free(p)?0u:(uint32_t)page_refs[p];spinlock_irqrestore_release(&memory_lock,irq);return n;}
 void page_free(void*ptr){uint32_t a=(uint32_t)(uintptr_t)ptr;if((a&(PAGE_SIZE-1u))!=0)return;uint32_t p=a/PAGE_SIZE;if(p<RESERVED_PAGES||p>=MAX_PAGES)return;uint32_t irq=spinlock_irqsave_acquire(&memory_lock);if(!is_free(p)&&page_refs[p]){if(--page_refs[p]==0u){mark_free(p);++free_pages;}}spinlock_irqrestore_release(&memory_lock,irq);}
