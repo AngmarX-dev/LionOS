@@ -1496,10 +1496,11 @@ int main(void)
      * allocator must reserve those two low pages and the first two high pages
      * as one atomic contiguous run, and release must restore both inventories.
      */
-    void *boundary_low_pages = page_alloc_contiguous(combined_low_pages);
+    /* Reuse the still-owned full-window allocation from the fallback test. */
+    void *boundary_low_pages = all_low_pages;
     if ((uintptr_t)boundary_low_pages != LOW_RESERVED_PAGES * PAGE_SIZE ||
         memory_free_pages() != 0u)
-        return fail(166, "could not exhaust low memory before seam allocation");
+        return fail(166, "low-memory inventory changed before seam allocation");
     uint64_t low_tail = (uint64_t)(uintptr_t)boundary_low_pages +
                         (uint64_t)(combined_low_pages - 2u) * PAGE_SIZE;
     page_free((void *)(uintptr_t)low_tail);
