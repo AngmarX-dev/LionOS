@@ -145,6 +145,7 @@ run_qemu() {
         grep -q "LIONOS:SMP-AP-RUNQUEUE-REAP-VALIDATION-OK" "$log_file"
         grep -q "LIONOS:SMP-EXECUTION-EXCLUSION-OK" "$log_file"
         grep -q "LIONOS:SMP-WORK-STEAL-MULTI-PROCESS-OK" "$log_file"
+        grep -q "LIONOS:SMP-BUSY-CANDIDATE-ELF-READY size=" "$log_file"
         if grep -q "LIONOS:SMP-BUSY-BALANCE-ACCEPTANCE-FAIL" "$log_file"; then
             echo "production busy-destination balancing regression failed: $log_file" >&2
             return 1
