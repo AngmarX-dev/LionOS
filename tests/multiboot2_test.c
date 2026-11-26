@@ -6,7 +6,16 @@ static uint8_t storage[256] __attribute__((aligned(8)));
 
 static void put32(uint32_t offset,uint32_t value)
 {
-    *(uint32_t *)(void *)(storage+offset)=value;
+    storage[offset] = (uint8_t)value;
+    storage[offset + 1u] = (uint8_t)(value >> 8);
+    storage[offset + 2u] = (uint8_t)(value >> 16);
+    storage[offset + 3u] = (uint8_t)(value >> 24);
+}
+
+static void put64(uint32_t offset, uint64_t value)
+{
+    put32(offset, (uint32_t)value);
+    put32(offset + 4u, (uint32_t)(value >> 32));
 }
 
 static void make_valid(void)
@@ -18,8 +27,8 @@ static void make_valid(void)
     put32(12u,40u);
     put32(16u,24u);
     put32(20u,0u);
-    *(uint64_t *)(void *)(storage+24u)=0x100000u;
-    *(uint64_t *)(void *)(storage+32u)=0x400000u;
+    put64(24u, 0x100000u);
+    put64(32u, 0x400000u);
     put32(40u,MULTIBOOT2_MEMORY_AVAILABLE);
     put32(44u,0u);
     put32(48u,MULTIBOOT2_TAG_END);
@@ -55,14 +64,14 @@ static void make_extended_mmap(void)
     put32(12u, 80u);
     put32(16u, 32u);
     put32(20u, 0u);
-    *(uint64_t *)(void *)(storage + 24u) = 0x100000u;
-    *(uint64_t *)(void *)(storage + 32u) = 0x400000u;
+    put64(24u, 0x100000u);
+    put64(32u, 0x400000u);
     put32(40u, MULTIBOOT2_MEMORY_AVAILABLE);
     put32(44u, 0xA5A5A5A5u);
     put32(48u, 0x11223344u);
     put32(52u, 0x55667788u);
-    *(uint64_t *)(void *)(storage + 56u) = 0x200000u;
-    *(uint64_t *)(void *)(storage + 64u) = 0x100000u;
+    put64(56u, 0x200000u);
+    put64(64u, 0x100000u);
     put32(72u, 2u);
     put32(76u, 0x5A5A5A5Au);
     put32(80u, 0x99AABBCCu);
@@ -128,8 +137,8 @@ int main(void)
     put32(8u,MULTIBOOT2_TAG_MMAP);put32(12u,40u);
     put32(48u,MULTIBOOT2_TAG_MMAP);put32(52u,40u);
     put32(56u,24u);put32(60u,0u);
-    *(uint64_t *)(void *)(storage+64u)=0x500000u;
-    *(uint64_t *)(void *)(storage+72u)=0x100000u;
+    put64(64u, 0x500000u);
+    put64(72u, 0x100000u);
     put32(80u,MULTIBOOT2_MEMORY_AVAILABLE);put32(84u,0u);
     put32(88u,MULTIBOOT2_TAG_END);put32(92u,8u);
     put32(0u,96u);
@@ -152,8 +161,8 @@ int main(void)
     if(expect_invalid(24))return 24;
 
     make_valid();
-    *(uint64_t *)(void *)(storage+24u)=UINT64_MAX-0x7ffu;
-    *(uint64_t *)(void *)(storage+32u)=0x1000u;
+    put64(24u, UINT64_MAX-0x7ffu);
+    put64(32u, 0x1000u);
     if(expect_invalid(22))return 22;
 
     make_valid();

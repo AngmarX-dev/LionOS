@@ -7,6 +7,21 @@
 #define MB2_MMAP_ENTRY_MIN_SIZE 24u
 #define MB2_END_TAG_SIZE 8u
 
+/* Multiboot2 is an untyped little-endian byte stream; avoid integer type-punning. */
+static uint32_t mb2_read_u32(const uint8_t *bytes)
+{
+    return (uint32_t)bytes[0] |
+           ((uint32_t)bytes[1] << 8) |
+           ((uint32_t)bytes[2] << 16) |
+           ((uint32_t)bytes[3] << 24);
+}
+
+static uint64_t mb2_read_u64(const uint8_t *bytes)
+{
+    return (uint64_t)mb2_read_u32(bytes) |
+           ((uint64_t)mb2_read_u32(bytes + 4u) << 32);
+}
+
 int multiboot2_info_iterator_init(const void *info, mb2_info_iterator_t *iterator)
 {
     uintptr_t address=(uintptr_t)info;
@@ -15,8 +30,8 @@ int multiboot2_info_iterator_init(const void *info, mb2_info_iterator_t *iterato
         return -1;
 
     const uint8_t *bytes=(const uint8_t *)info;
-    uint32_t total_size=*(const uint32_t *)(const void *)bytes;
-    uint32_t reserved=*(const uint32_t *)(const void *)(bytes+4u);
+    uint32_t total_size = mb2_read_u32(bytes);
+    uint32_t reserved = mb2_read_u32(bytes + 4u);
     if(reserved!=0u||total_size<16u||(total_size&7u)!=0u||
        address>UINTPTR_MAX-total_size)
         return -1;
@@ -62,8 +77,8 @@ int multiboot2_info_iterator_next(mb2_info_iterator_t *iterator, mb2_tag_view_t 
         return -1;
 
     const uint8_t *current=iterator->base+iterator->offset;
-    uint32_t type=*(const uint32_t *)(const void *)current;
-    uint32_t size=*(const uint32_t *)(const void *)(current+4u);
+    uint32_t type = mb2_read_u32(current);
+    uint32_t size = mb2_read_u32(current + 4u);
     if(size<MB2_TAG_HEADER_SIZE||size>iterator->total_size-iterator->offset)
         return -1;
 
@@ -93,8 +108,8 @@ static int mmap_tag_valid(const mb2_tag_view_t *tag)
 {
     if(!tag||tag->type!=MULTIBOOT2_TAG_MMAP||tag->size<MB2_MMAP_HEADER_SIZE)
         return 0;
-    uint32_t entry_size=*(const uint32_t *)(const void *)tag->payload;
-    uint32_t entry_version=*(const uint32_t *)(const void *)(tag->payload+4u);
+    uint32_t entry_size = mb2_read_u32(tag->payload);
+    uint32_t entry_version = mb2_read_u32(tag->payload + 4u);
     uint32_t entries_size=tag->size-MB2_MMAP_HEADER_SIZE;
     if(entry_size<MB2_MMAP_ENTRY_MIN_SIZE||(entry_size&7u)!=0u||
        entry_version!=0u||entries_size%entry_size!=0u)
@@ -107,8 +122,8 @@ static int mmap_tag_valid(const mb2_tag_view_t *tag)
     for (uint32_t offset = 0u; offset < entries_size; offset += entry_size) {
         /* The tag payload starts after the 8-byte generic tag header. */
         const uint8_t *entry = tag->payload + 8u + offset;
-        uint64_t address = *(const uint64_t *)(const void *)entry;
-        uint64_t length = *(const uint64_t *)(const void *)(entry + 8u);
+        uint64_t address = mb2_read_u64(entry);
+        uint64_t length = mb2_read_u64(entry + 8u);
         /* The Multiboot2 mmap reserved field is intentionally ignored. */
         if (length > UINT64_MAX - address)
             return 0;
@@ -131,8 +146,8 @@ int multiboot2_info_validate(const void *info)
             if(!mmap_tag_valid(&tag)||++mmap_count!=1u)return -1;
         }else if(tag.type==MULTIBOOT2_TAG_MODULE){
             if(tag.size<17u)return -1;
-            uint32_t module_start=*(const uint32_t *)(const void *)tag.payload;
-            uint32_t module_end=*(const uint32_t *)(const void *)(tag.payload+4u);
+            uint32_t module_start = mb2_read_u32(tag.payload);
+            uint32_t module_end = mb2_read_u32(tag.payload + 4u);
             if(module_end<=module_start)return -1;
 
             /*

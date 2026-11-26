@@ -9,8 +9,22 @@
 #define MAX_PAGES 65536u
 #define RESERVED_PAGES 2048u
 
-struct mb2_mmap_entry { uint64_t addr,len; uint32_t type,reserved; };
 extern uint8_t _kernel_start; extern uint8_t _kernel_end;
+
+/* Decode untyped Multiboot2 byte streams without integer-pointer aliasing. */
+static uint32_t mb2_read_u32(const uint8_t *bytes)
+{
+    return (uint32_t)bytes[0] |
+           ((uint32_t)bytes[1] << 8) |
+           ((uint32_t)bytes[2] << 16) |
+           ((uint32_t)bytes[3] << 24);
+}
+
+static uint64_t mb2_read_u64(const uint8_t *bytes)
+{
+    return (uint64_t)mb2_read_u32(bytes) |
+           ((uint64_t)mb2_read_u32(bytes + 4u) << 32);
+}
 static uint32_t bitmap[MAX_PAGES / 32u]; static uint16_t page_refs[MAX_PAGES]; static uint32_t total_pages; static uint32_t free_pages; static uint64_t high_available_bytes;
 static struct spinlock memory_lock;
 static void mark_used(uint32_t p){if(p<MAX_PAGES)bitmap[p>>5]|=1u<<(p&31u);}
@@ -137,7 +151,7 @@ int memory_init(uint32_t mi){
         return -1;
     }
 
-    uint32_t ts=*(const uint32_t *)(uintptr_t)mi;
+    uint32_t ts = mb2_read_u32((const uint8_t *)(uintptr_t)mi);
     mb2_info_iterator_t iterator;
     mb2_tag_view_t tag;
     if(multiboot2_info_iterator_init((const void *)(uintptr_t)mi,&iterator)!=0)
@@ -160,23 +174,24 @@ int memory_init(uint32_t mi){
                 continue;
             const uint8_t *entries = tag.payload + 8u;
             uint32_t entries_bytes = tag.size - 16u;
-            uint32_t entry_size =
-                *(const uint32_t *)(const void *)tag.payload;
+            uint32_t entry_size = mb2_read_u32(tag.payload);
             for (uint32_t offset = 0u; offset < entries_bytes;
                  offset += entry_size) {
-                const struct mb2_mmap_entry *entry =
-                    (const struct mb2_mmap_entry *)(const void *)(entries + offset);
-                if (entry->len > UINT64_MAX - entry->addr)
+                const uint8_t *entry = entries + offset;
+                uint64_t region_start = mb2_read_u64(entry);
+                uint64_t region_length = mb2_read_u64(entry + 8u);
+                uint32_t region_type = mb2_read_u32(entry + 16u);
+                if (region_length > UINT64_MAX - region_start)
                     continue;
-                uint64_t region_end = entry->addr + entry->len;
+                uint64_t region_end = region_start + region_length;
                 if (pass == 0u) {
-                    if (entry->type != MULTIBOOT2_MEMORY_AVAILABLE)
+                    if (region_type != MULTIBOOT2_MEMORY_AVAILABLE)
                         continue;
-                    mark_low_available(entry->addr, region_end);
-                    high_mark_available(entry->addr, region_end);
-                } else if (entry->type != MULTIBOOT2_MEMORY_AVAILABLE) {
-                    reserve_low_range(entry->addr, region_end);
-                    high_reserve_range(entry->addr, region_end);
+                    mark_low_available(region_start, region_end);
+                    high_mark_available(region_start, region_end);
+                } else if (region_type != MULTIBOOT2_MEMORY_AVAILABLE) {
+                    reserve_low_range(region_start, region_end);
+                    high_reserve_range(region_start, region_end);
                 }
             }
         }
@@ -206,8 +221,8 @@ int memory_init(uint32_t mi){
     }
     while((next=multiboot2_info_iterator_next(&iterator,&tag))>0){
         if(tag.type==MULTIBOOT2_TAG_MODULE){
-            uint32_t module_start=*(const uint32_t *)(const void *)tag.payload;
-            uint32_t module_end=*(const uint32_t *)(const void *)(tag.payload+4u);
+            uint32_t module_start = mb2_read_u32(tag.payload);
+            uint32_t module_end = mb2_read_u32(tag.payload + 4u);
             reserve_low_range(module_start,module_end);
             high_reserve_range(module_start,module_end);
         }

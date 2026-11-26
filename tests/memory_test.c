@@ -87,12 +87,16 @@ void debug_write(const char *s)
 
 static void put32(uint32_t offset, uint32_t value)
 {
-    *(uint32_t *)(void *)(boot_info + offset) = value;
+    boot_info[offset] = (uint8_t)value;
+    boot_info[offset + 1u] = (uint8_t)(value >> 8);
+    boot_info[offset + 2u] = (uint8_t)(value >> 16);
+    boot_info[offset + 3u] = (uint8_t)(value >> 24);
 }
 
 static void put64(uint32_t offset, uint64_t value)
 {
-    *(uint64_t *)(void *)(boot_info + offset) = value;
+    put32(offset, (uint32_t)value);
+    put32(offset + 4u, (uint32_t)(value >> 32));
 }
 
 static void put_mmap_entry(uint32_t offset, uint64_t start,
