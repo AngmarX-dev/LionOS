@@ -1419,12 +1419,26 @@ void lionos_user_integration_step(void){
         if(pending||active_mask!=integration_busy_worker_launch_mask)
             return;
 
+        const char *candidate_name="busy_balance_candidate_test.elf";
+        uint32_t candidate_size=ramfs_size(candidate_name);
+        if(!ramfs_exists(candidate_name)||candidate_size==0u){
+            integration_busy_balance_failed=1u;
+            debug_write("LIONOS:SMP-BUSY-CANDIDATE-ELF-NOT-REGISTERED size=");
+            debug_write_u32_hex(candidate_size);
+            debug_write("\n");
+            integration_stage=28;
+            return;
+        }
+        debug_write("LIONOS:SMP-BUSY-CANDIDATE-ELF-READY size=");
+        debug_write_u32_hex(candidate_size);
+        debug_write("\n");
+
         uint32_t launch_flags=0u;
         __asm__ volatile("pushfl; popl %0; cli"
                          : "=r"(launch_flags) : : "memory");
         uint32_t created=0u;
         for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i){
-            int pid=exec_run_file("busy_balance_candidate_test.elf");
+            int pid=exec_run_file(candidate_name);
             if(pid<=0){
                 integration_busy_balance_failed=1u;
                 break;
