@@ -582,7 +582,7 @@ int page_alloc_physical_contiguous(uint32_t count,
 
     uint32_t low_count = low_suffix < count ? low_suffix : count;
     uint32_t high_needed = count - low_count;
-    if (high_needed != 0u) {
+    if (low_count != 0u && high_needed != 0u) {
         for (uint32_t page = 0u;
              page < HIGH_MEMORY_PAGES && high_prefix < high_needed;
              ++page) {
@@ -593,7 +593,8 @@ int page_alloc_physical_contiguous(uint32_t count,
         }
     }
 
-    if (high_prefix < high_needed) {
+    /* With no low suffix, preserve the high allocator's scan-hint policy. */
+    if (low_count == 0u || high_prefix < high_needed) {
         spinlock_irqrestore_release(&memory_lock, irq);
         if (page_alloc_high_contiguous(count, &high_run) != 0)
             return -1;
