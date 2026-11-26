@@ -15,6 +15,8 @@
 #define HIGH_AVAILABLE_START (512ULL * MIB)
 #define HIGH_AVAILABLE_END (520ULL * MIB)
 #define LOW_MEMORY_LIMIT (256ULL * MIB)
+/* The low allocator permanently reserves the first 8 MiB. */
+#define LOW_RESERVED_PAGES (8ULL * MIB / PAGE_SIZE)
 #define HIGH_MEMORY_LIMIT (64ULL * 1024ULL * MIB)
 #define HIGH_RESERVED_START (514ULL * MIB)
 #define HIGH_RESERVED_END (515ULL * MIB)
@@ -710,7 +712,7 @@ int main(void)
         return fail(71, "complete low-memory map failed allocator initialization");
 
     const uint32_t full_low_pages =
-        (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) - 2048u;
+        (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) - LOW_RESERVED_PAGES;
     uint32_t full_low_free_before = memory_free_pages();
     void *oversized_low_run = page_alloc_contiguous(full_low_pages + 1u);
     uint32_t full_low_free_after = memory_free_pages();
@@ -756,7 +758,7 @@ int main(void)
         return fail(75, "combined low/high memory map failed allocator initialization");
 
     const uint32_t combined_low_pages =
-        (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) - RESERVED_PAGES;
+        (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) - LOW_RESERVED_PAGES;
     const uint32_t combined_high_pages =
         (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE);
     if (memory_free_pages() != combined_low_pages ||
@@ -767,7 +769,7 @@ int main(void)
 
     void *combined_low = page_alloc_contiguous(2u);
     uint64_t combined_high = 0u;
-    if ((uintptr_t)combined_low != RESERVED_PAGES * PAGE_SIZE ||
+    if ((uintptr_t)combined_low != LOW_RESERVED_PAGES * PAGE_SIZE ||
         page_alloc_high_contiguous(2u, &combined_high) != 0 ||
         combined_high != LOW_MEMORY_LIMIT ||
         memory_free_pages() != combined_low_pages - 2u ||
