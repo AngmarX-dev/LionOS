@@ -49,10 +49,10 @@ static void make_extended_mmap(void)
      * Multiboot2 permits mmap entries larger than the 24-byte base layout.
      * Consumers must use the advertised stride and ignore extension bytes.
      */
-    put32(0u, 64u);
+    put32(0u, 96u);
     put32(4u, 0u);
     put32(8u, MULTIBOOT2_TAG_MMAP);
-    put32(12u, 48u);
+    put32(12u, 80u);
     put32(16u, 32u);
     put32(20u, 0u);
     *(uint64_t *)(void *)(storage + 24u) = 0x100000u;
@@ -61,8 +61,14 @@ static void make_extended_mmap(void)
     put32(44u, 0xA5A5A5A5u);
     put32(48u, 0x11223344u);
     put32(52u, 0x55667788u);
-    put32(56u, MULTIBOOT2_TAG_END);
-    put32(60u, 8u);
+    *(uint64_t *)(void *)(storage + 56u) = 0x200000u;
+    *(uint64_t *)(void *)(storage + 64u) = 0x100000u;
+    put32(72u, 2u);
+    put32(76u, 0x5A5A5A5Au);
+    put32(80u, 0x99AABBCCu);
+    put32(84u, 0xDDEEFF00u);
+    put32(88u, MULTIBOOT2_TAG_END);
+    put32(92u, 8u);
 }
 
 static int expect_invalid(int code)
@@ -87,7 +93,7 @@ int main(void)
         return 34;
     if (multiboot2_info_iterator_init(storage, &iterator) != 0 ||
         multiboot2_info_iterator_next(&iterator, &tag) != 1 ||
-        tag.type != MULTIBOOT2_TAG_MMAP || tag.size != 48u ||
+        tag.type != MULTIBOOT2_TAG_MMAP || tag.size != 80u ||
         multiboot2_info_iterator_next(&iterator, &tag) != 0)
         return 35;
 

@@ -248,19 +248,23 @@ static void make_extended_stride_boot_info(void)
     for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
         boot_info[i] = 0u;
 
-    put32(0u, 64u);
+    put32(0u, 96u);
     put32(4u, 0u);
     put32(8u, MULTIBOOT2_TAG_MMAP);
-    put32(12u, 48u);
+    put32(12u, 80u);
     put32(16u, 32u);
     put32(20u, 0u);
     put_mmap_entry(24u, 16ULL * MIB, 4ULL * MIB,
                    MULTIBOOT2_MEMORY_AVAILABLE);
+    /* The second 32-byte record reserves a 1 MiB interior hole. */
+    put_mmap_entry(56u, 17ULL * MIB, 1ULL * MIB, 2u);
     /* Unknown per-entry extension bytes must not affect the base fields. */
     put32(48u, 0xA5A5A5A5u);
     put32(52u, 0x5A5A5A5Au);
-    put32(56u, MULTIBOOT2_TAG_END);
-    put32(60u, 8u);
+    put32(80u, 0x11223344u);
+    put32(84u, 0x55667788u);
+    put32(88u, MULTIBOOT2_TAG_END);
+    put32(92u, 8u);
 }
 
 static void make_full_managed_map_boot_info(void)
@@ -953,16 +957,25 @@ int main(void)
         memory_init((uint32_t)(uintptr_t)boot_info) != 0)
         return fail(84, "extended Multiboot2 mmap entry failed validation or ingestion");
     if (memory_total_pages() != (uint32_t)(20ULL * MIB / PAGE_SIZE) ||
-        memory_free_pages() != (uint32_t)(4ULL * MIB / PAGE_SIZE) ||
+        memory_free_pages() != (uint32_t)(3ULL * MIB / PAGE_SIZE) ||
         memory_high_free_pages() != 0u)
-        return fail(85, "extended mmap stride produced incorrect allocator accounting");
-    low_allocation = page_alloc();
+        return fail(85, "extended mmap stride or reserved overlap produced incorrect accounting");
+    if (page_alloc_contiguous(257u) != 0)
+        return fail(86, "extended mmap stride allowed an allocation across its reserved hole");
+    low_allocation = page_alloc_contiguous(256u);
     if ((uintptr_t)low_allocation != 16ULL * MIB ||
-        memory_free_pages() != (uint32_t)(4ULL * MIB / PAGE_SIZE) - 1u)
-        return fail(86, "extended mmap stride exposed the wrong low-memory page");
-    page_free(low_allocation);
-    if (memory_free_pages() != (uint32_t)(4ULL * MIB / PAGE_SIZE))
-        return fail(87, "extended mmap stride allocation did not release cleanly");
+        memory_free_pages() != (uint32_t)(2ULL * MIB / PAGE_SIZE))
+        return fail(87, "extended mmap stride exposed an incorrect first contiguous run");
+    void *extended_second_run = page_alloc_contiguous(512u);
+    if ((uintptr_t)extended_second_run != 18ULL * MIB ||
+        memory_free_pages() != 0u)
+        return fail(88, "extended mmap stride did not advance by the advertised record size");
+    for (uint32_t i = 0u; i < 256u; ++i)
+        page_free((void *)((uintptr_t)low_allocation + (uint64_t)i * PAGE_SIZE));
+    for (uint32_t i = 0u; i < 512u; ++i)
+        page_free((void *)((uintptr_t)extended_second_run + (uint64_t)i * PAGE_SIZE));
+    if (memory_free_pages() != (uint32_t)(3ULL * MIB / PAGE_SIZE))
+        return fail(89, "extended mmap multi-record allocations did not release cleanly");
 
     puts("physical allocator low/high range, concurrency, lifecycle, and fail-closed tests passed");
     return 0;
