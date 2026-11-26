@@ -244,10 +244,10 @@ static void make_full_managed_map_boot_info(void)
      * Describe both allocator windows in one firmware map. The first range
      * covers 0–256 MiB and the second covers 256 MiB–64 GiB.
      */
-    put32(0u, 88u);
+    put32(0u, 80u);
     put32(4u, 0u);
     put32(8u, MULTIBOOT2_TAG_MMAP);
-    put32(12u, 72u);
+    put32(12u, 64u);
     put32(16u, 24u);
     put32(20u, 0u);
     put_mmap_entry(24u, 0u, LOW_MEMORY_LIMIT,
@@ -255,8 +255,8 @@ static void make_full_managed_map_boot_info(void)
     put_mmap_entry(48u, LOW_MEMORY_LIMIT,
                    HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT,
                    MULTIBOOT2_MEMORY_AVAILABLE);
-    put32(80u, MULTIBOOT2_TAG_END);
-    put32(84u, 8u);
+    put32(72u, MULTIBOOT2_TAG_END);
+    put32(76u, 8u);
 }
 
 
