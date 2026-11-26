@@ -564,10 +564,61 @@ int page_alloc_physical_contiguous(uint32_t count,
         return 0;
     }
 
-    if (page_alloc_high_contiguous(count, &high_run) != 0)
-        return -1;
+    /*
+     * The low and high physical windows are adjacent at 256 MiB. If neither
+     * allocator can satisfy the request alone, a run may still fit across
+     * that seam. Inspect and reserve both sides under one lock so another
+     * allocator cannot claim either half between validation and publication.
+     */
+    uint32_t irq = spinlock_irqsave_acquire(&memory_lock);
+    uint32_t low_suffix = 0u;
+    uint32_t high_prefix = 0u;
 
-    *physical_address = high_run;
+    for (uint32_t page = MAX_PAGES; page > RESERVED_PAGES; --page) {
+        if (!is_free(page - 1u))
+            break;
+        ++low_suffix;
+    }
+
+    uint32_t low_count = low_suffix < count ? low_suffix : count;
+    uint32_t high_needed = count - low_count;
+    if (high_needed != 0u) {
+        for (uint32_t page = 0u;
+             page < HIGH_MEMORY_PAGES && high_prefix < high_needed;
+             ++page) {
+            if (!high_bit_get(high_available, page) ||
+                high_bit_get(high_allocated, page))
+                break;
+            ++high_prefix;
+        }
+    }
+
+    if (high_prefix < high_needed) {
+        spinlock_irqrestore_release(&memory_lock, irq);
+        if (page_alloc_high_contiguous(count, &high_run) != 0)
+            return -1;
+        *physical_address = high_run;
+        return 0;
+    }
+
+    uint32_t low_first = MAX_PAGES - low_count;
+    for (uint32_t i = 0u; i < low_count; ++i) {
+        mark_used(low_first + i);
+        page_refs[low_first + i] = 1u;
+    }
+    for (uint32_t i = 0u; i < high_needed; ++i)
+        high_bit_set(high_allocated, i);
+
+    free_pages -= low_count;
+    high_free_pages -= high_needed;
+    if (high_needed != 0u) {
+        high_scan_hint = high_needed;
+        if (high_scan_hint >= HIGH_MEMORY_PAGES)
+            high_scan_hint = 0u;
+    }
+
+    *physical_address = (uint64_t)low_first * PAGE_SIZE;
+    spinlock_irqrestore_release(&memory_lock, irq);
     return 0;
 }
 

@@ -1491,6 +1491,38 @@ int main(void)
         return fail(158, "unified contiguous high-memory release did not restore inventory");
 
     /*
+     * The low and high windows are physically adjacent. Exhaust low memory,
+     * release only its final two pages, then request four pages. The unified
+     * allocator must reserve those two low pages and the first two high pages
+     * as one atomic contiguous run, and release must restore both inventories.
+     */
+    void *boundary_low_pages = page_alloc_contiguous(combined_low_pages);
+    if ((uintptr_t)boundary_low_pages != LOW_RESERVED_PAGES * PAGE_SIZE ||
+        memory_free_pages() != 0u)
+        return fail(166, "could not exhaust low memory before seam allocation");
+    uint64_t low_tail = (uint64_t)(uintptr_t)boundary_low_pages +
+                        (uint64_t)(combined_low_pages - 2u) * PAGE_SIZE;
+    page_free((void *)(uintptr_t)low_tail);
+    page_free((void *)(uintptr_t)(low_tail + PAGE_SIZE));
+    unified_run = UINT64_C(0xD4D4D4D4D4D4D4D4);
+    if (memory_free_pages() != 2u ||
+        page_alloc_physical_contiguous(4u, &unified_run) != 0 ||
+        unified_run != LOW_MEMORY_LIMIT - 2u * PAGE_SIZE ||
+        memory_free_pages() != 0u ||
+        memory_high_free_pages() != combined_high_pages - 2u)
+        return fail(167, "unified contiguous allocation did not span the low/high seam");
+    page_free_physical_contiguous(unified_run, 4u);
+    if (memory_free_pages() != 2u ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(168, "cross-seam contiguous release did not restore both inventories");
+    for (uint32_t i = 0u; i < combined_low_pages; ++i)
+        page_free((void *)((uintptr_t)boundary_low_pages +
+                           (uint64_t)i * PAGE_SIZE));
+    if (memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(169, "cross-seam allocation fixture did not restore complete inventory");
+
+    /*
      * Keep half of low memory allocated in alternating pages. The remaining
      * low pages are free but fragmented, so a two-page unified request must
      * use a contiguous high-memory run without disturbing low accounting.
