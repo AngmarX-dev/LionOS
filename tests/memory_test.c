@@ -620,6 +620,21 @@ int main(void)
                                             HIGH_MEMORY_LIMIT) != 1)
         return fail(29, "full-window reservation did not preserve only the final page");
 
+    /*
+     * The range query reports whether ANY page in the requested interval is
+     * firmware-available, even when the interval also contains reserved RAM.
+     * It rejects unaligned and out-of-window intervals before scanning.
+     */
+    if (memory_range_contains_available_ram(LOW_MEMORY_LIMIT,
+                                            LOW_MEMORY_LIMIT + 2u * PAGE_SIZE) != 1 ||
+        memory_range_contains_available_ram(LOW_MEMORY_LIMIT + PAGE_SIZE,
+                                            LOW_MEMORY_LIMIT + 2u * PAGE_SIZE) != 0 ||
+        memory_range_contains_available_ram(LOW_MEMORY_LIMIT + 1u,
+                                            LOW_MEMORY_LIMIT + PAGE_SIZE) != -1 ||
+        memory_range_contains_available_ram(LOW_MEMORY_LIMIT - PAGE_SIZE,
+                                            LOW_MEMORY_LIMIT) != -1)
+        return fail(81, "high-memory range query mishandled mixed, reserved, or invalid intervals");
+
     high_address = 0xC3C3C3C3C3C3C3C3ULL;
     if (page_alloc_high_contiguous(2u, &high_address) == 0 ||
         high_address != 0xC3C3C3C3C3C3C3C3ULL ||
