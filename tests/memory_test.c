@@ -554,6 +554,22 @@ int main(void)
     if (memory_high_free_pages() != 1792u)
         return fail(15, "high-page release did not restore the free count");
 
+    /*
+     * Failed high contiguous allocations must be transactional: reject zero
+     * pages and requests larger than the current free inventory without
+     * changing the caller's output address or allocator accounting.
+     */
+    high_address = 0x1122334455667788ULL;
+    if (page_alloc_high_contiguous(0u, &high_address) == 0 ||
+        high_address != 0x1122334455667788ULL ||
+        memory_high_free_pages() != 1792u)
+        return fail(90, "zero-length high allocation changed output or accounting");
+
+    if (page_alloc_high_contiguous(1793u, &high_address) == 0 ||
+        high_address != 0x1122334455667788ULL ||
+        memory_high_free_pages() != 1792u)
+        return fail(91, "oversized high allocation changed output or accounting");
+
     memory_reserve_physical_range(516ULL * MIB, 517ULL * MIB);
     if (memory_high_free_pages() != 1536u ||
         memory_range_contains_available_ram(516ULL * MIB,
