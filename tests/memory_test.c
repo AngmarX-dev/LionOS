@@ -613,6 +613,85 @@ static int expect_rejected_boot_info(int code, const char *message)
     return 0;
 }
 
+
+struct high_pin_race_context {
+    uint64_t physical_address;
+    volatile uint32_t free_completed;
+    volatile uint32_t failed;
+};
+
+static void *high_pin_race_free_worker(void *opaque)
+{
+    struct high_pin_race_context *context =
+        (struct high_pin_race_context *)opaque;
+
+    page_free_high(context->physical_address);
+    __atomic_store_n(&context->free_completed, 1u, __ATOMIC_RELEASE);
+    return 0;
+}
+
+static void *high_pin_race_allocate_worker(void *opaque)
+{
+    struct high_pin_race_context *context =
+        (struct high_pin_race_context *)opaque;
+    uint64_t allocation = 0u;
+
+    while (__atomic_load_n(&context->free_completed, __ATOMIC_ACQUIRE) == 0u)
+        __asm__ volatile("pause" ::: "memory");
+
+    /* A release-pending page must reject new pins and remain unavailable. */
+    if (memory_high_page_pin(context->physical_address) != -1)
+        __atomic_store_n(&context->failed, 1u, __ATOMIC_RELEASE);
+
+    if (page_alloc_high(&allocation) != 0) {
+        __atomic_store_n(&context->failed, 1u, __ATOMIC_RELEASE);
+    } else {
+        if (allocation == context->physical_address)
+            __atomic_store_n(&context->failed, 1u, __ATOMIC_RELEASE);
+        page_free_high(allocation);
+    }
+
+    if (memory_high_page_unpin(context->physical_address) != 0)
+        __atomic_store_n(&context->failed, 1u, __ATOMIC_RELEASE);
+    return 0;
+}
+
+static int high_pin_concurrent_release_test(uint32_t inventory)
+{
+    struct high_pin_race_context context = {0u, 0u, 0u};
+    pthread_t free_thread;
+    pthread_t allocate_thread;
+
+    if (page_alloc_high(&context.physical_address) != 0 ||
+        memory_high_page_pin(context.physical_address) != 0)
+        return -1;
+
+    if (pthread_create(&free_thread, 0, high_pin_race_free_worker,
+                       &context) != 0) {
+        (void)memory_high_page_unpin(context.physical_address);
+        page_free_high(context.physical_address);
+        return -1;
+    }
+
+    if (pthread_create(&allocate_thread, 0, high_pin_race_allocate_worker,
+                       &context) != 0) {
+        (void)pthread_join(free_thread, 0);
+        (void)memory_high_page_unpin(context.physical_address);
+        return -1;
+    }
+
+    if (pthread_join(free_thread, 0) != 0)
+        __atomic_store_n(&context.failed, 1u, __ATOMIC_RELEASE);
+    if (pthread_join(allocate_thread, 0) != 0)
+        __atomic_store_n(&context.failed, 1u, __ATOMIC_RELEASE);
+
+    if (__atomic_load_n(&context.failed, __ATOMIC_ACQUIRE) != 0u ||
+        memory_high_page_is_allocated(context.physical_address) != 0 ||
+        memory_high_free_pages() != inventory)
+        return -1;
+    return 0;
+}
+
 int main(void)
 {
     uint64_t high_address = 0u;
@@ -1498,6 +1577,9 @@ int main(void)
         memory_high_page_is_allocated(high_address) != 0 ||
         memory_high_free_pages() != pin_test_full_high_pages - 1u)
         return fail(125, "reservation of a pinned high page allowed premature reuse or incorrect accounting");
+
+    if (high_pin_concurrent_release_test(pin_test_full_high_pages) != 0)
+        return fail(126, "concurrent high-page release exposed a pinned page or leaked inventory");
 
     puts("physical allocator low/high range, pin lifecycle, concurrency, and fail-closed tests passed");
     return 0;
