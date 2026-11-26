@@ -602,6 +602,9 @@ int main(void)
     const uint64_t revoked_high_page = HIGH_AVAILABLE_START + PAGE_SIZE;
     memory_reserve_physical_range(revoked_high_page,
                                   revoked_high_page + PAGE_SIZE);
+    /* Reapplying the same reservation must be strictly idempotent. */
+    memory_reserve_physical_range(revoked_high_page,
+                                  revoked_high_page + PAGE_SIZE);
     if (memory_high_free_pages() != 1533u ||
         memory_range_contains_available_ram(HIGH_AVAILABLE_START,
                                             HIGH_AVAILABLE_START + PAGE_SIZE) != 1 ||
