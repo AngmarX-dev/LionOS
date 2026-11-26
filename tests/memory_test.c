@@ -1609,6 +1609,36 @@ int main(void)
         memory_high_page_pin(HIGH_MEMORY_LIMIT) != -1)
         return fail(123, "high-page pin API accepted invalid or unowned page state");
 
+    /*
+     * Saturate the per-page pin reference counter. The next pin must fail
+     * without wrapping the 16-bit count, and a deferred free must remain
+     * unavailable until every accepted reference has been released.
+     */
+    if (page_alloc_high(&high_address) != 0)
+        return fail(128, "high page allocation failed before pin saturation");
+    for (uint32_t pin = 0u; pin < UINT16_MAX; ++pin) {
+        if (memory_high_page_pin(high_address) != 0)
+            return fail(129, "high-page pin reference count saturated prematurely");
+    }
+    if (memory_high_page_pin(high_address) != -1)
+        return fail(130, "high-page pin reference count wrapped past UINT16_MAX");
+    page_free_high(high_address);
+    if (memory_high_page_is_allocated(high_address) != 1 ||
+        memory_high_free_pages() != pin_test_full_high_pages - 1u ||
+        memory_high_page_pin(high_address) != -1)
+        return fail(131, "saturated high-page pins did not defer release safely");
+    for (uint32_t pin = 0u; pin < UINT16_MAX; ++pin) {
+        if (memory_high_page_unpin(high_address) != 0)
+            return fail(132, "high-page unpin failed before all saturated references were released");
+        if (pin + 1u < UINT16_MAX &&
+            memory_high_page_is_allocated(high_address) != 1)
+            return fail(133, "high page became reusable before the final saturated unpin");
+    }
+    if (memory_high_page_is_allocated(high_address) != 0 ||
+        memory_high_free_pages() != pin_test_full_high_pages ||
+        memory_high_page_unpin(high_address) != -1)
+        return fail(134, "final saturated unpin did not release exactly one page");
+
     if (page_alloc_high(&high_address) != 0 ||
         memory_high_page_pin(high_address) != 0)
         return fail(124, "high page could not be prepared for reservation while pinned");
