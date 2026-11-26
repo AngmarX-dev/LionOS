@@ -437,6 +437,132 @@ static void *memory_stress_worker(void *opaque)
     return 0;
 }
 
+#define HIGH_FRAGMENTATION_SLOTS 64u
+#define HIGH_FRAGMENTATION_OPERATIONS 2048u
+
+struct high_fragmentation_run {
+    uint64_t address;
+    uint32_t count;
+};
+
+static uint32_t high_fragmentation_random(uint32_t *state)
+{
+    uint32_t value = *state;
+    value ^= value << 13;
+    value ^= value >> 17;
+    value ^= value << 5;
+    *state = value;
+    return value;
+}
+
+/*
+ * Deterministically fragment the high allocator with varied contiguous runs.
+ * Every transition checks page ownership and exact free-page accounting;
+ * failed allocations must preserve both the output sentinel and inventory.
+ */
+static int memory_high_fragmentation_test(uint32_t inventory)
+{
+    struct high_fragmentation_run runs[HIGH_FRAGMENTATION_SLOTS] = {{0u, 0u}};
+    uint32_t random_state = 0x6D2B79F5u;
+    uint32_t expected_free = inventory;
+
+    if (memory_high_free_pages() != inventory)
+        return -1;
+
+    for (uint32_t operation = 0u;
+         operation < HIGH_FRAGMENTATION_OPERATIONS; ++operation) {
+        uint32_t random = high_fragmentation_random(&random_state);
+        uint32_t slot = random % HIGH_FRAGMENTATION_SLOTS;
+
+        if (runs[slot].count != 0u) {
+            uint64_t address = runs[slot].address;
+            uint32_t count = runs[slot].count;
+
+            for (uint32_t page = 0u; page < count; ++page) {
+                if (memory_high_page_is_allocated(
+                        address + (uint64_t)page * PAGE_SIZE) != 1)
+                    return -1;
+            }
+
+            page_free_high_contiguous(address, count);
+            expected_free += count;
+            runs[slot].address = 0u;
+            runs[slot].count = 0u;
+
+            if (memory_high_free_pages() != expected_free)
+                return -1;
+            for (uint32_t page = 0u; page < count; ++page) {
+                if (memory_high_page_is_allocated(
+                        address + (uint64_t)page * PAGE_SIZE) != 0)
+                    return -1;
+            }
+        } else {
+            uint32_t count = ((random >> 8) % 32u) + 1u;
+            uint64_t address = 0xA7A7A7A7A7A7A7A7ULL;
+            uint32_t before = expected_free;
+
+            if (page_alloc_high_contiguous(count, &address) != 0) {
+                if (address != 0xA7A7A7A7A7A7A7A7ULL ||
+                    memory_high_free_pages() != before)
+                    return -1;
+                continue;
+            }
+
+            if (count > before)
+                return -1;
+            runs[slot].address = address;
+            runs[slot].count = count;
+            if (address < LOW_MEMORY_LIMIT ||
+                address >= HIGH_MEMORY_LIMIT ||
+                (address & (PAGE_SIZE - 1u)) != 0u ||
+                (uint64_t)count >
+                    (HIGH_MEMORY_LIMIT - address) / PAGE_SIZE)
+                return -1;
+
+            uint64_t end = address + (uint64_t)count * PAGE_SIZE;
+            for (uint32_t other = 0u;
+                 other < HIGH_FRAGMENTATION_SLOTS; ++other) {
+                if (other == slot || runs[other].count == 0u)
+                    continue;
+                uint64_t other_start = runs[other].address;
+                uint64_t other_end = other_start +
+                    (uint64_t)runs[other].count * PAGE_SIZE;
+                if (address < other_end && other_start < end)
+                    return -1;
+            }
+
+            for (uint32_t page = 0u; page < count; ++page) {
+                if (memory_high_page_is_allocated(
+                        address + (uint64_t)page * PAGE_SIZE) != 1)
+                    return -1;
+            }
+
+            expected_free -= count;
+            if (memory_high_free_pages() != expected_free)
+                return -1;
+        }
+    }
+
+    for (uint32_t slot = 0u; slot < HIGH_FRAGMENTATION_SLOTS; ++slot) {
+        if (runs[slot].count == 0u)
+            continue;
+        uint64_t address = runs[slot].address;
+        uint32_t count = runs[slot].count;
+        page_free_high_contiguous(address, count);
+        expected_free += count;
+        runs[slot].address = 0u;
+        runs[slot].count = 0u;
+        for (uint32_t page = 0u; page < count; ++page) {
+            if (memory_high_page_is_allocated(
+                    address + (uint64_t)page * PAGE_SIZE) != 0)
+                return -1;
+        }
+    }
+
+    return expected_free == inventory &&
+           memory_high_free_pages() == inventory ? 0 : -1;
+}
+
 static int memory_allocator_concurrency_test(void)
 {
     pthread_t threads[MEMORY_STRESS_THREADS];
@@ -904,6 +1030,9 @@ int main(void)
     page_free_high_contiguous(high_address, full_high_pages);
     if (memory_high_free_pages() != full_high_pages)
         return fail(80, "full high-memory contiguous release did not restore all pages");
+
+    if (memory_high_fragmentation_test(full_high_pages) != 0)
+        return fail(116, "deterministic high-memory fragmentation stress corrupted ownership or accounting");
 
     /*
      * Drive the high allocator scan hint to the final page, wrap it to zero,
