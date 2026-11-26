@@ -964,8 +964,14 @@ int main(void)
         memory_free_pages() != (uint32_t)(3ULL * MIB / PAGE_SIZE) ||
         memory_high_free_pages() != 0u)
         return fail(85, "extended mmap stride or reserved overlap produced incorrect accounting");
-    if (page_alloc_contiguous(257u) != 0)
-        return fail(86, "extended mmap stride allowed an allocation across its reserved hole");
+    /*
+     * The larger run is 512 pages, so 257 pages may legitimately fit there.
+     * Request 513 pages: total free memory is 768 pages, but neither side of
+     * the reserved 1 MiB hole contains a sufficiently large contiguous run.
+     */
+    if (page_alloc_contiguous(513u) != 0 ||
+        memory_free_pages() != (uint32_t)(3ULL * MIB / PAGE_SIZE))
+        return fail(86, "extended mmap stride crossed its reserved hole or changed accounting");
     low_allocation = page_alloc_contiguous(256u);
     if ((uintptr_t)low_allocation != 16ULL * MIB ||
         memory_free_pages() != (uint32_t)(2ULL * MIB / PAGE_SIZE))
