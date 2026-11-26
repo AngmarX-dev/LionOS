@@ -962,6 +962,63 @@ int main(void)
         return fail(74, "full low-memory release did not restore all pages and references");
 
     /*
+     * A byte range straddling the low/high allocator boundary must reserve
+     * the final low page and first high page. The low page is made free
+     * before reservation; the high page is still allocated. This exercises
+     * outward page rounding and clipping independently in both windows.
+     */
+    make_full_managed_map_boot_info();
+    if (multiboot2_info_validate(boot_info) != 0 ||
+        memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(91, "boundary-reservation map failed allocator initialization");
+
+    const uint32_t boundary_high_pages =
+        (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE);
+    void *boundary_low_run = page_alloc_contiguous(full_low_pages);
+    uint64_t boundary_high_page = 0u;
+    if ((uintptr_t)boundary_low_run != LOW_RESERVED_PAGES * PAGE_SIZE ||
+        page_alloc_high(&boundary_high_page) != 0 ||
+        boundary_high_page != LOW_MEMORY_LIMIT)
+        return fail(92, "could not allocate pages adjacent to the low/high boundary");
+
+    void *boundary_low_last =
+        (void *)((uintptr_t)boundary_low_run +
+                 (uint64_t)(full_low_pages - 1u) * PAGE_SIZE);
+    page_free(boundary_low_last);
+    if (memory_free_pages() != 1u ||
+        memory_high_free_pages() != boundary_high_pages - 1u)
+        return fail(93, "boundary fixture did not isolate one free low page and one allocated high page");
+
+    memory_reserve_physical_range(LOW_MEMORY_LIMIT - 1u,
+                                  LOW_MEMORY_LIMIT + 1u);
+    if (memory_free_pages() != 0u ||
+        memory_high_free_pages() != boundary_high_pages - 1u)
+        return fail(94, "cross-boundary reservation changed the wrong allocator accounting");
+
+    page_free_high(boundary_high_page);
+    if (memory_high_free_pages() != boundary_high_pages - 1u)
+        return fail(95, "freeing the revoked first high page restored allocator capacity");
+
+    for (uint32_t i = 0u; i + 1u < full_low_pages; ++i)
+        page_free((void *)((uintptr_t)boundary_low_run +
+                           (uint64_t)i * PAGE_SIZE));
+    if (memory_free_pages() != full_low_pages - 1u)
+        return fail(96, "cross-boundary low reservation was not retained after releasing the remaining run");
+
+    void *boundary_low_next = page_alloc();
+    uint64_t boundary_high_next = 0u;
+    if ((uintptr_t)boundary_low_next != LOW_RESERVED_PAGES * PAGE_SIZE ||
+        page_alloc_high(&boundary_high_next) != 0 ||
+        boundary_high_next != LOW_MEMORY_LIMIT + PAGE_SIZE)
+        return fail(97, "allocator reused a page revoked by the cross-boundary reservation");
+
+    page_free(boundary_low_next);
+    page_free_high(boundary_high_next);
+    if (memory_free_pages() != full_low_pages - 1u ||
+        memory_high_free_pages() != boundary_high_pages - 1u)
+        return fail(98, "cross-boundary reservation regression did not restore remaining allocator accounting");
+
+    /*
      * Initialize both supported physical-memory windows from a single
      * contiguous firmware inventory. Exercise low and high allocation
      * together, then verify both accounting domains are fully restored.
