@@ -756,6 +756,21 @@ int main(void)
     if (memory_free_pages() != 1u || memory_high_free_pages() != 2u)
         return fail(23, "boundary-page release did not restore allocator counts");
 
+    /*
+     * Invalid high-page releases must be no-ops, including a run crossing
+     * the exclusive 64 GiB limit and ranges that are unaligned, empty,
+     * outside the managed window, or not currently allocated.
+     */
+    page_free_high_contiguous(HIGH_MEMORY_LIMIT - PAGE_SIZE, 2u);
+    page_free_high_contiguous(LOW_MEMORY_LIMIT + 1u, 1u);
+    page_free_high_contiguous(LOW_MEMORY_LIMIT, 0u);
+    page_free_high_contiguous(LOW_MEMORY_LIMIT, 1u);
+    page_free_high_contiguous(HIGH_MEMORY_LIMIT, 1u);
+    if (memory_free_pages() != 1u ||
+        memory_high_free_pages() != 2u ||
+        memory_high_available_bytes() != 2u * PAGE_SIZE)
+        return fail(115, "invalid or unallocated high-page release changed allocator accounting");
+
     memory_reserve_physical_range(HIGH_MEMORY_LIMIT - PAGE_SIZE,
                                   HIGH_MEMORY_LIMIT);
     if (memory_high_free_pages() != 1u ||
