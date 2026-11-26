@@ -1190,6 +1190,23 @@ int main(void)
             "unterminated Multiboot2 module command line was accepted") != 0)
         return 69;
 
+    /*
+     * Every module tag must be validated, not only the first module in the
+     * stream. Reject malformed ranges and unterminated command lines in a
+     * later module before exposing any low- or high-memory pages.
+     */
+    make_multiple_modules_boot_info();
+    put32(204u, 76u * (uint32_t)MIB - 1u);
+    if (expect_rejected_boot_info(101,
+            "reversed second Multiboot2 module range was accepted") != 0)
+        return 101;
+
+    make_multiple_modules_boot_info();
+    boot_info[208u] = (uint8_t)'x';
+    if (expect_rejected_boot_info(103,
+            "unterminated second Multiboot2 module command line was accepted") != 0)
+        return 103;
+
     if (memory_init(0u) == 0 || page_alloc() != 0 ||
         memory_free_pages() != 0u || memory_high_free_pages() != 0u)
         return fail(56, "null Multiboot2 pointer did not fail closed");
