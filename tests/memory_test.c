@@ -734,6 +734,37 @@ int main(void)
     if (memory_high_free_pages() != full_high_pages)
         return fail(80, "full high-memory contiguous release did not restore all pages");
 
+    /*
+     * Drive the high allocator scan hint to the final page, wrap it to zero,
+     * then release the first page. The next allocation must wrap/revisit the
+     * newly free low page instead of reporting false exhaustion.
+     */
+    uint64_t wrap_first = 0u;
+    uint64_t wrap_middle = 0u;
+    uint64_t wrap_last = 0u;
+    uint64_t wrap_reused = 0u;
+    if (page_alloc_high(&wrap_first) != 0 ||
+        wrap_first != LOW_MEMORY_LIMIT ||
+        page_alloc_high_contiguous(full_high_pages - 2u, &wrap_middle) != 0 ||
+        wrap_middle != LOW_MEMORY_LIMIT + PAGE_SIZE ||
+        page_alloc_high(&wrap_last) != 0 ||
+        wrap_last != HIGH_MEMORY_LIMIT - PAGE_SIZE ||
+        memory_high_free_pages() != 0u)
+        return fail(92, "high allocator failed to advance its scan hint to the final page");
+
+    page_free_high(wrap_first);
+    if (memory_high_free_pages() != 1u ||
+        page_alloc_high(&wrap_reused) != 0 ||
+        wrap_reused != wrap_first ||
+        memory_high_free_pages() != 0u)
+        return fail(93, "high allocator failed to wrap its scan hint and reuse a released first page");
+
+    page_free_high(wrap_reused);
+    page_free_high_contiguous(wrap_middle, full_high_pages - 2u);
+    page_free_high(wrap_last);
+    if (memory_high_free_pages() != full_high_pages)
+        return fail(94, "high allocator scan-hint wraparound sequence did not restore all pages");
+
     if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
         high_address != LOW_MEMORY_LIMIT ||
         memory_high_free_pages() != full_high_pages - 3u)
