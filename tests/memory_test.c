@@ -1458,9 +1458,9 @@ int main(void)
     if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
         return fail(120, "full high-memory map failed before pin lifecycle tests");
 
-    const uint32_t full_high_pages =
+    const uint32_t pin_test_full_high_pages =
         (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE);
-    if (memory_high_free_pages() != full_high_pages ||
+    if (memory_high_free_pages() != pin_test_full_high_pages ||
         page_alloc_high(&high_address) != 0 ||
         high_address != LOW_MEMORY_LIMIT ||
         memory_high_page_pin(high_address) != 0 ||
@@ -1469,14 +1469,14 @@ int main(void)
 
     page_free_high(high_address);
     if (memory_high_page_is_allocated(high_address) != 1 ||
-        memory_high_free_pages() != full_high_pages - 1u ||
+        memory_high_free_pages() != pin_test_full_high_pages - 1u ||
         memory_high_page_pin(high_address) != -1 ||
         memory_high_page_unpin(high_address) != 0 ||
         memory_high_page_is_allocated(high_address) != 1 ||
-        memory_high_free_pages() != full_high_pages - 1u ||
+        memory_high_free_pages() != pin_test_full_high_pages - 1u ||
         memory_high_page_unpin(high_address) != 0 ||
         memory_high_page_is_allocated(high_address) != 0 ||
-        memory_high_free_pages() != full_high_pages)
+        memory_high_free_pages() != pin_test_full_high_pages)
         return fail(122, "deferred high-page release did not wait for the final unpin");
 
     if (memory_high_page_pin(high_address) == 0 ||
@@ -1492,11 +1492,11 @@ int main(void)
     if (memory_high_page_is_allocated(high_address) != 0 ||
         memory_range_contains_available_ram(high_address,
                                             high_address + PAGE_SIZE) != 0 ||
-        memory_high_free_pages() != full_high_pages - 1u ||
+        memory_high_free_pages() != pin_test_full_high_pages - 1u ||
         memory_high_page_pin(high_address) != -1 ||
         memory_high_page_unpin(high_address) != 0 ||
         memory_high_page_is_allocated(high_address) != 0 ||
-        memory_high_free_pages() != full_high_pages - 1u)
+        memory_high_free_pages() != pin_test_full_high_pages - 1u)
         return fail(125, "reservation of a pinned high page allowed premature reuse or incorrect accounting");
 
     puts("physical allocator low/high range, pin lifecycle, concurrency, and fail-closed tests passed");
