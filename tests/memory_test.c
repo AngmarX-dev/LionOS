@@ -1458,10 +1458,42 @@ int main(void)
     if (memory_free_pages() != combined_low_pages)
         return fail(150, "repeated unified low-page release changed free-page accounting");
 
+    uint64_t unified_run = UINT64_C(0xA5A5A5A5A5A5A5A5);
+    if (page_alloc_physical_contiguous(1u, 0) != -1 ||
+        memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(160, "null unified contiguous output changed allocator inventory");
+    if (page_alloc_physical_contiguous(0u, &unified_run) != -1 ||
+        unified_run != UINT64_C(0xA5A5A5A5A5A5A5A5) ||
+        memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(154, "zero-length unified contiguous allocation changed output or accounting");
+    if (page_alloc_physical_contiguous(2u, &unified_run) != 0 ||
+        unified_run != LOW_RESERVED_PAGES * PAGE_SIZE ||
+        memory_free_pages() != combined_low_pages - 2u)
+        return fail(155, "unified contiguous allocation did not prefer a low-memory run");
+    page_free_physical_contiguous(unified_run, 2u);
+    if (memory_free_pages() != combined_low_pages)
+        return fail(156, "unified contiguous low-memory release did not restore inventory");
+
     void *all_low_pages = page_alloc_contiguous(combined_low_pages);
     if ((uintptr_t)all_low_pages != LOW_RESERVED_PAGES * PAGE_SIZE ||
         memory_free_pages() != 0u)
         return fail(141, "could not exhaust low memory before unified high-memory fallback");
+    unified_run = UINT64_C(0xA5A5A5A5A5A5A5A5);
+    if (page_alloc_physical_contiguous(3u, &unified_run) != 0 ||
+        unified_run != LOW_MEMORY_LIMIT ||
+        memory_free_pages() != 0u ||
+        memory_high_free_pages() != combined_high_pages - 3u)
+        return fail(157, "unified contiguous allocation did not fall back to a high-memory run");
+    page_free_physical_contiguous(unified_run, 3u);
+    if (memory_high_free_pages() != combined_high_pages)
+        return fail(158, "unified contiguous high-memory release did not restore inventory");
+    page_free_physical_contiguous(unified_run + 1u, 3u);
+    page_free_physical_contiguous(HIGH_MEMORY_LIMIT - PAGE_SIZE, 2u);
+    if (memory_high_free_pages() != combined_high_pages)
+        return fail(159, "invalid unified contiguous releases changed high-memory accounting");
+
     unified_page = UINT64_C(0xA5A5A5A5A5A5A5A5);
     if (page_alloc_physical(&unified_page) != 0 ||
         unified_page != LOW_MEMORY_LIMIT ||
@@ -1495,6 +1527,12 @@ int main(void)
         memory_free_pages() != 0u ||
         memory_high_free_pages() != 0u)
         return fail(153, "unified allocation failure changed output or allocator accounting");
+    unified_run = UINT64_C(0x3C3C3C3C3C3C3C3C);
+    if (page_alloc_physical_contiguous(1u, &unified_run) != -1 ||
+        unified_run != UINT64_C(0x3C3C3C3C3C3C3C3C) ||
+        memory_free_pages() != 0u ||
+        memory_high_free_pages() != 0u)
+        return fail(161, "exhausted unified contiguous allocation changed output or inventory");
 
     for (uint32_t i = 0u; i < combined_low_pages; ++i)
         page_free((void *)((uintptr_t)all_low_pages + (uint64_t)i * PAGE_SIZE));

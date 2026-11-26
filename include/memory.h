@@ -9,6 +9,9 @@ void *page_alloc(void);
 /* Allocate/free one page through the unified 0..64 GiB physical-memory API. */
 int page_alloc_physical(uint64_t *physical_address);
 void page_free_physical(uint64_t physical_address);
+/* Allocate/release contiguous runs across the unified 0..64 GiB PMM windows. */
+int page_alloc_physical_contiguous(uint32_t count, uint64_t *physical_address);
+void page_free_physical_contiguous(uint64_t physical_address, uint32_t count);
 void *page_alloc_contiguous(uint32_t count);
 /* Allocates physical pages above 256 MiB; returned address is physical, not directly dereferenceable. */
 int page_alloc_high(uint64_t *physical_address);
