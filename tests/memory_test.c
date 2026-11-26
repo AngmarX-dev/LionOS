@@ -1659,27 +1659,29 @@ int main(void)
      * unpin retires the record, but the reserved page must never re-enter
      * the allocator or its free-page inventory.
      */
-    if (page_alloc_high(&high_address) != 0 ||
+    const uint32_t overlap_test_free_pages = memory_high_free_pages();
+    if (overlap_test_free_pages == 0u ||
+        page_alloc_high(&high_address) != 0 ||
         memory_high_page_pin(high_address) != 0 ||
         memory_high_page_pin(high_address) != 0)
         return fail(135, "could not establish multiple pins before release/reservation overlap");
     page_free_high(high_address);
     memory_reserve_physical_range(high_address, high_address + PAGE_SIZE);
     if (memory_high_page_is_allocated(high_address) != 0 ||
-        memory_high_free_pages() != pin_test_full_high_pages - 1u ||
+        memory_high_free_pages() != overlap_test_free_pages - 1u ||
         memory_high_page_pin(high_address) != -1 ||
         memory_high_page_unpin(high_address) != 0 ||
-        memory_high_free_pages() != pin_test_full_high_pages - 1u ||
+        memory_high_free_pages() != overlap_test_free_pages - 1u ||
         memory_high_page_unpin(high_address) != 0 ||
         memory_high_page_unpin(high_address) != -1 ||
-        memory_high_free_pages() != pin_test_full_high_pages - 1u)
+        memory_high_free_pages() != overlap_test_free_pages - 1u)
         return fail(136, "overlapping release and reservation did not preserve multi-pin lifetime/accounting");
     uint64_t after_reserved_page = 0u;
     if (page_alloc_high(&after_reserved_page) != 0 ||
         after_reserved_page == high_address)
         return fail(137, "allocator reused a high page reserved while multiply pinned");
     page_free_high(after_reserved_page);
-    if (memory_high_free_pages() != pin_test_full_high_pages - 1u)
+    if (memory_high_free_pages() != overlap_test_free_pages - 1u)
         return fail(138, "allocation after overlapping reservation did not restore exact inventory");
 
     if (high_pin_concurrent_release_test(memory_high_free_pages()) != 0)
