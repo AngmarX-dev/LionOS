@@ -33,7 +33,7 @@
  * allocator bitmaps in BSS. Its address must remain inside the first 8 MiB,
  * which the allocator reserves unconditionally.
  */
-static uint8_t boot_info[200]
+static uint8_t boot_info[232]
     __attribute__((aligned(8), section(".data.boot_info"))) = {1u};
 
 void spinlock_init(struct spinlock *lock)
@@ -156,6 +156,24 @@ static void make_high_module_boot_info(void)
      */
     put32(176u, 516u * (uint32_t)MIB);
     put32(180u, 517u * (uint32_t)MIB);
+}
+
+static void make_multiple_modules_boot_info(void)
+{
+    make_boot_info();
+
+    /*
+     * Insert a second module after the first one. Each module tag has a
+     * 17-byte size and therefore occupies 24 bytes after 8-byte alignment.
+     */
+    put32(0u, 224u);
+    put32(192u, MULTIBOOT2_TAG_MODULE);
+    put32(196u, 17u);
+    put32(200u, 76u * (uint32_t)MIB);
+    put32(204u, 77u * (uint32_t)MIB);
+    boot_info[208u] = 0u;
+    put32(216u, MULTIBOOT2_TAG_END);
+    put32(220u, 8u);
 }
 
 static void make_available_before_reserved_boot_info(void)
@@ -495,6 +513,34 @@ int main(void)
 
     if (memory_high_free_pages() != 1792u)
         return fail(6, "high-memory free count did not apply reserved ranges");
+
+    /*
+     * Every module record must reserve its own physical interval. The
+     * allocations below walk up to, between, and beyond two module holes.
+     */
+    make_multiple_modules_boot_info();
+    if (multiboot2_info_validate(boot_info) != 0 ||
+        memory_init((uint32_t)(uintptr_t)boot_info) != 0 ||
+        memory_free_pages() != 2560u)
+        return fail(105, "multiple module records were not ingested and reserved");
+
+    void *module_test_low = page_alloc_contiguous(1024u);
+    if ((uintptr_t)module_test_low != LOW_AVAILABLE_START)
+        return fail(106, "allocator did not stop at the firmware-reserved interval");
+    module_test_low = page_alloc_contiguous(512u);
+    if ((uintptr_t)module_test_low != 72ULL * MIB)
+        return fail(107, "allocator did not skip the firmware-reserved interval");
+    module_test_low = page_alloc_contiguous(256u);
+    if ((uintptr_t)module_test_low != 75ULL * MIB)
+        return fail(108, "allocator did not skip the first module interval");
+    module_test_low = page_alloc();
+    if ((uintptr_t)module_test_low != 77ULL * MIB)
+        return fail(109, "allocator exposed pages from the second module interval");
+
+    /* Restore the standard fixture before the remaining allocator regressions. */
+    make_boot_info();
+    if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(110, "standard memory fixture failed after module coverage");
 
     if (page_refcount((void *)(uintptr_t)LOW_RESERVED_START) != 0u)
         return fail(7, "reserved low-memory page unexpectedly has a reference");
