@@ -1438,6 +1438,11 @@ int main(void)
         memory_high_free_pages() != combined_high_pages)
         return fail(145, "unified allocator accepted a null output or changed inventory");
 
+    page_free_physical(LOW_RESERVED_PAGES * PAGE_SIZE - PAGE_SIZE);
+    if (memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(149, "unified release exposed a permanently reserved low page");
+
     uint64_t unified_page = UINT64_C(0xA5A5A5A5A5A5A5A5);
     if (page_alloc_physical(&unified_page) != 0 ||
         unified_page != LOW_RESERVED_PAGES * PAGE_SIZE ||
@@ -1449,6 +1454,9 @@ int main(void)
     page_free_physical(unified_page);
     if (memory_free_pages() != combined_low_pages)
         return fail(140, "unified low-page release did not restore low allocator accounting");
+    page_free_physical(unified_page);
+    if (memory_free_pages() != combined_low_pages)
+        return fail(150, "repeated unified low-page release changed free-page accounting");
 
     void *all_low_pages = page_alloc_contiguous(combined_low_pages);
     if ((uintptr_t)all_low_pages != LOW_RESERVED_PAGES * PAGE_SIZE ||
@@ -1469,11 +1477,30 @@ int main(void)
     page_free_physical(unified_page);
     if (memory_high_free_pages() != combined_high_pages)
         return fail(143, "unified high-page release did not restore high allocator accounting");
+    page_free_physical(unified_page);
+    if (memory_high_free_pages() != combined_high_pages)
+        return fail(151, "repeated unified high-page release changed free-page accounting");
+
+    /*
+     * Revoke every remaining high page after releasing the last allocation.
+     * With low memory already exhausted, the unified allocator must fail
+     * without overwriting its output or changing either inventory.
+     */
+    memory_reserve_physical_range(LOW_MEMORY_LIMIT, HIGH_MEMORY_LIMIT);
+    if (memory_high_free_pages() != 0u)
+        return fail(152, "full high-window reservation did not exhaust high memory");
+    unified_page = UINT64_C(0x5A5A5A5A5A5A5A5A);
+    if (page_alloc_physical(&unified_page) != -1 ||
+        unified_page != UINT64_C(0x5A5A5A5A5A5A5A5A) ||
+        memory_free_pages() != 0u ||
+        memory_high_free_pages() != 0u)
+        return fail(153, "unified allocation failure changed output or allocator accounting");
+
     for (uint32_t i = 0u; i < combined_low_pages; ++i)
         page_free((void *)((uintptr_t)all_low_pages + (uint64_t)i * PAGE_SIZE));
     if (memory_free_pages() != combined_low_pages ||
-        memory_high_free_pages() != combined_high_pages)
-        return fail(144, "unified allocator regression did not restore both memory windows");
+        memory_high_free_pages() != 0u)
+        return fail(144, "unified allocator exhaustion regression did not restore low inventory");
 
     /*
      * Reserved descriptors must win even when firmware lists available RAM
