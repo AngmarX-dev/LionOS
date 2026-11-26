@@ -147,19 +147,25 @@ static void make_available_before_reserved_boot_info(void)
     for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
         boot_info[i] = 0u;
 
-    put32(0u, 80u);
+    put32(0u, 128u);
     put32(4u, 0u);
     put32(8u, MULTIBOOT2_TAG_MMAP);
-    put32(12u, 64u);
+    put32(12u, 112u);
     put32(16u, 24u);
     put32(20u, 0u);
 
-    /* Available RAM deliberately precedes an overlapping reserved range. */
+    /*
+     * Available RAM deliberately precedes overlapping reserved ranges in
+     * both allocator windows, not only the low-memory bitmap.
+     */
     put_mmap_entry(24u, 16ULL * MIB, 4ULL * MIB,
                    MULTIBOOT2_MEMORY_AVAILABLE);
     put_mmap_entry(48u, 17ULL * MIB, 1ULL * MIB, 2u);
-    put32(72u, MULTIBOOT2_TAG_END);
-    put32(76u, 8u);
+    put_mmap_entry(72u, 512ULL * MIB, 4ULL * MIB,
+                   MULTIBOOT2_MEMORY_AVAILABLE);
+    put_mmap_entry(96u, 513ULL * MIB, 1ULL * MIB, 2u);
+    put32(120u, MULTIBOOT2_TAG_END);
+    put32(124u, 8u);
 }
 
 static void make_no_usable_memory_boot_info(void)
@@ -793,20 +799,33 @@ int main(void)
         memory_init((uint32_t)(uintptr_t)boot_info) != 0)
         return fail(59, "available-before-reserved map failed initialization");
     if (memory_free_pages() != 768u ||
+        memory_high_free_pages() != 768u ||
+        memory_high_available_bytes() != 4ULL * MIB ||
         page_refcount((void *)(uintptr_t)(17ULL * MIB)) != 0u ||
-        page_alloc_contiguous(513u) != 0)
+        page_alloc_contiguous(513u) != 0 ||
+        page_alloc_high_contiguous(513u, &high_address) == 0)
         return fail(60, "available-before-reserved overlap exposed reserved pages");
     void *first_run = page_alloc_contiguous(256u);
     void *second_run = page_alloc_contiguous(256u);
     if ((uintptr_t)first_run != 16ULL * MIB ||
         (uintptr_t)second_run != 18ULL * MIB ||
         memory_free_pages() != 256u)
-        return fail(61, "reserved overlap did not split the available range");
+        return fail(61, "reserved overlap did not split the low available range");
+    uint64_t first_high_run = 0u;
+    uint64_t second_high_run = 0u;
+    if (page_alloc_high_contiguous(256u, &first_high_run) != 0 ||
+        page_alloc_high_contiguous(256u, &second_high_run) != 0 ||
+        first_high_run != 512ULL * MIB ||
+        second_high_run != 514ULL * MIB ||
+        memory_high_free_pages() != 256u)
+        return fail(63, "reserved overlap did not split the high available range");
     for (uint32_t i = 0u; i < 256u; ++i) {
         page_free((void *)((uintptr_t)first_run + (uint64_t)i * PAGE_SIZE));
         page_free((void *)((uintptr_t)second_run + (uint64_t)i * PAGE_SIZE));
     }
-    if (memory_free_pages() != 768u)
+    page_free_high_contiguous(first_high_run, 256u);
+    page_free_high_contiguous(second_high_run, 256u);
+    if (memory_free_pages() != 768u || memory_high_free_pages() != 768u)
         return fail(62, "available-before-reserved allocations did not release cleanly");
 
     /*
