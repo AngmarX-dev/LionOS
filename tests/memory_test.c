@@ -662,9 +662,12 @@ static int high_pin_concurrent_release_test(uint32_t inventory)
     pthread_t free_thread;
     pthread_t allocate_thread;
 
-    if (page_alloc_high(&context.physical_address) != 0 ||
-        memory_high_page_pin(context.physical_address) != 0)
+    if (page_alloc_high(&context.physical_address) != 0)
         return -1;
+    if (memory_high_page_pin(context.physical_address) != 0) {
+        page_free_high(context.physical_address);
+        return -1;
+    }
 
     if (pthread_create(&free_thread, 0, high_pin_race_free_worker,
                        &context) != 0) {
@@ -1578,7 +1581,7 @@ int main(void)
         memory_high_free_pages() != pin_test_full_high_pages - 1u)
         return fail(125, "reservation of a pinned high page allowed premature reuse or incorrect accounting");
 
-    if (high_pin_concurrent_release_test(pin_test_full_high_pages) != 0)
+    if (high_pin_concurrent_release_test(memory_high_free_pages()) != 0)
         return fail(126, "concurrent high-page release exposed a pinned page or leaked inventory");
 
     puts("physical allocator low/high range, pin lifecycle, concurrency, and fail-closed tests passed");
