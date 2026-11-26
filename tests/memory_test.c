@@ -235,6 +235,31 @@ static void make_full_low_map_boot_info(void)
     put32(52u, 8u);
 }
 
+static void make_full_managed_map_boot_info(void)
+{
+    for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
+        boot_info[i] = 0u;
+
+    /*
+     * Describe both allocator windows in one firmware map. The first range
+     * covers 0–256 MiB and the second covers 256 MiB–64 GiB.
+     */
+    put32(0u, 88u);
+    put32(4u, 0u);
+    put32(8u, MULTIBOOT2_TAG_MMAP);
+    put32(12u, 72u);
+    put32(16u, 24u);
+    put32(20u, 0u);
+    put_mmap_entry(24u, 0u, LOW_MEMORY_LIMIT,
+                   MULTIBOOT2_MEMORY_AVAILABLE);
+    put_mmap_entry(48u, LOW_MEMORY_LIMIT,
+                   HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT,
+                   MULTIBOOT2_MEMORY_AVAILABLE);
+    put32(80u, MULTIBOOT2_TAG_END);
+    put32(84u, 8u);
+}
+
+
 static int fail(int code, const char *message)
 {
     printf("physical allocator test failed (%d): %s\n", code, message);
@@ -719,6 +744,42 @@ int main(void)
         page_refcount((void *)((uintptr_t)full_low_run +
                       (uint64_t)(full_low_pages - 1u) * PAGE_SIZE)) != 0u)
         return fail(74, "full low-memory release did not restore all pages and references");
+
+    /*
+     * Initialize both supported physical-memory windows from a single
+     * contiguous firmware inventory. Exercise low and high allocation
+     * together, then verify both accounting domains are fully restored.
+     */
+    make_full_managed_map_boot_info();
+    if (multiboot2_info_validate(boot_info) != 0 ||
+        memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(75, "combined low/high memory map failed allocator initialization");
+
+    const uint32_t combined_low_pages =
+        (uint32_t)(LOW_MEMORY_LIMIT / PAGE_SIZE) - RESERVED_PAGES;
+    const uint32_t combined_high_pages =
+        (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE);
+    if (memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages ||
+        memory_high_available_bytes() !=
+            HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT)
+        return fail(76, "combined memory map did not account for both complete allocator windows");
+
+    void *combined_low = page_alloc_contiguous(2u);
+    uint64_t combined_high = 0u;
+    if ((uintptr_t)combined_low != RESERVED_PAGES * PAGE_SIZE ||
+        page_alloc_high_contiguous(2u, &combined_high) != 0 ||
+        combined_high != LOW_MEMORY_LIMIT ||
+        memory_free_pages() != combined_low_pages - 2u ||
+        memory_high_free_pages() != combined_high_pages - 2u)
+        return fail(77, "simultaneous low/high contiguous allocation failed");
+
+    page_free((void *)((uintptr_t)combined_low + PAGE_SIZE));
+    page_free(combined_low);
+    page_free_high_contiguous(combined_high, 2u);
+    if (memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(78, "simultaneous low/high release did not restore both free-page counts");
 
     /*
      * Reserved descriptors must win even when firmware lists available RAM
