@@ -604,8 +604,10 @@ int main(void)
 
     if (memory_high_free_pages() !=
             (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE) ||
-        memory_high_available_bytes() != HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT)
-        return fail(27, "complete high-memory window was not accounted");
+        memory_high_available_bytes() != HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT ||
+        memory_range_contains_available_ram(LOW_MEMORY_LIMIT,
+                                            HIGH_MEMORY_LIMIT) != 1)
+        return fail(27, "complete high-memory window was not accounted or queryable");
 
     if (page_alloc_high(&high_address) != 0 ||
         high_address != LOW_MEMORY_LIMIT)
@@ -615,10 +617,12 @@ int main(void)
                                   HIGH_MEMORY_LIMIT - PAGE_SIZE);
     if (memory_high_free_pages() != 1u ||
         memory_range_contains_available_ram(LOW_MEMORY_LIMIT + PAGE_SIZE,
-                                            LOW_MEMORY_LIMIT + 2u * PAGE_SIZE) != 0 ||
+                                            HIGH_MEMORY_LIMIT - PAGE_SIZE) != 0 ||
+        memory_range_contains_available_ram(LOW_MEMORY_LIMIT,
+                                            HIGH_MEMORY_LIMIT) != 1 ||
         memory_range_contains_available_ram(HIGH_MEMORY_LIMIT - PAGE_SIZE,
                                             HIGH_MEMORY_LIMIT) != 1)
-        return fail(29, "full-window reservation did not preserve only the final page");
+        return fail(29, "full-window reservation did not preserve only the boundary pages");
 
     /*
      * The range query reports whether ANY page in the requested interval is
