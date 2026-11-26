@@ -1489,6 +1489,36 @@ int main(void)
     page_free_physical_contiguous(unified_run, 3u);
     if (memory_high_free_pages() != combined_high_pages)
         return fail(158, "unified contiguous high-memory release did not restore inventory");
+
+    /*
+     * Keep half of low memory allocated in alternating pages. The remaining
+     * low pages are free but fragmented, so a two-page unified request must
+     * use a contiguous high-memory run without disturbing low accounting.
+     */
+    void *fragmented_low_pages =
+        page_alloc_contiguous(combined_low_pages);
+    if ((uintptr_t)fragmented_low_pages != LOW_RESERVED_PAGES * PAGE_SIZE ||
+        memory_free_pages() != 0u)
+        return fail(162, "could not prepare fragmented low-memory inventory");
+    for (uint32_t i = 0u; i < combined_low_pages; i += 2u)
+        page_free((void *)((uintptr_t)fragmented_low_pages +
+                           (uint64_t)i * PAGE_SIZE));
+    uint32_t fragmented_low_free = (combined_low_pages + 1u) / 2u;
+    if (memory_free_pages() != fragmented_low_free)
+        return fail(163, "alternating low-page release produced incorrect inventory");
+    unified_run = UINT64_C(0xC3C3C3C3C3C3C3C3);
+    if (page_alloc_physical_contiguous(2u, &unified_run) != 0 ||
+        unified_run != LOW_MEMORY_LIMIT ||
+        memory_free_pages() != fragmented_low_free ||
+        memory_high_free_pages() != combined_high_pages - 2u)
+        return fail(164, "fragmented low memory did not fall back to high contiguous allocation");
+    page_free_physical_contiguous(unified_run, 2u);
+    for (uint32_t i = 1u; i < combined_low_pages; i += 2u)
+        page_free((void *)((uintptr_t)fragmented_low_pages +
+                           (uint64_t)i * PAGE_SIZE));
+    if (memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(165, "fragmented low/high fallback regression did not restore inventories");
     page_free_physical_contiguous(unified_run + 1u, 3u);
     page_free_physical_contiguous(HIGH_MEMORY_LIMIT - PAGE_SIZE, 2u);
     if (memory_high_free_pages() != combined_high_pages)
