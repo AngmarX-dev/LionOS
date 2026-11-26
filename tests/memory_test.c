@@ -534,6 +534,9 @@ int main(void)
     uint32_t low_free_before_reserve = memory_free_pages();
     memory_reserve_physical_range((uint64_t)(uintptr_t)low_allocation,
                                   (uint64_t)(uintptr_t)low_allocation + PAGE_SIZE);
+    /* Repeating a reservation of an unavailable low page must be harmless. */
+    memory_reserve_physical_range((uint64_t)(uintptr_t)low_allocation,
+                                  (uint64_t)(uintptr_t)low_allocation + PAGE_SIZE);
     if (memory_free_pages() != low_free_before_reserve ||
         page_refcount(low_allocation) != 0u)
         return fail(44, "reserving an allocated low page did not revoke its reference");
