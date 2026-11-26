@@ -113,7 +113,8 @@ static void make_boot_info(void)
     for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
         boot_info[i] = 0u;
 
-    put32(0u, sizeof(boot_info));
+    /* The standard fixture ends at its end-tag; spare buffer capacity is unused. */
+    put32(0u, 200u);
     put32(4u, 0u);
 
     /* Six entries deliberately put reserved ranges before available ranges. */
