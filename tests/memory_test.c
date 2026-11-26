@@ -1450,6 +1450,55 @@ int main(void)
     if (memory_free_pages() != (uint32_t)(3ULL * MIB / PAGE_SIZE))
         return fail(89, "extended mmap multi-record allocations did not release cleanly");
 
-    puts("physical allocator low/high range, concurrency, lifecycle, and fail-closed tests passed");
+    /*
+     * High-page pins close the allocator/mapping lifetime race without
+     * allocating per-page metadata for the entire 64 GiB address window.
+     */
+    make_full_high_map_boot_info();
+    if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(120, "full high-memory map failed before pin lifecycle tests");
+
+    const uint32_t full_high_pages =
+        (uint32_t)((HIGH_MEMORY_LIMIT - LOW_MEMORY_LIMIT) / PAGE_SIZE);
+    if (memory_high_free_pages() != full_high_pages ||
+        page_alloc_high(&high_address) != 0 ||
+        high_address != LOW_MEMORY_LIMIT ||
+        memory_high_page_pin(high_address) != 0 ||
+        memory_high_page_pin(high_address) != 0)
+        return fail(121, "allocated high page could not acquire multiple pins");
+
+    page_free_high(high_address);
+    if (memory_high_page_is_allocated(high_address) != 1 ||
+        memory_high_free_pages() != full_high_pages - 1u ||
+        memory_high_page_pin(high_address) != -1 ||
+        memory_high_page_unpin(high_address) != 0 ||
+        memory_high_page_is_allocated(high_address) != 1 ||
+        memory_high_free_pages() != full_high_pages - 1u ||
+        memory_high_page_unpin(high_address) != 0 ||
+        memory_high_page_is_allocated(high_address) != 0 ||
+        memory_high_free_pages() != full_high_pages)
+        return fail(122, "deferred high-page release did not wait for the final unpin");
+
+    if (memory_high_page_pin(high_address) == 0 ||
+        memory_high_page_unpin(high_address) != -1 ||
+        memory_high_page_pin(LOW_MEMORY_LIMIT + 1u) != -1 ||
+        memory_high_page_pin(HIGH_MEMORY_LIMIT) != -1)
+        return fail(123, "high-page pin API accepted invalid or unowned page state");
+
+    if (page_alloc_high(&high_address) != 0 ||
+        memory_high_page_pin(high_address) != 0)
+        return fail(124, "high page could not be prepared for reservation while pinned");
+    memory_reserve_physical_range(high_address, high_address + PAGE_SIZE);
+    if (memory_high_page_is_allocated(high_address) != 0 ||
+        memory_range_contains_available_ram(high_address,
+                                            high_address + PAGE_SIZE) != 0 ||
+        memory_high_free_pages() != full_high_pages - 1u ||
+        memory_high_page_pin(high_address) != -1 ||
+        memory_high_page_unpin(high_address) != 0 ||
+        memory_high_page_is_allocated(high_address) != 0 ||
+        memory_high_free_pages() != full_high_pages - 1u)
+        return fail(125, "reservation of a pinned high page allowed premature reuse or incorrect accounting");
+
+    puts("physical allocator low/high range, pin lifecycle, concurrency, and fail-closed tests passed");
     return 0;
 }

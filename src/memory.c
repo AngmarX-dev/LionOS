@@ -81,6 +81,25 @@ static uint32_t high_allocated[HIGH_BITMAP_WORDS];
 static uint32_t high_scan_hint;
 static uint32_t high_free_pages;
 
+/* Sparse metadata is bounded by the 8192-slot temporary high-map window. */
+#define HIGH_PAGE_PIN_SLOTS 8192u
+struct high_page_pin_record {
+    uint32_t page;
+    uint16_t references;
+    uint8_t used;
+    uint8_t pending_free;
+};
+static struct high_page_pin_record high_page_pins[HIGH_PAGE_PIN_SLOTS];
+
+static int high_pin_find(uint32_t page)
+{
+    for (uint32_t i = 0u; i < HIGH_PAGE_PIN_SLOTS; ++i) {
+        if (high_page_pins[i].used && high_page_pins[i].page == page)
+            return (int)i;
+    }
+    return -1;
+}
+
 static int high_bit_get(const uint32_t *map,uint32_t page){return (map[page>>5]&(1u<<(page&31u)))!=0u;}
 static void high_bit_set(uint32_t *map,uint32_t page){map[page>>5]|=1u<<(page&31u);}
 static void high_bit_clear(uint32_t *map,uint32_t page){map[page>>5]&=~(1u<<(page&31u));}
@@ -112,16 +131,23 @@ static void high_reserve_range(uint64_t start,uint64_t end)
     for (uint64_t address = first; address < last; address += PAGE_SIZE) {
         uint32_t page = (uint32_t)((address - HIGH_MEMORY_BASE) / PAGE_SIZE);
         if (high_bit_get(high_available, page)) {
-            /*
-             * Allocated pages are already excluded from high_free_pages.
-             * Reserving one must revoke the allocation without subtracting
-             * the free count a second time.
-             */
+            /* Allocated pages are already excluded from the free count. */
             if (!high_bit_get(high_allocated, page) && high_free_pages)
                 --high_free_pages;
             high_bit_clear(high_available, page);
         }
-        high_bit_clear(high_allocated, page);
+
+        /*
+         * Only allocated pages can have pin records. Avoid scanning the
+         * bounded pin table for unallocated pages in large reservation ranges.
+         */
+        if (high_bit_get(high_allocated, page)) {
+            int pin_slot = high_pin_find(page);
+            if (pin_slot >= 0)
+                high_page_pins[(uint32_t)pin_slot].pending_free = 1u;
+            else
+                high_bit_clear(high_allocated, page);
+        }
     }
 }
 
@@ -129,6 +155,12 @@ static void memory_reset_unavailable(void)
 {
     for (uint32_t i = 0u; i < MAX_PAGES / 32u; ++i) bitmap[i] = 0xFFFFFFFFu;
     for (uint32_t i = 0u; i < MAX_PAGES; ++i) page_refs[i] = 0u;
+    for (uint32_t i = 0u; i < HIGH_PAGE_PIN_SLOTS; ++i) {
+        high_page_pins[i].page = 0u;
+        high_page_pins[i].references = 0u;
+        high_page_pins[i].used = 0u;
+        high_page_pins[i].pending_free = 0u;
+    }
     for (uint32_t i = 0u; i < HIGH_BITMAP_WORDS; ++i) {
         high_available[i] = 0u;
         high_allocated[i] = 0u;
@@ -336,6 +368,12 @@ void page_free_high_contiguous(uint64_t physical_address, uint32_t count)
         if (!high_bit_get(high_allocated, page))
             continue;
 
+        int pin_slot = high_pin_find(page);
+        if (pin_slot >= 0) {
+            high_page_pins[(uint32_t)pin_slot].pending_free = 1u;
+            continue;
+        }
+
         high_bit_clear(high_allocated, page);
         if (high_bit_get(high_available, page)) {
             ++high_free_pages;
@@ -349,6 +387,100 @@ void page_free_high_contiguous(uint64_t physical_address, uint32_t count)
 void page_free_high(uint64_t physical_address)
 {
     page_free_high_contiguous(physical_address, 1u);
+}
+
+int memory_high_page_pin(uint64_t physical_address)
+{
+    uint32_t page;
+    uint32_t irq;
+    int free_slot = -1;
+
+    if ((physical_address & (PAGE_SIZE - 1u)) != 0u ||
+        physical_address < HIGH_MEMORY_BASE ||
+        physical_address >= HIGH_MEMORY_LIMIT)
+        return -1;
+
+    page = (uint32_t)((physical_address - HIGH_MEMORY_BASE) / PAGE_SIZE);
+    irq = spinlock_irqsave_acquire(&memory_lock);
+    if (!high_bit_get(high_available, page) ||
+        !high_bit_get(high_allocated, page)) {
+        spinlock_irqrestore_release(&memory_lock, irq);
+        return -1;
+    }
+
+    for (uint32_t i = 0u; i < HIGH_PAGE_PIN_SLOTS; ++i) {
+        if (high_page_pins[i].used) {
+            if (high_page_pins[i].page == page) {
+                /* Once release is requested, no new mapping may prolong life. */
+                if (high_page_pins[i].pending_free ||
+                    high_page_pins[i].references == UINT16_MAX) {
+                    spinlock_irqrestore_release(&memory_lock, irq);
+                    return -1;
+                }
+                ++high_page_pins[i].references;
+                spinlock_irqrestore_release(&memory_lock, irq);
+                return 0;
+            }
+        } else if (free_slot < 0) {
+            free_slot = (int)i;
+        }
+    }
+
+    if (free_slot < 0) {
+        spinlock_irqrestore_release(&memory_lock, irq);
+        return -1;
+    }
+
+    high_page_pins[(uint32_t)free_slot].page = page;
+    high_page_pins[(uint32_t)free_slot].references = 1u;
+    high_page_pins[(uint32_t)free_slot].used = 1u;
+    high_page_pins[(uint32_t)free_slot].pending_free = 0u;
+    spinlock_irqrestore_release(&memory_lock, irq);
+    return 0;
+}
+
+int memory_high_page_unpin(uint64_t physical_address)
+{
+    uint32_t page;
+    uint32_t irq;
+    int pin_slot;
+
+    if ((physical_address & (PAGE_SIZE - 1u)) != 0u ||
+        physical_address < HIGH_MEMORY_BASE ||
+        physical_address >= HIGH_MEMORY_LIMIT)
+        return -1;
+
+    page = (uint32_t)((physical_address - HIGH_MEMORY_BASE) / PAGE_SIZE);
+    irq = spinlock_irqsave_acquire(&memory_lock);
+    pin_slot = high_pin_find(page);
+    if (pin_slot < 0) {
+        spinlock_irqrestore_release(&memory_lock, irq);
+        return -1;
+    }
+
+    struct high_page_pin_record *record =
+        &high_page_pins[(uint32_t)pin_slot];
+    if (record->references > 1u) {
+        --record->references;
+        spinlock_irqrestore_release(&memory_lock, irq);
+        return 0;
+    }
+
+    if (record->pending_free) {
+        high_bit_clear(high_allocated, page);
+        if (high_bit_get(high_available, page)) {
+            ++high_free_pages;
+            if (page < high_scan_hint)
+                high_scan_hint = page;
+        }
+    }
+
+    record->page = 0u;
+    record->references = 0u;
+    record->used = 0u;
+    record->pending_free = 0u;
+    spinlock_irqrestore_release(&memory_lock, irq);
+    return 0;
 }
 
 void memory_reserve_physical_range(uint64_t start,uint64_t end){
