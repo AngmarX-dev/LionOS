@@ -76,6 +76,9 @@ static int expect_invalid(int code)
 
 int main(void)
 {
+    mb2_info_iterator_t iterator;
+    mb2_tag_view_t tag;
+
     make_valid();
     if(multiboot2_info_validate(storage)!=0)return 1;
 
@@ -88,15 +91,12 @@ int main(void)
         multiboot2_info_iterator_next(&iterator, &tag) != 0)
         return 35;
 
-
     /* Multiboot2 requires consumers to ignore the mmap entry reserved field. */
     put32(44u, 0xA5A5A5A5u);
     if (multiboot2_info_validate(storage) != 0)
         return 33;
     make_valid();
 
-    mb2_info_iterator_t iterator;
-    mb2_tag_view_t tag;
     if(multiboot2_info_iterator_init(storage,&iterator)!=0||
        multiboot2_info_iterator_next(&iterator,&tag)!=1||
        tag.type!=MULTIBOOT2_TAG_MMAP||tag.size!=40u||
