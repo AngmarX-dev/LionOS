@@ -589,6 +589,46 @@ int main(void)
         memory_high_available_bytes() != 8ULL * MIB)
         return fail(16, "runtime high-memory reservation changed the wrong accounting");
 
+    /*
+     * Reserving an already allocated high page must revoke that page without
+     * double-decrementing the free count. Releasing the original run must
+     * return only the two pages that remain firmware-available.
+     */
+    if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
+        high_address != HIGH_AVAILABLE_START ||
+        memory_high_free_pages() != 1533u)
+        return fail(100, "high allocator could not prepare an allocated reservation run");
+
+    const uint64_t revoked_high_page = HIGH_AVAILABLE_START + PAGE_SIZE;
+    memory_reserve_physical_range(revoked_high_page,
+                                  revoked_high_page + PAGE_SIZE);
+    if (memory_high_free_pages() != 1533u ||
+        memory_range_contains_available_ram(HIGH_AVAILABLE_START,
+                                            HIGH_AVAILABLE_START + PAGE_SIZE) != 1 ||
+        memory_range_contains_available_ram(revoked_high_page,
+                                            revoked_high_page + PAGE_SIZE) != 0 ||
+        memory_range_contains_available_ram(HIGH_AVAILABLE_START + 2u * PAGE_SIZE,
+                                            HIGH_AVAILABLE_START + 3u * PAGE_SIZE) != 1)
+        return fail(101, "reserving an allocated high page corrupted availability or accounting");
+
+    page_free_high_contiguous(high_address, 3u);
+    if (memory_high_free_pages() != 1535u)
+        return fail(102, "releasing a run with a revoked high page restored an incorrect free count");
+
+    uint64_t first_remaining_page = 0u;
+    uint64_t second_remaining_page = 0u;
+    if (page_alloc_high(&first_remaining_page) != 0 ||
+        page_alloc_high(&second_remaining_page) != 0 ||
+        first_remaining_page != HIGH_AVAILABLE_START ||
+        second_remaining_page != HIGH_AVAILABLE_START + 2u * PAGE_SIZE ||
+        memory_high_free_pages() != 1533u)
+        return fail(103, "revoked high page was reused or neighboring pages were lost");
+
+    page_free_high(first_remaining_page);
+    page_free_high(second_remaining_page);
+    if (memory_high_free_pages() != 1535u)
+        return fail(104, "high-page release after runtime revocation did not restore accounting");
+
     if (page_alloc_high(&high_address) != 0 ||
         high_address != HIGH_AVAILABLE_START)
         return fail(17, "high-page allocator did not preserve the scan after reservation");
