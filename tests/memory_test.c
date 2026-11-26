@@ -695,6 +695,48 @@ static int high_pin_concurrent_release_test(uint32_t inventory)
     return 0;
 }
 
+
+static int high_pin_capacity_test(uint32_t inventory)
+{
+    const uint32_t pin_count = 8192u;
+    const uint32_t allocation_count = pin_count + 1u;
+    uint64_t base = 0u;
+
+    if (page_alloc_high_contiguous(allocation_count, &base) != 0)
+        return -1;
+
+    for (uint32_t i = 0u; i < pin_count; ++i) {
+        uint64_t address = base + (uint64_t)i * PAGE_SIZE;
+        if (memory_high_page_pin(address) != 0) {
+            for (uint32_t j = 0u; j < i; ++j)
+                (void)memory_high_page_unpin(base + (uint64_t)j * PAGE_SIZE);
+            page_free_high_contiguous(base, allocation_count);
+            return -1;
+        }
+    }
+
+    /* The bounded metadata table must fail closed without corrupting pins. */
+    if (memory_high_page_pin(base + (uint64_t)pin_count * PAGE_SIZE) == 0) {
+        (void)memory_high_page_unpin(base + (uint64_t)pin_count * PAGE_SIZE);
+        for (uint32_t i = 0u; i < pin_count; ++i)
+            (void)memory_high_page_unpin(base + (uint64_t)i * PAGE_SIZE);
+        page_free_high_contiguous(base, allocation_count);
+        return -1;
+    }
+
+    for (uint32_t i = pin_count; i > 0u; --i) {
+        if (memory_high_page_unpin(base + (uint64_t)(i - 1u) * PAGE_SIZE) != 0) {
+            /* Preserve the allocation rather than freeing still-pinned pages. */
+            return -1;
+        }
+    }
+
+    page_free_high_contiguous(base, allocation_count);
+    if (memory_high_free_pages() != inventory)
+        return -1;
+    return 0;
+}
+
 int main(void)
 {
     uint64_t high_address = 0u;
@@ -1583,6 +1625,9 @@ int main(void)
 
     if (high_pin_concurrent_release_test(memory_high_free_pages()) != 0)
         return fail(126, "concurrent high-page release exposed a pinned page or leaked inventory");
+
+    if (high_pin_capacity_test(memory_high_free_pages()) != 0)
+        return fail(127, "high-page pin metadata exhaustion was not fail-closed or leaked allocator inventory");
 
     puts("physical allocator low/high range, pin lifecycle, concurrency, and fail-closed tests passed");
     return 0;
