@@ -408,6 +408,10 @@ static void *memory_stress_worker(void *opaque)
                 break;
             }
             high_registered[i] = 1u;
+            if (memory_high_page_is_allocated(high_pages[i]) != 1) {
+                failed = 1;
+                break;
+            }
         }
 
         if (failed) memory_stress_fail();
@@ -684,8 +688,11 @@ int main(void)
      */
     if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
         high_address != HIGH_AVAILABLE_START ||
-        memory_high_free_pages() != 1533u)
-        return fail(100, "high allocator could not prepare an allocated reservation run");
+        memory_high_free_pages() != 1533u ||
+        memory_high_page_is_allocated(high_address) != 1 ||
+        memory_high_page_is_allocated(high_address + PAGE_SIZE) != 1 ||
+        memory_high_page_is_allocated(high_address + 2u * PAGE_SIZE) != 1)
+        return fail(100, "high allocator could not prepare an owned contiguous reservation run");
 
     const uint64_t revoked_high_page = HIGH_AVAILABLE_START + PAGE_SIZE;
     memory_reserve_physical_range(revoked_high_page,
@@ -699,13 +706,18 @@ int main(void)
         memory_range_contains_available_ram(revoked_high_page,
                                             revoked_high_page + PAGE_SIZE) != 0 ||
         memory_high_page_is_allocated(revoked_high_page) != 0 ||
+        memory_high_page_is_allocated(high_address) != 1 ||
+        memory_high_page_is_allocated(high_address + 2u * PAGE_SIZE) != 1 ||
         memory_range_contains_available_ram(HIGH_AVAILABLE_START + 2u * PAGE_SIZE,
                                             HIGH_AVAILABLE_START + 3u * PAGE_SIZE) != 1)
         return fail(101, "reserving an allocated high page corrupted availability or accounting");
 
     page_free_high_contiguous(high_address, 3u);
-    if (memory_high_free_pages() != 1535u)
-        return fail(102, "releasing a run with a revoked high page restored an incorrect free count");
+    if (memory_high_free_pages() != 1535u ||
+        memory_high_page_is_allocated(high_address) != 0 ||
+        memory_high_page_is_allocated(revoked_high_page) != 0 ||
+        memory_high_page_is_allocated(high_address + 2u * PAGE_SIZE) != 0)
+        return fail(102, "releasing a run with a revoked high page restored incorrect ownership or free count");
 
     uint64_t first_remaining_page = 0u;
     uint64_t second_remaining_page = 0u;
