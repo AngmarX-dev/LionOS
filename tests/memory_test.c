@@ -572,6 +572,37 @@ int main(void)
         return fail(12, "low-page release or double-free protection is incorrect");
 
     /*
+     * Reference counts must saturate instead of wrapping to zero and
+     * accidentally returning a still-owned page to the free allocator.
+     */
+    low_allocation = page_alloc();
+    if ((uintptr_t)low_allocation != LOW_AVAILABLE_START)
+        return fail(111, "could not allocate a page for reference saturation coverage");
+    for (uint32_t i = 1u; i < UINT16_MAX; ++i)
+        page_retain(low_allocation);
+    page_retain(low_allocation);
+    page_retain((void *)(uintptr_t)(LOW_AVAILABLE_START + 1u));
+    page_retain((void *)(uintptr_t)LOW_RESERVED_START);
+    if (page_refcount(low_allocation) != UINT16_MAX ||
+        page_refcount((void *)(uintptr_t)(LOW_AVAILABLE_START + 1u)) != 0u ||
+        page_refcount((void *)(uintptr_t)LOW_RESERVED_START) != 0u ||
+        memory_free_pages() != 2815u)
+        return fail(112, "low-page reference saturation or invalid retain handling failed");
+
+    page_free(low_allocation);
+    if (page_refcount(low_allocation) != UINT16_MAX - 1u ||
+        memory_free_pages() != 2815u)
+        return fail(113, "saturated low-page reference count wrapped or freed early");
+    for (uint32_t i = 0u; i < UINT16_MAX - 1u; ++i)
+        page_free(low_allocation);
+    page_free(low_allocation);
+    page_free((void *)(uintptr_t)(LOW_AVAILABLE_START + 1u));
+    page_free((void *)(uintptr_t)LOW_RESERVED_START);
+    if (page_refcount(low_allocation) != 0u ||
+        memory_free_pages() != 2816u)
+        return fail(114, "saturated or invalid low-page releases corrupted accounting");
+
+    /*
      * A runtime reservation must revoke an allocated low page, and a
      * zero-reference reserved page must not be resurrected by page_retain.
      */

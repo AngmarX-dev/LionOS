@@ -20,6 +20,7 @@ void page_free_high(uint64_t physical_address);
 void memory_reserve_physical_range(uint64_t start, uint64_t end);
 uint32_t memory_high_free_pages(void);
 void page_free(void *page);
+/* Low-page references saturate at UINT16_MAX; invalid or unallocated pages are ignored. */
 void page_retain(void *page);
 uint32_t page_refcount(void *page);
 uint32_t memory_total_pages(void);
