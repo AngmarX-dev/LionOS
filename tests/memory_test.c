@@ -1035,6 +1035,14 @@ int main(void)
         return fail(116, "deterministic high-memory fragmentation stress corrupted ownership or accounting");
 
     /*
+     * The fragmentation stress intentionally perturbs the scan hint. Rebuild
+     * the fixture so the following wraparound test starts from a known state.
+     */
+    make_full_high_map_boot_info();
+    if (memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(117, "high-memory map could not be restored after fragmentation stress");
+
+    /*
      * Drive the high allocator scan hint to the final page, wrap it to zero,
      * then release the first page. The next allocation must wrap/revisit the
      * newly free low page instead of reporting false exhaustion.
