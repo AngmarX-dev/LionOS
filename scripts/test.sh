@@ -57,7 +57,7 @@ run_qemu() {
         # A triple fault can make QEMU exit with status 0. Resolve the last
         # kernel-mode page-fault instruction while the unstripped ELF exists.
         fault_eip=$(sed -nE \
-            's/.*v=0e .* cpl=0 .* pc=([[:xdigit:]]+).*/\\1/p' \
+            's/.*v=0e .* cpl=0 .* pc=([[:xdigit:]]+).*/\1/p' \
             "$log_file.qemu" | tail -n 1)
         if [ -n "$fault_eip" ]; then
             echo "QEMU kernel page-fault instruction: 0x$fault_eip"
