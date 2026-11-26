@@ -1557,6 +1557,16 @@ int main(void)
     if (memory_high_free_pages() != combined_high_pages)
         return fail(159, "invalid unified contiguous releases changed high-memory accounting");
 
+    /*
+     * Re-exhaust low memory after the fragmented-fallback case above. The
+     * single-page unified fallback must be tested with no low pages available.
+     */
+    void *single_fallback_low_pages =
+        page_alloc_contiguous(combined_low_pages);
+    if ((uintptr_t)single_fallback_low_pages != LOW_RESERVED_PAGES * PAGE_SIZE ||
+        memory_free_pages() != 0u)
+        return fail(170, "could not exhaust low memory before single-page fallback");
+
     unified_page = UINT64_C(0xA5A5A5A5A5A5A5A5);
     if (page_alloc_physical(&unified_page) != 0 ||
         unified_page != LOW_MEMORY_LIMIT ||
@@ -1575,6 +1585,12 @@ int main(void)
     page_free_physical(unified_page);
     if (memory_high_free_pages() != combined_high_pages)
         return fail(151, "repeated unified high-page release changed free-page accounting");
+    for (uint32_t i = 0u; i < combined_low_pages; ++i)
+        page_free((void *)((uintptr_t)single_fallback_low_pages +
+                           (uint64_t)i * PAGE_SIZE));
+    if (memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(171, "single-page fallback fixture did not restore allocator inventories");
 
     /*
      * Revoke every remaining high page after releasing the last allocation.
