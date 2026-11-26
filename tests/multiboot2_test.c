@@ -80,6 +80,32 @@ static void make_extended_mmap(void)
     put32(92u, 8u);
 }
 
+static void make_unknown_tag_stream(void)
+{
+    for (uint32_t i = 0u; i < sizeof(storage); ++i)
+        storage[i] = 0u;
+
+    /* Known mmap tag followed by two unknown, padded extension tags. */
+    put32(0u, 88u);
+    put32(4u, 0u);
+    put32(8u, MULTIBOOT2_TAG_MMAP);
+    put32(12u, 40u);
+    put32(16u, 24u);
+    put32(20u, 0u);
+    put64(24u, 0x100000u);
+    put64(32u, 0x400000u);
+    put32(40u, MULTIBOOT2_MEMORY_AVAILABLE);
+    put32(44u, 0u);
+    put32(48u, 0x100u);
+    put32(52u, 9u);
+    storage[56u] = 0xA1u;
+    put32(64u, 0x101u);
+    put32(68u, 9u);
+    storage[72u] = 0xB2u;
+    put32(80u, MULTIBOOT2_TAG_END);
+    put32(84u, 8u);
+}
+
 static int expect_invalid(int code)
 {
     if(multiboot2_info_validate(storage)==0){
@@ -96,6 +122,23 @@ int main(void)
 
     make_valid();
     if(multiboot2_info_validate(storage)!=0)return 1;
+
+    /* Unknown tags must be skipped by their aligned size, not rejected. */
+    make_unknown_tag_stream();
+    if (multiboot2_info_validate(storage) != 0 ||
+        multiboot2_info_iterator_init(storage, &iterator) != 0 ||
+        multiboot2_info_iterator_next(&iterator, &tag) != 1 ||
+        tag.type != MULTIBOOT2_TAG_MMAP ||
+        multiboot2_info_iterator_next(&iterator, &tag) != 1 ||
+        tag.type != 0x100u || tag.size != 9u || tag.payload[0] != 0xA1u ||
+        multiboot2_info_iterator_next(&iterator, &tag) != 1 ||
+        tag.type != 0x101u || tag.size != 9u || tag.payload[0] != 0xB2u ||
+        multiboot2_info_iterator_next(&iterator, &tag) != 0)
+        return 36;
+
+    make_unknown_tag_stream();
+    put32(52u, 7u);
+    if (expect_invalid(37)) return 37;
 
     make_extended_mmap();
     if (multiboot2_info_validate(storage) != 0)
