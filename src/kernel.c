@@ -1424,7 +1424,7 @@ void lionos_user_integration_step(void){
                          : "=r"(launch_flags) : : "memory");
         uint32_t created=0u;
         for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i){
-            int pid=exec_run_file("migration_test.elf");
+            int pid=exec_run_file("busy_balance_candidate_test.elf");
             if(pid<=0){
                 integration_busy_balance_failed=1u;
                 break;
@@ -1708,7 +1708,7 @@ void lionos_user_integration_step(void){
                              : "=r"(launch_flags) : : "memory");
             uint32_t created=0u;
             for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i){
-                int pid=exec_run_file("migration_test.elf");
+                int pid=exec_run_file("busy_balance_candidate_test.elf");
                 if(pid<=0){
                     integration_busy_balance_failed=1u;
                     break;
