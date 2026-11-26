@@ -546,10 +546,22 @@ int page_alloc_physical(uint64_t *physical_address)
 
 void page_free_physical(uint64_t physical_address)
 {
-    if (physical_address < HIGH_MEMORY_BASE) {
+    const uint64_t low_memory_limit = (uint64_t)MAX_PAGES * PAGE_SIZE;
+
+    if ((physical_address & (PAGE_SIZE - 1u)) != 0u)
+        return;
+
+    if (physical_address < low_memory_limit) {
+        /* The first low pages are reserved and are never allocator-owned. */
+        if (physical_address < (uint64_t)RESERVED_PAGES * PAGE_SIZE)
+            return;
         page_free((void *)(uintptr_t)physical_address);
         return;
     }
+
+    if (physical_address < HIGH_MEMORY_BASE ||
+        physical_address >= HIGH_MEMORY_LIMIT)
+        return;
 
     page_free_high(physical_address);
 }

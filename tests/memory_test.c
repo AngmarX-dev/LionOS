@@ -1433,11 +1433,19 @@ int main(void)
      * falls back to high memory only after the low window is exhausted,
      * and dispatches release to the matching allocator.
      */
+    if (page_alloc_physical(0) != -1 ||
+        memory_free_pages() != combined_low_pages ||
+        memory_high_free_pages() != combined_high_pages)
+        return fail(145, "unified allocator accepted a null output or changed inventory");
+
     uint64_t unified_page = UINT64_C(0xA5A5A5A5A5A5A5A5);
     if (page_alloc_physical(&unified_page) != 0 ||
         unified_page != LOW_RESERVED_PAGES * PAGE_SIZE ||
         memory_free_pages() != combined_low_pages - 1u)
         return fail(139, "unified page allocation did not prefer the low physical window");
+    page_free_physical(unified_page + 1u);
+    if (memory_free_pages() != combined_low_pages - 1u)
+        return fail(146, "unaligned unified low-page release changed allocator accounting");
     page_free_physical(unified_page);
     if (memory_free_pages() != combined_low_pages)
         return fail(140, "unified low-page release did not restore low allocator accounting");
@@ -1452,6 +1460,12 @@ int main(void)
         memory_free_pages() != 0u ||
         memory_high_free_pages() != combined_high_pages - 1u)
         return fail(142, "unified allocator did not fall back to the first high-memory page");
+    page_free_physical(unified_page + 1u);
+    if (memory_high_free_pages() != combined_high_pages - 1u)
+        return fail(147, "unaligned unified high-page release changed allocator accounting");
+    page_free_physical(HIGH_MEMORY_LIMIT);
+    if (memory_high_free_pages() != combined_high_pages - 1u)
+        return fail(148, "out-of-window unified high-page release changed allocator accounting");
     page_free_physical(unified_page);
     if (memory_high_free_pages() != combined_high_pages)
         return fail(143, "unified high-page release did not restore high allocator accounting");
