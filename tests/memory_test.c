@@ -695,9 +695,19 @@ int main(void)
         memory_high_free_pages() != full_high_pages - 3u)
         return fail(33, "high contiguous allocation or accounting failed");
 
+    /*
+     * Partial and overlapping releases must free each allocated page once.
+     * A repeated release must not inflate the free-page counter.
+     */
+    page_free_high_contiguous(high_address, 2u);
+    if (memory_high_free_pages() != full_high_pages - 1u)
+        return fail(34, "partial high contiguous release freed the wrong page count");
     page_free_high_contiguous(high_address, 3u);
     if (memory_high_free_pages() != full_high_pages)
-        return fail(34, "high contiguous release did not restore all pages");
+        return fail(82, "overlapping high contiguous release did not free only remaining pages");
+    page_free_high_contiguous(high_address, 3u);
+    if (memory_high_free_pages() != full_high_pages)
+        return fail(83, "repeated high contiguous release double-counted free pages");
 
     if (page_alloc_high_contiguous(3u, &high_address) != 0 ||
         high_address != LOW_MEMORY_LIMIT)
