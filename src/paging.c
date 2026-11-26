@@ -336,7 +336,8 @@ int paging_map_kernel_range(uint32_t virtual_address, uint64_t physical_address,
 
 int paging_map_high_page(uint64_t physical_address,uint32_t flags,uint32_t *virtual_address){
     if(!virtual_address||(physical_address& (PAGE_SIZE-1u))||
-       physical_address<0x10000000ULL||(physical_address&~PTE_ADDR_MASK))return -1;
+       physical_address<0x10000000ULL||(physical_address&~PTE_ADDR_MASK)||
+       memory_high_page_is_allocated(physical_address)!=1)return -1;
     if(cpu_current_index()!=0u)return -1;
     uint32_t irq=spinlock_irqsave_acquire(&high_map_lock);
     uint32_t slot=HIGH_MAP_PAGES;

@@ -19,6 +19,9 @@ void page_free_high(uint64_t physical_address);
 /* Exclude firmware/device-owned physical ranges from all PMM allocators. */
 void memory_reserve_physical_range(uint64_t start, uint64_t end);
 uint32_t memory_high_free_pages(void);
+/* Returns 1 for an allocated high-RAM page, 0 for unallocated/reserved RAM,
+ * and -1 for an unaligned or out-of-window physical address. */
+int memory_high_page_is_allocated(uint64_t physical_address);
 void page_free(void *page);
 /* Low-page references saturate at UINT16_MAX; invalid or unallocated pages are ignored. */
 void page_retain(void *page);

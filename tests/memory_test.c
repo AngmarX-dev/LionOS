@@ -640,12 +640,19 @@ int main(void)
         memory_range_contains_available_ram(HIGH_RESERVED_START,
                                             HIGH_RESERVED_END) != 0 ||
         memory_range_contains_available_ram(HIGH_AVAILABLE_START,
-                                            HIGH_AVAILABLE_START + PAGE_SIZE) != 1)
-        return fail(14, "high-page availability query or allocation accounting failed");
+                                            HIGH_AVAILABLE_START + PAGE_SIZE) != 1 ||
+        memory_high_page_is_allocated(high_address) != 1 ||
+        memory_high_page_is_allocated(HIGH_AVAILABLE_START + PAGE_SIZE) != 0 ||
+        memory_high_page_is_allocated(HIGH_RESERVED_START) != 0 ||
+        memory_high_page_is_allocated(HIGH_AVAILABLE_START + 1u) != -1 ||
+        memory_high_page_is_allocated(LOW_MEMORY_LIMIT - PAGE_SIZE) != -1 ||
+        memory_high_page_is_allocated(HIGH_MEMORY_LIMIT) != -1)
+        return fail(14, "high-page ownership query or allocation accounting failed");
 
     page_free_high(high_address);
-    if (memory_high_free_pages() != 1792u)
-        return fail(15, "high-page release did not restore the free count");
+    if (memory_high_free_pages() != 1792u ||
+        memory_high_page_is_allocated(high_address) != 0)
+        return fail(15, "high-page release did not clear ownership or restore the free count");
 
     /*
      * Failed high contiguous allocations must be transactional: reject zero
@@ -691,6 +698,7 @@ int main(void)
                                             HIGH_AVAILABLE_START + PAGE_SIZE) != 1 ||
         memory_range_contains_available_ram(revoked_high_page,
                                             revoked_high_page + PAGE_SIZE) != 0 ||
+        memory_high_page_is_allocated(revoked_high_page) != 0 ||
         memory_range_contains_available_ram(HIGH_AVAILABLE_START + 2u * PAGE_SIZE,
                                             HIGH_AVAILABLE_START + 3u * PAGE_SIZE) != 1)
         return fail(101, "reserving an allocated high page corrupted availability or accounting");

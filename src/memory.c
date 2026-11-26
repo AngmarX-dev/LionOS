@@ -365,6 +365,25 @@ uint32_t memory_high_free_pages(void){
     spinlock_irqrestore_release(&memory_lock,irq);
     return count;
 }
+
+int memory_high_page_is_allocated(uint64_t physical_address)
+{
+    uint32_t page;
+    uint32_t irq;
+    int allocated;
+
+    if ((physical_address & (PAGE_SIZE - 1u)) != 0u ||
+        physical_address < HIGH_MEMORY_BASE ||
+        physical_address >= HIGH_MEMORY_LIMIT)
+        return -1;
+
+    page = (uint32_t)((physical_address - HIGH_MEMORY_BASE) / PAGE_SIZE);
+    irq = spinlock_irqsave_acquire(&memory_lock);
+    allocated = high_bit_get(high_available, page) &&
+                high_bit_get(high_allocated, page);
+    spinlock_irqrestore_release(&memory_lock, irq);
+    return allocated ? 1 : 0;
+}
 void*page_alloc_contiguous(uint32_t count){if(!count||count>MAX_PAGES-RESERVED_PAGES)return 0;uint32_t irq=spinlock_irqsave_acquire(&memory_lock);uint32_t run=0,start=RESERVED_PAGES;for(uint32_t p=RESERVED_PAGES;p<MAX_PAGES;++p){if(is_free(p)){if(!run)start=p;if(++run==count){for(uint32_t i=0;i<count;++i){mark_used(start+i);page_refs[start+i]=1u;}free_pages-=count;spinlock_irqrestore_release(&memory_lock,irq);return(void*)(uintptr_t)(start*PAGE_SIZE);}}else run=0;}spinlock_irqrestore_release(&memory_lock,irq);return 0;}
 void*page_alloc(void){return page_alloc_contiguous(1);}
 void page_retain(void*ptr){uint32_t a=(uint32_t)(uintptr_t)ptr;if((a&(PAGE_SIZE-1u))!=0)return;uint32_t p=a/PAGE_SIZE;if(p<RESERVED_PAGES||p>=MAX_PAGES)return;uint32_t irq=spinlock_irqsave_acquire(&memory_lock);if(!is_free(p)&&page_refs[p]!=0u&&page_refs[p]<0xFFFFu)++page_refs[p];spinlock_irqrestore_release(&memory_lock,irq);}
