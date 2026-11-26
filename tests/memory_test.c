@@ -146,6 +146,18 @@ static void make_boot_info(void)
     put32(196u, 8u);
 }
 
+static void make_high_module_boot_info(void)
+{
+    make_boot_info();
+
+    /*
+     * Place a valid Multiboot2 module inside the high allocator window.
+     * The 32-bit module fields can represent this 516–517 MiB interval.
+     */
+    put32(176u, 516u * (uint32_t)MIB);
+    put32(180u, 517u * (uint32_t)MIB);
+}
+
 static void make_available_before_reserved_boot_info(void)
 {
     for (uint32_t i = 0u; i < sizeof(boot_info); ++i)
@@ -819,6 +831,40 @@ int main(void)
         return fail(54, "concurrency map failed allocator initialization");
     if (memory_allocator_concurrency_test() != 0)
         return fail(55, "concurrent low/high allocations duplicated pages or leaked free-page accounting");
+
+    /*
+     * Multiboot2 modules may reside above the low allocator's 256 MiB
+     * boundary. Their physical interval must be excluded from the high
+     * allocator even when it overlaps firmware-available RAM.
+     */
+    make_high_module_boot_info();
+    if (multiboot2_info_validate(boot_info) != 0 ||
+        memory_init((uint32_t)(uintptr_t)boot_info) != 0)
+        return fail(95, "high-memory module map failed validation or initialization");
+
+    if (memory_high_free_pages() != 1536u ||
+        memory_high_available_bytes() != 8ULL * MIB ||
+        memory_range_contains_available_ram(516ULL * MIB,
+                                            517ULL * MIB) != 0 ||
+        memory_range_contains_available_ram(515ULL * MIB,
+                                            516ULL * MIB) != 1 ||
+        memory_range_contains_available_ram(517ULL * MIB,
+                                            518ULL * MIB) != 1)
+        return fail(96, "high-memory module reservation corrupted available-RAM inventory");
+
+    high_address = 0xD4D4D4D4D4D4D4D4ULL;
+    if (page_alloc_high_contiguous(769u, &high_address) == 0 ||
+        high_address != 0xD4D4D4D4D4D4D4D4ULL ||
+        memory_high_free_pages() != 1536u)
+        return fail(97, "high contiguous allocation crossed a reserved module interval");
+
+    if (page_alloc_high_contiguous(768u, &high_address) != 0 ||
+        high_address != 517ULL * MIB ||
+        memory_high_free_pages() != 768u)
+        return fail(98, "high allocator failed to select the largest run after a module reservation");
+    page_free_high_contiguous(high_address, 768u);
+    if (memory_high_free_pages() != 1536u)
+        return fail(99, "high-memory module reservation test did not restore allocator accounting");
 
     /*
      * Exercise every page in the complete low-memory bitmap. The first
