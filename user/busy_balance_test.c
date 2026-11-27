@@ -2,12 +2,13 @@
 #include "user_api.h"
 
 /*
- * Keep each AP busy for the complete five-wave production balancing probe.
- * Explicit scheduler IPIs can now preempt a partial quantum, so retain a
- * larger bounded work budget while candidates are admitted in five waves.
- * The workload remains finite so the integration test can reap it normally.
+ * Keep each AP busy across the five-wave production balancing probe, but
+ * finish the worker before the bounded QEMU integration run ends. The
+ * workload is deliberately finite so the kernel can reap each worker after
+ * the final wave; its budget is between the early-exit and non-terminating
+ * stress budgets observed in the preceding CI runs.
  */
-#define BUSY_BALANCE_ITERATIONS 4000000000u
+#define BUSY_BALANCE_ITERATIONS 2500000000u
 #define BUSY_BALANCE_YIELD_MASK 0x3FFFFu
 
 int main(void) {
