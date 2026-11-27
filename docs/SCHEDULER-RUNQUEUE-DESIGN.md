@@ -2,13 +2,13 @@
 
 ## Latest CI verification
 
-On 2026-11-23, all three required workflows passed on exact branch commit `fb6a9bd1750390b3d0c1a73ff3313e66b69134bc`:
+On 2026-11-27, all three required workflows passed on exact branch commit `8e1fb7bb4f5e677286dc6319a545748e725ca857`:
 
-- Build LionOS — run [45159926164](https://github.com/AngmarX-dev/LionOS/actions/runs/45159926164). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI and boot-UI checks, USB disk-image validation, and artifact upload completed successfully.
-- LionOS Phase 26 CI — run [45159926076](https://github.com/AngmarX-dev/LionOS/actions/runs/45159926076). Build and QEMU smoke tests completed successfully.
-- xHCI USB mouse test — run [45159925975](https://github.com/AngmarX-dev/LionOS/actions/runs/45159925975). QEMU USB mouse boot and USB keyboard-discovery regression completed successfully.
+- Build LionOS — run [45968721842](https://github.com/AngmarX-dev/LionOS/actions/runs/45968721842). The stability/GUI suite, live USB image, QEMU 1080p image, BIOS/UEFI and boot-UI checks, USB disk-image validation, and artifact upload completed successfully.
+- LionOS Phase 26 CI — run [45968721540](https://github.com/AngmarX-dev/LionOS/actions/runs/45968721540). Build and QEMU smoke tests completed successfully.
+- xHCI USB mouse test — run [45968721611](https://github.com/AngmarX-dev/LionOS/actions/runs/45968721611). QEMU USB mouse boot and USB keyboard-discovery regression completed successfully.
 
-This documentation update records CI/QEMU results for the exact five-wave test revision; it does not change scheduler behavior and is not physical-hardware verification. The scheduler still serializes process state and scheduling decisions through the global `process_lock`; sustained-load convergence, broader thread migration, and physical validation remain open.
+The verified revision includes the corrected four-vCPU QEMU timeout invocation and preserved shell-line formatting. This documentation records CI results for that exact source revision; it does not change scheduler behavior, prove sustained-load convergence, remove the global `process_lock` serialization, or constitute physical-hardware verification.
 
 ---
 
