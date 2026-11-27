@@ -1585,17 +1585,17 @@ int main(void)
     page_free_physical(unified_page);
     if (memory_high_free_pages() != combined_high_pages)
         return fail(151, "repeated unified high-page release changed free-page accounting");
-    for (uint32_t i = 0u; i < combined_low_pages; ++i)
-        page_free((void *)((uintptr_t)single_fallback_low_pages +
-                           (uint64_t)i * PAGE_SIZE));
-    if (memory_free_pages() != combined_low_pages ||
-        memory_high_free_pages() != combined_high_pages)
-        return fail(171, "single-page fallback fixture did not restore allocator inventories");
+    /*
+     * Keep single_fallback_low_pages allocated through the exhaustion checks
+     * below. Releasing it here would leave low memory available and make the
+     * expected unified-allocation failure test exercise the low allocator
+     * instead of the exhausted low+high case.
+     */
 
     /*
-     * Revoke every remaining high page after releasing the last allocation.
-     * With low memory already exhausted, the unified allocator must fail
-     * without overwriting its output or changing either inventory.
+     * Revoke every remaining high page while the low-window fixture remains
+     * allocated. The unified allocator must fail without changing its output
+     * or either allocator inventory.
      */
     memory_reserve_physical_range(LOW_MEMORY_LIMIT, HIGH_MEMORY_LIMIT);
     if (memory_high_free_pages() != 0u)
@@ -1614,7 +1614,8 @@ int main(void)
         return fail(161, "exhausted unified contiguous allocation changed output or inventory");
 
     for (uint32_t i = 0u; i < combined_low_pages; ++i)
-        page_free((void *)((uintptr_t)all_low_pages + (uint64_t)i * PAGE_SIZE));
+        page_free((void *)((uintptr_t)single_fallback_low_pages +
+                           (uint64_t)i * PAGE_SIZE));
     if (memory_free_pages() != combined_low_pages ||
         memory_high_free_pages() != 0u)
         return fail(144, "unified allocator exhaustion regression did not restore low inventory");
