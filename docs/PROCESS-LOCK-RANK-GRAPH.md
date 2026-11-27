@@ -103,7 +103,10 @@ requires its own design and regression coverage.
   counts, high-page pin records, and free-page accounting.
 - Process lifecycle paths can call page allocation/free while holding
   `process_lock`; the observed nested edge is
-  `process_lock → memory_lock`.
+  `process_lock → memory_lock`. They also call user-address-space paging APIs
+  while holding `process_lock`, but the inspected user mapping, COW, and
+  address-space teardown paths do not establish a nested edge to the kernel
+  MMIO/high-map locks described below.
 - Kernel MMIO mapping operations hold `kernel_map_lock` while updating PTEs
   and performing the required TLB invalidation/shootdown.
 - High-memory mapping uses `high_map_lock` for virtual-slot ownership and
@@ -131,10 +134,12 @@ pipe lock ───────────────────────�
 TTY input lock ──────────────────┤
 IPC lock ────────────────────────┼──> process_lock ──> runqueue lock(s)
 AP probe wait lock ─────────────┘          │
-                                           ├──> memory_lock
-                                           └──> paging operations
-                                                ├── kernel_map_lock
-                                                └── high_map_lock (phased)
+                                           └──> memory_lock
+
+kernel MMIO mapping ──> kernel_map_lock ──> TLB shootdown
+high-map slot bookkeeping ──> high_map_lock
+  (released) → kernel_map_lock → (released) → high_map_lock
+  (released) → memory_lock for final unpin
 
 TTY output_lock ──> TTY input_lock ──> TTY state lock
        └─────────────────────────────> TTY state lock
