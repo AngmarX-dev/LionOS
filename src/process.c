@@ -3844,7 +3844,7 @@ uint32_t *process_schedule(uint32_t *frame){
             if(scheduler_tick_charge(&prev->ticks_used,&prev->priority,
                     &prev->time_slice,charge_ticks)!=0){
                 __atomic_store_n(&runqueue_fault,1u,__ATOMIC_RELEASE);
-            }else if(prev->ticks_used!=0u){
+            }else if(prev->ticks_used!=0u&&reschedule_was_requested==0u){
                 scheduler_execution_guard_enter(prev,cpu);
                 spinlock_irqrestore_release(&process_lock,flags);
                 process_kick_mask(waitpid_wake_mask,cpu);
