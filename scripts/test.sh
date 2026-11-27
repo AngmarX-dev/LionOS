@@ -190,6 +190,26 @@ run_qemu() {
             echo "busy-destination spread markers were missing, duplicated, or out of order: $log_file" >&2
             return 1
         fi
+        expected_busy_destinations=1
+        if [ "$cpu_count" -ge 3 ]; then
+            expected_busy_destinations=2
+        fi
+        busy_destination_spread_values=$(sed -n \
+            's/^LIONOS:SMP-BUSY-ROUND-DESTINATION-SPREAD-OK round=[0-9A-Fa-f]* destinations=\([0-9A-Fa-f]*\) required=\([0-9A-Fa-f]*\)$/\1 \2/p' \
+            "$log_file")
+        busy_destination_spread_value_count=$(printf '%s\n' "$busy_destination_spread_values" | grep -c . || true)
+        if [ "$busy_destination_spread_value_count" -ne 5 ]; then
+            echo "expected five complete busy-destination spread values, observed $busy_destination_spread_value_count: $log_file" >&2
+            return 1
+        fi
+        while read -r destinations required; do
+            if [ -z "$destinations" ] || [ -z "$required" ] ||
+               [ "$required" != "0000000$expected_busy_destinations" ] ||
+               (( 16#$destinations < 16#$required )); then
+                echo "busy-destination spread threshold was not met: destinations=$destinations required=$required expected=$expected_busy_destinations: $log_file" >&2
+                return 1
+            fi
+        done <<< "$busy_destination_spread_values"
         migration_rounds=$(grep -c '^LIONOS:SMP-WORK-STEAL-ROUND-OK round=' "$log_file" || true)
         if [ "$migration_rounds" -ne 3 ]; then
             echo "expected 3 completed SMP migration stress rounds, observed $migration_rounds: $log_file" >&2

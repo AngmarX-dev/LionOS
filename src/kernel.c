@@ -1633,12 +1633,13 @@ void lionos_user_integration_step(void){
             uint32_t round_destination_count=
                 integration_mask_count(round_owner_intersection);
             /*
-             * A single wave may be consumed by one busy AP before another AP
-             * reaches its balancing point. Require a real busy transfer in
-             * every wave; the final cumulative coverage check below proves
-             * that all launched destinations participate across the waves.
+             * Enforce the same per-wave spread threshold as final acceptance:
+             * when at least two busy AP workers exist, one destination is not
+             * enough to count this wave as distributed. The two-vCPU case has
+             * only one possible busy destination.
              */
-            uint32_t required_destinations=1u;
+            uint32_t required_destinations=
+                integration_busy_balance_required_destinations();
             if(round_busy_mask==0u||
                integration_busy_balance_moved<INTEGRATION_BUSY_BALANCE_MIN_MOVED||
                round_destination_count<required_destinations){

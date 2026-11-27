@@ -64,8 +64,13 @@ requires every launched busy-worker CPU to receive at least one eligible
 process. Each wave also requires successful transfers to at least two distinct
 busy destinations when two or more AP workers were launched (one destination
 for a two-vCPU run), and the test script verifies all five ordered spread
-markers. This strengthens per-wave distribution coverage but does not prove
-queue-depth convergence under arbitrary arrival rates.
+markers. Both the kernel acceptance and the QEMU log parser enforce the
+same per-wave minimum: two distinct busy destinations when at least two AP
+workers are launched, or the sole destination on a two-vCPU run. This catches
+a regression where the kernel could emit a successful spread marker with a
+weaker threshold than the documented acceptance. It strengthens per-wave
+distribution coverage but does not prove queue-depth convergence under
+arbitrary arrival rates.
 Build LionOS (run `45159926164`), Phase 26 CI (run `45159926076`), and xHCI USB
 regression (run `45159925975`) all passed on exact commit
 `fb6a9bd1750390b3d0c1a73ff3313e66b69134bc`. This verifies the configured QEMU
