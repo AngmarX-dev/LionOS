@@ -311,3 +311,13 @@ The queue conversion is not complete until tests demonstrate:
 10. Physical hardware claims remain explicitly unverified until tested on hardware.
 
 A successful build alone is insufficient. The implementation must pass both code reviews and all required CI workflows for the exact commit before the README item can be marked complete.
+
+## Follow-up scheduler contention verification
+
+On 2026-11-27, the deferred timer-tick contention clarification passed all three required GitHub Actions workflows on exact branch commit `d3ef16deaddedb9653419786ba4bea247f39e6b0`:
+
+- Build LionOS — run [45948136773](https://github.com/AngmarX-dev/LionOS/actions/runs/45948136773).
+- LionOS Phase 26 CI — run [45948136797](https://github.com/AngmarX-dev/LionOS/actions/runs/45948136797).
+- xHCI USB mouse test — run [45948136682](https://github.com/AngmarX-dev/LionOS/actions/runs/45948136682).
+
+The scheduler entry comment now documents the implemented contract: timer ticks are accumulated before the non-blocking `process_lock` attempt; when that attempt is contended, quantum charging is deferred until a later successful scheduling decision. This revision changes documentation in the scheduler source only; it does not remove global process-state serialization or establish starvation freedom, sustained-load convergence, unrestricted thread migration, or physical-hardware behavior. Those Phase A acceptance items remain open.
