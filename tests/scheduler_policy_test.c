@@ -28,6 +28,56 @@ static void *accumulator_worker_main(void *argument) {
     return 0;
 }
 
+/*
+ * Model timer ticks that arrive while process_schedule() cannot acquire
+ * process_lock. A failed try-lock must leave the pending count untouched;
+ * the next successful scheduling decision drains and charges it exactly once.
+ */
+static int deferred_tick_charge_after_contention_test(void) {
+    volatile uint32_t pending = 0u;
+    uint32_t used = 1u;
+    uint32_t priority = 0u;
+    uint32_t quantum = scheduler_priority_quantum(priority);
+
+    if (scheduler_tick_accumulate(&pending) != 1 ||
+        scheduler_tick_accumulate(&pending) != 1 ||
+        scheduler_tick_accumulate(&pending) != 1)
+        return 1;
+
+    /* Simulate repeated try-lock failures: no consumer may clear the ticks. */
+    if (__atomic_load_n(&pending, __ATOMIC_ACQUIRE) != 3u)
+        return 2;
+
+    uint32_t elapsed = __atomic_exchange_n(&pending, 0u, __ATOMIC_ACQ_REL);
+    if (elapsed != 3u ||
+        __atomic_load_n(&pending, __ATOMIC_ACQUIRE) != 0u)
+        return 3;
+
+    /* An overrun is charged once and causes only one priority demotion. */
+    if (scheduler_tick_charge(&used, &priority, &quantum, elapsed) != 0 ||
+        used != 0u || priority != 1u || quantum != 4u)
+        return 4;
+
+    /* A second successful entry must not charge the already-consumed ticks. */
+    elapsed = __atomic_exchange_n(&pending, 0u, __ATOMIC_ACQ_REL);
+    if (elapsed != 0u ||
+        scheduler_tick_charge(&used, &priority, &quantum, elapsed) != 0 ||
+        used != 0u || priority != 1u || quantum != 4u)
+        return 5;
+
+    /* Later ticks continue from the new quantum without losing elapsed time. */
+    if (scheduler_tick_accumulate(&pending) != 1 ||
+        scheduler_tick_accumulate(&pending) != 1)
+        return 6;
+    elapsed = __atomic_exchange_n(&pending, 0u, __ATOMIC_ACQ_REL);
+    if (elapsed != 2u ||
+        scheduler_tick_charge(&used, &priority, &quantum, elapsed) != 0 ||
+        used != 2u || priority != 1u || quantum != 4u)
+        return 7;
+
+    return 0;
+}
+
 static int run_accumulator_workers(uint32_t iterations,
                                       uint32_t *successes_out) {
     enum { WORKERS = 8 };
@@ -243,5 +293,7 @@ int main(void) {
     pending_ticks = UINT32_MAX - 100u;
     if (run_accumulator_workers(1000u, &total_successes) != 0 ||
         total_successes != 100u || pending_ticks != UINT32_MAX) return 40;
+
+    if (deferred_tick_charge_after_contention_test() != 0) return 55;
     return 0;
 }
