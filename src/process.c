@@ -3686,7 +3686,13 @@ uint32_t *process_schedule(uint32_t *frame){
     process_scheduler_ap_probe_report();
     if(__atomic_load_n(&process_scheduler_ready,__ATOMIC_ACQUIRE)==0u)
         return frame;
-    /* Do not let a timer interrupt spin behind another CPU. Per-CPU\n     * run-queue locks are in place, but process lifetime and state are still\n     * serialized by process_lock; dropping a contended tick is preferable\n     * to stalling the CPU in an IRQ-disabled spin loop. */
+    /*
+     * Keep IRQ scheduling non-blocking: process state remains serialized by
+     * process_lock. The timer path accumulates its tick before entering here,
+     * so a failed try-lock defers quantum charging to a later successful
+     * scheduling decision instead of discarding elapsed ticks or spinning
+     * in interrupt context.
+     */
     uint32_t flags;
     __asm__ volatile("pushfl; popl %0; cli" : "=r"(flags) : : "memory");
     uint32_t cpu=cpu_current_index();
