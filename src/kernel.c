@@ -353,6 +353,7 @@ static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_C
 static volatile uint32_t integration_busy_worker_stop[LIONOS_MAX_CPUS];
 static volatile uint32_t integration_busy_worker_status[LIONOS_MAX_CPUS];
 static uint32_t integration_busy_worker_stop_requested;
+static uint32_t integration_busy_balance_timeout_reported;
 static uint32_t integration_busy_worker_launch_mask;
 static uint32_t integration_busy_balance_before[LIONOS_MAX_CPUS];
 static uint32_t integration_busy_balance_start_tick;
@@ -1304,6 +1305,7 @@ void lionos_user_integration_step(void){
         }
         integration_busy_worker_launch_mask=0u;
         integration_busy_worker_stop_requested=0u;
+        integration_busy_balance_timeout_reported=0u;
         integration_busy_balance_failed=0u;
         integration_busy_balance_moved=0u;
         integration_busy_balance_moved_mask=0u;
@@ -1443,11 +1445,16 @@ void lionos_user_integration_step(void){
         if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
         uint32_t stage28_elapsed=
             process_scheduler_ticks(0u)-integration_busy_balance_start_tick;
-        if(stage28_elapsed>INTEGRATION_BUSY_BALANCE_TIMEOUT_TICKS){
+        uint32_t stage28_timed_out=
+            stage28_elapsed>INTEGRATION_BUSY_BALANCE_TIMEOUT_TICKS;
+        if(stage28_timed_out){
             integration_busy_balance_failed=1u;
-            debug_write("LIONOS:SMP-BUSY-TIMEOUT elapsed=");
-            debug_write_u32_hex(stage28_elapsed);
-            debug_write("\n");
+            if(integration_busy_balance_timeout_reported==0u){
+                debug_write("LIONOS:SMP-BUSY-TIMEOUT elapsed=");
+                debug_write_u32_hex(stage28_elapsed);
+                debug_write("\n");
+                integration_busy_balance_timeout_reported=1u;
+            }
         }
 
         for(uint32_t i=0u;i<INTEGRATION_BUSY_BALANCE_PROCESS_COUNT;++i){
@@ -1526,8 +1533,16 @@ void lionos_user_integration_step(void){
         }
 
         pending=candidate_pending;
-        if(integration_busy_balance_round+1u>=INTEGRATION_BUSY_BALANCE_ROUNDS&&
-           candidate_pending==0u&&integration_busy_worker_stop_requested==0u){
+        /*
+         * Always release pinned AP workers on timeout, even when a candidate
+         * has not exited. Candidates remain tracked/reaped below; leaving the
+         * workers spinning would otherwise consume the CPUs needed to drain
+         * the failed workload and could turn a bounded failure into a hang.
+         */
+        if(integration_busy_worker_stop_requested==0u&&
+           (stage28_timed_out||
+            (integration_busy_balance_round+1u>=
+                 INTEGRATION_BUSY_BALANCE_ROUNDS&&candidate_pending==0u))){
             for(uint32_t cpu=1u;cpu<online;++cpu){
                 if(integration_busy_worker_launch_mask&(1u<<cpu)){
                     __atomic_store_n(&integration_busy_worker_stop[cpu],1u,
