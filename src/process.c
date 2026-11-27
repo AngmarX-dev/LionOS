@@ -3828,7 +3828,15 @@ uint32_t *process_schedule(uint32_t *frame){
     }
 
     if(prev && prev->state==PROCESS_RUNNING && !prev_is_idle){
-        if(__atomic_exchange_n(&reschedule_requested[cpu],0u,__ATOMIC_ACQ_REL)==0u){
+        uint32_t reschedule_was_requested=__atomic_exchange_n(
+            &reschedule_requested[cpu],0u,__ATOMIC_ACQ_REL);
+        /*
+         * A timer tick and an explicit reschedule can arrive before the same
+         * scheduler entry. The timer's elapsed count must still be charged;
+         * only an IPI-only reschedule may reset the partial quantum without
+         * charging a synthetic tick.
+         */
+        if(elapsed_timer_ticks!=0u||reschedule_was_requested==0u){
             /* Preserve the legacy one-charge behavior for scheduler entries
                that are not paired with process_futex_tick() (for example,
                the PIT fallback while the LAPIC frame timer is active). */
