@@ -187,3 +187,14 @@ or remove it based solely on per-CPU run-queue tests, queue ownership checks,
 or successful QEMU boot tests. The current host-side destination-owned
 dispatch regression validates a queue model; it does not exercise this
 production lifecycle path.
+
+
+## Supplemental wait and subsystem lock-call-site audit
+
+A follow-up source-level call-site review is recorded in
+`docs/PROCESS-WAIT-LOCK-AUDIT.md`. It covers the blocking wait handoff and
+the current futex, pipe, TTY, and IPC call paths. That document is deliberately
+a bounded supplement, not a claim that every VFS, paging, allocator, signal,
+or scheduler callback has been exhaustively ranked. The original prerequisites
+above remain in force; in particular, `process_lock` must not be removed or
+split based on this partial inventory.
