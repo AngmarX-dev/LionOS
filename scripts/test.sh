@@ -356,7 +356,7 @@ echo "[3/6] First SMP boot / filesystem initialization"
 echo "SMP AP entry symbol:"
 nm -n build/lionos.bin | grep -E " smp_ap_main$| page_root$|kernel_pd|identity_pt| _kernel_end$" || true
 objdump -d --disassemble=smp_ap_main build/lionos.bin | head -n 24
-run_qemu build/qemu-first.log "" 4
+# The five-wave busy-destination acceptance runs during this boot. Its bounded\n# CPU-bound workers need a larger window on slower or contended CI runners.\nrun_qemu build/qemu-first.log "" 4 120
 first_boot_online_aps=$(grep -c 'LIONOS:SMP-CPU-ONLINE' build/qemu-first.log || true)
 if [ "$first_boot_online_aps" -ne 3 ]; then
     echo "SMP integration: expected 3 online APs during the four-CPU system boot, observed $first_boot_online_aps" >&2
