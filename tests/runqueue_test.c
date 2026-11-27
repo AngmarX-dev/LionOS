@@ -657,6 +657,44 @@ int main(void) {
         total != 1u)
         return 54;
 
+    /*
+     * A valid lane chain is not enough: corrupt per-lane and aggregate
+     * destination accounting independently. Each rejected move must leave
+     * the source node linked to its original owner and preserve destination
+     * topology until the damaged metadata is restored.
+     */
+    destination.count[2] = 2u;
+    if (runqueue_move_locked(&source, &destination, nodes, NODE_COUNT, 0u) == 0)
+        return 55;
+    if (source.total != 2u || source.count[2] != 2u ||
+        source.head[2] != 0u || source.tail[2] != 1u ||
+        destination.total != 1u || destination.count[2] != 2u ||
+        destination.head[2] != 2u || destination.tail[2] != 2u ||
+        nodes[0].queued != 1u || nodes[0].queue_cpu != source.cpu ||
+        nodes[0].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        nodes[0].next != 1u)
+        return 56;
+    destination.count[2] = 1u;
+
+    destination.total = 2u;
+    if (runqueue_move_locked(&source, &destination, nodes, NODE_COUNT, 0u) == 0)
+        return 57;
+    if (source.total != 2u || source.count[2] != 2u ||
+        source.head[2] != 0u || source.tail[2] != 1u ||
+        destination.total != 2u || destination.count[2] != 1u ||
+        destination.head[2] != 2u || destination.tail[2] != 2u ||
+        nodes[0].queued != 1u || nodes[0].queue_cpu != source.cpu ||
+        nodes[0].previous != LIONOS_RUNQUEUE_INVALID_INDEX ||
+        nodes[0].next != 1u)
+        return 58;
+    destination.total = 1u;
+
+    if (runqueue_validate_locked(&source, nodes, NODE_COUNT, &total) != 0 ||
+        total != 2u ||
+        runqueue_validate_locked(&destination, nodes, NODE_COUNT, &total) != 0 ||
+        total != 1u)
+        return 59;
+
     if (runqueue_move_locked(&source, &destination, nodes, NODE_COUNT, 0u) != 0) return 40;
     if (nodes[0].queue_cpu != 1u || nodes[0].priority != 2u ||
         nodes[0].queued != 1u || source.total != 1u ||
