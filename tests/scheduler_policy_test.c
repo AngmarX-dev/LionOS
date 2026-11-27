@@ -109,6 +109,8 @@ static int concurrent_tick_drain_test(uint32_t iterations) {
     uint32_t started = 0u;
     int failed = 0;
 
+    if (iterations > UINT32_MAX / PRODUCERS) return -1;
+
     for (; started < PRODUCERS; ++started) {
         workers[started].stress = &stress;
         workers[started].iterations = iterations;
