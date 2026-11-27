@@ -15,6 +15,9 @@ static pthread_mutex_t active_mutex = PTHREAD_MUTEX_INITIALIZER;
 static uintptr_t next_page = 0x10000000u;
 static uint64_t allocated_pages;
 static uint64_t freed_pages;
+static int fail_next_allocation;
+static uint64_t worker_allocations;
+static uint64_t worker_allocation_failures;
 static void *active[MAX_ACTIVE];
 static size_t active_count;
 static int test_failed;
@@ -25,6 +28,11 @@ void *page_alloc_contiguous(uint32_t count)
     if (!count)
         return 0;
     pthread_mutex_lock(&pmm_mutex);
+    if (fail_next_allocation) {
+        fail_next_allocation = 0;
+        pthread_mutex_unlock(&pmm_mutex);
+        return 0;
+    }
     if ((uint64_t)next_page + (uint64_t)count * PAGE_SIZE <= UINT32_MAX) {
         result = (void *)next_page;
         next_page += (uintptr_t)count * PAGE_SIZE;
@@ -40,6 +48,13 @@ void page_free(void *page)
         return;
     pthread_mutex_lock(&pmm_mutex);
     ++freed_pages;
+    pthread_mutex_unlock(&pmm_mutex);
+}
+
+static void fail_one_pmm_allocation(void)
+{
+    pthread_mutex_lock(&pmm_mutex);
+    fail_next_allocation = 1;
     pthread_mutex_unlock(&pmm_mutex);
 }
 
@@ -78,14 +93,17 @@ static void *worker(void *arg)
     for (uint32_t i = 0; i < ITERATIONS; ++i) {
         size_t size = (size_t)(((i * 37u + (uint32_t)id * 101u) % 12288u) + 1u);
         void *ptr = kmalloc(size);
-        if (!ptr)
+        if (!ptr) {
+            __atomic_fetch_add(&worker_allocation_failures, 1u, __ATOMIC_RELAXED);
             continue;
+        }
         if (!active_add(ptr)) {
             __atomic_store_n(&test_failed, 1, __ATOMIC_RELAXED);
             continue;
         }
         active_remove(ptr);
         kfree(ptr);
+        __atomic_fetch_add(&worker_allocations, 1u, __ATOMIC_RELAXED);
     }
     return 0;
 }
@@ -122,6 +140,13 @@ int main(void)
         return fail(5, "null, unknown, or duplicate free changed PMM accounting");
     kfree(exact);
     kfree(two);
+    fail_one_pmm_allocation();
+    if (kmalloc(1u) != 0)
+        return fail(15, "PMM allocation failure was not propagated");
+    one = kmalloc(1u);
+    if (!one)
+        return fail(16, "heap table slot was not reusable after PMM failure");
+    kfree(one);
     if (freed_pages != allocated_pages)
         return fail(6, "multi-page allocations did not release exact page counts");
 
@@ -156,7 +181,11 @@ int main(void)
     if (__atomic_load_n(&test_failed, __ATOMIC_RELAXED) ||
         active_count != 0u || freed_pages != allocated_pages)
         return fail(14, "concurrent allocation/free lost, duplicated, or leaked an allocation");
+    if (__atomic_load_n(&worker_allocations, __ATOMIC_RELAXED) !=
+            (uint64_t)WORKERS * ITERATIONS ||
+        __atomic_load_n(&worker_allocation_failures, __ATOMIC_RELAXED) != 0u)
+        return fail(17, "concurrent workers did not complete every allocation");
 
-    puts("heap allocation, bounds, capacity, idempotent init, and concurrent free tests passed");
+    puts("heap bounds, PMM failure recovery, capacity, idempotent init, and concurrent allocation/free tests passed");
     return 0;
 }

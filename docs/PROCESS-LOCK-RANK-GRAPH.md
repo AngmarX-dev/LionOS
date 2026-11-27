@@ -77,9 +77,10 @@ observation, not a proof covering every caller or future callback.
 
 - `vfs_lock` protects descriptor tables and open-file objects.
 - VFS read/write paths can call `kmalloc()`/`kfree()` while `vfs_lock` is
-  held. The current heap implementation delegates page ownership to the
-  physical allocator, so the observed nested edge is
-  `vfs_lock → memory_lock` through `page_alloc_contiguous()`/`page_free()`.
+  held. Heap metadata is serialized by `heap_lock`, and the physical allocator
+  owns page state, so the observed nested chain is
+  `vfs_lock → heap_lock → memory_lock` through
+  `page_alloc_contiguous()`/`page_free()`.
 - VFS operations also call RAMFS, diskfs, and read-only Ext2 backend functions
   while `vfs_lock` is held. The inspected backend files do not declare
   spinlocks, but this observation does not prove that all lower-level device
@@ -98,7 +99,7 @@ inspected allocator path has no reverse `memory_lock → heap_lock` edge. A host
 pthread regression covers concurrent allocation/free, table capacity, page
 rounding, invalid/double frees, and idempotent initialization. Boot calls
 `heap_init()` immediately after `paging_init()` and before framebuffer/device
-initialization, because framebuffer setup may allocate from the heap. This does
+initialization, because framebuffer setup may allocate from the heap. This does not
 certify every external caller's interrupt or callback context; that remains
 part of the repository-wide caller audit.
 
@@ -172,8 +173,10 @@ from this diagram's absence of a line.
    handles before permitting such use.
 5. Document a total lock order and add debug lock-rank assertions only after
    the complete graph has been verified.
-6. Add concurrent regressions for heap allocation/free, VFS close versus
-   process exit, wait/wake/timeout, fork/exec/exit, and deferred reclamation.
+6. Extend concurrent regressions to VFS close versus process exit,
+   wait/wake/timeout, fork/exec/exit, and deferred reclamation. Heap allocation
+   failure recovery, capacity, and concurrent allocation/free now have a
+   dedicated host regression; kernel-context coverage remains outstanding.
 7. Keep `process_lock` unchanged until the graph, object-lifetime protocol,
    and production-kernel acceptance criteria are complete.
 
