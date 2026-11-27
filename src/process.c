@@ -3727,9 +3727,10 @@ uint32_t *process_schedule(uint32_t *frame){
                 lapic_send_ipi(apic,LIONOS_LAPIC_RESCHEDULE_VECTOR);
         }
         /*
-         * A contended timer tick may be dropped for a runnable task, but a
-         * blocked/stopped/zombie task must never be returned to user mode.
-         * Switch it to the CPU-local bootstrap/idle context without touching
+         * The timer tick remains queued in pending_schedule_ticks; only the
+         * scheduling decision is deferred while process_lock is contended.
+         * A blocked/stopped/zombie task must never be returned to user mode,
+         * so switch it to the CPU-local bootstrap/idle context without touching
          * the contended global process lock.
          */
         if(contended_prev&&
