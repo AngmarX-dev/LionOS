@@ -3,9 +3,11 @@
 
 /*
  * Keep each AP busy for the complete five-wave production balancing probe.
- * The workload is bounded so the integration test can reap it normally.
+ * Explicit scheduler IPIs can now preempt a partial quantum, so retain a
+ * larger bounded work budget while candidates are admitted in five waves.
+ * The workload remains finite so the integration test can reap it normally.
  */
-#define BUSY_BALANCE_ITERATIONS 1500000000u
+#define BUSY_BALANCE_ITERATIONS 4000000000u
 #define BUSY_BALANCE_YIELD_MASK 0x3FFFFu
 
 int main(void) {
