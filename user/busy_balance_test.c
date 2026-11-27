@@ -8,7 +8,7 @@
  * the final wave; its budget is between the early-exit and non-terminating
  * stress budgets observed in the preceding CI runs.
  */
-#define BUSY_BALANCE_ITERATIONS 2500000000u
+#define BUSY_BALANCE_ITERATIONS 4000000000u
 #define BUSY_BALANCE_YIELD_MASK 0x3FFFFu
 
 int main(void) {
