@@ -420,6 +420,11 @@ int main(void) {
     used = 4u;
     if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
         used != 4u || priority != 1u || quantum != 4u) return 32;
+
+    /* Reject an already-overrun usage counter without mutating scheduler state. */
+    used = 5u;
+    if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
+        used != 5u || priority != 1u || quantum != 4u) return 58;
     used = 0u;
     priority = 0u;
     quantum = 0u;
