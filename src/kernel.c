@@ -352,6 +352,7 @@ static uint32_t integration_busy_balance_round;
 static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_COUNT];
 static volatile uint32_t integration_busy_worker_stop[LIONOS_MAX_CPUS];
 static volatile uint32_t integration_busy_worker_status[LIONOS_MAX_CPUS];
+static struct process *integration_busy_worker_process[LIONOS_MAX_CPUS];
 static uint32_t integration_busy_worker_tid[LIONOS_MAX_CPUS];
 static uint32_t integration_busy_worker_reaped_reported;
 static uint32_t integration_busy_worker_stop_requested;
@@ -1322,6 +1323,7 @@ void lionos_user_integration_step(void){
                              __ATOMIC_RELAXED);
             __atomic_store_n(&integration_busy_worker_status[cpu],0u,
                              __ATOMIC_RELAXED);
+            integration_busy_worker_process[cpu]=0;
             integration_busy_worker_tid[cpu]=0u;
             integration_busy_balance_before[cpu]=
                 process_scheduler_busy_balances(cpu);
@@ -1345,6 +1347,7 @@ void lionos_user_integration_step(void){
                 debug_write("\n");
                 continue;
             }
+            integration_busy_worker_process[cpu]=worker;
             integration_busy_worker_tid[cpu]=worker->tid;
             integration_busy_worker_launch_mask|=1u<<cpu;
         }
@@ -1584,6 +1587,7 @@ void lionos_user_integration_step(void){
             }
             if(status==4u||status==5u){
                 int reaped=process_kernel_thread_reaped(
+                    integration_busy_worker_process[cpu],
                     integration_busy_worker_tid[cpu]);
                 if(reaped==1)continue;
                 if(reaped==0){

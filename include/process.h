@@ -184,8 +184,8 @@ int process_set_migration_eligible_batch(const uint32_t *pids, uint32_t count);
 void process_request_reschedule_cpu(uint32_t cpu);
 /* 0=reaped, 1=still current on a CPU (retry), -1=invalid/not zombie. */
 int process_reap_pid(uint32_t pid);
-/* 1=kernel thread slot reaped, 0=still present, -1=invalid TID/type. */
-int process_kernel_thread_reaped(uint32_t tid);
+/* 1=captured kernel-thread slot cleared/reused, 0=still present, -1=invalid. */
+int process_kernel_thread_reaped(const struct process *thread, uint32_t tid);
 void scheduler_idle(void);
 
 #endif
