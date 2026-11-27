@@ -58,7 +58,7 @@ limit, the pinned process's unchanged BSP ownership, successful process exit
 and reaping, and the scheduler execution guard. The workload is finite and
 does not modify shared files or console state. The five-wave acceptance
 repeats fresh-candidate workloads and raises the AP worker workload to
-200,000,000 iterations so busy destinations must remain active through every
+2,500,000,000 iterations so busy destinations must remain active through every
 non-final wave; the test script requires all five ordered success markers. The
 acceptance accumulates successful destination CPUs across all five waves and
 requires every launched busy-worker CPU to receive at least one eligible
