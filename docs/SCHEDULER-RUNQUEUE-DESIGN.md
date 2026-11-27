@@ -2,13 +2,13 @@
 
 ## Latest CI verification
 
-On 2026-11-27, all three required workflows passed on exact branch commit `e4c0314bbd3deb9263a32a8a1e51fba649f5209f`:
+On 2026-11-27, all three required workflows passed on exact branch commit `d658a21cd749b6c2ef43f6a762bda7358da15aa3`:
 
-- Build LionOS — run [46004377180](https://github.com/AngmarX-dev/LionOS/actions/runs/46004377180). The complete configured build and stability/GUI regression job completed successfully.
-- LionOS Phase 26 CI — run [46004377297](https://github.com/AngmarX-dev/LionOS/actions/runs/46004377297). The build-and-smoke-test job completed successfully.
-- xHCI USB mouse test — run [46004377262](https://github.com/AngmarX-dev/LionOS/actions/runs/46004377262). The QEMU USB mouse and keyboard regression job completed successfully.
+- Build LionOS — run [46020825917](https://github.com/AngmarX-dev/LionOS/actions/runs/46020825917). The build job completed successfully.
+- LionOS Phase 26 CI — run [46020825990](https://github.com/AngmarX-dev/LionOS/actions/runs/46020825990). The build-and-smoke-test job completed successfully.
+- xHCI USB mouse test — run [46020826100](https://github.com/AngmarX-dev/LionOS/actions/runs/46020826100). The QEMU USB mouse and keyboard regression job completed successfully.
 
-This revision adds full-width queued-metadata boundary coverage to the concurrent run-queue auditor tests. These workflow results verify the configured software test matrix for this exact commit; they do not establish arbitrary sustained-load scheduler convergence, simultaneous execution inside the global `process_lock` critical section, broader thread migration, or physical-hardware behavior.
+This revision adds a shared atomic increment primitive for the AP-local timeout clock and per-CPU scheduler-entry counter. Its host pthread regression checks eight simultaneous producers (80,000 exact increments) and defined unsigned wraparound. These workflow results verify the configured software test matrix for this exact commit; they do not establish arbitrary sustained-load scheduler convergence, simultaneous execution inside the global `process_lock` critical section, broader thread migration, or physical-hardware behavior.
 ---
 
 ## Status and scope
