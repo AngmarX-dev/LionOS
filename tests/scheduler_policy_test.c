@@ -143,7 +143,8 @@ static int concurrent_tick_drain_test(uint32_t iterations,
     int failed = 0;
 
     if (iterations > UINT32_MAX / PRODUCERS ||
-        initial_pending > UINT32_MAX - iterations * PRODUCERS ||
+        (wait_for_saturation == 0 &&
+         initial_pending > UINT32_MAX - iterations * PRODUCERS) ||
         (wait_for_saturation != 0 && initial_pending == 0u))
         return -1;
 
