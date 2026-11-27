@@ -2016,6 +2016,26 @@ int process_reap_pid(uint32_t pid){
     return result;
 }
 
+/*
+ * Return 1 only after a pid-zero kernel thread's slot has been cleared by the
+ * scheduler reaper. A missing TID is therefore a completed reclamation, not
+ * merely an exit request or zombie transition. The process table scan is
+ * protected against concurrent reap and slot reuse by process_lock.
+ */
+int process_kernel_thread_reaped(uint32_t tid){
+    if(tid==0u)return -1;
+    uint32_t flags=spinlock_irqsave_acquire(&process_lock);
+    int result=1;
+    for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
+        const struct process *p=&processes[i];
+        if(p->tid!=tid)continue;
+        result=(p->pid==0u&&p->is_thread&&p->thread_group_pid==0u)?0:-1;
+        break;
+    }
+    spinlock_irqrestore_release(&process_lock,flags);
+    return result;
+}
+
 static struct process *find_stopped_child(uint32_t parent_pid,uint32_t pid){
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *child=&processes[i];

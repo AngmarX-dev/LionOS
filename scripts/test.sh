@@ -175,6 +175,7 @@ run_qemu() {
             return 1
         fi
         grep -q "LIONOS:SMP-BUSY-BALANCE-SUSTAINED-OK rounds=00000005" "$log_file"
+        grep -q "LIONOS:SMP-BUSY-WORKERS-REAPED" "$log_file"
         grep -q "LIONOS:SMP-BUSY-DESTINATION-COVERAGE-OK" "$log_file"
         busy_destination_spread_rounds=$(grep -c '^LIONOS:SMP-BUSY-ROUND-DESTINATION-SPREAD-OK round=' "$log_file" || true)
         if [ "$busy_destination_spread_rounds" -ne 5 ]; then
