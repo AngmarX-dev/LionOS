@@ -3,6 +3,59 @@
 #include <stdint.h>
 #include "scheduler_policy.h"
 
+struct counter_stress {
+    volatile uint32_t value;
+    volatile uint32_t ready;
+    volatile uint32_t start;
+};
+
+struct counter_worker {
+    struct counter_stress *stress;
+    uint32_t iterations;
+};
+
+static void *counter_worker_main(void *argument) {
+    struct counter_worker *worker = argument;
+    (void)__atomic_fetch_add(&worker->stress->ready, 1u, __ATOMIC_RELEASE);
+    while (__atomic_load_n(&worker->stress->start, __ATOMIC_ACQUIRE) == 0u)
+        sched_yield();
+    for (uint32_t i = 0u; i < worker->iterations; ++i)
+        (void)scheduler_counter_increment(&worker->stress->value);
+    return 0;
+}
+
+static int concurrent_counter_increment_test(void) {
+    enum { WORKERS = 8, ITERATIONS = 10000 };
+    pthread_t threads[WORKERS];
+    struct counter_worker workers[WORKERS];
+    struct counter_stress stress = { 0u, 0u, 0u };
+    uint32_t started = 0u;
+    int failed = 0;
+
+    for (; started < WORKERS; ++started) {
+        workers[started].stress = &stress;
+        workers[started].iterations = ITERATIONS;
+        if (pthread_create(&threads[started], 0, counter_worker_main,
+                           &workers[started]) != 0)
+            break;
+    }
+    if (started != WORKERS) failed = 1;
+
+    while (__atomic_load_n(&stress.ready, __ATOMIC_ACQUIRE) < started)
+        sched_yield();
+    __atomic_store_n(&stress.start, 1u, __ATOMIC_RELEASE);
+
+    for (uint32_t i = 0u; i < started; ++i)
+        if (pthread_join(threads[i], 0) != 0) failed = 1;
+
+    if (failed || started != WORKERS ||
+        __atomic_load_n(&stress.value, __ATOMIC_ACQUIRE) !=
+            WORKERS * ITERATIONS)
+        return -1;
+
+    return 0;
+}
+
 struct accumulator_worker {
     uint32_t iterations;
     uint32_t successes;
@@ -482,6 +535,12 @@ int main(void) {
     quantum = 0u;
     if (scheduler_tick_charge(&used, &priority, &quantum, 1u) == 0 ||
         used != 1u || priority != 1u || quantum != 0u) return 35;
+
+    volatile uint32_t wrapping_counter = UINT32_MAX - 1u;
+    if (scheduler_counter_increment(&wrapping_counter) != UINT32_MAX ||
+        scheduler_counter_increment(&wrapping_counter) != 0u)
+        return 60;
+    if (concurrent_counter_increment_test() != 0) return 61;
 
     if (scheduler_tick_accumulate(0) != -1) return 36;
     pending_ticks = 0u;

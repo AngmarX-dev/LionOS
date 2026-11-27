@@ -2286,8 +2286,8 @@ void process_futex_tick(uint32_t cpu){
      * contended. Dropping the timeout scan is safe; dropping elapsed AP-local
      * ticks can indefinitely postpone a timeout on a repeatedly contended CPU.
      */
-    uint32_t now=__atomic_add_fetch(&scheduler_cpu[cpu].timer_ticks,1u,
-                                    __ATOMIC_RELAXED);
+    uint32_t now=scheduler_counter_increment(
+        &scheduler_cpu[cpu].timer_ticks);
     if(!spinlock_try_acquire(&process_lock))return;
     for(uint32_t i=1u;i<LIONOS_PROCESS_MAX;++i){
         struct process *p=&processes[i];
@@ -3826,7 +3826,7 @@ uint32_t *process_schedule(uint32_t *frame){
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
     uint32_t elapsed_timer_ticks=__atomic_exchange_n(
         &sc->pending_schedule_ticks,0u,__ATOMIC_ACQ_REL);
-    (void)__atomic_add_fetch(&sc->schedule_count,1u,__ATOMIC_RELAXED);
+    (void)scheduler_counter_increment(&sc->schedule_count);
     uint32_t waitpid_wake_mask=0u;
     struct process*prev=current_local();
     scheduler_execution_guard_leave(prev,cpu);

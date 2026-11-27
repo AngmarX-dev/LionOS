@@ -35,6 +35,13 @@ int scheduler_tick_charge(uint32_t *ticks_used, uint32_t *priority,
                           uint32_t *time_slice, uint32_t elapsed_ticks);
 
 /*
+ * Atomically increment a per-CPU clock/diagnostic counter. Returns the
+ * incremented value; unsigned wraparound is intentional. counter must be
+ * a valid pointer to a uint32_t object.
+ */
+uint32_t scheduler_counter_increment(volatile uint32_t *counter);
+
+/*
  * Atomically add one pending scheduler tick without wrapping. Returns 1 when
  * incremented, 0 when already saturated, and -1 for a null counter.
  * Safe for concurrent timer producers; the scheduler consumes the counter

@@ -74,6 +74,15 @@ int scheduler_tick_charge(uint32_t *ticks_used, uint32_t *priority,
     return scheduler_priority_demote(priority, time_slice);
 }
 
+/*
+ * Increment a per-CPU diagnostic or clock counter atomically. The caller
+ * supplies a valid counter; unsigned wraparound is intentional for clocks
+ * compared with scheduler_tick_deadline_reached().
+ */
+uint32_t scheduler_counter_increment(volatile uint32_t *counter) {
+    return __atomic_add_fetch(counter, 1u, __ATOMIC_RELAXED);
+}
+
 int scheduler_tick_accumulate(volatile uint32_t *pending_ticks) {
     if (!pending_ticks) return -1;
 
