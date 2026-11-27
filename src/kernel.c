@@ -1882,6 +1882,7 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
 
     paging_init();
 
+    /* Heap must be ready before framebuffer and device initialization. */
     /*
      * Capture BSP CPU and MTRR state before the first device MMIO mapping.
      * This is read-only for MTRRs; PAT/MMIO policy remains unchanged.

@@ -96,7 +96,9 @@ is held across PMM allocation/free, establishing the nested edge
 `heap_lock → memory_lock`. The PMM does not call back into the heap, so the
 inspected allocator path has no reverse `memory_lock → heap_lock` edge. A host
 pthread regression covers concurrent allocation/free, table capacity, page
-rounding, invalid/double frees, and idempotent initialization. This does not
+rounding, invalid/double frees, and idempotent initialization. Boot calls
+`heap_init()` immediately after `paging_init()` and before framebuffer/device
+initialization, because framebuffer setup may allocate from the heap. This does
 certify every external caller's interrupt or callback context; that remains
 part of the repository-wide caller audit.
 
