@@ -40,8 +40,12 @@ struct tick_drain_stress {
     volatile uint32_t start;
     volatile uint32_t producers_done;
     volatile uint32_t accepted;
+    volatile uint32_t saturated;
+    volatile uint32_t saturation_seen;
     volatile uint32_t consumed;
     volatile uint32_t errors;
+    uint32_t initial_pending;
+    uint32_t wait_for_saturation;
 };
 
 struct tick_drain_producer {
@@ -62,6 +66,10 @@ static void *tick_drain_producer_main(void *argument) {
         if (result == 1) {
             (void)__atomic_fetch_add(&stress->accepted, 1u,
                                      __ATOMIC_RELAXED);
+        } else if (result == 0) {
+            (void)__atomic_fetch_add(&stress->saturated, 1u,
+                                     __ATOMIC_RELAXED);
+            __atomic_store_n(&stress->saturation_seen, 1u, __ATOMIC_RELEASE);
         } else {
             (void)__atomic_fetch_add(&stress->errors, 1u,
                                      __ATOMIC_RELAXED);
@@ -74,16 +82,36 @@ static void *tick_drain_producer_main(void *argument) {
 static void *tick_drain_consumer_main(void *argument) {
     struct tick_drain_stress *stress = argument;
 
+    uint32_t initial_pending = stress->initial_pending;
+
     (void)__atomic_fetch_add(&stress->ready, 1u, __ATOMIC_RELEASE);
     while (__atomic_load_n(&stress->start, __ATOMIC_ACQUIRE) == 0u)
+        sched_yield();
+    while (stress->wait_for_saturation != 0u &&
+           __atomic_load_n(&stress->saturation_seen, __ATOMIC_ACQUIRE) == 0u)
         sched_yield();
 
     for (;;) {
         uint32_t elapsed = __atomic_exchange_n(&stress->pending, 0u,
                                                 __ATOMIC_ACQ_REL);
         if (elapsed != 0u) {
-            (void)__atomic_fetch_add(&stress->consumed, elapsed,
-                                     __ATOMIC_RELAXED);
+            /*
+             * The saturation variant seeds the counter near UINT32_MAX.
+             * Exclude that fixture value from the produced/consumed totals
+             * exactly once, even if producers have already added more ticks.
+             */
+            if (initial_pending != 0u) {
+                if (elapsed < initial_pending) {
+                    (void)__atomic_fetch_add(&stress->errors, 1u,
+                                             __ATOMIC_RELAXED);
+                    return 0;
+                }
+                elapsed -= initial_pending;
+                initial_pending = 0u;
+            }
+            if (elapsed != 0u)
+                (void)__atomic_fetch_add(&stress->consumed, elapsed,
+                                         __ATOMIC_RELAXED);
         } else {
             sched_yield();
         }
@@ -100,16 +128,24 @@ static void *tick_drain_consumer_main(void *argument) {
  * accepted tick must be consumed exactly once, including ticks arriving while
  * the consumer is exchanging the pending counter.
  */
-static int concurrent_tick_drain_test(uint32_t iterations) {
+static int concurrent_tick_drain_test(uint32_t iterations,
+                                         uint32_t initial_pending,
+                                         int wait_for_saturation) {
     enum { PRODUCERS = 8 };
     pthread_t producers[PRODUCERS];
     pthread_t consumer;
     struct tick_drain_producer workers[PRODUCERS];
-    struct tick_drain_stress stress = { 0u, 0u, 0u, 0u, 0u, 0u, 0u };
+    struct tick_drain_stress stress = {
+        initial_pending, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+        initial_pending, wait_for_saturation != 0 ? 1u : 0u
+    };
     uint32_t started = 0u;
     int failed = 0;
 
-    if (iterations > UINT32_MAX / PRODUCERS) return -1;
+    if (iterations > UINT32_MAX / PRODUCERS ||
+        initial_pending > UINT32_MAX - iterations * PRODUCERS ||
+        (wait_for_saturation != 0 && initial_pending == 0u))
+        return -1;
 
     for (; started < PRODUCERS; ++started) {
         workers[started].stress = &stress;
@@ -143,11 +179,15 @@ static int concurrent_tick_drain_test(uint32_t iterations) {
     if (pthread_join(consumer, 0) != 0) failed = 1;
 
     uint32_t expected = iterations * PRODUCERS;
+    uint32_t accepted = __atomic_load_n(&stress.accepted, __ATOMIC_ACQUIRE);
+    uint32_t saturated = __atomic_load_n(&stress.saturated, __ATOMIC_ACQUIRE);
     if (failed || __atomic_load_n(&stress.errors, __ATOMIC_ACQUIRE) != 0u ||
         __atomic_load_n(&stress.producers_done, __ATOMIC_ACQUIRE) != PRODUCERS ||
-        __atomic_load_n(&stress.accepted, __ATOMIC_ACQUIRE) != expected ||
-        __atomic_load_n(&stress.consumed, __ATOMIC_ACQUIRE) != expected ||
-        __atomic_load_n(&stress.pending, __ATOMIC_ACQUIRE) != 0u)
+        accepted > expected || saturated != expected - accepted ||
+        __atomic_load_n(&stress.consumed, __ATOMIC_ACQUIRE) != accepted ||
+        __atomic_load_n(&stress.pending, __ATOMIC_ACQUIRE) != 0u ||
+        (wait_for_saturation != 0 && saturated == 0u) ||
+        (wait_for_saturation == 0 && accepted != expected))
         return -1;
     return 0;
 }
@@ -414,6 +454,8 @@ int main(void) {
         total_successes != 100u || pending_ticks != UINT32_MAX) return 40;
 
     if (deferred_tick_charge_after_contention_test() != 0) return 55;
-    if (concurrent_tick_drain_test(10000u) != 0) return 56;
+    if (concurrent_tick_drain_test(10000u, 0u, 0) != 0) return 56;
+    if (concurrent_tick_drain_test(1000u, UINT32_MAX - 64u, 1) != 0)
+        return 57;
     return 0;
 }
