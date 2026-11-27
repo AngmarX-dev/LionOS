@@ -1,4 +1,5 @@
 #include <pthread.h>
+#include <sched.h>
 #include <stdint.h>
 #include "scheduler_policy.h"
 
@@ -33,6 +34,122 @@ static void *accumulator_worker_main(void *argument) {
  * process_lock. A failed try-lock must leave the pending count untouched;
  * the next successful scheduling decision drains and charges it exactly once.
  */
+struct tick_drain_stress {
+    volatile uint32_t pending;
+    volatile uint32_t ready;
+    volatile uint32_t start;
+    volatile uint32_t producers_done;
+    volatile uint32_t accepted;
+    volatile uint32_t consumed;
+    volatile uint32_t errors;
+};
+
+struct tick_drain_producer {
+    struct tick_drain_stress *stress;
+    uint32_t iterations;
+};
+
+static void *tick_drain_producer_main(void *argument) {
+    struct tick_drain_producer *producer = argument;
+    struct tick_drain_stress *stress = producer->stress;
+
+    (void)__atomic_fetch_add(&stress->ready, 1u, __ATOMIC_RELEASE);
+    while (__atomic_load_n(&stress->start, __ATOMIC_ACQUIRE) == 0u)
+        sched_yield();
+
+    for (uint32_t i = 0u; i < producer->iterations; ++i) {
+        int result = scheduler_tick_accumulate(&stress->pending);
+        if (result == 1) {
+            (void)__atomic_fetch_add(&stress->accepted, 1u,
+                                     __ATOMIC_RELAXED);
+        } else {
+            (void)__atomic_fetch_add(&stress->errors, 1u,
+                                     __ATOMIC_RELAXED);
+        }
+    }
+    (void)__atomic_fetch_add(&stress->producers_done, 1u, __ATOMIC_RELEASE);
+    return 0;
+}
+
+static void *tick_drain_consumer_main(void *argument) {
+    struct tick_drain_stress *stress = argument;
+
+    (void)__atomic_fetch_add(&stress->ready, 1u, __ATOMIC_RELEASE);
+    while (__atomic_load_n(&stress->start, __ATOMIC_ACQUIRE) == 0u)
+        sched_yield();
+
+    for (;;) {
+        uint32_t elapsed = __atomic_exchange_n(&stress->pending, 0u,
+                                                __ATOMIC_ACQ_REL);
+        if (elapsed != 0u) {
+            (void)__atomic_fetch_add(&stress->consumed, elapsed,
+                                     __ATOMIC_RELAXED);
+        } else {
+            sched_yield();
+        }
+
+        if (__atomic_load_n(&stress->producers_done, __ATOMIC_ACQUIRE) == 8u &&
+            __atomic_load_n(&stress->pending, __ATOMIC_ACQUIRE) == 0u)
+            break;
+    }
+    return 0;
+}
+
+/*
+ * Race multiple timer producers against the scheduler's atomic drain. Every
+ * accepted tick must be consumed exactly once, including ticks arriving while
+ * the consumer is exchanging the pending counter.
+ */
+static int concurrent_tick_drain_test(uint32_t iterations) {
+    enum { PRODUCERS = 8 };
+    pthread_t producers[PRODUCERS];
+    pthread_t consumer;
+    struct tick_drain_producer workers[PRODUCERS];
+    struct tick_drain_stress stress = { 0u, 0u, 0u, 0u, 0u, 0u, 0u };
+    uint32_t started = 0u;
+    int failed = 0;
+
+    for (; started < PRODUCERS; ++started) {
+        workers[started].stress = &stress;
+        workers[started].iterations = iterations;
+        if (pthread_create(&producers[started], 0, tick_drain_producer_main,
+                           &workers[started]) != 0)
+            break;
+    }
+    if (started != PRODUCERS) {
+        failed = 1;
+        (void)__atomic_store_n(&stress.start, 1u, __ATOMIC_RELEASE);
+        for (uint32_t i = 0u; i < started; ++i)
+            if (pthread_join(producers[i], 0) != 0) failed = 1;
+        return -1;
+    }
+
+    if (pthread_create(&consumer, 0, tick_drain_consumer_main, &stress) != 0) {
+        (void)__atomic_store_n(&stress.start, 1u, __ATOMIC_RELEASE);
+        for (uint32_t i = 0u; i < started; ++i)
+            if (pthread_join(producers[i], 0) != 0) failed = 1;
+        return -1;
+    }
+
+    while (__atomic_load_n(&stress.ready, __ATOMIC_ACQUIRE) !=
+           PRODUCERS + 1u)
+        sched_yield();
+    __atomic_store_n(&stress.start, 1u, __ATOMIC_RELEASE);
+
+    for (uint32_t i = 0u; i < started; ++i)
+        if (pthread_join(producers[i], 0) != 0) failed = 1;
+    if (pthread_join(consumer, 0) != 0) failed = 1;
+
+    uint32_t expected = iterations * PRODUCERS;
+    if (failed || __atomic_load_n(&stress.errors, __ATOMIC_ACQUIRE) != 0u ||
+        __atomic_load_n(&stress.producers_done, __ATOMIC_ACQUIRE) != PRODUCERS ||
+        __atomic_load_n(&stress.accepted, __ATOMIC_ACQUIRE) != expected ||
+        __atomic_load_n(&stress.consumed, __ATOMIC_ACQUIRE) != expected ||
+        __atomic_load_n(&stress.pending, __ATOMIC_ACQUIRE) != 0u)
+        return -1;
+    return 0;
+}
+
 static int deferred_tick_charge_after_contention_test(void) {
     volatile uint32_t pending = 0u;
     uint32_t used = 1u;
@@ -295,5 +412,6 @@ int main(void) {
         total_successes != 100u || pending_ticks != UINT32_MAX) return 40;
 
     if (deferred_tick_charge_after_contention_test() != 0) return 55;
+    if (concurrent_tick_drain_test(10000u) != 0) return 56;
     return 0;
 }
