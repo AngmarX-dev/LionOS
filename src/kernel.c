@@ -350,8 +350,9 @@ static volatile uint32_t integration_ap_user_status;
 #define INTEGRATION_BUSY_BALANCE_TIMEOUT_TICKS 120000u
 static uint32_t integration_busy_balance_round;
 static uint32_t integration_busy_balance_pids[INTEGRATION_BUSY_BALANCE_PROCESS_COUNT];
-static volatile uint32_t integration_busy_worker_pids[LIONOS_MAX_CPUS];
+static volatile uint32_t integration_busy_worker_stop[LIONOS_MAX_CPUS];
 static volatile uint32_t integration_busy_worker_status[LIONOS_MAX_CPUS];
+static uint32_t integration_busy_worker_stop_requested;
 static uint32_t integration_busy_worker_launch_mask;
 static uint32_t integration_busy_balance_before[LIONOS_MAX_CPUS];
 static uint32_t integration_busy_balance_start_tick;
@@ -380,9 +381,10 @@ static void integration_ap_user_launch_worker(uint32_t expected_cpu){
     __atomic_store_n(&integration_ap_user_status,1u,__ATOMIC_RELEASE);
 }
 /*
- * Start a bounded CPU-bound user workload on each AP. Its timer preemptions and voluntary
- * yields keep the destination non-idle while the BSP publishes READY
- * migration candidates into CPU 0's queue.
+ * Keep a pinned AP-owned kernel thread runnable for the complete production
+ * busy-to-busy probe. Unlike a finite user-space iteration budget, this worker
+ * remains active until the BSP explicitly releases it after the fifth wave.
+ * Timer preemption lets migrated READY candidates run on the same AP.
  */
 static void integration_ap_busy_balance_launch_worker(uint32_t expected_cpu){
     if(expected_cpu==0u||expected_cpu>=LIONOS_MAX_CPUS)
@@ -392,16 +394,15 @@ static void integration_ap_busy_balance_launch_worker(uint32_t expected_cpu){
                          __ATOMIC_RELEASE);
         return;
     }
-    int32_t pid=exec_run_file("busy_balance_test.elf");
-    if(pid<=0){
-        __atomic_store_n(&integration_busy_worker_status[expected_cpu],3u,
-                         __ATOMIC_RELEASE);
-        return;
-    }
-    __atomic_store_n(&integration_busy_worker_pids[expected_cpu],
-                     (uint32_t)pid,__ATOMIC_RELAXED);
     __atomic_store_n(&integration_busy_worker_status[expected_cpu],1u,
                      __ATOMIC_RELEASE);
+    while(__atomic_load_n(&integration_busy_worker_stop[expected_cpu],
+                          __ATOMIC_ACQUIRE)==0u)
+        __asm__ volatile("pause" ::: "memory");
+    __atomic_store_n(&integration_busy_worker_status[expected_cpu],4u,
+                     __ATOMIC_RELEASE);
+    process_exit_current(0u);
+    for(;;)__asm__ volatile("sti; hlt");
 }
 static void debug_write_u32_hex(uint32_t value){
     static const char digits[]="0123456789ABCDEF";
@@ -1302,6 +1303,7 @@ void lionos_user_integration_step(void){
             return;
         }
         integration_busy_worker_launch_mask=0u;
+        integration_busy_worker_stop_requested=0u;
         integration_busy_balance_failed=0u;
         integration_busy_balance_moved=0u;
         integration_busy_balance_moved_mask=0u;
@@ -1309,7 +1311,7 @@ void lionos_user_integration_step(void){
         integration_busy_balance_coverage_mask=0u;
         integration_busy_balance_start_tick=process_scheduler_ticks(0u);
         for(uint32_t cpu=0u;cpu<LIONOS_MAX_CPUS;++cpu){
-            __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
+            __atomic_store_n(&integration_busy_worker_stop[cpu],0u,
                              __ATOMIC_RELAXED);
             __atomic_store_n(&integration_busy_worker_status[cpu],0u,
                              __ATOMIC_RELAXED);
@@ -1320,11 +1322,9 @@ void lionos_user_integration_step(void){
             integration_busy_balance_pids[i]=0u;
 
         /*
-         * Each busy worker consumes one process slot after exec. Launching
-         * one on every AP leaves no slots for the four migration candidates
-         * when QEMU exposes 16 CPUs (LIONOS_PROCESS_MAX is 16). Three busy
-         * destinations still exercise production busy-to-busy balancing
-         * while preserving room for the candidate set and transient threads.
+         * Keep at most three AP-owned busy kernel threads so the four
+         * migration candidates and transient lifecycle probes fit in the
+         * fixed process table on high-vCPU QEMU configurations.
          */
         for(uint32_t cpu=1u;cpu<worker_limit;++cpu){
             if(!process_create_kernel_thread_on_cpu(
@@ -1358,45 +1358,15 @@ void lionos_user_integration_step(void){
                 pending=1u;
                 continue;
             }
-            if(status!=1u){
+            if(status==1u){
+                active_mask|=bit;
+            }else{
                 integration_busy_balance_failed=1u;
                 debug_write("LIONOS:SMP-BUSY-WORKER-LAUNCH-STATUS-FAIL cpu=");
                 debug_write_u32_hex(cpu);
                 debug_write(" status=");
                 debug_write_u32_hex(status);
-                debug_write(" pid=");
-                debug_write_u32_hex(__atomic_load_n(
-                    &integration_busy_worker_pids[cpu],__ATOMIC_ACQUIRE));
                 debug_write("\n");
-                continue;
-            }
-            uint32_t pid=__atomic_load_n(
-                &integration_busy_worker_pids[cpu],__ATOMIC_ACQUIRE);
-            uint32_t owner=LIONOS_MAX_CPUS;
-            uint32_t migrations=0xFFFFFFFFu;
-            int32_t state=pid?process_get_state(pid):-1;
-            if(!pid||process_get_migration_info(pid,&owner,&migrations)!=0){
-                integration_busy_balance_failed=1u;
-                debug_write("LIONOS:SMP-BUSY-WORKER-INFO-FAIL cpu=");
-                debug_write_u32_hex(cpu);
-                debug_write(" pid=");
-                debug_write_u32_hex(pid);
-                debug_write(" state=");
-                debug_write_u32_hex((uint32_t)state);
-                debug_write("\n");
-            }else if(state==PROCESS_RUNNING&&owner==cpu&&migrations==0u){
-                active_mask|=bit;
-            }else if(state==PROCESS_ZOMBIE||state<0){
-                integration_busy_balance_failed=1u;
-                debug_write("LIONOS:SMP-BUSY-WORKER-ENDED-BEFORE-READY cpu=");
-                debug_write_u32_hex(cpu);
-                debug_write(" pid=");
-                debug_write_u32_hex(pid);
-                debug_write(" state=");
-                debug_write_u32_hex((uint32_t)state);
-                debug_write("\n");
-            }else{
-                pending=1u;
             }
         }
 
@@ -1469,6 +1439,7 @@ void lionos_user_integration_step(void){
     if(integration_stage==28){
         uint32_t online=smp_online_count();
         uint32_t pending=0u;
+        uint32_t candidate_pending=0u;
         if(online>LIONOS_MAX_CPUS)online=LIONOS_MAX_CPUS;
         uint32_t stage28_elapsed=
             process_scheduler_ticks(0u)-integration_busy_balance_start_tick;
@@ -1529,7 +1500,7 @@ void lionos_user_integration_step(void){
                 }
                 int reap=process_reap_pid(pid);
                 if(reap==1){
-                    pending=1u;
+                    candidate_pending=1u;
                 }else if(reap!=0){
                     integration_busy_balance_failed=1u;
                     debug_write("LIONOS:SMP-BUSY-CANDIDATE-REAP-FAIL pid=");
@@ -1550,8 +1521,22 @@ void lionos_user_integration_step(void){
                 debug_write("\n");
                 integration_busy_balance_pids[i]=0u;
             }else{
-                pending=1u;
+                candidate_pending=1u;
             }
+        }
+
+        pending=candidate_pending;
+        if(integration_busy_balance_round+1u>=INTEGRATION_BUSY_BALANCE_ROUNDS&&
+           candidate_pending==0u&&integration_busy_worker_stop_requested==0u){
+            for(uint32_t cpu=1u;cpu<online;++cpu){
+                if(integration_busy_worker_launch_mask&(1u<<cpu)){
+                    __atomic_store_n(&integration_busy_worker_stop[cpu],1u,
+                                     __ATOMIC_RELEASE);
+                    process_request_reschedule_cpu(cpu);
+                }
+            }
+            integration_busy_worker_stop_requested=1u;
+            debug_write("LIONOS:SMP-BUSY-WORKERS-RELEASED\n");
         }
 
         for(uint32_t cpu=1u;cpu<online;++cpu){
@@ -1559,103 +1544,31 @@ void lionos_user_integration_step(void){
                 continue;
             uint32_t status=__atomic_load_n(
                 &integration_busy_worker_status[cpu],__ATOMIC_ACQUIRE);
-            uint32_t pid=__atomic_load_n(
-                &integration_busy_worker_pids[cpu],__ATOMIC_ACQUIRE);
-            if(status==0u){
-                pending=1u;
-                continue;
-            }
-            if(integration_busy_balance_round+1u<
-               INTEGRATION_BUSY_BALANCE_ROUNDS){
-                uint32_t owner=LIONOS_MAX_CPUS;
-                uint32_t migrations=0xFFFFFFFFu;
-                int32_t state=(status==1u&&pid)?process_get_state(pid):-1;
-                if(status!=1u||!pid||state==PROCESS_ZOMBIE||state<0||
-                   process_get_migration_info(pid,&owner,&migrations)!=0||
-                   owner!=cpu||migrations!=0u||
-                   (state!=PROCESS_RUNNING&&state!=PROCESS_READY)){
-                    integration_busy_balance_failed=1u;
-                    debug_write("LIONOS:SMP-BUSY-WORKER-NOT-SUSTAINED cpu=");
-                    debug_write_u32_hex(cpu);
-                    debug_write(" status=");
-                    debug_write_u32_hex(status);
-                    debug_write(" state=");
-                    debug_write_u32_hex((uint32_t)state);
-                    debug_write(" owner=");
-                    debug_write_u32_hex(owner);
-                    debug_write(" migrations=");
-                    debug_write_u32_hex(migrations);
-                    debug_write("\n");
+            if(integration_busy_worker_stop_requested==0u){
+                if(status==1u)continue;
+                if(status==0u){
+                    pending=1u;
+                    continue;
                 }
-                continue;
-            }
-            if(status==4u&&pid==0u)
-                continue;
-            if(status!=1u||!pid){
                 integration_busy_balance_failed=1u;
-                debug_write("LIONOS:SMP-BUSY-WORKER-STATE-INVALID cpu=");
+                debug_write("LIONOS:SMP-BUSY-WORKER-NOT-SUSTAINED cpu=");
                 debug_write_u32_hex(cpu);
                 debug_write(" status=");
                 debug_write_u32_hex(status);
-                debug_write(" pid=");
-                debug_write_u32_hex(pid);
                 debug_write("\n");
                 continue;
             }
-            int32_t state=process_get_state(pid);
-            if(state==PROCESS_ZOMBIE){
-                uint32_t code=0xFFFFFFFFu;
-                uint32_t owner=LIONOS_MAX_CPUS;
-                uint32_t migrations=0xFFFFFFFFu;
-                int code_rc=process_get_exit_code(pid,&code);
-                int migration_rc=process_get_migration_info(pid,&owner,&migrations);
-                if(code_rc!=0||code!=0u||migration_rc!=0||
-                   owner!=cpu||migrations!=0u){
-                    integration_busy_balance_failed=1u;
-                    debug_write("LIONOS:SMP-BUSY-WORKER-STATUS-FAIL cpu=");
-                    debug_write_u32_hex(cpu);
-                    debug_write(" pid=");
-                    debug_write_u32_hex(pid);
-                    debug_write(" code=");
-                    debug_write_u32_hex(code);
-                    debug_write(" owner=");
-                    debug_write_u32_hex(owner);
-                    debug_write(" migrations=");
-                    debug_write_u32_hex(migrations);
-                    debug_write("\n");
-                }
-                int reap=process_reap_pid(pid);
-                if(reap==1){
-                    pending=1u;
-                }else if(reap!=0){
-                    integration_busy_balance_failed=1u;
-                    debug_write("LIONOS:SMP-BUSY-WORKER-REAP-FAIL pid=");
-                    debug_write_u32_hex(pid);
-                    debug_write(" result=");
-                    debug_write_u32_hex((uint32_t)reap);
-                    debug_write("\n");
-                    __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
-                                     __ATOMIC_RELEASE);
-                }else{
-                    __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
-                                     __ATOMIC_RELAXED);
-                    __atomic_store_n(&integration_busy_worker_status[cpu],4u,
-                                     __ATOMIC_RELEASE);
-                }
-            }else if(state<0){
-                integration_busy_balance_failed=1u;
-                debug_write("LIONOS:SMP-BUSY-WORKER-STATE-LOST cpu=");
-                debug_write_u32_hex(cpu);
-                debug_write(" pid=");
-                debug_write_u32_hex(pid);
-                debug_write("\n");
-                __atomic_store_n(&integration_busy_worker_pids[cpu],0u,
-                                 __ATOMIC_RELAXED);
-                __atomic_store_n(&integration_busy_worker_status[cpu],3u,
-                                 __ATOMIC_RELEASE);
-            }else{
+            if(status==4u)continue;
+            if(status==1u){
                 pending=1u;
+                continue;
             }
+            integration_busy_balance_failed=1u;
+            debug_write("LIONOS:SMP-BUSY-WORKER-STOP-FAIL cpu=");
+            debug_write_u32_hex(cpu);
+            debug_write(" status=");
+            debug_write_u32_hex(status);
+            debug_write("\n");
         }
 
         if(!pending&&integration_busy_balance_round+1u<
