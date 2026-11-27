@@ -931,7 +931,7 @@ static void *sustained_queue_auditor(void *opaque) {
 
         if (valid) {
             for (uint32_t i = 0u; i < SUSTAINED_NODES; ++i) {
-                uint8_t queued =
+                uint32_t queued =
                     __atomic_load_n(&state->nodes[i].queued, __ATOMIC_RELAXED);
                 if ((queued == 1u && memberships[i] != 1u) ||
                     (queued == 0u && memberships[i] != 0u) ||
