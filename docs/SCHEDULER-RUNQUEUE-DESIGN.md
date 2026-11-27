@@ -325,3 +325,18 @@ On 2026-11-27, the deferred timer-tick contention clarification passed all three
 - xHCI USB mouse test — run [45948136682](https://github.com/AngmarX-dev/LionOS/actions/runs/45948136682).
 
 The preceding scheduler-source revision documents the implemented contract: timer ticks are accumulated before the non-blocking `process_lock` attempt; when that attempt is contended, quantum charging is deferred until a later successful scheduling decision. This documentation-only commit records the exact-commit CI results; it does not change scheduler behavior, remove global process-state serialization, or establish starvation freedom, sustained-load convergence, unrestricted thread migration, or physical-hardware behavior. Those Phase A acceptance items remain open.
+
+## Destination-owned dispatch in sustained host stress
+
+The concurrent-arrival host regression records the destination CPU for each
+successful queue transfer while both queue locks are held. The service worker
+reads that expectation while holding its own queue lock when it dequeues the
+node, then rejects completion on any CPU other than the last published
+destination. This supplements global exact-once completion and queue-membership
+auditing with an explicit transfer-to-dispatch ownership check.
+
+This remains a host-side run-queue model: it validates the transfer primitive,
+lock-protected queue metadata, and modeled local dispatch. It does not execute
+the production process scheduler, prove progress through the global
+`process_lock`, establish a starvation bound under arbitrary arrival rates,
+or demonstrate physical-hardware behavior.

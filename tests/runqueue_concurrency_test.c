@@ -620,6 +620,11 @@ struct sustained_test_state {
     struct runqueue queues[SUSTAINED_CPU_COUNT];
     struct runqueue_node nodes[SUSTAINED_NODES];
     uint8_t completed_seen[SUSTAINED_NODES];
+    /*
+     * Last destination selected by a successful transfer. Protected by the
+     * owning runqueue lock and checked by the eventual dispatch worker.
+     */
+    uint32_t expected_dispatch_cpu[SUSTAINED_NODES];
     volatile uint32_t producer_done;
     volatile uint32_t produced_by[SUSTAINED_PRODUCER_COUNT];
     volatile uint32_t balancer_done;
@@ -774,6 +779,11 @@ static void *sustained_balancer(void *opaque) {
                     __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
                     break;
                 }
+                /*
+                 * Both queue locks are held: publish the expected dispatch
+                 * owner before the destination can dequeue this node.
+                 */
+                state->expected_dispatch_cpu[candidate] = destination;
                 state->balance_cursor[destination] =
                     (victim + 1u) % SUSTAINED_CPU_COUNT;
                 __atomic_fetch_or(&state->destination_mask,
@@ -834,9 +844,12 @@ static void *sustained_service_worker(void *opaque) {
 
     while (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u) {
         uint32_t index = LIONOS_RUNQUEUE_INVALID_INDEX;
+        uint32_t expected_dispatch_cpu = LIONOS_RUNQUEUE_INVALID_INDEX;
         spinlock_acquire(&queue->lock);
         int picked = runqueue_pick_next_locked(queue, state->nodes,
                                                SUSTAINED_NODES, &index);
+        if (picked == 0 && index < SUSTAINED_NODES)
+            expected_dispatch_cpu = state->expected_dispatch_cpu[index];
         spinlock_release(&queue->lock);
         if (picked < 0) {
             __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
@@ -844,7 +857,9 @@ static void *sustained_service_worker(void *opaque) {
             return 0;
         }
         if (picked == 0) {
-            if (index >= SUSTAINED_NODES) {
+            if (index >= SUSTAINED_NODES ||
+                (expected_dispatch_cpu != LIONOS_RUNQUEUE_INVALID_INDEX &&
+                 expected_dispatch_cpu != argument->cpu)) {
                 __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
                 __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
                 return 0;
@@ -1003,6 +1018,7 @@ static int sustained_concurrent_arrival_test(void) {
     for (uint32_t i = 0u; i < SUSTAINED_NODES; ++i) {
         runqueue_node_init(&state->nodes[i]);
         __atomic_store_n(&state->completed_seen[i], 0u, __ATOMIC_RELAXED);
+        state->expected_dispatch_cpu[i] = LIONOS_RUNQUEUE_INVALID_INDEX;
     }
     state->producer_done = 0u;
     for (uint32_t i = 0u; i < SUSTAINED_PRODUCER_COUNT; ++i)
