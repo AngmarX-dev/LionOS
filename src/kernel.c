@@ -1883,6 +1883,10 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     paging_init();
 
     /* Heap must be ready before framebuffer and device initialization. */
+    heap_init();
+    console_write("[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n");
+
+    /* Heap must be ready before framebuffer and device initialization. */
     /*
      * Capture BSP CPU and MTRR state before the first device MMIO mapping.
      * This is read-only for MTRRs; PAT/MMIO policy remains unchanged.
@@ -2077,8 +2081,6 @@ void kernel_main(uint32_t magic, uint32_t multiboot_info){
     console_write("[ OK ] Paging / supervisor kernel mappings\n");
     BOOT_STAGE(38u, "PAGING READY");
 
-    heap_init();
-    console_write("[ OK ] Kernel heap / PMM-backed kmalloc + kfree\n");
 
     /* ---- USB xHCI HID input ---- */
     int usb_mouse_rc = mouse_usb_init();
