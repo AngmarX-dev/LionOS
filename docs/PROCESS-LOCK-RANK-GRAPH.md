@@ -91,11 +91,14 @@ observation, not a proof covering every caller or future callback.
   cloning or teardown in the inspected paths. Their correctness still depends
   on the unpublished-child and sibling-retirement lifetime protocol.
 
-**Heap limitation:** `src/heap.c` currently has no heap lock around its global
-allocation table. `vfs_lock` serializes VFS callers, but it does not serialize
-unrelated callers of `kmalloc()`/`kfree()`. This audit records the exposure;
-it does not silently treat `vfs_lock` as a global heap lock. Heap concurrency
-requires its own design and regression coverage.
+**Heap serialization:** `heap_lock` protects the global allocation table and
+is held across PMM allocation/free, establishing the nested edge
+`heap_lock → memory_lock`. The PMM does not call back into the heap, so the
+inspected allocator path has no reverse `memory_lock → heap_lock` edge. A host
+pthread regression covers concurrent allocation/free, table capacity, page
+rounding, invalid/double frees, and idempotent initialization. This does not
+certify every external caller's interrupt or callback context; that remains
+part of the repository-wide caller audit.
 
 ### Physical memory and paging
 
@@ -145,7 +148,7 @@ TTY output_lock ──> TTY input_lock ──> TTY state lock
        └─────────────────────────────> TTY state lock
 
 vfs_lock ──> filesystem backend calls
-    └──────> heap allocation ──> memory_lock
+    └──────> heap_lock ──> memory_lock
 ```
 
 The graph intentionally omits any edge that was not established by the
@@ -159,8 +162,9 @@ from this diagram's absence of a line.
    networking, storage, and device teardown.
 2. Trace every call made while each lock is held, including indirect calls
    through VFS backends, paging, allocator, TLB shootdown, and callbacks.
-3. Resolve the unsynchronized heap allocation table and define a safe
-   allocation/free serialization contract.
+3. Extend the heap caller-context audit across every driver and callback;
+   the allocation table now has IRQ-save serialization and a concurrent host
+   regression, but interrupt/NMI suitability is not claimed.
 4. Establish whether any caller retains a borrowed `struct process *` across
    `process_lock` release; define stable references or generation-checked
    handles before permitting such use.
