@@ -876,6 +876,23 @@ static void *sustained_service_worker(void *opaque) {
  * Audit every queue under one globally ordered lock snapshot. This checks
  * cross-queue membership while producers, dispatchers, and the balancer run.
  */
+static int sustained_queue_metadata_valid(uint32_t queued,
+                                             uint32_t memberships) {
+    return queued <= 1u && memberships == queued;
+}
+
+static int sustained_queue_metadata_validation_test(void) {
+    if (!sustained_queue_metadata_valid(0u, 0u) ||
+        !sustained_queue_metadata_valid(1u, 1u) ||
+        sustained_queue_metadata_valid(0u, 1u) ||
+        sustained_queue_metadata_valid(1u, 0u) ||
+        sustained_queue_metadata_valid(2u, 0u) ||
+        sustained_queue_metadata_valid(256u, 0u) ||
+        sustained_queue_metadata_valid(UINT32_MAX, 0u))
+        return 1;
+    return 0;
+}
+
 static void *sustained_queue_auditor(void *opaque) {
     struct sustained_test_state *state =
         (struct sustained_test_state *)opaque;
@@ -933,9 +950,7 @@ static void *sustained_queue_auditor(void *opaque) {
             for (uint32_t i = 0u; i < SUSTAINED_NODES; ++i) {
                 uint32_t queued =
                     __atomic_load_n(&state->nodes[i].queued, __ATOMIC_RELAXED);
-                if ((queued == 1u && memberships[i] != 1u) ||
-                    (queued == 0u && memberships[i] != 0u) ||
-                    queued > 1u) {
+                if (!sustained_queue_metadata_valid(queued, memberships[i])) {
                     valid = 0;
                     break;
                 }
@@ -1284,6 +1299,8 @@ int main(void) {
     for (uint32_t cpu = TEST_CPU_COUNT; cpu > 0u; --cpu)
         spinlock_release(&queues[cpu - 1u].lock);
 
+    if (sustained_queue_metadata_validation_test() != 0)
+        return 9;
     if (simultaneous_busy_destination_test() != 0)
         return 5;
     /* Repeat the complete lifecycle to catch stale state across test runs. */
