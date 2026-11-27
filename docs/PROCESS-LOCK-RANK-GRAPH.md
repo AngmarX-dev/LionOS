@@ -5,7 +5,7 @@
 This document records a source-level lock-domain inventory for the process,
 scheduler, wait, VFS, memory, and paging paths on
 `feature/graphics-engine-v2` at parent commit
-`77239240ebfc9e5bfcb954b55c0328d7de829394`.
+`96cdcc2a570a956fbfc9a2cfb96fc60f77183ecb`.
 
 It extends the bounded wait-call-site audit; it is **not** a complete
 repository-wide lock-rank proof. It does not establish that all callbacks,
@@ -72,6 +72,22 @@ reader wakeups occur after the relevant input/state locks are released.
 No reverse `tty.lock → input_lock` or `tty.lock → output_lock` edge was found
 in the inspected `src/tty.c` call sites. This is a bounded file-level
 observation, not a proof covering every caller or future callback.
+
+### Process job-control access to TTY state
+
+- `process_tty_signal_foreground()` and
+  `process_tty_check_foreground()` hold `process_lock` while calling
+  `tty_get_foreground_pgid()`. The latter acquires `console_tty.lock`,
+  so the observed nested edge is `process_lock → TTY state lock`.
+- In the inspected `src/tty.c` paths, process callbacks do not retain the
+  TTY state lock: `tty_input_byte()` releases both the state and input
+  locks before calling `process_tty_signal_foreground()`, and reader
+  wakeups/session notifications occur after their TTY locks are released.
+  `tty_read()` and `tty_write()` perform foreground checks before
+  taking their input/output locks.
+- No reverse `TTY state lock → process_lock` nested edge was found in
+  the inspected TTY file. This is a bounded call-site observation; other
+  callers and indirect callbacks still require repository-wide review.
 
 ### VFS, heap, and filesystem backends
 
@@ -160,8 +176,8 @@ futex bucket lock ───────────────┐
 pipe lock ───────────────────────┤
 TTY input lock ──────────────────┤
 IPC lock ────────────────────────┼──> process_lock ──> runqueue lock(s)
-AP probe wait lock ─────────────┘          │
-                                           └──> memory_lock
+AP probe wait lock ─────────────┘          ├──> memory_lock
+                                           └──> TTY state lock
 
 kernel MMIO mapping ──> kernel_map_lock ──> TLB shootdown
 high-map slot bookkeeping ──> high_map_lock
