@@ -5,7 +5,7 @@
 This document records a source-level lock-domain inventory for the process,
 scheduler, wait, VFS, memory, and paging paths on
 `feature/graphics-engine-v2` at parent commit
-`5970b4d2e217af29e2211fc31f26ca468903fa15`.
+`77239240ebfc9e5bfcb954b55c0328d7de829394`.
 
 It extends the bounded wait-call-site audit; it is **not** a complete
 repository-wide lock-rank proof. It does not establish that all callbacks,
@@ -102,6 +102,27 @@ rounding, invalid/double frees, and idempotent initialization. Boot calls
 initialization, because framebuffer setup may allocate from the heap. This does not
 certify every external caller's interrupt or callback context; that remains
 part of the repository-wide caller audit.
+
+### Syscall allocation and blocking boundaries
+
+The inspected syscall paths allocate temporary buffers before entering
+potentially blocking subsystem operations. In each listed path, the allocator
+lock is acquired only inside `kmalloc()`/`kfree()` and is released before
+those functions return; retaining the allocated buffer across a wait does not
+retain `heap_lock`.
+
+| Syscall path | Allocation and subsequent operation | Lock/lifetime observation |
+|---|---|---|
+| `SYS_READ` | Allocates a user-read buffer, then calls `keyboard_read_blocking()` | `kmalloc()` returns before the blocking keyboard read; `kfree()` follows the read/copy-out path |
+| `LIONOS_SYS_FREAD` on TTY | Allocates the syscall buffer, then calls `vfs_read_for_process()` | The TTY branch takes an open-file reference and releases `vfs_lock` before `tty_read_blocking()`; it reacquires the VFS lock only to drop the reference after return |
+| `LIONOS_SYS_IPC_RECV` | Allocates the receive buffer, then calls `ipc_recv()` | The heap lock is not retained by the allocation across IPC wait; IPC's own wait-lock ordering is documented above |
+| `LIONOS_SYS_NET_RECV` | Allocates the receive buffer, then calls `net_recv()` | The heap lock is released before entering the network receive path; this audit makes no claim about every network-driver lock or callback |
+
+These are call-site observations from the inspected syscall dispatcher and
+VFS implementation, not a guarantee that all operations are non-blocking or
+that every subsystem callback is safe in every interrupt context. The buffer
+remains allocated and owned by the syscall path until its operation returns;
+that storage lifetime is distinct from holding the allocator's spinlock.
 
 ### Physical memory and paging
 
