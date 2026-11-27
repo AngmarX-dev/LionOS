@@ -279,6 +279,48 @@ static int run_accumulator_workers(uint32_t iterations,
     return failed ? -1 : 0;
 }
 
+/* Exhaustively verify valid quantum accounting across every priority lane. */
+static int exhaustive_tick_charge_test(void) {
+    for (uint32_t initial_priority = 0u;
+         initial_priority < LIONOS_SCHEDULER_PRIORITY_LEVELS;
+         ++initial_priority) {
+        uint32_t initial_quantum =
+            scheduler_priority_quantum(initial_priority);
+
+        for (uint32_t initial_used = 0u;
+             initial_used < initial_quantum; ++initial_used) {
+            for (uint32_t elapsed = 0u;
+                 elapsed <= initial_quantum + 2u; ++elapsed) {
+                uint32_t used = initial_used;
+                uint32_t priority = initial_priority;
+                uint32_t quantum = initial_quantum;
+                uint32_t expected_used = initial_used;
+                uint32_t expected_priority = initial_priority;
+
+                if (elapsed != 0u) {
+                    uint32_t remaining = initial_quantum - initial_used;
+                    if (elapsed < remaining) {
+                        expected_used += elapsed;
+                    } else {
+                        expected_used = 0u;
+                        if (expected_priority <
+                            LIONOS_SCHEDULER_PRIORITY_LEVELS - 1u)
+                            ++expected_priority;
+                    }
+                }
+
+                if (scheduler_tick_charge(&used, &priority, &quantum,
+                                          elapsed) != 0 ||
+                    used != expected_used ||
+                    priority != expected_priority ||
+                    quantum != scheduler_priority_quantum(expected_priority))
+                    return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 int main(void) {
     static const uint32_t expected_quantum[LIONOS_SCHEDULER_PRIORITY_LEVELS] = {
         2u, 4u, 8u, 12u
@@ -463,5 +505,6 @@ int main(void) {
     if (concurrent_tick_drain_test(10000u, 0u, 0) != 0) return 56;
     if (concurrent_tick_drain_test(1000u, UINT32_MAX - 64u, 1) != 0)
         return 57;
+    if (exhaustive_tick_charge_test() != 0) return 59;
     return 0;
 }
