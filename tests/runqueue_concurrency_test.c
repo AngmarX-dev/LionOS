@@ -629,6 +629,8 @@ struct sustained_test_state {
     volatile uint32_t failed;
     volatile uint32_t completed;
     volatile uint32_t completed_by_cpu[SUSTAINED_CPU_COUNT];
+    volatile uint32_t audit_passes;
+    volatile uint32_t auditor_done;
     volatile uint32_t transfers;
     volatile uint32_t destination_mask;
     uint32_t balance_cursor[SUSTAINED_CPU_COUNT];
@@ -869,8 +871,105 @@ static void *sustained_service_worker(void *opaque) {
     return 0;
 }
 
+
+/*
+ * Audit every queue under one globally ordered lock snapshot. This checks
+ * cross-queue membership while producers, dispatchers, and the balancer run.
+ */
+static void *sustained_queue_auditor(void *opaque) {
+    struct sustained_test_state *state =
+        (struct sustained_test_state *)opaque;
+    uint8_t memberships[SUSTAINED_NODES];
+
+    while (__atomic_load_n(&state->service_go, __ATOMIC_ACQUIRE) == 0u &&
+           __atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) == 0u)
+        (void)sched_yield();
+
+    for (;;) {
+        uint32_t global_total = 0u;
+        int valid = 1;
+        for (uint32_t i = 0u; i < SUSTAINED_NODES; ++i)
+            memberships[i] = 0u;
+
+        for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
+            spinlock_acquire(&state->queues[cpu].lock);
+
+        for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu) {
+            struct runqueue *queue = &state->queues[cpu];
+            uint32_t total = 0u;
+            if (runqueue_validate_locked(queue, state->nodes,
+                    SUSTAINED_NODES, &total) != 0 ||
+                total != queue->total ||
+                total > SUSTAINED_NODES - global_total) {
+                valid = 0;
+                break;
+            }
+            global_total += total;
+
+            for (uint32_t priority = 0u;
+                 priority < LIONOS_RUNQUEUE_PRIORITY_LEVELS; ++priority) {
+                uint32_t index = queue->head[priority];
+                uint32_t visited = 0u;
+                while (index != LIONOS_RUNQUEUE_INVALID_INDEX) {
+                    if (index >= SUSTAINED_NODES ||
+                        visited++ >= SUSTAINED_NODES ||
+                        memberships[index] != 0u ||
+                        state->nodes[index].queued != 1u ||
+                        state->nodes[index].queue_cpu != cpu) {
+                        valid = 0;
+                        break;
+                    }
+                    memberships[index] = 1u;
+                    index = state->nodes[index].next;
+                }
+                if (!valid)
+                    break;
+            }
+            if (!valid)
+                break;
+        }
+
+        if (valid) {
+            for (uint32_t i = 0u; i < SUSTAINED_NODES; ++i) {
+                uint8_t queued =
+                    __atomic_load_n(&state->nodes[i].queued, __ATOMIC_RELAXED);
+                if ((queued == 1u && memberships[i] != 1u) ||
+                    (queued == 0u && memberships[i] != 0u) ||
+                    queued > 1u) {
+                    valid = 0;
+                    break;
+                }
+            }
+        }
+
+        for (uint32_t cpu = SUSTAINED_CPU_COUNT; cpu > 0u; --cpu)
+            spinlock_release(&state->queues[cpu - 1u].lock);
+
+        if (!valid) {
+            __atomic_store_n(&state->failed, 1u, __ATOMIC_RELEASE);
+            __atomic_store_n(&state->abort, 1u, __ATOMIC_RELEASE);
+            break;
+        }
+
+        (void)__atomic_fetch_add(&state->audit_passes, 1u, __ATOMIC_RELAXED);
+        if (__atomic_load_n(&state->abort, __ATOMIC_ACQUIRE) != 0u)
+            break;
+        if (__atomic_load_n(&state->producer_done, __ATOMIC_ACQUIRE) ==
+                SUSTAINED_PRODUCER_COUNT &&
+            __atomic_load_n(&state->balancer_done, __ATOMIC_ACQUIRE) != 0u &&
+            __atomic_load_n(&state->completed, __ATOMIC_ACQUIRE) ==
+                SUSTAINED_NODES)
+            break;
+        (void)sched_yield();
+    }
+
+    __atomic_store_n(&state->auditor_done, 1u, __ATOMIC_RELEASE);
+    return 0;
+}
+
 static int sustained_concurrent_arrival_test(void) {
     pthread_t balancer_thread;
+    pthread_t auditor_thread;
     pthread_t producer_threads[SUSTAINED_PRODUCER_COUNT];
     pthread_t service_threads[SUSTAINED_CPU_COUNT];
     struct sustained_worker_argument arguments[SUSTAINED_CPU_COUNT];
@@ -882,6 +981,7 @@ static int sustained_concurrent_arrival_test(void) {
     uint32_t producer_created = 0u;
     int creation_failed = 0;
     int balancer_created = 0;
+    int auditor_created = 0;
 
     for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
         runqueue_init(&state->queues[cpu], cpu);
@@ -900,6 +1000,8 @@ static int sustained_concurrent_arrival_test(void) {
     state->completed = 0u;
     for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
         state->completed_by_cpu[cpu] = 0u;
+    state->audit_passes = 0u;
+    state->auditor_done = 0u;
     state->transfers = 0u;
     state->destination_mask = 0u;
     for (uint32_t cpu = 0u; cpu < SUSTAINED_CPU_COUNT; ++cpu)
@@ -953,6 +1055,10 @@ static int sustained_concurrent_arrival_test(void) {
         balancer_created = 1;
     else
         creation_failed = 1;
+    if (pthread_create(&auditor_thread, 0, sustained_queue_auditor, state) == 0)
+        auditor_created = 1;
+    else
+        creation_failed = 1;
     for (; producer_created < SUSTAINED_PRODUCER_COUNT; ++producer_created) {
         producer_arguments[producer_created].state = state;
         producer_arguments[producer_created].producer = producer_created;
@@ -976,8 +1082,12 @@ static int sustained_concurrent_arrival_test(void) {
     }
     if (balancer_created && pthread_join(balancer_thread, 0) != 0)
         join_failed = 1;
+    if (auditor_created && pthread_join(auditor_thread, 0) != 0)
+        join_failed = 1;
 
-    if (creation_failed || join_failed ||
+    if (creation_failed || join_failed || !auditor_created ||
+        __atomic_load_n(&state->auditor_done, __ATOMIC_ACQUIRE) == 0u ||
+        __atomic_load_n(&state->audit_passes, __ATOMIC_ACQUIRE) == 0u ||
         producer_created != SUSTAINED_PRODUCER_COUNT ||
         service_created != SUSTAINED_CPU_COUNT || service_joined != service_created ||
         __atomic_load_n(&state->failed, __ATOMIC_ACQUIRE) != 0u ||
