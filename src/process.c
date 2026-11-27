@@ -1021,7 +1021,8 @@ static void process_scheduler_ap_probe_report(void){
                     snapshot[snapshot_count][3]=probe?runqueue_nodes[process_index(probe)].queued:0xFFFFFFFFu;
                     snapshot[snapshot_count][4]=queue_locked?queue_total:0xFFFFFFFFu;
                     snapshot[snapshot_count][5]=__atomic_load_n(&scheduler_cpu[cpu].timer_ticks,__ATOMIC_ACQUIRE);
-                    snapshot[snapshot_count][6]=scheduler_cpu[cpu].schedule_count;
+                    snapshot[snapshot_count][6]=__atomic_load_n(
+                        &scheduler_cpu[cpu].schedule_count,__ATOMIC_RELAXED);
                     struct process *current=current_cpu_load(cpu);
                     snapshot[snapshot_count][7]=__atomic_load_n(&reschedule_requested[cpu],__ATOMIC_ACQUIRE);
                     snapshot[snapshot_count][8]=probe?probe->wait_channel:0xFFFFFFFFu;
@@ -1242,10 +1243,10 @@ void process_init(void) {
         runqueue_init(&runqueues[i],i);
         __atomic_store_n(&current_by_cpu[i],(struct process *)0,__ATOMIC_RELAXED);
         scheduler_cpu[i].cursor=0u;
-        scheduler_cpu[i].schedule_count=0u;
+        __atomic_store_n(&scheduler_cpu[i].schedule_count,0u,__ATOMIC_RELAXED);
         scheduler_cpu[i].steal_count=0u;
         scheduler_cpu[i].busy_balance_count=0u;
-        scheduler_cpu[i].timer_ticks=0u;
+        __atomic_store_n(&scheduler_cpu[i].timer_ticks,0u,__ATOMIC_RELAXED);
         scheduler_cpu[i].pending_schedule_ticks=0u;
         reschedule_requested[i]=0u;
         reschedule_ipi_pending[i]=0u;
@@ -3535,7 +3536,10 @@ int process_set_priority(struct process*p,uint32_t priority){
     return result;
 }
 
-uint32_t process_scheduler_ticks(uint32_t cpu){return cpu<LIONOS_MAX_CPUS?scheduler_cpu[cpu].schedule_count:0u;}
+uint32_t process_scheduler_ticks(uint32_t cpu){
+    return cpu<LIONOS_MAX_CPUS?
+        __atomic_load_n(&scheduler_cpu[cpu].schedule_count,__ATOMIC_RELAXED):0u;
+}
 uint32_t process_scheduler_steals(uint32_t cpu){
     return cpu<LIONOS_MAX_CPUS
         ? __atomic_load_n(&scheduler_cpu[cpu].steal_count,__ATOMIC_ACQUIRE)
@@ -3822,7 +3826,7 @@ uint32_t *process_schedule(uint32_t *frame){
     struct scheduler_cpu_state*sc=&scheduler_cpu[cpu];
     uint32_t elapsed_timer_ticks=__atomic_exchange_n(
         &sc->pending_schedule_ticks,0u,__ATOMIC_ACQ_REL);
-    ++sc->schedule_count;
+    (void)__atomic_add_fetch(&sc->schedule_count,1u,__ATOMIC_RELAXED);
     uint32_t waitpid_wake_mask=0u;
     struct process*prev=current_local();
     scheduler_execution_guard_leave(prev,cpu);
@@ -3847,7 +3851,9 @@ uint32_t *process_schedule(uint32_t *frame){
 
         if(prev->state==PROCESS_WAITING&&(prev->wait_kind==1u||prev->wait_kind==2u)&&
            prev->wait_timeout_active==2u&&prev->wait_cpu==cpu){
-            prev->wait_deadline=sc->timer_ticks+prev->wait_timeout_ticks;
+            prev->wait_deadline=
+                __atomic_load_n(&sc->timer_ticks,__ATOMIC_RELAXED)+
+                prev->wait_timeout_ticks;
             prev->wait_timeout_active=1u;
         }
     }
