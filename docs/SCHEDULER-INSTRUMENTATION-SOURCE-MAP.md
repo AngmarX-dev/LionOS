@@ -45,6 +45,16 @@ commit `6d0360eb41fd38afdb02288863a0fbe1cfe5991b`.
 8. Keep all statistics reset and process-slot reuse behavior explicit; a reused
    process-table slot must not inherit a previous process's READY age.
 
+## Policy-layer progress
+
+The shared scheduler policy now contains a reusable 32-bit
+`scheduler_ready_age` record and helpers to reset a reused record, stamp a
+successful READY enqueue epoch, and measure age with half-range validation.
+Host tests cover wraparound, invalid metadata, unchanged output on failure,
+and copying the record as a migration-preservation model. This helper is not
+yet embedded in `struct process`; no production epoch, READY-age observation,
+or per-CPU lock-deferral counter is active.
+
 ## Required implementation and verification follow-up
 
 - Add the epoch and per-process READY metadata, then cover both enqueue paths.

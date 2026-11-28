@@ -39,9 +39,13 @@ instrumentation. Comparisons must reject or explicitly handle deltas greater
 than `INT32_MAX`; unsigned wraparound must not be mistaken for a small age.
 The shared scheduler policy now provides `scheduler_epoch_delta()` for this
 half-range validation, with host tests for wraparound, the maximum accepted
-delta, ambiguous intervals, and unchanged output on failure. This is only a
-measurement primitive: it is not yet wired into production READY transitions
-or scheduler dispatch instrumentation. Do not introduce 64-bit atomics unless
+delta, ambiguous intervals, and unchanged output on failure. This is only a measurement primitive. The policy layer now also defines a
+32-bit `scheduler_ready_age` record with reset, enqueue-stamp, and measurement
+helpers. Host tests cover slot reset, invalid metadata, wraparound, half-range
+rejection, unchanged output on failure, and preservation when the record is
+copied as part of a migrated process. The record is not yet embedded in
+`struct process`, and production READY transitions, dispatch accounting, and
+lock-deferral counters remain uninstrumented. Do not introduce 64-bit atomics unless
 the target guarantees they are lock-free and the 32-bit toolchain/runtime
 contract is documented.
 
@@ -161,12 +165,13 @@ not establish physical-hardware behavior.
 
 ## Implementation sequencing
 
-1. Wire the validated epoch-delta primitive into a production-owned global
-   decision epoch and READY enqueue/dispatch metadata, without resetting age
-   during migration; separately count per-CPU lock deferrals.
-2. Add deterministic host tests for global epoch wraparound, reset/initialization,
-   migration-age preservation, and invalid measurement deltas; then add
-   production QEMU assertions for the same metadata.
+1. Embed the tested READY-age record in the production process structure and
+   wire a process-lock-owned global decision epoch into both READY enqueue
+   paths and the common dispatch path. Preserve the record through migration;
+   separately count per-CPU lock deferrals.
+2. Add production initialization/reuse checks and QEMU assertions for the
+   global epoch, enqueue stamps, dispatch ages, migration preservation, and
+   lock-deferral counters.
 3. Add production QEMU workloads and parsers for the two independent
    acceptance scenarios.
 4. Run the complete build and regression suite, then both correctness and

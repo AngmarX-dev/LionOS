@@ -115,6 +115,28 @@ int scheduler_epoch_delta(uint32_t earlier, uint32_t later,
     return 0;
 }
 
+int scheduler_ready_age_reset(struct scheduler_ready_age *age) {
+    if (!age) return -1;
+    age->enqueue_epoch = 0u;
+    age->valid = 0u;
+    return 0;
+}
+
+int scheduler_ready_age_start(struct scheduler_ready_age *age,
+                              uint32_t decision_epoch) {
+    if (!age) return -1;
+    age->enqueue_epoch = decision_epoch;
+    age->valid = 1u;
+    return 0;
+}
+
+int scheduler_ready_age_measure(const struct scheduler_ready_age *age,
+                                uint32_t decision_epoch,
+                                uint32_t *age_out) {
+    if (!age || !age_out || age->valid != 1u) return -1;
+    return scheduler_epoch_delta(age->enqueue_epoch, decision_epoch, age_out);
+}
+
 int scheduler_tick_deadline_reached(uint32_t now, uint32_t deadline) {
     /*
      * Unsigned subtraction is defined modulo 2^32. A result in the lower

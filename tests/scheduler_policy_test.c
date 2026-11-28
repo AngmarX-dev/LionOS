@@ -373,6 +373,46 @@ static int exhaustive_tick_charge_test(void) {
     return 0;
 }
 
+static int scheduler_ready_age_lifecycle_test(void) {
+    struct scheduler_ready_age age = { 0x12345678u, 7u };
+    uint32_t measured = 0xA5A5A5A5u;
+
+    if (scheduler_ready_age_reset(&age) != 0 ||
+        age.enqueue_epoch != 0u || age.valid != 0u)
+        return 1;
+    if (scheduler_ready_age_measure(&age, 1u, &measured) == 0 ||
+        measured != 0xA5A5A5A5u)
+        return 2;
+    if (scheduler_ready_age_start(&age, UINT32_MAX - 2u) != 0 ||
+        age.enqueue_epoch != UINT32_MAX - 2u || age.valid != 1u)
+        return 3;
+    if (scheduler_ready_age_measure(&age, 1u, &measured) != 0 ||
+        measured != 4u)
+        return 4;
+
+    /* A process-record move must carry its original READY stamp unchanged. */
+    struct scheduler_ready_age migrated = age;
+    measured = 0u;
+    if (scheduler_ready_age_measure(&migrated, 3u, &measured) != 0 ||
+        measured != 6u || migrated.enqueue_epoch != age.enqueue_epoch ||
+        migrated.valid != age.valid)
+        return 5;
+
+    measured = 0x5A5A5A5Au;
+    if (scheduler_ready_age_measure(&age, 0x7FFFFFFDu, &measured) == 0 ||
+        measured != 0x5A5A5A5Au)
+        return 6;
+    age.valid = 2u;
+    if (scheduler_ready_age_measure(&age, 0u, &measured) == 0 ||
+        measured != 0x5A5A5A5Au)
+        return 7;
+    if (scheduler_ready_age_start(0, 0u) == 0 ||
+        scheduler_ready_age_reset(0) == 0 ||
+        scheduler_ready_age_measure(&age, 0u, 0) == 0)
+        return 8;
+    return 0;
+}
+
 int main(void) {
     static const uint32_t expected_quantum[LIONOS_SCHEDULER_PRIORITY_LEVELS] = {
         2u, 4u, 8u, 12u
@@ -577,5 +617,6 @@ int main(void) {
     if (concurrent_tick_drain_test(1000u, UINT32_MAX - 64u, 1) != 0)
         return 57;
     if (exhaustive_tick_charge_test() != 0) return 59;
+    if (scheduler_ready_age_lifecycle_test() != 0) return 62;
     return 0;
 }

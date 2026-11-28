@@ -60,6 +60,31 @@ int scheduler_tick_delta_valid(uint32_t ticks);
 int scheduler_epoch_delta(uint32_t earlier, uint32_t later,
                           uint32_t *delta_out);
 
+/*
+ * READY-age metadata intended to be embedded in the process record. Keep this
+ * 32-bit-only structure attached across run-queue migration; migration must
+ * not call scheduler_ready_age_start() again.
+ */
+struct scheduler_ready_age {
+    uint32_t enqueue_epoch;
+    uint32_t valid;
+};
+
+/* Reset a reused/non-READY process slot; returns -1 for a null pointer. */
+int scheduler_ready_age_reset(struct scheduler_ready_age *age);
+
+/* Stamp only after a READY enqueue succeeds; returns -1 for null metadata. */
+int scheduler_ready_age_start(struct scheduler_ready_age *age,
+                              uint32_t decision_epoch);
+
+/*
+ * Measure from the original READY enqueue epoch. Reject invalid metadata and
+ * ambiguous half-range deltas without changing age_out.
+ */
+int scheduler_ready_age_measure(const struct scheduler_ready_age *age,
+                                uint32_t decision_epoch,
+                                uint32_t *age_out);
+
 /* Wrap-safe for deadlines scheduled less than 2^31 ticks ahead. */
 int scheduler_tick_deadline_reached(uint32_t now, uint32_t deadline);
 
