@@ -320,12 +320,44 @@ The graph intentionally omits any edge that was not established by the
 inspected call paths. In particular, it is not safe to infer a reverse edge
 from this diagram's absence of a line.
 
+## Driver initialization and teardown boundaries
+
+A bounded lifecycle review inspected ATA/block-device, keyboard, mouse,
+RTL8139, PCI enumeration, and interrupt dispatch code at parent commit
+`afbefc15a77ba42d5e815fd51d6e65030be2b47d`. See
+[the driver lifecycle audit](DRIVER-LIFECYCLE-TEARDOWN-AUDIT.md).
+
+- The reviewed ATA and block-device APIs expose initialization and I/O but no
+  general channel shutdown, device detach, or unregister operation. The ATA
+  channel lock is released on the inspected I/O error and success paths.
+- The PS/2 mouse initialization path marks the controller absent on an early
+  configuration-response failure but does not restore the prior i8042
+  configuration in that branch. Later defaults/enable failures take a
+  different keyboard-rearm path.
+- The timer interrupt calls `keyboard_poll()`, which delegates to
+  `keyboard_irq_handler()`; the dedicated keyboard vector also invokes that
+  handler. Input-controller drain ownership across these entry paths needs an
+  explicit contract.
+- The timer path may call `mouse_poll()`; USB polling and retry service are
+  separate stateful paths. The xHCI implementation was intentionally not
+  inspected in this audit.
+- The RTL8139 driver has static RX/TX buffers and no reviewed shutdown,
+  quiescence, or unregister protocol. PCI enumeration repopulates a static
+  device table and does not document concurrent re-enumeration or reader
+  lifetime semantics.
+
+These are API and cleanup gaps identified by source inspection. They do not
+prove that current boot-time initialization races or that physical hot-unplug
+is supported. Any future detach implementation must stop new users, drain
+in-flight operations, and preserve controller/DMA ownership until quiescence.
+
 ## Outstanding audit items
 
 1. Continue enumerating spinlock and IRQ-save acquisitions across the
-   remaining kernel source files. Keyboard/mouse, RTL8139/ATA/VFS, and bounded console/framebuffer/PCI
-   paths are now covered; remaining drivers, interrupt callback paths, and
-   device teardown still require review.
+   remaining kernel source files. Keyboard/mouse, RTL8139/ATA/VFS, bounded console/framebuffer/PCI, and
+   selected driver lifecycle paths are now covered; remaining drivers,
+   interrupt callback paths, xHCI lifecycle, and complete device teardown
+   still require review.
 2. Trace every call made while each lock is held, including indirect calls
    through VFS backends, paging, allocator, TLB shootdown, and callbacks.
 3. Extend the heap caller-context audit across every driver and callback;
