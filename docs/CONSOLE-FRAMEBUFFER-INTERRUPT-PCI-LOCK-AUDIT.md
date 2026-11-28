@@ -13,11 +13,6 @@ Inspected files:
 - `src/idt.c`
 - `src/pci.c`
 - `src/net.c`
-- `src/kernel.c`
-- `src/lapic.c`
-- `src/ioapic.c`
-- `src/keyboard.c`
-- `src/mouse.c`
 
 This is a source-level audit, not a proof of interrupt safety, deadlock
 freedom, or complete device-lifecycle correctness. No runtime code is changed.
