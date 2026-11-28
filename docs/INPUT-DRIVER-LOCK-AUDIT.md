@@ -3,7 +3,7 @@
 ## Scope and status
 
 This is a bounded source audit of the keyboard, mouse, and TTY input paths
-at parent commit `078e2fb52c2af757f4e5a536d7d52899cf443ed0` on `feature/graphics-engine-v2`.
+at parent commit `edf9d192c4983b09b6033daceb05cb045dc88af7` on `feature/graphics-engine-v2`.
 
 Inspected files:
 

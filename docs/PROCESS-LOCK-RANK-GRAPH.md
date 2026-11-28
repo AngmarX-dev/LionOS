@@ -5,7 +5,7 @@
 This document records a source-level lock-domain inventory for the process,
 scheduler, wait, VFS, memory, paging, and selected input-driver paths on
 `feature/graphics-engine-v2` at parent commit
-`078e2fb52c2af757f4e5a536d7d52899cf443ed0`.
+`edf9d192c4983b09b6033daceb05cb045dc88af7`.
 
 It extends the bounded wait-call-site audit; it is **not** a complete
 repository-wide lock-rank proof. It does not establish that all callbacks,
@@ -108,6 +108,56 @@ input, and Ctrl-C behavior, but it is not a concurrent ring-lock test. The
 inspected tree has no dedicated host mouse-event-ring concurrency regression.
 These findings are bounded to the listed call paths; they do not complete the
 driver, interrupt, or callback lock graph.
+
+### Networking and storage lock boundaries
+
+The bounded follow-up audit inspected `src/net.c`, `src/ata.c`,
+`src/ata_block.c`, `src/block_device.c`, `src/diskfs.c`,
+`src/ext2_vfs.c`, and the relevant VFS call paths in `src/vfs.c`.
+
+- `net_lock` protects the in-memory loopback packet queue used by
+  `net_send()`, `net_recv()`, and `net_pending()`. It does not protect
+  the RTL8139 polling path.
+- The physical RTL8139 path shares `rtl_tx_index`, the TX slot buffers,
+  `rtl_rx_offset`, and the RX ring between `rtl_tx_frame()` and
+  `rtl_poll()` callers without a common lock. `net_ping()` and
+  `net_http_get()` both enter these helpers. `send_tcp()` and several
+  receive helpers also use static frame buffers. Concurrent physical
+  network syscalls therefore have unresolved shared-state races; the
+  current source audit does not prove safe concurrent use.
+- RTL8139 is configured for polling in the inspected initialization path
+  (`REG_IMR` is written with zero). This avoids claiming an observed
+  network IRQ callback, but does not serialize concurrent process callers.
+- ATA channel commands are serialized by `ata_io_lock`, implemented with
+  atomic test-and-set/release. The lock is held across status polling and
+  256-word PIO transfers. The inspected ATA path does not call process or
+  VFS callbacks while holding that lock, and no ATA interrupt handler was
+  found in the inspected files. The lock itself does not save/restore IRQ
+  state.
+- VFS public read/write/stat operations acquire `vfs_lock` using the
+  IRQ-save interface and invoke filesystem backends before releasing it.
+  DiskFS reads/writes reach ATA sector operations, establishing the nested
+  edge `vfs_lock → ata_io_lock`. Consequently, disk-backed VFS I/O can
+  retain `vfs_lock` with local interrupts disabled while ATA polling and
+  PIO transfer loops run. This is a latency and interrupt-context concern;
+  it is not evidence of a demonstrated deadlock. Any lock-scope redesign
+  must first preserve descriptor/backend lifetime and serialize the shared
+  DiskFS/Ext2 scratch state.
+- The DiskFS metadata and sector scratch buffer, and the Ext2 VFS scratch
+  buffer, are shared globals. The inspected VFS backend calls are made
+  while `vfs_lock` is held, which currently serializes those shared
+  structures. `block_device_read()` dispatches through the backend
+  operation pointer and does not provide independent synchronization.
+- PCI configuration accesses use the shared CF8/CFC mechanism. The
+  inspected `src/pci.c` accessors and RTL driver's private accessors do
+  not share a lock. Their current boot-time initialization order was not
+  shown to overlap; concurrent PCI configuration access remains an
+  unresolved boundary, not a confirmed runtime race.
+
+The host test inventory includes ATA identify parsing and block-device
+adapter tests, but no dedicated concurrent RTL8139 TX/RX or VFS/ATA
+contention regression was found in the inspected tree. These findings are
+bounded source observations, not a complete driver/interrupt lock proof.
 
 ### Process job-control access to TTY state
 
@@ -227,8 +277,11 @@ high-map slot bookkeeping ──> high_map_lock
 TTY output_lock ──> TTY input_lock ──> TTY state lock
        └─────────────────────────────> TTY state lock
 
-vfs_lock ──> filesystem backend calls
+vfs_lock ──> filesystem backend calls ──> ata_io_lock
     └──────> heap_lock ──> memory_lock
+
+net_lock ──> loopback packet queue only
+RTL8139 TX/RX shared state ──> no common lock observed
 ```
 
 The graph intentionally omits any edge that was not established by the
@@ -238,9 +291,9 @@ from this diagram's absence of a line.
 ## Outstanding audit items
 
 1. Continue enumerating spinlock and IRQ-save acquisitions across the
-   remaining kernel source files. Keyboard and mouse event-ring wait paths
-   are now covered; drivers, interrupt paths, console/framebuffer, networking,
-   storage, and device teardown still require review.
+   remaining kernel source files. Keyboard/mouse and bounded RTL8139/ATA/VFS
+   paths are now covered; console/framebuffer, remaining drivers, interrupt
+   paths, PCI configuration serialization, and device teardown still require review.
 2. Trace every call made while each lock is held, including indirect calls
    through VFS backends, paging, allocator, TLB shootdown, and callbacks.
 3. Extend the heap caller-context audit across every driver and callback;
