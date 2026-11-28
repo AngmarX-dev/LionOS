@@ -75,10 +75,12 @@ observation, not a proof covering every caller or future callback.
 
 ### Process job-control access to TTY state
 
-- `process_tty_signal_foreground()` and
-  `process_tty_check_foreground()` hold `process_lock` while calling
-  `tty_get_foreground_pgid()`. The latter acquires `console_tty.lock`,
-  so the observed nested edge is `process_lock → TTY state lock`.
+- `process_tty_set_foreground()` holds `process_lock` while calling both
+  `tty_get_foreground_pgid()` and `tty_set_foreground_pgid()`;
+  `process_tty_signal_foreground()` and `process_tty_check_foreground()`
+  also call `tty_get_foreground_pgid()` while holding `process_lock`.
+  Each TTY accessor acquires `console_tty.lock`, so these paths establish
+  the nested edge `process_lock → TTY state lock`.
 - In the inspected `src/tty.c` paths, process callbacks do not retain the
   TTY state lock: `tty_input_byte()` releases both the state and input
   locks before calling `process_tty_signal_foreground()`, and reader
