@@ -472,6 +472,19 @@ int main(void) {
     if (!scheduler_tick_delta_valid(0x7FFFFFFFu)) return 12;
     if (scheduler_tick_delta_valid(0x80000000u)) return 13;
     if (scheduler_tick_delta_valid(UINT32_MAX)) return 14;
+    uint32_t epoch_delta = 0xA5A5A5A5u;
+    if (scheduler_epoch_delta(10u, 25u, &epoch_delta) != 0 ||
+        epoch_delta != 15u) return 62;
+    if (scheduler_epoch_delta(UINT32_MAX - 2u, 1u, &epoch_delta) != 0 ||
+        epoch_delta != 4u) return 63;
+    if (scheduler_epoch_delta(0u, 0x7FFFFFFFu, &epoch_delta) != 0 ||
+        epoch_delta != 0x7FFFFFFFu) return 64;
+    epoch_delta = 0xA5A5A5A5u;
+    if (scheduler_epoch_delta(1u, 0x80000001u, &epoch_delta) == 0 ||
+        epoch_delta != 0xA5A5A5A5u) return 65;
+    if (scheduler_epoch_delta(0u, 0xFFFFFFFFu, &epoch_delta) == 0 ||
+        epoch_delta != 0xA5A5A5A5u) return 66;
+    if (scheduler_epoch_delta(0u, 1u, 0) == 0) return 67;
     if (!scheduler_tick_deadline_reached(100u, 100u)) return 15;
     if (!scheduler_tick_deadline_reached(101u, 100u)) return 16;
     if (scheduler_tick_deadline_reached(99u, 100u)) return 17;

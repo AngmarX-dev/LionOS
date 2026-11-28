@@ -102,6 +102,19 @@ int scheduler_tick_delta_valid(uint32_t ticks) {
     return ticks <= 0x7FFFFFFFu;
 }
 
+int scheduler_epoch_delta(uint32_t earlier, uint32_t later,
+                          uint32_t *delta_out) {
+    if (!delta_out) return -1;
+
+    /* Unsigned subtraction intentionally handles one 32-bit wrap. Reject
+       ambiguous/backward intervals outside the unambiguous half-range. */
+    uint32_t delta = later - earlier;
+    if (!scheduler_tick_delta_valid(delta)) return -1;
+
+    *delta_out = delta;
+    return 0;
+}
+
 int scheduler_tick_deadline_reached(uint32_t now, uint32_t deadline) {
     /*
      * Unsigned subtraction is defined modulo 2^32. A result in the lower

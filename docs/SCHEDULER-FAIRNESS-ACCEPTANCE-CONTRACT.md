@@ -37,8 +37,13 @@ but does not replace SMP acceptance. Host pthread tests remain supplemental.
 The implementation must use a wrap-safe 32-bit counter or epoch for kernel
 instrumentation. Comparisons must reject or explicitly handle deltas greater
 than `INT32_MAX`; unsigned wraparound must not be mistaken for a small age.
-Do not introduce 64-bit atomics unless the target guarantees they are
-lock-free and the 32-bit toolchain/runtime contract is documented.
+The shared scheduler policy now provides `scheduler_epoch_delta()` for this
+half-range validation, with host tests for wraparound, the maximum accepted
+delta, ambiguous intervals, and unchanged output on failure. This is only a
+measurement primitive: it is not yet wired into production READY transitions
+or scheduler dispatch instrumentation. Do not introduce 64-bit atomics unless
+the target guarantees they are lock-free and the 32-bit toolchain/runtime
+contract is documented.
 
 ## Fairness properties to establish
 
@@ -153,10 +158,12 @@ not establish physical-hardware behavior.
 
 ## Implementation sequencing
 
-1. Add the smallest instrumentation surface needed to measure READY age and
-   lock deferrals, with documented ownership and counter semantics.
+1. Wire the validated epoch-delta primitive into a production-owned global
+   decision epoch and READY enqueue/dispatch metadata, without resetting age
+   during migration; separately count per-CPU lock deferrals.
 2. Add deterministic host tests for global epoch wraparound, reset/initialization,
-   migration-age preservation, and invalid measurement deltas.
+   migration-age preservation, and invalid measurement deltas; then add
+   production QEMU assertions for the same metadata.
 3. Add production QEMU workloads and parsers for the two independent
    acceptance scenarios.
 4. Run the complete build and regression suite, then both correctness and
