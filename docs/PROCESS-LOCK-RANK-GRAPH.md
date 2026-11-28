@@ -159,6 +159,38 @@ adapter tests, but no dedicated concurrent RTL8139 TX/RX or VFS/ATA
 contention regression was found in the inspected tree. These findings are
 bounded source observations, not a complete driver/interrupt lock proof.
 
+### Console, framebuffer, exception output, and PCI configuration
+
+A bounded follow-up audit inspected `src/console.c`, `src/framebuffer.c`,
+`src/idt.c`, `src/pci.c`, and the RTL8139 PCI accessors in `src/net.c`
+at parent commit
+`8ba463757e2f9b5a70cb08108127cd6374dc6066`. See
+[the detailed audit](CONSOLE-FRAMEBUFFER-INTERRUPT-PCI-LOCK-AUDIT.md).
+
+- The console cursor (`row`, `col`), color, and output-mode globals are
+  accessed without a common lock. `console_write()` emits a message
+  character-by-character rather than atomically.
+- `interrupt_dispatch()` calls console routines for exception reporting,
+  including the page-fault dump path. This establishes exception-context
+  console output; concurrent framebuffer drawing from a hard IRQ was not
+  established by this inspection.
+- The framebuffer renderer has shared desktop/layer/clip/cache state without
+  a common lock. Layer begin/end saves and restores global clip state, so
+  concurrent renderer callers require an explicit ownership protocol.
+- A framebuffer map failure after earlier page mappings returns without
+  rolling back those mappings. No general framebuffer teardown API was
+  identified in the inspected implementation.
+- Generic PCI configuration access in `src/pci.c` and RTL8139-private access
+  in `src/net.c` both use CF8/CFC without a shared transaction lock. The
+  inspected call paths are initialization-oriented and do not prove current
+  overlap, but the address-write/data-read sequence is vulnerable to
+  interleaving if concurrent callers are introduced.
+
+These are unresolved shared-state and lifecycle boundaries, not observed
+nested lock edges. Do not add a blocking console lock or independent
+per-driver PCI locks mechanically; define exception/panic output semantics,
+renderer ownership, and one shared PCI transaction layer first.
+
 ### Process job-control access to TTY state
 
 - `process_tty_set_foreground()` holds `process_lock` while calling both
@@ -291,9 +323,9 @@ from this diagram's absence of a line.
 ## Outstanding audit items
 
 1. Continue enumerating spinlock and IRQ-save acquisitions across the
-   remaining kernel source files. Keyboard/mouse and bounded RTL8139/ATA/VFS
-   paths are now covered; console/framebuffer, remaining drivers, interrupt
-   paths, PCI configuration serialization, and device teardown still require review.
+   remaining kernel source files. Keyboard/mouse, RTL8139/ATA/VFS, and bounded console/framebuffer/PCI
+   paths are now covered; remaining drivers, interrupt callback paths, and
+   device teardown still require review.
 2. Trace every call made while each lock is held, including indirect calls
    through VFS backends, paging, allocator, TLB shootdown, and callbacks.
 3. Extend the heap caller-context audit across every driver and callback;
