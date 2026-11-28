@@ -45,6 +45,9 @@ or scheduler dispatch instrumentation. Do not introduce 64-bit atomics unless
 the target guarantees they are lock-free and the 32-bit toolchain/runtime
 contract is documented.
 
+The current production call-site map and lock/ownership constraints are
+recorded in [the scheduler instrumentation source map](SCHEDULER-INSTRUMENTATION-SOURCE-MAP.md).
+
 ## Fairness properties to establish
 
 ### 1. Priority-lane service
