@@ -351,6 +351,33 @@ prove that current boot-time initialization races or that physical hot-unplug
 is supported. Any future detach implementation must stop new users, drain
 in-flight operations, and preserve controller/DMA ownership until quiescence.
 
+## Interrupt dispatch and EOI ownership
+
+A bounded source review inspected IDT dispatch, IOAPIC activation, LAPIC timer
+acknowledgement, paging shootdown, and the shared PS/2 input service at parent
+commit `759084bcf93e3e0b3d32275bde1118f46372f6b9`. See
+[the interrupt dispatch audit](INTERRUPT-DISPATCH-EOI-AUDIT.md).
+
+- Legacy vectors 32/33/44 select PIC or LAPIC EOI based on the published
+  IOAPIC ISA-route activation flag. The IOAPIC activation path masks prepared
+  routes again if PIC masking fails.
+- Vector 48 acknowledges its LAPIC timer in `lapic_timer_tick()`; vector 50
+  acknowledges in the IDT dispatcher; vector 49 acknowledges inside
+  `paging_tlb_shootdown_interrupt()` after invalidation and ACK publication.
+- Keyboard IRQ, mouse IRQ, and timer polling all reach the shared
+  `keyboard_ps2_service()`. Its loop is bounded to 64 controller bytes, but
+  the single-consumer ownership contract is not encoded.
+- Timer-driven `mouse_poll()` reaches xHCI polling and retry-state handling.
+  The xHCI callback's complete execution bound and interrupt-context safety
+  were not established because xHCI internals were outside this review.
+- TLB shootdown uses one shared address/page-count/ACK payload and a
+  synchronous BSP sender. No transaction generation was observed; current
+  correctness depends on the serialized mapping transaction and BSP-only
+  producer policy.
+
+These are observed source call paths and design constraints, not proof of
+physical IRQ delivery or complete EOI correctness on hardware.
+
 ## Outstanding audit items
 
 1. Continue enumerating spinlock and IRQ-save acquisitions across the
