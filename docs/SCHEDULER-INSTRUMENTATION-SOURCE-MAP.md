@@ -2,10 +2,9 @@
 
 ## Scope and status
 
-This is a source-level integration map for the next Phase A scheduler-fairness
-change. It records the existing production paths and their synchronization
-contracts; it does not claim that READY-age or lock-deferral instrumentation
-has been implemented or that starvation freedom has been established.
+This document maps the production scheduler-fairness instrumentation and its
+synchronization contracts. The instrumentation is observational only and does
+not establish starvation freedom or a finite service bound.
 
 The audit is based on the current `feature/graphics-engine-v2` source at
 commit `6d0360eb41fd38afdb02288863a0fbe1cfe5991b`.
@@ -47,23 +46,21 @@ commit `6d0360eb41fd38afdb02288863a0fbe1cfe5991b`.
 
 ## Policy-layer progress
 
-The shared scheduler policy now contains a reusable 32-bit
-`scheduler_ready_age` record and helpers to reset a reused record, stamp a
-successful READY enqueue epoch, and measure age with half-range validation.
-Host tests cover wraparound, invalid metadata, unchanged output on failure,
-and copying the record as a migration-preservation model. This helper is not
-yet embedded in `struct process`; no production epoch, READY-age observation,
-or per-CPU lock-deferral counter is active.
+The shared scheduler policy contains a reusable 32-bit `scheduler_ready_age`
+record and wrap-safe measurement helpers. The record is embedded in
+`struct process`; both production enqueue paths stamp it after successful
+insertion, dispatch measures it, and transitions out of READY or enqueue
+rollback clear it. Migration preserves the stamp. Per-CPU `process_lock`
+try-lock deferrals and maximum observed READY age are counted and exposed by
+kernel inspection accessors. Host tests cover wraparound, invalid metadata,
+unchanged output on failure, reset, and migration-record preservation.
 
 ## Required implementation and verification follow-up
 
-- Add the epoch and per-process READY metadata, then cover both enqueue paths.
-- Add per-CPU scheduler lock-deferral accounting at the single production
-  failure branch.
-- Add deterministic host tests for epoch initialization, wraparound,
-  half-range rejection, metadata reset, and preservation across migration.
-- Add production QEMU reporting/assertions at the actual dispatch point and
-  under controlled process-lock contention.
+- Add deterministic production/QEMU tests for dispatch-age and per-CPU
+  lock-deferral observations under controlled process-lock contention.
+- Verify READY-age reset behavior across process-slot reuse, fork/exec, and
+  failed enqueue/rollback paths.
 - Re-run the complete regression matrix and inspect both the correctness and
   integration surfaces before changing any scheduling policy.
 

@@ -184,3 +184,8 @@ Until all required production workloads pass on the exact tested commit,
 scheduler convergence, starvation freedom, and process-lock progress remain
 partial. QEMU success is software validation only; physical hardware
 verification remains a separate requirement.
+
+
+## Production instrumentation status
+
+The process record now owns the 32-bit READY enqueue epoch and validity flag. Successful READY insertions stamp the metadata in both the common state-transition path and the scheduler's outgoing-task requeue path. A completed, valid queue-selection pass advances the serialized epoch once; failed queue operations and process-lock deferrals do not. Dispatch measures age and tracks the per-CPU maximum. Leaving READY and enqueue rollback clear the metadata, while queue migration preserves the original stamp. Per-CPU process_lock try-lock deferrals are counted and exposed through kernel scheduler inspection accessors. This instrumentation does not alter priority selection or establish a starvation bound. Sustained-load sentinel and multi-vCPU QEMU acceptance remain required.

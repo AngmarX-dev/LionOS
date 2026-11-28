@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "spinlock.h"
+#include "scheduler_policy.h"
 
 #define LIONOS_PROCESS_MAX 16u
 #define LIONOS_PROCESS_MAX_USER_PAGES 128u
@@ -72,6 +73,7 @@ struct process {
     uint32_t capabilities;
     uint32_t cpu_owner;
     uint32_t migration_count;
+    struct scheduler_ready_age ready_age;
     uint32_t migration_eligible;
     uint32_t priority;
     uint32_t base_priority;
@@ -169,6 +171,8 @@ uint32_t process_scheduler_ticks(uint32_t cpu);
 uint32_t process_scheduler_steals(uint32_t cpu);
 /* Successful READY transfers into a destination with a running task. */
 uint32_t process_scheduler_busy_balances(uint32_t cpu);
+uint32_t process_scheduler_lock_deferrals(uint32_t cpu);
+uint32_t process_scheduler_max_ready_age(uint32_t cpu);
 /* Test-only scheduler instrumentation for cross-CPU execution exclusion. */
 int process_scheduler_execution_guard_enable(void);
 /* During guarded tests: zero disables idle steals; UINT32_MAX allows all CPUs. */
